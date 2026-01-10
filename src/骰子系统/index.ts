@@ -4159,27 +4159,27 @@
       if (preset) {
         // 选中特定规则：返回该规则的基本属性 + 特殊属性
         const allAttrs = new Set();
-        
+
         // 添加基本属性
         if (preset.baseAttributes && Array.isArray(preset.baseAttributes)) {
           preset.baseAttributes.forEach(attr => {
-            const attrName = typeof attr === 'string' ? attr : (attr && attr.name);
+            const attrName = typeof attr === 'string' ? attr : attr && attr.name;
             if (attrName) {
               allAttrs.add(attrName);
             }
           });
         }
-        
+
         // 添加特殊属性
         if (preset.specialAttributes && Array.isArray(preset.specialAttributes)) {
           preset.specialAttributes.forEach(attr => {
-            const attrName = typeof attr === 'string' ? attr : (attr && attr.name);
+            const attrName = typeof attr === 'string' ? attr : attr && attr.name;
             if (attrName) {
               allAttrs.add(attrName);
             }
           });
         }
-        
+
         return Array.from(allAttrs);
       }
 
@@ -4191,21 +4191,21 @@
       if (Array.isArray(allPresets)) {
         allPresets.forEach(p => {
           if (!p) return;
-          
+
           // 添加基本属性
           if (p.baseAttributes && Array.isArray(p.baseAttributes)) {
             p.baseAttributes.forEach(attr => {
-              const attrName = typeof attr === 'string' ? attr : (attr && attr.name);
+              const attrName = typeof attr === 'string' ? attr : attr && attr.name;
               if (attrName) {
                 allAttrs.add(attrName);
               }
             });
           }
-          
+
           // 添加特殊属性
           if (p.specialAttributes && Array.isArray(p.specialAttributes)) {
             p.specialAttributes.forEach(attr => {
-              const attrName = typeof attr === 'string' ? attr : (attr && attr.name);
+              const attrName = typeof attr === 'string' ? attr : attr && attr.name;
               if (attrName) {
                 allAttrs.add(attrName);
               }
@@ -13330,7 +13330,7 @@
         AttributePresetManager.setActivePreset(id);
 
         // 将其他所有toggle设置为未选中状态（确保只有一个激活）
-        overlay.find('.acu-preset-toggle').each(function() {
+        overlay.find('.acu-preset-toggle').each(function () {
           const $thisToggle = $(this);
           const thisId = $thisToggle.data('id');
           if (thisId !== id) {
