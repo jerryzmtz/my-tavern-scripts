@@ -9857,7 +9857,7 @@
       $('head').append(`
                 <style id="acu-dynamic-font" data-font-id="${config.fontFamily}">
                     ${fontImport}
-                    .acu-wrapper, .acu-edit-dialog, .acu-cell-menu, .acu-nav-container, .acu-data-card, .acu-panel-title, .acu-settings-label, .acu-btn-block, .acu-nav-btn, .acu-edit-textarea, #acu-ghost-preview {
+                    .acu-wrapper, .acu-edit-dialog, .acu-cell-menu, .acu-nav-container, .acu-data-card, .acu-panel-title, .acu-settings-label, .acu-btn-block, .acu-nav-btn, .acu-edit-textarea {
                         font-family: ${fontVal} !important;
                     }
                 </style>
@@ -10610,7 +10610,6 @@
                 .acu-order-controls { flex-direction: column; gap: 6px; text-align: center; }
             }
             .acu-actions-group.dragging-over { background: rgba(var(--acu-accent-rgb), 0.1); border-color: var(--acu-accent); }
-            .acu-actions-group .acu-divider { display: none; }
             .acu-settings-item { margin-bottom: 15px; }
             .acu-settings-label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 13px; color: #ccc; }
             .acu-settings-val { float: right; color: #4cd964; font-size: 12px; }
@@ -10627,10 +10626,6 @@
             .acu-align-right { margin-left: auto; align-self: flex-end; }
             .acu-align-left { margin-right: auto; margin-left: 0; align-self: flex-start; }
             .acu-nav-container.acu-left-mode .acu-actions-group { order: -1; margin-left: 0; margin-right: 10px; }
-            .acu-col-bar { width: 100%; justify-content: center; padding: 8px 10px; border-radius: 6px; }
-            .acu-col-pill { width: auto !important; padding: 6px 16px; border-radius: 50px; }
-            .acu-col-mini { width: 40px !important; height: 40px !important; padding: 0; justify-content: center; border-radius: 50%; }
-            .acu-col-mini span { display: none; }
             #acu-btn-collapse { color: var(--acu-text-sub); }
             #acu-btn-collapse:hover { color: var(--acu-text-main); background: rgba(0,0,0,0.05); }
             @keyframes acu-breathe { 0% { opacity: 1; transform: scale(1); } 50% { opacity: 0.6; transform: scale(0.85); color: #ff7e67; } 100% { opacity: 1; transform: scale(1); } } .acu-icon-breathe { animation: acu-breathe 3s infinite ease-in-out !important; display: inline-block; }
@@ -11713,10 +11708,6 @@
                 background: var(--acu-bg-panel);
                 color: var(--acu-text-main);
             }
-            .acu-dice-cfg-item input::placeholder {
-                color: var(--acu-text-sub);
-                opacity: 0.6;
-            }
             .acu-dice-cfg-item select {
                 text-align: left;
                 cursor: pointer;
@@ -11863,17 +11854,6 @@
                 border-bottom: 1px dashed var(--acu-border);
                 gap: 12px;
                 min-height: 44px;
-            }
-            .acu-setting-row:last-child {
-                border-bottom: none;
-            }
-            .acu-setting-row {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                padding: 8px 0;
-                border-bottom: 1px dashed var(--acu-border);
-                gap: 12px;
             }
             .acu-setting-row:last-child {
                 border-bottom: none;
@@ -12285,9 +12265,6 @@
             .acu-batch-reject:hover { background: var(--acu-hl-manual-bg); color: var(--acu-hl-manual); border-color: var(--acu-hl-manual); }
             .acu-simple-mode-toggle.active { background: var(--acu-accent); color: #fff; border-color: var(--acu-accent); }
             .acu-simple-mode-toggle:hover { background: var(--acu-accent); color: #fff; border-color: var(--acu-accent); }
-            /* 浅色主题适配 */
-            .acu-theme-light .acu-changes-batch-btn { border-color: rgba(0,0,0,0.3); background: rgba(0,0,0,0.05); color: rgba(0,0,0,0.7); }
-            .acu-theme-light .acu-changes-batch-btn:hover { background: rgba(0,0,0,0.1); color: rgba(0,0,0,0.9); border-color: rgba(0,0,0,0.5); }
             .acu-changes-group.collapsed .acu-collapse-icon { transform: rotate(0deg); }
             .acu-changes-group:not(.collapsed) .acu-collapse-icon { transform: rotate(0deg); }
             .acu-changes-group-header:hover { background: var(--acu-table-hover); }
