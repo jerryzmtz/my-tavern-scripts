@@ -3894,7 +3894,7 @@
       textMain: '#6B5552',
       textSub: '#C08D8D',
       btnBg: '#EBDCD9',
-      btnHover: '#E0CFCC',
+      btnHover: '#D8C7C4',
       accent: '#C08D8D',
       tableHead: '#F9F0EF',
       successText: '#6B5552',
@@ -3905,16 +3905,16 @@
       btnActiveBg: '#C08D8D',
       btnActiveText: '#F9F0EF',
       // 检定结果相关
-      failureText: '#A67C7C',
-      failureBg: 'rgba(166, 124, 124, 0.12)',
-      warningText: '#B89A7A',
-      warningBg: 'rgba(184, 154, 122, 0.12)',
-      critSuccessText: '#9B8A8A',
-      critSuccessBg: 'rgba(155, 138, 138, 0.12)',
+      failureText: '#9B7A7A',
+      failureBg: 'rgba(155, 122, 122, 0.12)',
+      warningText: '#A68A7A',
+      warningBg: 'rgba(166, 138, 122, 0.12)',
+      critSuccessText: '#8B7A7A',
+      critSuccessBg: 'rgba(139, 122, 122, 0.12)',
       critFailureText: '#8B6F6F',
       critFailureBg: 'rgba(139, 111, 111, 0.12)',
-      extremeSuccessText: '#A68A8A',
-      extremeSuccessBg: 'rgba(166, 138, 138, 0.12)',
+      extremeSuccessText: '#9B8A8A',
+      extremeSuccessBg: 'rgba(155, 138, 138, 0.12)',
       // UI通用颜色
       overlayBg: 'rgba(107, 85, 82, 0.6)',
       overlayBgLight: 'rgba(107, 85, 82, 0.5)',
@@ -3929,10 +3929,10 @@
       presetButtonBg: 'rgba(192, 141, 141, 0.2)',
       presetButtonBgActive: 'rgba(192, 141, 141, 0.4)',
       // 警告/错误相关
-      errorText: '#A67C7C',
-      errorBg: 'rgba(166, 124, 124, 0.12)',
-      errorBorder: 'rgba(166, 124, 124, 0.4)',
-      warningIcon: '#B89A7A',
+      errorText: '#9B7A7A',
+      errorBg: 'rgba(155, 122, 122, 0.12)',
+      errorBorder: 'rgba(155, 122, 122, 0.4)',
+      warningIcon: '#A68A7A',
     },
     minepink: {
       bgPanel: '#1a1a1a',
@@ -4025,6 +4025,98 @@
       errorBg: 'rgba(211, 47, 47, 0.15)',
       errorBorder: 'rgba(211, 47, 47, 0.5)',
       warningIcon: '#f57c00',
+    },
+    cherrypink: {
+      bgPanel: '#FFE4E6',
+      border: '#FFC0CB',
+      textMain: '#8B4A5C',
+      textSub: '#C97A8F',
+      btnBg: '#FFC0CB',
+      btnHover: '#FFB0C0',
+      accent: '#FF91A4',
+      tableHead: '#FFE8EA',
+      successText: '#B85C7A',
+      successBg: 'rgba(255, 145, 164, 0.15)',
+      inputBg: '#FFF0F2',
+      inputText: '#8B4A5C',
+      placeholderText: '#C97A8F',
+      btnActiveBg: '#FF91A4',
+      btnActiveText: '#FFFFFF',
+      // 检定结果相关
+      failureText: '#D85C7A',
+      failureBg: 'rgba(216, 92, 122, 0.15)',
+      warningText: '#E68A9F',
+      warningBg: 'rgba(230, 138, 159, 0.15)',
+      critSuccessText: '#B85C7A',
+      critSuccessBg: 'rgba(184, 92, 122, 0.15)',
+      critFailureText: '#C85C7A',
+      critFailureBg: 'rgba(200, 92, 122, 0.15)',
+      extremeSuccessText: '#C97A8F',
+      extremeSuccessBg: 'rgba(201, 122, 143, 0.15)',
+      // UI通用颜色
+      overlayBg: 'rgba(139, 74, 92, 0.6)',
+      overlayBgLight: 'rgba(139, 74, 92, 0.5)',
+      shadowBg: 'rgba(139, 74, 92, 0.3)',
+      lightBg: 'rgba(255, 145, 164, 0.1)',
+      veryLightBg: 'rgba(255, 145, 164, 0.03)',
+      buttonText: '#FFFFFF',
+      grayBg: 'rgba(255, 145, 164, 0.1)',
+      // 按钮专用颜色（更暗，提高可读性）
+      buttonBg: 'rgba(255, 145, 164, 0.65)',
+      buttonBgActive: 'rgba(255, 145, 164, 0.75)',
+      presetButtonBg: 'rgba(255, 145, 164, 0.35)',
+      presetButtonBgActive: 'rgba(255, 145, 164, 0.55)',
+      // 警告/错误相关
+      errorText: '#D85C7A',
+      errorBg: 'rgba(216, 92, 122, 0.15)',
+      errorBorder: 'rgba(216, 92, 122, 0.45)',
+      warningIcon: '#E68A9F',
+    },
+    wechat: {
+      bgPanel: '#F7F7F7',
+      border: '#E5E5E5',
+      textMain: '#333333',
+      textSub: '#666666',
+      btnBg: '#E5E5E5',
+      btnHover: '#D5D5D5',
+      accent: '#09B83E',
+      tableHead: '#F0F0F0',
+      successText: '#09B83E',
+      successBg: 'rgba(9, 184, 62, 0.12)',
+      inputBg: '#FFFFFF',
+      inputText: '#333333',
+      placeholderText: '#999999',
+      btnActiveBg: '#09B83E',
+      btnActiveText: '#FFFFFF',
+      // 检定结果相关
+      failureText: '#E53E3E',
+      failureBg: 'rgba(229, 62, 62, 0.12)',
+      warningText: '#FF9500',
+      warningBg: 'rgba(255, 149, 0, 0.12)',
+      critSuccessText: '#07A832',
+      critSuccessBg: 'rgba(7, 168, 50, 0.15)',
+      critFailureText: '#C53030',
+      critFailureBg: 'rgba(197, 48, 48, 0.15)',
+      extremeSuccessText: '#09B83E',
+      extremeSuccessBg: 'rgba(9, 184, 62, 0.15)',
+      // UI通用颜色
+      overlayBg: 'rgba(0,0,0,0.6)',
+      overlayBgLight: 'rgba(0,0,0,0.5)',
+      shadowBg: 'rgba(0,0,0,0.2)',
+      lightBg: 'rgba(9, 184, 62, 0.08)',
+      veryLightBg: 'rgba(9, 184, 62, 0.02)',
+      buttonText: '#FFFFFF',
+      grayBg: 'rgba(9, 184, 62, 0.08)',
+      // 按钮专用颜色（更暗，提高可读性）
+      buttonBg: 'rgba(9, 184, 62, 0.7)',
+      buttonBgActive: 'rgba(9, 184, 62, 0.85)',
+      presetButtonBg: 'rgba(9, 184, 62, 0.3)',
+      presetButtonBgActive: 'rgba(9, 184, 62, 0.6)',
+      // 警告/错误相关
+      errorText: '#E53E3E',
+      errorBg: 'rgba(229, 62, 62, 0.12)',
+      errorBorder: 'rgba(229, 62, 62, 0.5)',
+      warningIcon: '#FF9500',
     },
   };
   const getThemeColors = () => {
@@ -4409,9 +4501,11 @@
     { id: 'ocean', name: '深海幽蓝 (Ocean)', icon: 'fa-water' },
     { id: 'cyber', name: '赛博霓虹 (Cyber)', icon: 'fa-bolt' },
     { id: 'nightowl', name: '深蓝磨砂 (Night Owl)', icon: 'fa-feather' },
-    { id: 'sakura', name: '樱花粉彩 (Sakura)', icon: 'fa-heart' },
+    { id: 'sakura', name: '暖粉手账 (Warm Pink)', icon: 'fa-heart' },
     { id: 'minepink', name: '地雷量产 (Mine Pink)', icon: 'fa-skull' },
     { id: 'purple', name: '紫罗兰梦 (Purple)', icon: 'fa-gem' },
+    { id: 'cherrypink', name: '樱花粉彩 (Cherry Pink)', icon: 'fa-cherry' },
+    { id: 'wechat', name: '绿色泡泡 (Green Bubble)', icon: 'fa-weixin' },
   ];
 
   // [优化] 缓存 core 对象 (修复竞态条件 + 增强 ST 穿透查找)
@@ -10119,9 +10213,11 @@
         color: #ff00ff !important;
     }
     .acu-theme-nightowl { --acu-bg-nav: #0a2133; --acu-bg-panel: #011627; --acu-border: #132e45; --acu-text-main: #e0e6f2; --acu-text-sub: #a6b8cc; --acu-btn-bg: #1f3a52; --acu-btn-hover: #2a4a68; --acu-btn-active-bg: #7fdbca; --acu-btn-active-text: #011627; --acu-accent: #7fdbca; --acu-table-head: #0a2133; --acu-table-hover: #01294a; --acu-shadow: rgba(0,0,0,0.5); --acu-card-bg: #0a2133; --acu-badge-bg: #1f3a52; --acu-menu-bg: #011627; --acu-menu-text: #e0e6f2; --acu-success-text: #addb67; --acu-success-bg: rgba(173, 219, 103, 0.15); --acu-scrollbar-track: #011627; --acu-scrollbar-thumb: #1f3a52; --acu-hl-manual: #ff8f66; --acu-hl-manual-bg: rgba(255, 143, 102, 0.2); --acu-hl-diff: #82aaff; --acu-hl-diff-bg: rgba(130, 170, 255, 0.2); }
-    .acu-theme-sakura { --acu-bg-nav: #fff5f9; --acu-bg-panel: #fff5f9; --acu-border: #ffd6e8; --acu-text-main: #d81b60; --acu-text-sub: #f06292; --acu-btn-bg: #ffe0eb; --acu-btn-hover: #ffd6e8; --acu-btn-active-bg: #f06292; --acu-btn-active-text: #fff; --acu-accent: #f06292; --acu-table-head: #fff0f5; --acu-table-hover: #fffafc; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #fff0f5; --acu-menu-bg: #fff; --acu-menu-text: #d81b60; --acu-success-text: #d81b60; --acu-success-bg: rgba(216, 27, 96, 0.12); --acu-scrollbar-track: #fff5f9; --acu-scrollbar-thumb: #ffd6e8; --acu-hl-manual: #f57c00; --acu-hl-manual-bg: rgba(245, 124, 0, 0.12); --acu-hl-diff: #c2185b; --acu-hl-diff-bg: rgba(194, 24, 91, 0.2); --acu-error-text: #d32f2f; --acu-error-bg: rgba(211, 47, 47, 0.12); --acu-error-border: rgba(211, 47, 47, 0.5); --acu-warning-icon: #f57c00; --acu-failure-text: #d32f2f; --acu-failure-bg: rgba(211, 47, 47, 0.12); --acu-warning-text: #f57c00; --acu-warning-bg: rgba(245, 124, 0, 0.12); --acu-crit-success-text: #7b1fa2; --acu-crit-success-bg: rgba(123, 31, 162, 0.12); --acu-crit-failure-text: #b71c1c; --acu-crit-failure-bg: rgba(183, 28, 28, 0.12); --acu-extreme-success-text: #c2185b; --acu-extreme-success-bg: rgba(194, 24, 91, 0.12); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(240, 98, 146, 0.08); --acu-very-light-bg: rgba(240, 98, 146, 0.02); --acu-button-text: #fff; --acu-gray-bg: rgba(240, 98, 146, 0.08); }
+    .acu-theme-sakura { --acu-bg-nav: #F9F0EF; --acu-bg-panel: #F9F0EF; --acu-border: #EBDCD9; --acu-text-main: #6B5552; --acu-text-sub: #C08D8D; --acu-btn-bg: #EBDCD9; --acu-btn-hover: #D8C7C4; --acu-btn-active-bg: #C08D8D; --acu-btn-active-text: #F9F0EF; --acu-accent: #C08D8D; --acu-table-head: #F9F0EF; --acu-table-hover: #F5EAE8; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #F9F0EF; --acu-menu-bg: #fff; --acu-menu-text: #6B5552; --acu-success-text: #6B5552; --acu-success-bg: rgba(192, 141, 141, 0.12); --acu-scrollbar-track: #F9F0EF; --acu-scrollbar-thumb: #EBDCD9; --acu-hl-manual: #A68A7A; --acu-hl-manual-bg: rgba(166, 138, 122, 0.12); --acu-hl-diff: #9B7A7A; --acu-hl-diff-bg: rgba(155, 122, 122, 0.2); --acu-error-text: #9B7A7A; --acu-error-bg: rgba(155, 122, 122, 0.12); --acu-error-border: rgba(155, 122, 122, 0.4); --acu-warning-icon: #A68A7A; --acu-failure-text: #9B7A7A; --acu-failure-bg: rgba(155, 122, 122, 0.12); --acu-warning-text: #A68A7A; --acu-warning-bg: rgba(166, 138, 122, 0.12); --acu-crit-success-text: #8B7A7A; --acu-crit-success-bg: rgba(139, 122, 122, 0.12); --acu-crit-failure-text: #8B6F6F; --acu-crit-failure-bg: rgba(139, 111, 111, 0.12); --acu-extreme-success-text: #9B8A8A; --acu-extreme-success-bg: rgba(155, 138, 138, 0.12); --acu-overlay-bg: rgba(107, 85, 82, 0.6); --acu-overlay-bg-light: rgba(107, 85, 82, 0.5); --acu-shadow-bg: rgba(107, 85, 82, 0.3); --acu-light-bg: rgba(192, 141, 141, 0.08); --acu-very-light-bg: rgba(192, 141, 141, 0.02); --acu-button-text: #F9F0EF; --acu-gray-bg: rgba(192, 141, 141, 0.08); }
     .acu-theme-minepink { --acu-bg-nav: #1a1a1a; --acu-bg-panel: #1a1a1a; --acu-border: #333333; --acu-text-main: #ffb3d9; --acu-text-sub: #ff80c1; --acu-btn-bg: #2a2a2a; --acu-btn-hover: #3a3a3a; --acu-btn-active-bg: #ff80c1; --acu-btn-active-text: #1a1a1a; --acu-accent: #ff80c1; --acu-table-head: #252525; --acu-table-hover: #2a2a2a; --acu-shadow: rgba(0,0,0,0.6); --acu-card-bg: #222222; --acu-badge-bg: #2a2a2a; --acu-menu-bg: #1a1a1a; --acu-menu-text: #ffb3d9; --acu-success-text: #ff80c1; --acu-success-bg: rgba(255, 128, 193, 0.2); --acu-scrollbar-track: #1a1a1a; --acu-scrollbar-thumb: #333333; --acu-hl-manual: #ffa726; --acu-hl-manual-bg: rgba(255, 167, 38, 0.2); --acu-hl-diff: #ff80c1; --acu-hl-diff-bg: rgba(255, 128, 193, 0.2); --acu-error-text: #ff6b6b; --acu-error-bg: rgba(255, 107, 107, 0.2); --acu-error-border: rgba(255, 107, 107, 0.5); --acu-warning-icon: #ffa726; --acu-failure-text: #ff6b6b; --acu-failure-bg: rgba(255, 107, 107, 0.2); --acu-warning-text: #ffa726; --acu-warning-bg: rgba(255, 167, 38, 0.2); --acu-crit-success-text: #ff80c1; --acu-crit-success-bg: rgba(255, 128, 193, 0.2); --acu-crit-failure-text: #ff4444; --acu-crit-failure-bg: rgba(255, 68, 68, 0.2); --acu-extreme-success-text: #ffb3d9; --acu-extreme-success-bg: rgba(255, 179, 217, 0.2); --acu-overlay-bg: rgba(0,0,0,0.8); --acu-overlay-bg-light: rgba(0,0,0,0.7); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(255, 128, 193, 0.1); --acu-very-light-bg: rgba(255, 128, 193, 0.02); --acu-button-text: #1a1a1a; --acu-gray-bg: rgba(255, 128, 193, 0.1); }
     .acu-theme-purple { --acu-bg-nav: #f3e5f5; --acu-bg-panel: #f3e5f5; --acu-border: #ce93d8; --acu-text-main: #6a1b9a; --acu-text-sub: #9c27b0; --acu-btn-bg: #e1bee7; --acu-btn-hover: #ce93d8; --acu-btn-active-bg: #9c27b0; --acu-btn-active-text: #fff; --acu-accent: #9c27b0; --acu-table-head: #f8e1f5; --acu-table-hover: #fce4ec; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #f8e1f5; --acu-menu-bg: #fff; --acu-menu-text: #6a1b9a; --acu-success-text: #6a1b9a; --acu-success-bg: rgba(106, 27, 154, 0.15); --acu-scrollbar-track: #f3e5f5; --acu-scrollbar-thumb: #ce93d8; --acu-hl-manual: #f57c00; --acu-hl-manual-bg: rgba(245, 124, 0, 0.15); --acu-hl-diff: #6a1b9a; --acu-hl-diff-bg: rgba(106, 27, 154, 0.2); --acu-error-text: #d32f2f; --acu-error-bg: rgba(211, 47, 47, 0.15); --acu-error-border: rgba(211, 47, 47, 0.5); --acu-warning-icon: #f57c00; --acu-failure-text: #d32f2f; --acu-failure-bg: rgba(211, 47, 47, 0.15); --acu-warning-text: #f57c00; --acu-warning-bg: rgba(245, 124, 0, 0.15); --acu-crit-success-text: #7b1fa2; --acu-crit-success-bg: rgba(123, 31, 162, 0.15); --acu-crit-failure-text: #b71c1c; --acu-crit-failure-bg: rgba(183, 28, 28, 0.15); --acu-extreme-success-text: #6a1b9a; --acu-extreme-success-bg: rgba(106, 27, 154, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(156, 39, 176, 0.1); --acu-very-light-bg: rgba(156, 39, 176, 0.02); --acu-button-text: #fff; --acu-gray-bg: rgba(156, 39, 176, 0.1); }
+    .acu-theme-cherrypink { --acu-bg-nav: #FFE4E6; --acu-bg-panel: #FFE4E6; --acu-border: #FFC0CB; --acu-text-main: #8B4A5C; --acu-text-sub: #C97A8F; --acu-btn-bg: #FFC0CB; --acu-btn-hover: #FFB0C0; --acu-btn-active-bg: #FF91A4; --acu-btn-active-text: #FFFFFF; --acu-accent: #FF91A4; --acu-table-head: #FFE8EA; --acu-table-hover: #FFF0F2; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #FFE8EA; --acu-menu-bg: #fff; --acu-menu-text: #8B4A5C; --acu-success-text: #B85C7A; --acu-success-bg: rgba(255, 145, 164, 0.15); --acu-scrollbar-track: #FFE4E6; --acu-scrollbar-thumb: #FFC0CB; --acu-hl-manual: #E68A9F; --acu-hl-manual-bg: rgba(230, 138, 159, 0.15); --acu-hl-diff: #C97A8F; --acu-hl-diff-bg: rgba(201, 122, 143, 0.2); --acu-error-text: #D85C7A; --acu-error-bg: rgba(216, 92, 122, 0.15); --acu-error-border: rgba(216, 92, 122, 0.45); --acu-warning-icon: #E68A9F; --acu-failure-text: #D85C7A; --acu-failure-bg: rgba(216, 92, 122, 0.15); --acu-warning-text: #E68A9F; --acu-warning-bg: rgba(230, 138, 159, 0.15); --acu-crit-success-text: #B85C7A; --acu-crit-success-bg: rgba(184, 92, 122, 0.15); --acu-crit-failure-text: #C85C7A; --acu-crit-failure-bg: rgba(200, 92, 122, 0.15); --acu-extreme-success-text: #C97A8F; --acu-extreme-success-bg: rgba(201, 122, 143, 0.15); --acu-overlay-bg: rgba(139, 74, 92, 0.6); --acu-overlay-bg-light: rgba(139, 74, 92, 0.5); --acu-shadow-bg: rgba(139, 74, 92, 0.3); --acu-light-bg: rgba(255, 145, 164, 0.1); --acu-very-light-bg: rgba(255, 145, 164, 0.03); --acu-button-text: #FFFFFF; --acu-gray-bg: rgba(255, 145, 164, 0.1); }
+    .acu-theme-wechat { --acu-bg-nav: #F7F7F7; --acu-bg-panel: #F7F7F7; --acu-border: #E5E5E5; --acu-text-main: #333333; --acu-text-sub: #666666; --acu-btn-bg: #E5E5E5; --acu-btn-hover: #D5D5D5; --acu-btn-active-bg: #09B83E; --acu-btn-active-text: #FFFFFF; --acu-accent: #09B83E; --acu-table-head: #F0F0F0; --acu-table-hover: #EBEBEB; --acu-shadow: rgba(0,0,0,0.1); --acu-card-bg: #ffffff; --acu-badge-bg: #F0F0F0; --acu-menu-bg: #fff; --acu-menu-text: #333333; --acu-success-text: #09B83E; --acu-success-bg: rgba(9, 184, 62, 0.12); --acu-scrollbar-track: #F7F7F7; --acu-scrollbar-thumb: #E5E5E5; --acu-hl-manual: #FF9500; --acu-hl-manual-bg: rgba(255, 149, 0, 0.12); --acu-hl-diff: #09B83E; --acu-hl-diff-bg: rgba(9, 184, 62, 0.2); --acu-error-text: #E53E3E; --acu-error-bg: rgba(229, 62, 62, 0.12); --acu-error-border: rgba(229, 62, 62, 0.5); --acu-warning-icon: #FF9500; --acu-failure-text: #E53E3E; --acu-failure-bg: rgba(229, 62, 62, 0.12); --acu-warning-text: #FF9500; --acu-warning-bg: rgba(255, 149, 0, 0.12); --acu-crit-success-text: #07A832; --acu-crit-success-bg: rgba(7, 168, 50, 0.15); --acu-crit-failure-text: #C53030; --acu-crit-failure-bg: rgba(197, 48, 48, 0.15); --acu-extreme-success-text: #09B83E; --acu-extreme-success-bg: rgba(9, 184, 62, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.2); --acu-light-bg: rgba(9, 184, 62, 0.08); --acu-very-light-bg: rgba(9, 184, 62, 0.02); --acu-button-text: #FFFFFF; --acu-gray-bg: rgba(9, 184, 62, 0.08); }
     /* 浅色强调色主题的按钮文字修正 */
     .acu-theme-cyber .acu-btn-confirm,
     .acu-theme-cyber .acu-changes-count,
@@ -14889,6 +14985,13 @@
         .find('.acu-edit-dialog')
         .removeClass(THEMES.map(t => `acu-theme-${t.id}`).join(' '))
         .addClass(`acu-theme-${newTheme}`);
+
+      // 更新按钮的内联样式以实时反映主题变化
+      const t = getThemeColors();
+      dialog.find('#cfg-attr-preset-manage').css({
+        background: t.buttonBg || t.accent,
+        color: t.buttonText,
+      });
     });
 
     // 字体
