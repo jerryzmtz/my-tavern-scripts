@@ -203,9 +203,13 @@ function parse_configuration(entry: Entry): (_env: any, argv: any) => webpack.Co
 
         return `${is_direct === true ? 'src' : 'webpack'}://${info.namespace}/${resource_path}${is_direct || is_vue_script ? '' : '?' + info.hash}`;
       },
+<<<<<<< HEAD
       filename: script_filepath.dir.includes('骰子系统')
         ? (process.env.BUILD_TYPE === 'nightly' ? 'nightly.js' : 'stable.js')
         : `${script_filepath.name}.js`,
+=======
+      filename: `${script_filepath.name}.js`,
+>>>>>>> 4e2a9fc6b9f5ae825823eb357fffa0d0ea284155
       path: path.join(
         import.meta.dirname,
         'dist',
