@@ -1,3 +1,4 @@
+// @ts-nocheck
 (function () {
   'use strict';
 
@@ -2937,9 +2938,6 @@
   // 属性规则预设系统
   // ========================================
 
-  // 骰子公式校验（支持高级语法）
-  const DiceFormulaRegex = /^(\d+d\d+)(kh\d+|kl\d+|dh\d+|dl\d+)?([+\-*/]\d+)?$/i;
-
   // 内置属性规则预设
   const BUILTIN_ATTRIBUTE_PRESETS = [
     {
@@ -4409,7 +4407,7 @@
 
             // 只有当错误数量增加时才弹出提示
             if (newCount > UpdateController._lastValidationCount && newCount > 0) {
-              const newErrors = newCount - UpdateController._lastValidationCount;
+              // 错误数量已增加
             }
 
             UpdateController._lastValidationCount = newCount;
@@ -6069,6 +6067,10 @@
     } = options;
 
     const t = getThemeColors();
+    const isCyberTheme = getConfig().theme === 'cyber';
+    const inputTextColor = isCyberTheme ? '#ff00ff' : t.inputText;
+    // 统一的输入框样式字符串
+    const inputStyle = `width:100%;padding:5px;background:${t.inputBg} !important;border:1px solid ${t.border};border-radius:4px;color:${inputTextColor} !important;font-size:12px;text-align:center;box-sizing:border-box;`;
 
     const overlay = $(
       `<div class="acu-dice-overlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:${t.overlayBgLight};z-index:2147483647;"></div>`,
@@ -6130,38 +6132,38 @@
                     </div>
 
                     <!-- 第1行：名字 + 属性名 -->
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px;">
                         <div>
-                            <div style="font-size: 10px; color: ${t.textSub}; margin-bottom: 2px;">名字</div>
-                            <input type="text" id="dice-initiator-name" value="${escapeHtml(initiatorName)}" placeholder="<user>">
+                            <div style="font-size: 10px; color: ${t.textSub}; margin-bottom: 2px; min-height: 18px; display: flex; align-items: center;">名字</div>
+                            <input type="text" id="dice-initiator-name" value="${escapeHtml(initiatorName)}" placeholder="<user>" style="${inputStyle}">
                         </div>
                         <div>
-                            <div style="font-size: 10px; color: ${t.textSub}; margin-bottom: 2px; display: flex; align-items: center; gap: 6px;">
+                            <div style="font-size: 10px; color: ${t.textSub}; margin-bottom: 2px; min-height: 18px; display: flex; align-items: center; gap: 6px;">
                                 属性名
-                                <button type="button" class="acu-random-skill-btn" id="dice-random-skill" title="随机技能" style="width: 20px; height: 20px; padding: 0; background: transparent; border: 1px dashed ${t.accent}; border-radius: 4px; color: ${t.accent}; font-size: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center;">
+                                <button type="button" class="acu-random-skill-btn" id="dice-random-skill" title="随机技能" style="width: 18px; height: 18px; padding: 0; background: transparent; border: 1px dashed ${t.accent}; border-radius: 4px; color: ${t.accent}; font-size: 9px; cursor: pointer; display: flex; align-items: center; justify-content: center;">
                                     <i class="fa-solid fa-dice"></i>
                                 </button>
                             </div>
-                            <input type="text" id="dice-attr-name" value="${escapeHtml(targetName || '')}" placeholder="自由检定">
+                            <input type="text" id="dice-attr-name" value="${escapeHtml(targetName || '')}" placeholder="自由检定" style="${inputStyle}">
                         </div>
                     </div>
 
                     <!-- 第2行：属性值 + 目标值 -->
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px;">
                         <div>
-                            <div style="font-size: 10px; color: ${t.textSub}; margin-bottom: 2px;">属性值</div>
-                            <input type="number" id="dice-attr-value" value="" placeholder="留空=50%最大值">
+                            <div style="font-size: 10px; color: ${t.textSub}; margin-bottom: 2px; min-height: 18px; display: flex; align-items: center;">属性值</div>
+                            <input type="text" id="dice-attr-value" value="" placeholder="留空=50%最大值" style="${inputStyle}">
                         </div>
                         <div>
-                            <div style="font-size: 10px; color: ${t.textSub}; margin-bottom: 2px;" id="dice-target-label">目标值</div>
-                            <input type="text" id="dice-target" value="${targetValue !== null ? targetValue : ''}" placeholder="留空=属性值" class="acu-dice-input">
+                            <div style="font-size: 10px; color: ${t.textSub}; margin-bottom: 2px; min-height: 18px; display: flex; align-items: center;" id="dice-target-label">目标值</div>
+                            <input type="text" id="dice-target" value="${targetValue !== null ? targetValue : ''}" placeholder="留空=属性值" style="${inputStyle}">
                         </div>
                     </div>
 
                     <!-- 第3行：成功标准 + 难度等级 + 修正值 -->
-                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 8px;" id="dice-row-3">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 6px;" id="dice-row-3">
                         <div>
-                            <div style="font-size: 10px; color: ${t.textSub}; margin-bottom: 2px;">成功标准</div>
+                            <div style="font-size: 10px; color: ${t.textSub}; margin-bottom: 2px; min-height: 18px; display: flex; align-items: center;">成功标准</div>
                             <select id="dice-success-criteria" class="acu-dice-select">
                                 ${successCriteriaOptions
                                   .map(
@@ -6172,7 +6174,7 @@
                             </select>
                         </div>
                         <div id="dice-difficulty-wrapper">
-                            <div style="font-size: 10px; color: ${t.textSub}; margin-bottom: 2px;">难度等级</div>
+                            <div style="font-size: 10px; color: ${t.textSub}; margin-bottom: 2px; min-height: 18px; display: flex; align-items: center;">难度等级</div>
                             <select id="dice-difficulty" class="acu-dice-select">
                                 <option value="normal" selected>普通</option>
                                 <option value="hard">困难</option>
@@ -6181,8 +6183,8 @@
                             </select>
                         </div>
                         <div>
-                            <div style="font-size: 10px; color: ${t.textSub}; margin-bottom: 2px;">修正值</div>
-                            <input type="number" id="dice-modifier" value="0" style="text-align: center;">
+                            <div style="font-size: 10px; color: ${t.textSub}; margin-bottom: 2px; min-height: 18px; display: flex; align-items: center;">修正值</div>
+                            <input type="text" id="dice-modifier" value="0" style="${inputStyle}">
                         </div>
                     </div>
 
@@ -6223,16 +6225,24 @@
     // [新增] 构建属性快捷按钮
     const buildAttrButtons = charName => {
       const $container = panel.find('#dice-attr-buttons');
+      const $parentSection = $container.parent(); // 获取包含标题的父容器
       const attrs = getFullAttributesForCharacter(charName);
+
+      // 如果没有属性数据，隐藏整个"快捷选择属性"区域
+      if (attrs.length === 0) {
+        $parentSection.hide();
+        return;
+      }
+
+      // 有属性数据时显示区域
+      $parentSection.show();
 
       let html = '';
 
       // 现有属性按钮
-      if (attrs.length > 0) {
-        attrs.forEach(attr => {
-          html += `<button class="acu-dice-attr-btn" data-name="${escapeHtml(attr.name)}" data-value="${attr.value}" style="padding:3px 8px;background:${t.inputBg};border:1px solid ${t.border};border-radius:4px;color:${t.inputText};font-size:11px;cursor:pointer;">${escapeHtml(attr.name)}:${attr.value}</button>`;
-        });
-      }
+      attrs.forEach(attr => {
+        html += `<button class="acu-dice-attr-btn" data-name="${escapeHtml(attr.name)}" data-value="${attr.value}" style="padding:3px 8px;background:${t.inputBg};border:1px solid ${t.border};border-radius:4px;color:${t.inputText};font-size:11px;cursor:pointer;">${escapeHtml(attr.name)}:${attr.value}</button>`;
+      });
 
       // 生成属性按钮（始终显示）
       html += `<button class="acu-dice-gen-attr-btn" style="padding:3px 8px;background:transparent;border:1px dashed ${t.accent};border-radius:4px;color:${t.accent};font-size:11px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;" title="为当前角色生成属性"><i class="fa-solid fa-dice"></i></button>`;
@@ -6551,48 +6561,51 @@
       return { total, rolls, sides, count, modifier, formula };
     };
 
-    // [新增] 根据成功标准判断是否成功
-    const checkSuccess = (value, target, criteria) => {
-      switch (criteria) {
-        case 'lt':
-          return value < target; // 小于
-        case 'lte':
-          return value <= target; // 小于等于 (COC)
-        case 'eq':
-          return value === target; // 等于
-        case 'gte':
-          return value >= target; // 大于等于 (DND)
-        case 'gt':
-          return value > target; // 大于
-        default:
-          return value <= target; // 默认COC规则
-      }
-    };
+    // 解析修正值，支持纯数字和骰子表达式（如1d6, 1d6+2等）
+    const parseModifier = function (modStr) {
+      if (!modStr || modStr.trim() === '') return 0;
+      const trimmed = modStr.trim();
 
-    // [修改] 判断大成功/大失败的边界值 - 读取用户配置
-    const getCriticalBounds = (sides, criteria) => {
-      const isLowerBetter = ['lte', 'lt'].includes(criteria);
-      const diceCfg = getDiceConfig();
-
-      if (sides === 100) {
-        return isLowerBetter
-          ? { critSuccess: diceCfg.critSuccessMax, critFailure: diceCfg.critFailMin }
-          : { critSuccess: diceCfg.critFailMin, critFailure: diceCfg.critSuccessMax };
-      } else if (sides === 20) {
-        return isLowerBetter ? { critSuccess: 1, critFailure: 20 } : { critSuccess: 20, critFailure: 1 };
-      } else {
-        const maxVal = sides;
-        const minVal = 1;
-        return isLowerBetter
-          ? { critSuccess: minVal, critFailure: maxVal }
-          : { critSuccess: maxVal, critFailure: minVal };
+      // 尝试直接解析为数字
+      const numValue = parseFloat(trimmed);
+      if (!isNaN(numValue) && isFinite(numValue) && trimmed.match(/^-?\d+(\.\d+)?$/)) {
+        return numValue;
       }
+
+      // 尝试解析骰子表达式
+      // 支持格式：1d6, 2d10, 1d6+2, 1d6-2, 2d6+1d4等
+      let result = 0;
+      let remaining = trimmed;
+
+      // 匹配骰子表达式（如1d6, 2d10等）
+      const dicePattern = /(\d+)d(\d+)(kh\d+|kl\d+|dh\d+|dl\d+)?/gi;
+      let match;
+      while ((match = dicePattern.exec(remaining)) !== null) {
+        const diceResult = rollDiceExpression(match[0]);
+        if (!isNaN(diceResult)) {
+          result += diceResult;
+        }
+        remaining = remaining.replace(match[0], '');
+      }
+
+      // 处理剩余的数字部分（加减号后的数字）
+      const numberPattern = /([+-]?\d+(\.\d+)?)/g;
+      let numMatch;
+      while ((numMatch = numberPattern.exec(remaining)) !== null) {
+        const num = parseFloat(numMatch[0]);
+        if (!isNaN(num) && isFinite(num)) {
+          result += num;
+        }
+      }
+
+      return result;
     };
 
     // 投骰逻辑函数（可被按钮点击和重投按钮调用）
     const performDiceRoll = function () {
       const formula = panel.find('#dice-formula').val().trim() || '1d100';
-      const mod = parseInt(panel.find('#dice-modifier').val(), 10) || 0;
+      const modStr = panel.find('#dice-modifier').val().trim() || '0';
+      const mod = parseModifier(modStr);
       const attrName = panel.find('#dice-attr-name').val().trim() || '自由检定';
       const criteria = panel.find('#dice-success-criteria').val() || 'lte';
       const difficulty = panel.find('#dice-difficulty').val() || 'normal';
@@ -6864,7 +6877,6 @@
     panel.find('#dice-switch-contest-top').click(function () {
       const targetInput = panel.find('#dice-target').val().trim();
       const attrValueInput = panel.find('#dice-attr-value').val().trim();
-      const currentName = panel.find('#dice-attr-name').val() || '';
       const currentDice = panel.find('#dice-formula').val() || '1d100';
       const initiatorNameVal = panel.find('#dice-initiator-name').val().trim();
       closePanel();
@@ -6976,10 +6988,12 @@
     const t = getThemeColors();
     const isCyberTheme = getConfig().theme === 'cyber';
     const inputTextColor = isCyberTheme ? '#ff00ff' : t.inputText;
+    // 统一的输入框样式字符串
+    const inputStyle = `width:100%;padding:5px;background:${t.inputBg} !important;border:1px solid ${t.border};border-radius:4px;color:${inputTextColor} !important;font-size:12px;text-align:center;box-sizing:border-box;`;
 
     const buildAttrButtons = (attrs, targetType) => {
-      if (attrs.length === 0)
-        return '<div style="font-size:11px;color:' + t.textSub + ';text-align:center;padding:4px;">无属性数据</div>';
+      // 如果没有属性数据，返回空字符串，不显示任何内容
+      if (attrs.length === 0) return '';
       let html = '';
       for (let i = 0; i < attrs.length; i++) {
         const attr = attrs[i];
@@ -7011,7 +7025,9 @@
         ';z-index:2147483647;"></div>',
     );
     const panelHtml =
-      '<div class="acu-contest-panel" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:360px;max-width:92vw;background:' +
+      '<div class="acu-contest-panel acu-theme-' +
+      config.theme +
+      '" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:360px;max-width:92vw;background:' +
       t.bgPanel +
       ';border:1px solid ' +
       t.border +
@@ -7084,102 +7100,70 @@
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">' +
       '<div><div style="font-size:10px;color:' +
       t.textSub +
-      ';margin-bottom:2px;">名字</div><input type="text" id="contest-init-display" value="" placeholder="<user>" style="width:100%;padding:5px;background:' +
-      t.inputBg +
-      ' !important;border:1px solid ' +
-      t.border +
-      ';border-radius:4px;color:' +
-      inputTextColor +
-      ' !important;font-size:12px;text-align:center;box-sizing:border-box;"></div>' +
+      ';margin-bottom:2px;min-height:18px;display:flex;align-items:center;">名字</div><input type="text" id="contest-init-display" value="" placeholder="<user>" style="' +
+      inputStyle +
+      '"></div>' +
       '<div><div style="font-size:10px;color:' +
       t.textSub +
-      ';margin-bottom:2px;display:flex;align-items:center;gap:6px;">属性名<button type="button" class="acu-random-skill-btn" id="contest-init-random-skill" title="随机技能" style="width:18px;height:18px;padding:0;background:transparent;border:1px dashed ' +
+      ';margin-bottom:2px;min-height:18px;display:flex;align-items:center;gap:6px;">属性名<button type="button" class="acu-random-skill-btn" id="contest-init-random-skill" title="随机技能" style="width:18px;height:18px;padding:0;background:transparent;border:1px dashed ' +
       t.accent +
       ';border-radius:4px;color:' +
       t.accent +
-      ';font-size:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-dice"></i></button></div><input type="text" id="contest-init-name" value="" placeholder="自由检定" style="width:100%;padding:5px;background:' +
-      t.inputBg +
-      ' !important;border:1px solid ' +
-      t.border +
-      ';border-radius:4px;color:' +
-      inputTextColor +
-      ' !important;font-size:12px;text-align:center;box-sizing:border-box;"></div>' +
+      ';font-size:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-dice"></i></button></div><input type="text" id="contest-init-name" value="" placeholder="自由检定" style="' +
+      inputStyle +
+      '"></div>' +
       '</div>' +
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">' +
       '<div><div style="font-size:10px;color:' +
       t.textSub +
-      ';margin-bottom:2px;">属性值</div><input type="number" id="contest-init-value" value="' +
+      ';margin-bottom:2px;min-height:18px;display:flex;align-items:center;">属性值</div><input type="text" id="contest-init-value" value="' +
       (passedInitiatorValue !== undefined ? passedInitiatorValue : '') +
-      '" placeholder="留空=50%最大值" style="width:100%;padding:5px;background:' +
-      t.inputBg +
-      ' !important;border:1px solid ' +
-      t.border +
-      ';border-radius:4px;color:' +
-      inputTextColor +
-      ' !important;font-size:12px;text-align:center;box-sizing:border-box;"></div>' +
+      '" placeholder="留空=50%最大值" style="' +
+      inputStyle +
+      '"></div>' +
       '<div><div style="font-size:10px;color:' +
       t.textSub +
-      ';margin-bottom:2px;">目标值</div><input type="number" id="contest-init-target" value="" placeholder="自动" style="width:100%;padding:5px;background:' +
-      t.inputBg +
-      ' !important;border:1px solid ' +
-      t.border +
-      ';border-radius:4px;color:' +
-      inputTextColor +
-      ' !important;font-size:12px;text-align:center;box-sizing:border-box;"></div>' +
+      ';margin-bottom:2px;min-height:18px;display:flex;align-items:center;">目标值</div><input type="text" id="contest-init-target" value="" placeholder="自动" style="' +
+      inputStyle +
+      '"></div>' +
       '</div>' +
       '<div id="init-attr-buttons" style="display:flex;flex-wrap:wrap;gap:2px;margin-bottom:8px;max-height:50px;overflow-y:auto;">' +
       buildAttrButtons(playerAttrs, 'init') +
       '</div>' +
       '<div style="font-size:11px;color:' +
       t.accent +
-      ';font-weight:bold;margin-bottom:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span><i class="fa-solid fa-user-slash"></i> 乙方</span><div id="contest-opp-char-buttons" style="display:flex;flex-wrap:wrap;gap:3px;"></div></div>' +
+      ';font-weight:bold;margin-bottom:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span><i class="fa-solid fa-user"></i> 乙方</span><div id="contest-opp-char-buttons" style="display:flex;flex-wrap:wrap;gap:3px;"></div></div>' +
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">' +
       '<div><div style="font-size:10px;color:' +
       t.textSub +
-      ';margin-bottom:2px;">名字</div><input type="text" id="contest-opponent-display" value="' +
+      ';margin-bottom:2px;min-height:18px;display:flex;align-items:center;">名字</div><input type="text" id="contest-opponent-display" value="' +
       escapeHtml(opponentName) +
-      '" placeholder="对手" style="width:100%;padding:5px;background:' +
-      t.inputBg +
-      ' !important;border:1px solid ' +
-      t.border +
-      ';border-radius:4px;color:' +
-      inputTextColor +
-      ' !important;font-size:12px;text-align:center;box-sizing:border-box;"></div>' +
+      '" placeholder="对手" style="' +
+      inputStyle +
+      '"></div>' +
       '<div><div style="font-size:10px;color:' +
       t.textSub +
-      ';margin-bottom:2px;display:flex;align-items:center;gap:6px;">属性名<button type="button" class="acu-random-skill-btn" id="contest-opp-random-skill" title="随机技能" style="width:18px;height:18px;padding:0;background:transparent;border:1px dashed ' +
+      ';margin-bottom:2px;min-height:18px;display:flex;align-items:center;gap:6px;">属性名<button type="button" class="acu-random-skill-btn" id="contest-opp-random-skill" title="随机技能" style="width:18px;height:18px;padding:0;background:transparent;border:1px dashed ' +
       t.accent +
       ';border-radius:4px;color:' +
       t.accent +
-      ';font-size:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-dice"></i></button></div><input type="text" id="contest-opp-name" value="" placeholder="同甲方" style="width:100%;padding:5px;background:' +
-      t.inputBg +
-      ' !important;border:1px solid ' +
-      t.border +
-      ';border-radius:4px;color:' +
-      inputTextColor +
-      ' !important;font-size:12px;text-align:center;box-sizing:border-box;"></div>' +
+      ';font-size:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-dice"></i></button></div><input type="text" id="contest-opp-name" value="" placeholder="同甲方" style="' +
+      inputStyle +
+      '"></div>' +
       '</div>' +
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">' +
       '<div><div style="font-size:10px;color:' +
       t.textSub +
-      ';margin-bottom:2px;">属性值</div><input type="number" id="contest-opp-value" value="' +
+      ';margin-bottom:2px;min-height:18px;display:flex;align-items:center;">属性值</div><input type="text" id="contest-opp-value" value="' +
       (passedOpponentValue !== undefined ? passedOpponentValue : '') +
-      '" placeholder="留空=50%最大值" style="width:100%;padding:5px;background:' +
-      t.inputBg +
-      ' !important;border:1px solid ' +
-      t.border +
-      ';border-radius:4px;color:' +
-      inputTextColor +
-      ' !important;font-size:12px;text-align:center;box-sizing:border-box;"></div>' +
+      '" placeholder="留空=50%最大值" style="' +
+      inputStyle +
+      '"></div>' +
       '<div><div style="font-size:10px;color:' +
       t.textSub +
-      ';margin-bottom:2px;">目标值</div><input type="number" id="contest-opp-target" value="" placeholder="自动" style="width:100%;padding:5px;background:' +
-      t.inputBg +
-      ' !important;border:1px solid ' +
-      t.border +
-      ';border-radius:4px;color:' +
-      inputTextColor +
-      ' !important;font-size:12px;text-align:center;box-sizing:border-box;"></div>' +
+      ';margin-bottom:2px;min-height:18px;display:flex;align-items:center;">目标值</div><input type="text" id="contest-opp-target" value="" placeholder="自动" style="' +
+      inputStyle +
+      '"></div>' +
       '</div>' +
       '<div id="opp-attr-buttons" style="display:flex;flex-wrap:wrap;gap:2px;margin-bottom:10px;max-height:50px;overflow-y:auto;">' +
       buildAttrButtons(opponentAttrs, 'opp') +
@@ -7207,6 +7191,17 @@
 
     const panel = $(panelHtml);
     $('body').append(overlay).append(panel);
+
+    // [新增] 如果属性按钮容器为空，隐藏容器
+    const $initAttrButtons = panel.find('#init-attr-buttons');
+    const $oppAttrButtons = panel.find('#opp-attr-buttons');
+    if ($initAttrButtons.html().trim() === '') {
+      $initAttrButtons.hide();
+    }
+    if ($oppAttrButtons.html().trim() === '') {
+      $oppAttrButtons.hide();
+    }
+
     // [新增] 构建角色快捷按钮 - 复用普通检定的样式规格
     const buildCharBtns = targetType => {
       const containerId = targetType === 'init' ? '#contest-init-char-buttons' : '#contest-opp-char-buttons';
@@ -7250,6 +7245,15 @@
     const rebuildAttrBtns = (attrs, targetType) => {
       const containerId = targetType === 'init' ? '#init-attr-buttons' : '#opp-attr-buttons';
       const $container = panel.find(containerId);
+
+      // 如果没有属性数据，隐藏容器
+      if (attrs.length === 0) {
+        $container.hide().html('');
+        return;
+      }
+
+      // 有属性数据时显示容器
+      $container.show();
 
       let html = '';
 
@@ -8713,7 +8717,6 @@
     // 全局状态
     let currentHighlightedNode = null; // 当前高亮的节点名
     let longPressTimer = null;
-    let tapBlocked = false; // 阻止点击的标志
 
     if (isTouchDevice) {
       // ========== 移动端逻辑 ==========
@@ -8837,16 +8840,6 @@
         }
       });
     }
-
-    // 画布平移和缩放 - 使用 Pointer Events API
-
-    const getSvgPoint = (clientX, clientY) => {
-      const svg = $svg[0];
-      const pt = svg.createSVGPoint();
-      pt.x = clientX;
-      pt.y = clientY;
-      return pt.matrixTransform(svg.getScreenCTM().inverse());
-    };
 
     // 画布平移和缩放 - 使用 Pointer Events API
     let isPanning = false;
@@ -9887,7 +9880,6 @@
   };
 
   const addStyles = () => {
-    const _styleStart = performance.now();
     if (window._acuStylesInjected && $(`#${SCRIPT_ID}-styles`).length) return;
     window._acuStylesInjected = true;
     const { $ } = getCore();
@@ -9965,6 +9957,21 @@
         border-radius: 4px;
         color: var(--acu-text-main) !important;
         font-size: 12px;
+    }
+    /* 隐藏number类型输入框的步数器 */
+    .acu-dice-panel input[type="number"]::-webkit-inner-spin-button,
+    .acu-dice-panel input[type="number"]::-webkit-outer-spin-button,
+    .acu-contest-panel input[type="number"]::-webkit-inner-spin-button,
+    .acu-contest-panel input[type="number"]::-webkit-outer-spin-button,
+    .acu-dice-config-dialog input[type="number"]::-webkit-inner-spin-button,
+    .acu-dice-config-dialog input[type="number"]::-webkit-outer-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+    .acu-dice-panel input[type="number"],
+    .acu-contest-panel input[type="number"],
+    .acu-dice-config-dialog input[type="number"] {
+        -moz-appearance: textfield;
         text-align: center;
         box-sizing: border-box;
     }
@@ -10191,11 +10198,11 @@
     [class^="acu-"] *::-webkit-scrollbar { display: none !important; }
 
     /* ========== 主题变量定义 ========== */
-    .acu-theme-retro { --acu-bg-nav: #e6e2d3; --acu-bg-panel: #e6e2d3; --acu-border: #dcd0c0; --acu-text-main: #5e4b35; --acu-text-sub: #999; --acu-btn-bg: #dcd0c0; --acu-btn-hover: #cbbba8; --acu-btn-active-bg: #8d7b6f; --acu-btn-active-text: #fdfaf5; --acu-accent: #7a695f; --acu-table-head: #efebe4; --acu-table-hover: #f0ebe0; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #fffef9; --acu-badge-bg: #efebe4; --acu-menu-bg: #fff; --acu-menu-text: #333; --acu-success-text: #27ae60; --acu-success-bg: rgba(39, 174, 96, 0.15); --acu-scrollbar-track: #e6e2d3; --acu-scrollbar-thumb: #cbbba8; --acu-input-bg: #f5f2eb;--acu-hl-manual: #d35400; --acu-hl-manual-bg: rgba(211, 84, 0, 0.15); --acu-hl-diff: #2980b9; --acu-hl-diff-bg: rgba(41, 128, 185, 0.15); --acu-error-text: #e74c3c; --acu-error-bg: rgba(231, 76, 60, 0.15); --acu-error-border: rgba(231, 76, 60, 0.5); --acu-warning-icon: #e67e22; --acu-failure-text: #e74c3c; --acu-failure-bg: rgba(231, 76, 60, 0.15); --acu-warning-text: #f39c12; --acu-warning-bg: rgba(243, 156, 18, 0.15); --acu-crit-success-text: #9b59b6; --acu-crit-success-bg: rgba(155, 89, 182, 0.15); --acu-crit-failure-text: #c0392b; --acu-crit-failure-bg: rgba(192, 57, 43, 0.15); --acu-extreme-success-text: #2980b9; --acu-extreme-success-bg: rgba(41, 128, 185, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(0,0,0,0.1); --acu-very-light-bg: rgba(0,0,0,0.02); --acu-button-text: #fff; --acu-gray-bg: rgba(128,128,128,0.1); }
+    .acu-theme-retro { --acu-bg-nav: #e6e2d3; --acu-bg-panel: #e6e2d3; --acu-border: #dcd0c0; --acu-text-main: #5e4b35; --acu-text-sub: #999; --acu-btn-bg: #dcd0c0; --acu-btn-hover: #cbbba8; --acu-btn-active-bg: #8d7b6f; --acu-btn-active-text: #fdfaf5; --acu-accent: #7a695f; --acu-table-head: #efebe4; --acu-table-hover: #f0ebe0; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #fffef9; --acu-badge-bg: #efebe4; --acu-menu-bg: #fff; --acu-menu-text: #333; --acu-success-text: #27ae60; --acu-success-bg: rgba(39, 174, 96, 0.15); --acu-scrollbar-track: #e6e2d3; --acu-scrollbar-thumb: #cbbba8; --acu-input-bg: #f5f2eb;--acu-hl-manual: #d35400; --acu-hl-manual-bg: rgba(211, 84, 0, 0.15); --acu-hl-diff: #2980b9; --acu-hl-diff-bg: rgba(41, 128, 185, 0.15); --acu-error-text: #e74c3c; --acu-error-bg: rgba(231, 76, 60, 0.15); --acu-error-border: rgba(231, 76, 60, 0.5); --acu-warning-icon: #e67e22; --acu-failure-text: #e74c3c; --acu-failure-bg: rgba(231, 76, 60, 0.15); --acu-warning-text: #f39c12; --acu-warning-bg: rgba(243, 156, 18, 0.15); --acu-crit-success-text: #9b59b6; --acu-crit-success-bg: rgba(155, 89, 182, 0.15); --acu-crit-failure-text: #c0392b; --acu-crit-failure-bg: rgba(192, 57, 43, 0.15); --acu-extreme-success-text: #2980b9; --acu-extreme-success-bg: rgba(41, 128, 185, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(0,0,0,0.1); --acu-very-light-bg: rgba(0,0,0,0.02); --acu-button-text: #5e4b35; --acu-gray-bg: rgba(128,128,128,0.1); }
     .acu-theme-dark { --acu-bg-nav: #2b2b2b; --acu-bg-panel: #252525; --acu-border: #444; --acu-text-main: #eee; --acu-text-sub: #aaa; --acu-btn-bg: #3a3a3a; --acu-btn-hover: #4a4a4a; --acu-btn-active-bg: #6a5acd; --acu-btn-active-text: #fff; --acu-accent: #9b8cd9; --acu-table-head: #333333; --acu-table-hover: #3a3a3a; --acu-shadow: rgba(0,0,0,0.6); --acu-card-bg: #2d3035; --acu-badge-bg: #3a3f4b; --acu-menu-bg: #333; --acu-menu-text: #eee; --acu-success-text: #4cd964; --acu-success-bg: rgba(76, 217, 100, 0.2); --acu-scrollbar-track: #2b2b2b; --acu-scrollbar-thumb: #555; --acu-hl-manual: #ff6b81; --acu-hl-manual-bg: rgba(255, 107, 129, 0.2); --acu-hl-diff: #00d2d3; --acu-hl-diff-bg: rgba(0, 210, 211, 0.2); --acu-error-text: #ff6b6b; --acu-error-bg: rgba(255, 107, 107, 0.2); --acu-error-border: rgba(255, 107, 107, 0.5); --acu-warning-icon: #ffa726; --acu-failure-text: #ff6b6b; --acu-failure-bg: rgba(255, 107, 107, 0.2); --acu-warning-text: #ffa726; --acu-warning-bg: rgba(255, 167, 38, 0.2); --acu-crit-success-text: #ba68c8; --acu-crit-success-bg: rgba(186, 104, 200, 0.2); --acu-crit-failure-text: #d32f2f; --acu-crit-failure-bg: rgba(211, 47, 47, 0.2); --acu-extreme-success-text: #42a5f5; --acu-extreme-success-bg: rgba(66, 165, 245, 0.2); --acu-overlay-bg: rgba(0,0,0,0.75); --acu-overlay-bg-light: rgba(0,0,0,0.65); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(255,255,255,0.05); --acu-very-light-bg: rgba(255,255,255,0.02); --acu-button-text: #fff; --acu-gray-bg: rgba(255,255,255,0.1); }
-    .acu-theme-modern { --acu-bg-nav: #ffffff; --acu-bg-panel: #f8f9fa; --acu-border: #e0e0e0; --acu-text-main: #333; --acu-text-sub: #666; --acu-btn-bg: #f1f3f5; --acu-btn-hover: #e9ecef; --acu-btn-active-bg: #007bff; --acu-btn-active-text: #fff; --acu-accent: #007bff; --acu-table-head: #f8f9fa; --acu-table-hover: #f1f3f5; --acu-shadow: rgba(0,0,0,0.1); --acu-card-bg: #ffffff; --acu-badge-bg: #f1f3f5; --acu-menu-bg: #fff; --acu-menu-text: #333; --acu-success-text: #28a745; --acu-success-bg: rgba(40, 167, 69, 0.15); --acu-scrollbar-track: #fff; --acu-scrollbar-thumb: #ccc; --acu-hl-manual: #fd7e14; --acu-hl-manual-bg: rgba(253, 126, 20, 0.15); --acu-hl-diff: #0d6efd; --acu-hl-diff-bg: rgba(13, 110, 253, 0.15); --acu-error-text: #dc3545; --acu-error-bg: rgba(220, 53, 69, 0.15); --acu-error-border: rgba(220, 53, 69, 0.5); --acu-warning-icon: #fd7e14; --acu-failure-text: #dc3545; --acu-failure-bg: rgba(220, 53, 69, 0.15); --acu-warning-text: #ffc107; --acu-warning-bg: rgba(255, 193, 7, 0.15); --acu-crit-success-text: #6f42c1; --acu-crit-success-bg: rgba(111, 66, 193, 0.15); --acu-crit-failure-text: #c82333; --acu-crit-failure-bg: rgba(200, 35, 51, 0.15); --acu-extreme-success-text: #17a2b8; --acu-extreme-success-bg: rgba(23, 162, 184, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(0,0,0,0.1); --acu-very-light-bg: rgba(0,0,0,0.02); --acu-button-text: #fff; --acu-gray-bg: rgba(128,128,128,0.1); }
-    .acu-theme-forest { --acu-bg-nav: #e8f5e9; --acu-bg-panel: #e8f5e9; --acu-border: #c8e6c9; --acu-text-main: #2e7d32; --acu-text-sub: #81c784; --acu-btn-bg: #c8e6c9; --acu-btn-hover: #a5d6a7; --acu-btn-active-bg: #43a047; --acu-btn-active-text: #fff; --acu-accent: #4caf50; --acu-table-head: #dcedc8; --acu-table-hover: #f1f8e9; --acu-shadow: rgba(0,0,0,0.1); --acu-card-bg: #ffffff; --acu-badge-bg: #dcedc8; --acu-menu-bg: #fff; --acu-menu-text: #2e7d32; --acu-success-text: #2e7d32; --acu-success-bg: rgba(46, 125, 50, 0.2); --acu-scrollbar-track: #e8f5e9; --acu-scrollbar-thumb: #a5d6a7; --acu-hl-manual: #e67e22; --acu-hl-manual-bg: rgba(230, 126, 34, 0.15); --acu-hl-diff: #1e8449; --acu-hl-diff-bg: rgba(30, 132, 73, 0.2); }
-    .acu-theme-ocean { --acu-bg-nav: #e3f2fd; --acu-bg-panel: #e3f2fd; --acu-border: #90caf9; --acu-text-main: #1565c0; --acu-text-sub: #64b5f6; --acu-btn-bg: #bbdefb; --acu-btn-hover: #90caf9; --acu-btn-active-bg: #1976d2; --acu-btn-active-text: #fff; --acu-accent: #2196f3; --acu-table-head: #bbdefb; --acu-table-hover: #e1f5fe; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #e3f2fd; --acu-menu-bg: #fff; --acu-menu-text: #1565c0; --acu-success-text: #0288d1; --acu-success-bg: rgba(2, 136, 209, 0.15); --acu-scrollbar-track: #e3f2fd; --acu-scrollbar-thumb: #90caf9; --acu-hl-manual: #ff4757; --acu-hl-manual-bg: rgba(255, 71, 87, 0.15); --acu-hl-diff: #0277bd; --acu-hl-diff-bg: rgba(2, 119, 189, 0.2); --acu-error-text: #d32f2f; --acu-error-bg: rgba(211, 47, 47, 0.15); --acu-error-border: rgba(211, 47, 47, 0.5); --acu-warning-icon: #f57c00; --acu-failure-text: #d32f2f; --acu-failure-bg: rgba(211, 47, 47, 0.15); --acu-warning-text: #f57c00; --acu-warning-bg: rgba(245, 124, 0, 0.15); --acu-crit-success-text: #7b1fa2; --acu-crit-success-bg: rgba(123, 31, 162, 0.15); --acu-crit-failure-text: #b71c1c; --acu-crit-failure-bg: rgba(183, 28, 28, 0.15); --acu-extreme-success-text: #0277bd; --acu-extreme-success-bg: rgba(2, 119, 189, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(0,0,0,0.1); --acu-very-light-bg: rgba(0,0,0,0.02); --acu-button-text: #fff; --acu-gray-bg: rgba(128,128,128,0.1); }
+    .acu-theme-modern { --acu-bg-nav: #ffffff; --acu-bg-panel: #f8f9fa; --acu-border: #e0e0e0; --acu-text-main: #333; --acu-text-sub: #666; --acu-btn-bg: #f1f3f5; --acu-btn-hover: #e9ecef; --acu-btn-active-bg: #007bff; --acu-btn-active-text: #fff; --acu-accent: #007bff; --acu-table-head: #f8f9fa; --acu-table-hover: #f1f3f5; --acu-shadow: rgba(0,0,0,0.1); --acu-card-bg: #ffffff; --acu-badge-bg: #f1f3f5; --acu-menu-bg: #fff; --acu-menu-text: #333; --acu-success-text: #28a745; --acu-success-bg: rgba(40, 167, 69, 0.15); --acu-scrollbar-track: #fff; --acu-scrollbar-thumb: #ccc; --acu-hl-manual: #fd7e14; --acu-hl-manual-bg: rgba(253, 126, 20, 0.15); --acu-hl-diff: #0d6efd; --acu-hl-diff-bg: rgba(13, 110, 253, 0.15); --acu-error-text: #dc3545; --acu-error-bg: rgba(220, 53, 69, 0.15); --acu-error-border: rgba(220, 53, 69, 0.5); --acu-warning-icon: #fd7e14; --acu-failure-text: #dc3545; --acu-failure-bg: rgba(220, 53, 69, 0.15); --acu-warning-text: #ffc107; --acu-warning-bg: rgba(255, 193, 7, 0.15); --acu-crit-success-text: #6f42c1; --acu-crit-success-bg: rgba(111, 66, 193, 0.15); --acu-crit-failure-text: #c82333; --acu-crit-failure-bg: rgba(200, 35, 51, 0.15); --acu-extreme-success-text: #17a2b8; --acu-extreme-success-bg: rgba(23, 162, 184, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(0,0,0,0.1); --acu-very-light-bg: rgba(0,0,0,0.02); --acu-button-text: #333; --acu-gray-bg: rgba(128,128,128,0.1); }
+    .acu-theme-forest { --acu-bg-nav: #e8f5e9; --acu-bg-panel: #e8f5e9; --acu-border: #c8e6c9; --acu-text-main: #2e7d32; --acu-text-sub: #81c784; --acu-btn-bg: #c8e6c9; --acu-btn-hover: #a5d6a7; --acu-btn-active-bg: #43a047; --acu-btn-active-text: #fff; --acu-accent: #4caf50; --acu-table-head: #dcedc8; --acu-table-hover: #f1f8e9; --acu-shadow: rgba(0,0,0,0.1); --acu-card-bg: #ffffff; --acu-badge-bg: #dcedc8; --acu-menu-bg: #fff; --acu-menu-text: #2e7d32; --acu-success-text: #2e7d32; --acu-success-bg: rgba(46, 125, 50, 0.2); --acu-scrollbar-track: #e8f5e9; --acu-scrollbar-thumb: #a5d6a7; --acu-hl-manual: #e67e22; --acu-hl-manual-bg: rgba(230, 126, 34, 0.15); --acu-hl-diff: #1e8449; --acu-hl-diff-bg: rgba(30, 132, 73, 0.2); --acu-button-text: #2e7d32; }
+    .acu-theme-ocean { --acu-bg-nav: #e3f2fd; --acu-bg-panel: #e3f2fd; --acu-border: #90caf9; --acu-text-main: #1565c0; --acu-text-sub: #64b5f6; --acu-btn-bg: #bbdefb; --acu-btn-hover: #90caf9; --acu-btn-active-bg: #1976d2; --acu-btn-active-text: #fff; --acu-accent: #2196f3; --acu-table-head: #bbdefb; --acu-table-hover: #e1f5fe; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #e3f2fd; --acu-menu-bg: #fff; --acu-menu-text: #1565c0; --acu-success-text: #0288d1; --acu-success-bg: rgba(2, 136, 209, 0.15); --acu-scrollbar-track: #e3f2fd; --acu-scrollbar-thumb: #90caf9; --acu-hl-manual: #ff4757; --acu-hl-manual-bg: rgba(255, 71, 87, 0.15); --acu-hl-diff: #0277bd; --acu-hl-diff-bg: rgba(2, 119, 189, 0.2); --acu-error-text: #d32f2f; --acu-error-bg: rgba(211, 47, 47, 0.15); --acu-error-border: rgba(211, 47, 47, 0.5); --acu-warning-icon: #f57c00; --acu-failure-text: #d32f2f; --acu-failure-bg: rgba(211, 47, 47, 0.15); --acu-warning-text: #f57c00; --acu-warning-bg: rgba(245, 124, 0, 0.15); --acu-crit-success-text: #7b1fa2; --acu-crit-success-bg: rgba(123, 31, 162, 0.15); --acu-crit-failure-text: #b71c1c; --acu-crit-failure-bg: rgba(183, 28, 28, 0.15); --acu-extreme-success-text: #0277bd; --acu-extreme-success-bg: rgba(2, 119, 189, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(0,0,0,0.1); --acu-very-light-bg: rgba(0,0,0,0.02); --acu-button-text: #1565c0; --acu-gray-bg: rgba(128,128,128,0.1); }
     .acu-theme-cyber { --acu-bg-nav: #000000; --acu-bg-panel: #0a0a0a; --acu-border: #333; --acu-text-main: #00ffcc; --acu-text-sub: #ff00ff; --acu-btn-bg: #111; --acu-btn-hover: #222; --acu-btn-active-bg: #ff00ff; --acu-btn-active-text: #fff; --acu-accent: #00ffcc; --acu-table-head: #050505; --acu-table-hover: #111; --acu-shadow: 0 0 15px rgba(0,255,204,0.15); --acu-card-bg: #050505; --acu-badge-bg: #1a1a1a; --acu-menu-bg: #111; --acu-menu-text: #00ffcc; --acu-success-text: #0f0; --acu-success-bg: rgba(0, 255, 0, 0.15); --acu-scrollbar-track: #000; --acu-scrollbar-thumb: #333; --acu-hl-manual: #ff9f43; --acu-hl-manual-bg: rgba(255, 159, 67, 0.2); --acu-hl-diff: #0abde3; --acu-hl-diff-bg: rgba(10, 189, 227, 0.2); }
     .acu-theme-cyber .acu-nav-btn { border-color: #222; }
     .acu-theme-cyber .acu-data-card { border-color: #222; }
@@ -10213,11 +10220,11 @@
         color: #ff00ff !important;
     }
     .acu-theme-nightowl { --acu-bg-nav: #0a2133; --acu-bg-panel: #011627; --acu-border: #132e45; --acu-text-main: #e0e6f2; --acu-text-sub: #a6b8cc; --acu-btn-bg: #1f3a52; --acu-btn-hover: #2a4a68; --acu-btn-active-bg: #7fdbca; --acu-btn-active-text: #011627; --acu-accent: #7fdbca; --acu-table-head: #0a2133; --acu-table-hover: #01294a; --acu-shadow: rgba(0,0,0,0.5); --acu-card-bg: #0a2133; --acu-badge-bg: #1f3a52; --acu-menu-bg: #011627; --acu-menu-text: #e0e6f2; --acu-success-text: #addb67; --acu-success-bg: rgba(173, 219, 103, 0.15); --acu-scrollbar-track: #011627; --acu-scrollbar-thumb: #1f3a52; --acu-hl-manual: #ff8f66; --acu-hl-manual-bg: rgba(255, 143, 102, 0.2); --acu-hl-diff: #82aaff; --acu-hl-diff-bg: rgba(130, 170, 255, 0.2); }
-    .acu-theme-sakura { --acu-bg-nav: #F9F0EF; --acu-bg-panel: #F9F0EF; --acu-border: #EBDCD9; --acu-text-main: #6B5552; --acu-text-sub: #C08D8D; --acu-btn-bg: #EBDCD9; --acu-btn-hover: #D8C7C4; --acu-btn-active-bg: #C08D8D; --acu-btn-active-text: #F9F0EF; --acu-accent: #C08D8D; --acu-table-head: #F9F0EF; --acu-table-hover: #F5EAE8; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #F9F0EF; --acu-menu-bg: #fff; --acu-menu-text: #6B5552; --acu-success-text: #6B5552; --acu-success-bg: rgba(192, 141, 141, 0.12); --acu-scrollbar-track: #F9F0EF; --acu-scrollbar-thumb: #EBDCD9; --acu-hl-manual: #A68A7A; --acu-hl-manual-bg: rgba(166, 138, 122, 0.12); --acu-hl-diff: #9B7A7A; --acu-hl-diff-bg: rgba(155, 122, 122, 0.2); --acu-error-text: #9B7A7A; --acu-error-bg: rgba(155, 122, 122, 0.12); --acu-error-border: rgba(155, 122, 122, 0.4); --acu-warning-icon: #A68A7A; --acu-failure-text: #9B7A7A; --acu-failure-bg: rgba(155, 122, 122, 0.12); --acu-warning-text: #A68A7A; --acu-warning-bg: rgba(166, 138, 122, 0.12); --acu-crit-success-text: #8B7A7A; --acu-crit-success-bg: rgba(139, 122, 122, 0.12); --acu-crit-failure-text: #8B6F6F; --acu-crit-failure-bg: rgba(139, 111, 111, 0.12); --acu-extreme-success-text: #9B8A8A; --acu-extreme-success-bg: rgba(155, 138, 138, 0.12); --acu-overlay-bg: rgba(107, 85, 82, 0.6); --acu-overlay-bg-light: rgba(107, 85, 82, 0.5); --acu-shadow-bg: rgba(107, 85, 82, 0.3); --acu-light-bg: rgba(192, 141, 141, 0.08); --acu-very-light-bg: rgba(192, 141, 141, 0.02); --acu-button-text: #F9F0EF; --acu-gray-bg: rgba(192, 141, 141, 0.08); }
+    .acu-theme-sakura { --acu-bg-nav: #F9F0EF; --acu-bg-panel: #F9F0EF; --acu-border: #EBDCD9; --acu-text-main: #6B5552; --acu-text-sub: #C08D8D; --acu-btn-bg: #EBDCD9; --acu-btn-hover: #D8C7C4; --acu-btn-active-bg: #C08D8D; --acu-btn-active-text: #F9F0EF; --acu-accent: #C08D8D; --acu-table-head: #F9F0EF; --acu-table-hover: #F5EAE8; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #F9F0EF; --acu-menu-bg: #fff; --acu-menu-text: #6B5552; --acu-success-text: #6B5552; --acu-success-bg: rgba(192, 141, 141, 0.12); --acu-scrollbar-track: #F9F0EF; --acu-scrollbar-thumb: #EBDCD9; --acu-hl-manual: #A68A7A; --acu-hl-manual-bg: rgba(166, 138, 122, 0.12); --acu-hl-diff: #9B7A7A; --acu-hl-diff-bg: rgba(155, 122, 122, 0.2); --acu-error-text: #9B7A7A; --acu-error-bg: rgba(155, 122, 122, 0.12); --acu-error-border: rgba(155, 122, 122, 0.4); --acu-warning-icon: #A68A7A; --acu-failure-text: #9B7A7A; --acu-failure-bg: rgba(155, 122, 122, 0.12); --acu-warning-text: #A68A7A; --acu-warning-bg: rgba(166, 138, 122, 0.12); --acu-crit-success-text: #8B7A7A; --acu-crit-success-bg: rgba(139, 122, 122, 0.12); --acu-crit-failure-text: #8B6F6F; --acu-crit-failure-bg: rgba(139, 111, 111, 0.12); --acu-extreme-success-text: #9B8A8A; --acu-extreme-success-bg: rgba(155, 138, 138, 0.12); --acu-overlay-bg: rgba(107, 85, 82, 0.6); --acu-overlay-bg-light: rgba(107, 85, 82, 0.5); --acu-shadow-bg: rgba(107, 85, 82, 0.3); --acu-light-bg: rgba(192, 141, 141, 0.08); --acu-very-light-bg: rgba(192, 141, 141, 0.02); --acu-button-text: #6B5552; --acu-gray-bg: rgba(192, 141, 141, 0.08); }
     .acu-theme-minepink { --acu-bg-nav: #1a1a1a; --acu-bg-panel: #1a1a1a; --acu-border: #333333; --acu-text-main: #ffb3d9; --acu-text-sub: #ff80c1; --acu-btn-bg: #2a2a2a; --acu-btn-hover: #3a3a3a; --acu-btn-active-bg: #ff80c1; --acu-btn-active-text: #1a1a1a; --acu-accent: #ff80c1; --acu-table-head: #252525; --acu-table-hover: #2a2a2a; --acu-shadow: rgba(0,0,0,0.6); --acu-card-bg: #222222; --acu-badge-bg: #2a2a2a; --acu-menu-bg: #1a1a1a; --acu-menu-text: #ffb3d9; --acu-success-text: #ff80c1; --acu-success-bg: rgba(255, 128, 193, 0.2); --acu-scrollbar-track: #1a1a1a; --acu-scrollbar-thumb: #333333; --acu-hl-manual: #ffa726; --acu-hl-manual-bg: rgba(255, 167, 38, 0.2); --acu-hl-diff: #ff80c1; --acu-hl-diff-bg: rgba(255, 128, 193, 0.2); --acu-error-text: #ff6b6b; --acu-error-bg: rgba(255, 107, 107, 0.2); --acu-error-border: rgba(255, 107, 107, 0.5); --acu-warning-icon: #ffa726; --acu-failure-text: #ff6b6b; --acu-failure-bg: rgba(255, 107, 107, 0.2); --acu-warning-text: #ffa726; --acu-warning-bg: rgba(255, 167, 38, 0.2); --acu-crit-success-text: #ff80c1; --acu-crit-success-bg: rgba(255, 128, 193, 0.2); --acu-crit-failure-text: #ff4444; --acu-crit-failure-bg: rgba(255, 68, 68, 0.2); --acu-extreme-success-text: #ffb3d9; --acu-extreme-success-bg: rgba(255, 179, 217, 0.2); --acu-overlay-bg: rgba(0,0,0,0.8); --acu-overlay-bg-light: rgba(0,0,0,0.7); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(255, 128, 193, 0.1); --acu-very-light-bg: rgba(255, 128, 193, 0.02); --acu-button-text: #1a1a1a; --acu-gray-bg: rgba(255, 128, 193, 0.1); }
-    .acu-theme-purple { --acu-bg-nav: #f3e5f5; --acu-bg-panel: #f3e5f5; --acu-border: #ce93d8; --acu-text-main: #6a1b9a; --acu-text-sub: #9c27b0; --acu-btn-bg: #e1bee7; --acu-btn-hover: #ce93d8; --acu-btn-active-bg: #9c27b0; --acu-btn-active-text: #fff; --acu-accent: #9c27b0; --acu-table-head: #f8e1f5; --acu-table-hover: #fce4ec; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #f8e1f5; --acu-menu-bg: #fff; --acu-menu-text: #6a1b9a; --acu-success-text: #6a1b9a; --acu-success-bg: rgba(106, 27, 154, 0.15); --acu-scrollbar-track: #f3e5f5; --acu-scrollbar-thumb: #ce93d8; --acu-hl-manual: #f57c00; --acu-hl-manual-bg: rgba(245, 124, 0, 0.15); --acu-hl-diff: #6a1b9a; --acu-hl-diff-bg: rgba(106, 27, 154, 0.2); --acu-error-text: #d32f2f; --acu-error-bg: rgba(211, 47, 47, 0.15); --acu-error-border: rgba(211, 47, 47, 0.5); --acu-warning-icon: #f57c00; --acu-failure-text: #d32f2f; --acu-failure-bg: rgba(211, 47, 47, 0.15); --acu-warning-text: #f57c00; --acu-warning-bg: rgba(245, 124, 0, 0.15); --acu-crit-success-text: #7b1fa2; --acu-crit-success-bg: rgba(123, 31, 162, 0.15); --acu-crit-failure-text: #b71c1c; --acu-crit-failure-bg: rgba(183, 28, 28, 0.15); --acu-extreme-success-text: #6a1b9a; --acu-extreme-success-bg: rgba(106, 27, 154, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(156, 39, 176, 0.1); --acu-very-light-bg: rgba(156, 39, 176, 0.02); --acu-button-text: #fff; --acu-gray-bg: rgba(156, 39, 176, 0.1); }
-    .acu-theme-cherrypink { --acu-bg-nav: #FFE4E6; --acu-bg-panel: #FFE4E6; --acu-border: #FFC0CB; --acu-text-main: #8B4A5C; --acu-text-sub: #C97A8F; --acu-btn-bg: #FFC0CB; --acu-btn-hover: #FFB0C0; --acu-btn-active-bg: #FF91A4; --acu-btn-active-text: #FFFFFF; --acu-accent: #FF91A4; --acu-table-head: #FFE8EA; --acu-table-hover: #FFF0F2; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #FFE8EA; --acu-menu-bg: #fff; --acu-menu-text: #8B4A5C; --acu-success-text: #B85C7A; --acu-success-bg: rgba(255, 145, 164, 0.15); --acu-scrollbar-track: #FFE4E6; --acu-scrollbar-thumb: #FFC0CB; --acu-hl-manual: #E68A9F; --acu-hl-manual-bg: rgba(230, 138, 159, 0.15); --acu-hl-diff: #C97A8F; --acu-hl-diff-bg: rgba(201, 122, 143, 0.2); --acu-error-text: #D85C7A; --acu-error-bg: rgba(216, 92, 122, 0.15); --acu-error-border: rgba(216, 92, 122, 0.45); --acu-warning-icon: #E68A9F; --acu-failure-text: #D85C7A; --acu-failure-bg: rgba(216, 92, 122, 0.15); --acu-warning-text: #E68A9F; --acu-warning-bg: rgba(230, 138, 159, 0.15); --acu-crit-success-text: #B85C7A; --acu-crit-success-bg: rgba(184, 92, 122, 0.15); --acu-crit-failure-text: #C85C7A; --acu-crit-failure-bg: rgba(200, 92, 122, 0.15); --acu-extreme-success-text: #C97A8F; --acu-extreme-success-bg: rgba(201, 122, 143, 0.15); --acu-overlay-bg: rgba(139, 74, 92, 0.6); --acu-overlay-bg-light: rgba(139, 74, 92, 0.5); --acu-shadow-bg: rgba(139, 74, 92, 0.3); --acu-light-bg: rgba(255, 145, 164, 0.1); --acu-very-light-bg: rgba(255, 145, 164, 0.03); --acu-button-text: #FFFFFF; --acu-gray-bg: rgba(255, 145, 164, 0.1); }
-    .acu-theme-wechat { --acu-bg-nav: #F7F7F7; --acu-bg-panel: #F7F7F7; --acu-border: #E5E5E5; --acu-text-main: #333333; --acu-text-sub: #666666; --acu-btn-bg: #E5E5E5; --acu-btn-hover: #D5D5D5; --acu-btn-active-bg: #09B83E; --acu-btn-active-text: #FFFFFF; --acu-accent: #09B83E; --acu-table-head: #F0F0F0; --acu-table-hover: #EBEBEB; --acu-shadow: rgba(0,0,0,0.1); --acu-card-bg: #ffffff; --acu-badge-bg: #F0F0F0; --acu-menu-bg: #fff; --acu-menu-text: #333333; --acu-success-text: #09B83E; --acu-success-bg: rgba(9, 184, 62, 0.12); --acu-scrollbar-track: #F7F7F7; --acu-scrollbar-thumb: #E5E5E5; --acu-hl-manual: #FF9500; --acu-hl-manual-bg: rgba(255, 149, 0, 0.12); --acu-hl-diff: #09B83E; --acu-hl-diff-bg: rgba(9, 184, 62, 0.2); --acu-error-text: #E53E3E; --acu-error-bg: rgba(229, 62, 62, 0.12); --acu-error-border: rgba(229, 62, 62, 0.5); --acu-warning-icon: #FF9500; --acu-failure-text: #E53E3E; --acu-failure-bg: rgba(229, 62, 62, 0.12); --acu-warning-text: #FF9500; --acu-warning-bg: rgba(255, 149, 0, 0.12); --acu-crit-success-text: #07A832; --acu-crit-success-bg: rgba(7, 168, 50, 0.15); --acu-crit-failure-text: #C53030; --acu-crit-failure-bg: rgba(197, 48, 48, 0.15); --acu-extreme-success-text: #09B83E; --acu-extreme-success-bg: rgba(9, 184, 62, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.2); --acu-light-bg: rgba(9, 184, 62, 0.08); --acu-very-light-bg: rgba(9, 184, 62, 0.02); --acu-button-text: #FFFFFF; --acu-gray-bg: rgba(9, 184, 62, 0.08); }
+    .acu-theme-purple { --acu-bg-nav: #f3e5f5; --acu-bg-panel: #f3e5f5; --acu-border: #ce93d8; --acu-text-main: #6a1b9a; --acu-text-sub: #9c27b0; --acu-btn-bg: #e1bee7; --acu-btn-hover: #ce93d8; --acu-btn-active-bg: #9c27b0; --acu-btn-active-text: #fff; --acu-accent: #9c27b0; --acu-table-head: #f8e1f5; --acu-table-hover: #fce4ec; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #f8e1f5; --acu-menu-bg: #fff; --acu-menu-text: #6a1b9a; --acu-success-text: #6a1b9a; --acu-success-bg: rgba(106, 27, 154, 0.15); --acu-scrollbar-track: #f3e5f5; --acu-scrollbar-thumb: #ce93d8; --acu-hl-manual: #f57c00; --acu-hl-manual-bg: rgba(245, 124, 0, 0.15); --acu-hl-diff: #6a1b9a; --acu-hl-diff-bg: rgba(106, 27, 154, 0.2); --acu-error-text: #d32f2f; --acu-error-bg: rgba(211, 47, 47, 0.15); --acu-error-border: rgba(211, 47, 47, 0.5); --acu-warning-icon: #f57c00; --acu-failure-text: #d32f2f; --acu-failure-bg: rgba(211, 47, 47, 0.15); --acu-warning-text: #f57c00; --acu-warning-bg: rgba(245, 124, 0, 0.15); --acu-crit-success-text: #7b1fa2; --acu-crit-success-bg: rgba(123, 31, 162, 0.15); --acu-crit-failure-text: #b71c1c; --acu-crit-failure-bg: rgba(183, 28, 28, 0.15); --acu-extreme-success-text: #6a1b9a; --acu-extreme-success-bg: rgba(106, 27, 154, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(156, 39, 176, 0.1); --acu-very-light-bg: rgba(156, 39, 176, 0.02); --acu-button-text: #6a1b9a; --acu-gray-bg: rgba(156, 39, 176, 0.1); }
+    .acu-theme-cherrypink { --acu-bg-nav: #FFE4E6; --acu-bg-panel: #FFE4E6; --acu-border: #FFC0CB; --acu-text-main: #8B4A5C; --acu-text-sub: #C97A8F; --acu-btn-bg: #FFC0CB; --acu-btn-hover: #FFB0C0; --acu-btn-active-bg: #FF91A4; --acu-btn-active-text: #FFFFFF; --acu-accent: #FF91A4; --acu-table-head: #FFE8EA; --acu-table-hover: #FFF0F2; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #FFE8EA; --acu-menu-bg: #fff; --acu-menu-text: #8B4A5C; --acu-success-text: #B85C7A; --acu-success-bg: rgba(255, 145, 164, 0.15); --acu-scrollbar-track: #FFE4E6; --acu-scrollbar-thumb: #FFC0CB; --acu-hl-manual: #E68A9F; --acu-hl-manual-bg: rgba(230, 138, 159, 0.15); --acu-hl-diff: #C97A8F; --acu-hl-diff-bg: rgba(201, 122, 143, 0.2); --acu-error-text: #D85C7A; --acu-error-bg: rgba(216, 92, 122, 0.15); --acu-error-border: rgba(216, 92, 122, 0.45); --acu-warning-icon: #E68A9F; --acu-failure-text: #D85C7A; --acu-failure-bg: rgba(216, 92, 122, 0.15); --acu-warning-text: #E68A9F; --acu-warning-bg: rgba(230, 138, 159, 0.15); --acu-crit-success-text: #B85C7A; --acu-crit-success-bg: rgba(184, 92, 122, 0.15); --acu-crit-failure-text: #C85C7A; --acu-crit-failure-bg: rgba(200, 92, 122, 0.15); --acu-extreme-success-text: #C97A8F; --acu-extreme-success-bg: rgba(201, 122, 143, 0.15); --acu-overlay-bg: rgba(139, 74, 92, 0.6); --acu-overlay-bg-light: rgba(139, 74, 92, 0.5); --acu-shadow-bg: rgba(139, 74, 92, 0.3); --acu-light-bg: rgba(255, 145, 164, 0.1); --acu-very-light-bg: rgba(255, 145, 164, 0.03); --acu-button-text: #8B4A5C; --acu-gray-bg: rgba(255, 145, 164, 0.1); }
+    .acu-theme-wechat { --acu-bg-nav: #F7F7F7; --acu-bg-panel: #F7F7F7; --acu-border: #E5E5E5; --acu-text-main: #333333; --acu-text-sub: #666666; --acu-btn-bg: #E5E5E5; --acu-btn-hover: #D5D5D5; --acu-btn-active-bg: #09B83E; --acu-btn-active-text: #FFFFFF; --acu-accent: #09B83E; --acu-table-head: #F0F0F0; --acu-table-hover: #EBEBEB; --acu-shadow: rgba(0,0,0,0.1); --acu-card-bg: #ffffff; --acu-badge-bg: #F0F0F0; --acu-menu-bg: #fff; --acu-menu-text: #333333; --acu-success-text: #09B83E; --acu-success-bg: rgba(9, 184, 62, 0.12); --acu-scrollbar-track: #F7F7F7; --acu-scrollbar-thumb: #E5E5E5; --acu-hl-manual: #FF9500; --acu-hl-manual-bg: rgba(255, 149, 0, 0.12); --acu-hl-diff: #09B83E; --acu-hl-diff-bg: rgba(9, 184, 62, 0.2); --acu-error-text: #E53E3E; --acu-error-bg: rgba(229, 62, 62, 0.12); --acu-error-border: rgba(229, 62, 62, 0.5); --acu-warning-icon: #FF9500; --acu-failure-text: #E53E3E; --acu-failure-bg: rgba(229, 62, 62, 0.12); --acu-warning-text: #FF9500; --acu-warning-bg: rgba(255, 149, 0, 0.12); --acu-crit-success-text: #07A832; --acu-crit-success-bg: rgba(7, 168, 50, 0.15); --acu-crit-failure-text: #C53030; --acu-crit-failure-bg: rgba(197, 48, 48, 0.15); --acu-extreme-success-text: #09B83E; --acu-extreme-success-bg: rgba(9, 184, 62, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.2); --acu-light-bg: rgba(9, 184, 62, 0.08); --acu-very-light-bg: rgba(9, 184, 62, 0.02); --acu-button-text: #333333; --acu-gray-bg: rgba(9, 184, 62, 0.08); }
     /* 浅色强调色主题的按钮文字修正 */
     .acu-theme-cyber .acu-btn-confirm,
     .acu-theme-cyber .acu-changes-count,
@@ -10238,8 +10245,7 @@
     .acu-theme-nightowl .acu-preset-item {
         border-color: var(--acu-border) !important;
     }
-    .acu-theme-nightowl .acu-preset-item:hover,
-    .acu-theme-nightowl .acu-preset-item.active {
+    .acu-theme-nightowl .acu-preset-item:hover {
         border-color: rgba(127, 219, 202, 0.4) !important;
     }
     .acu-wrapper { position: relative; width: 100%; margin: 15px 0; z-index: 2147483640 !important; font-family: 'Microsoft YaHei', sans-serif; display: flex; flex-direction: column-reverse; }
@@ -10766,6 +10772,34 @@
                     transition: all 0.15s;
                 }
 
+                /* 仪表盘地点名称单行省略样式 */
+                .acu-dash-locations .acu-location-item {
+                    padding: 4px 8px !important;
+                    min-width: 0; /* 允许flex子元素收缩 */
+                    overflow: hidden; /* 防止内容溢出 */
+                }
+
+                .acu-dash-locations .acu-location-item > span:first-child {
+                    display: flex !important;
+                    align-items: center;
+                    gap: 6px;
+                    flex: 1;
+                    min-width: 0; /* 允许flex子元素收缩 */
+                    overflow: hidden;
+                }
+
+                .acu-dash-locations .acu-location-item > span:first-child i {
+                    flex-shrink: 0; /* 图标不收缩 */
+                }
+
+                .acu-dash-locations .acu-location-item > span:first-child > span {
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    flex: 1;
+                    min-width: 0; /* 允许flex子元素收缩 */
+                }
+
                 .acu-location-item:last-child {
                     border-bottom: none;
                 }
@@ -11093,8 +11127,8 @@
             /* === 输入框清除按钮样式 === */
             .acu-input-wrapper { position: relative; display: flex; align-items: center; width: 100%; }
             .acu-input-wrapper input { padding-right: 24px !important; }
-            .acu-clear-btn { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: transparent !important; border: none; font-size: 12px; cursor: pointer; padding: 4px; line-height: 1; opacity: 0.5; transition: opacity 0.2s; z-index: 5; }
-            .acu-clear-btn:hover { background: transparent !important; opacity: 1 !important; }
+            .acu-clear-btn { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: transparent !important; border: none !important; font-size: 12px; cursor: pointer; padding: 4px; line-height: 1; opacity: 0.5; transition: opacity 0.2s; z-index: 5; }
+            .acu-clear-btn:hover { background: transparent !important; border: none !important; opacity: 1 !important; }
 
             /* ========== 人物关系图样式 ========== */
             .acu-relation-graph-overlay {
@@ -11994,10 +12028,6 @@
             .acu-preset-item:hover {
                 background: var(--acu-table-hover);
                 border-color: var(--acu-accent);
-            }
-            .acu-preset-item.active {
-                border-color: var(--acu-accent);
-                background: var(--acu-table-hover);
             }
             .acu-preset-info {
                 flex: 1;
@@ -14168,6 +14198,29 @@
     const presets = AttributePresetManager.getAllPresets();
     const activeId = Store.get(STORAGE_KEY_ACTIVE_ATTR_PRESET, null);
 
+    // 生成默认规则项HTML（当activeId为null时启用）
+    const isDefaultActive = activeId === null;
+    const defaultPresetHtml = `
+      <div class="acu-preset-item" data-id="__default__">
+        <div class="acu-preset-info">
+          <div class="acu-preset-name">
+            六维属性百分制
+            <span style="font-size: 10px; color: ${t.textSub}; margin-left: 6px;">(默认)</span>
+          </div>
+          <div class="acu-preset-desc">使用百分制生成六维基础属性（力量、敏捷、体质、智力、感知、魅力），范围5-95</div>
+          <div class="acu-preset-stats">
+            基础属性: 6 | 特别属性: 0
+          </div>
+        </div>
+        <div class="acu-preset-actions" style="display: flex; align-items: center; gap: 8px;">
+          <label class="acu-toggle" style="margin: 0;">
+            <input type="checkbox" class="acu-preset-toggle" data-id="__default__" ${isDefaultActive ? 'checked' : ''}>
+            <span class="acu-toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+    `;
+
     // 生成预设列表HTML
     const presetsHtml = presets
       .map(preset => {
@@ -14175,7 +14228,7 @@
         const isBuiltin = preset.builtin;
 
         return `
-        <div class="acu-preset-item ${isActive ? 'active' : ''}" data-id="${preset.id}">
+        <div class="acu-preset-item" data-id="${preset.id}">
           <div class="acu-preset-info">
             <div class="acu-preset-name">
               ${escapeHtml(preset.name)}
@@ -14200,6 +14253,9 @@
       })
       .join('');
 
+    // 合并默认规则和预设列表
+    const allPresetsHtml = defaultPresetHtml + presetsHtml;
+
     const overlay = $(`
       <div class="acu-edit-overlay">
         <div class="acu-edit-dialog acu-theme-${config.theme}" style="width: 600px; max-width: 92vw; max-height: 80vh;">
@@ -14212,7 +14268,7 @@
 
           <div style="flex: 1; overflow-y: auto; padding: 12px 0;">
             <div id="acu-presets-list">
-              ${presetsHtml || `<div style="text-align: center; padding: 40px; color: ${t.textSub};">暂无自定义预设</div>`}
+              ${allPresetsHtml || `<div style="text-align: center; padding: 40px; color: ${t.textSub};">暂无预设</div>`}
             </div>
           </div>
 
@@ -14248,8 +14304,9 @@
       const isChecked = $toggle.is(':checked');
 
       if (isChecked) {
-        // 激活该预设
-        AttributePresetManager.setActivePreset(id);
+        // 激活该预设（如果是默认规则，id为"__default__"，需要设置为null）
+        const finalId = id === '__default__' ? null : id;
+        AttributePresetManager.setActivePreset(finalId);
 
         // 将其他所有toggle设置为未选中状态（确保只有一个激活）
         overlay.find('.acu-preset-toggle').each(function () {
@@ -14259,16 +14316,9 @@
             $thisToggle.prop('checked', false);
           }
         });
-
-        // 更新预设项的active类
-        overlay.find('.acu-preset-item').removeClass('active');
-        overlay.find(`.acu-preset-item[data-id="${id}"]`).addClass('active');
       } else {
         // 取消激活（设置为null，使用默认规则）
         AttributePresetManager.setActivePreset(null);
-
-        // 更新预设项的active类
-        overlay.find('.acu-preset-item').removeClass('active');
       }
     });
 
@@ -14533,13 +14583,6 @@
     const expandedGroups = Store.get('acu_settings_expanded', ['appearance']);
 
     const isGroupExpanded = groupId => expandedGroups.includes(groupId);
-    // 生成表格管理列表HTML（包含特殊按钮）
-    const SPECIAL_BUTTONS = [
-      { key: '__dice__', name: '投骰', icon: 'fa-dice-d20' },
-      { key: '__changes__', name: '变更审核', icon: 'fa-clipboard-check' },
-      { key: '__mvu__', name: 'MVU变量', icon: 'fa-code-branch' },
-    ];
-
     // 生成表格管理列表HTML（包含特殊按钮：投骰、审核、MVU变量）
     const SPECIAL_BUTTONS_CONFIG = [
       { key: '__dice__', name: '投骰', icon: 'fa-dice-d20' },
@@ -14725,25 +14768,20 @@
                         </div>
                     </div>
 
-                    <!-- 属性规则 -->
+                    <!-- 投骰高级设置 -->
                     <div class="acu-settings-group ${isGroupExpanded('attrRules') ? '' : 'collapsed'}" data-group="attrRules">
                         <div class="acu-settings-group-title">
                             <i class="fa-solid ${chevron('attrRules')} acu-group-chevron"></i>
-                            <i class="fa-solid fa-dice-d20"></i> 属性规则
+                            <i class="fa-solid fa-dice-d20"></i> 投骰高级设置
                         </div>
                         <div class="acu-settings-group-body">
                             <div class="acu-setting-row">
                                 <div class="acu-setting-info">
-                                    <span class="acu-setting-label">当前规则</span>
-                                    <span class="acu-setting-hint">投骰属性生成</span>
+                                    <span class="acu-setting-label">管理属性规则</span>
+                                    <span class="acu-setting-hint">创建、编辑和管理属性规则预设</span>
                                 </div>
-                                <select id="cfg-attr-preset" class="acu-setting-select">
-                                    <option value="">默认（百分制六维）</option>
-                                </select>
-                            </div>
-                            <div class="acu-setting-row">
-                                <button id="cfg-attr-preset-manage" style="width: 100%; padding: 8px; background: ${t.buttonBg || t.accent}; border: none; border-radius: 6px; color: ${t.buttonText}; cursor: pointer; font-size: 13px; display: flex; align-items: center; justify-content: center; gap: 6px;">
-                                    <i class="fa-solid fa-cog"></i> 管理规则预设
+                                <button id="cfg-attr-preset-manage" class="acu-setting-btn" style="padding: 6px 12px; background: ${t.btnBg}; border: 1px solid ${t.border}; border-radius: 4px; color: ${t.textMain}; cursor: pointer; font-size: 12px;">
+                                    <i class="fa-solid fa-cog"></i> 管理
                                 </button>
                             </div>
                         </div>
@@ -14966,8 +15004,9 @@
       // 更新按钮的内联样式以实时反映主题变化
       const t = getThemeColors();
       dialog.find('#cfg-attr-preset-manage').css({
-        background: t.buttonBg || t.accent,
-        color: t.buttonText,
+        background: t.btnBg,
+        borderColor: t.border,
+        color: t.textMain,
       });
     });
 
@@ -14976,43 +15015,14 @@
       saveConfig({ fontFamily: $(this).val() });
     });
 
-    // 属性规则预设
-    (() => {
-      const $select = dialog.find('#cfg-attr-preset');
-      const activeId = Store.get(STORAGE_KEY_ACTIVE_ATTR_PRESET, null);
-
-      // 填充下拉框
-      const presets = AttributePresetManager.getAllPresets();
-      presets.forEach(preset => {
-        const isActive = preset.id === activeId;
-        $select.append(
-          `<option value="${preset.id}" ${isActive ? 'selected' : ''}>${preset.name}${preset.builtin ? '' : ' (自定义)'}</option>`,
-        );
-      });
-
-      // 切换预设
-      $select.on('change', function () {
-        const selectedId = $(this).val();
-        AttributePresetManager.setActivePreset(selectedId || null);
-        if (window.toastr) {
-          if (selectedId) {
-            const preset = presets.find(p => p.id === selectedId);
-            window.toastr.success(`已切换到：${preset?.name || '未知预设'}`);
-          } else {
-            window.toastr.info('已切换到默认规则（百分制六维）');
-          }
-        }
-      });
-
-      // 管理按钮
-      dialog.find('#cfg-attr-preset-manage').on('click', function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        dialog.remove();
-        isSettingsOpen = false;
-        showAttributePresetManager();
-      });
-    })();
+    // 管理属性规则按钮
+    dialog.find('#cfg-attr-preset-manage').on('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      dialog.remove();
+      isSettingsOpen = false;
+      showAttributePresetManager();
+    });
 
     // 布局
     dialog.find('#cfg-layout').on('change', function () {
@@ -15459,7 +15469,6 @@
   const renderInterface = () => {
     // 设置面板打开时跳过重绘，防止事件丢失
     if (isSettingsOpen) return;
-    const _renderStart = performance.now();
     const { $ } = getCore();
 
     // [修复] Observer 延迟创建保险 (带节流优化)
@@ -16084,7 +16093,6 @@
         if ($aiMes.length === 0) return $('#chat');
 
         // 锁定逻辑
-        const isGenerating = $('#send_but').is(':hidden') || $('#send_but_stop').is(':visible');
 
         let targetIndex = $aiMes.length - 1;
         const $targetMes = $aiMes.eq(targetIndex);
@@ -17429,16 +17437,6 @@
   const renderDashboard = allTables => {
     const config = getConfig();
 
-    // [保留] 通用列索引查找函数 - 供未迁移模块使用
-    const findColIndex = (headers, keywords) => {
-      if (!headers || !Array.isArray(keywords)) return -1;
-      for (let i = 0; i < headers.length; i++) {
-        const h = String(headers[i] || '').toLowerCase();
-        if (keywords.some(kw => h.includes(kw.toLowerCase()))) return i;
-      }
-      return -1;
-    };
-
     // [重构] 使用统一配置中心查找表格
     const globalResult = DashboardDataParser.findTable(allTables, 'global');
     const playerResult = DashboardDataParser.findTable(allTables, 'player');
@@ -17448,15 +17446,6 @@
     const bagResult = DashboardDataParser.findTable(allTables, 'bag');
     const skillResult = DashboardDataParser.findTable(allTables, 'skill');
     const equipResult = DashboardDataParser.findTable(allTables, 'equip');
-
-    // [兼容] 保留旧变量名供后续未迁移模块使用
-    const locationTable = locationResult?.data;
-    const playerTable = playerResult?.data;
-    const questTable = questResult?.data;
-    const npcTable = npcResult?.data;
-    const bagTable = bagResult?.data;
-    const skillTable = skillResult?.data;
-    const equipTable = equipResult?.data;
 
     // [重构] 主角数据 - 使用新解析器
     let player = { name: '主角', status: '正常', position: '', attrs: '', money: '0' };
@@ -17494,11 +17483,10 @@
     }
 
     // [兼容] 保留旧变量供后续HTML渲染使用
-    const playerRows = playerTable?.rows || [];
-    const playerHeaders = playerTable?.headers || [];
+    const playerRows = playerResult?.data?.rows || [];
+    const playerHeaders = playerResult?.data?.headers || [];
 
     // [重构] 从全局数据表获取当前地点信息 - 使用新解析器
-    const globalTable = globalResult?.data;
     let globalDetailLocation = ''; // 详细地点（用于高亮匹配）
     let globalLocation = ''; // 次要地区（备选）
 
@@ -17526,7 +17514,6 @@
     // [重构] NPC数据 - 使用新解析器
     const npcTableName = npcResult?.name || '重要人物表';
     const npcTableKey = npcResult?.key || '';
-    const npcHeaders = npcTable?.headers || [];
 
     const npcParsed = DashboardDataParser.parseRows(npcResult, 'npc');
 
@@ -17745,13 +17732,12 @@
                               return `<div class="acu-location-item acu-dash-clickable acu-dash-preview-trigger ${isCurrent ? 'acu-current-location' : ''}"
                             data-table-key="${escapeHtml(locationTableKey)}"
                             data-row-index="${loc._rowIndex}"
-                            data-preview-type="location"
-                            style="padding:4px 8px;display:flex;justify-content:space-between;align-items:center;">
-                            <span style="display:flex;align-items:center;gap:6px;">
+                            data-preview-type="location">
+                            <span>
                                 ${isCurrent ? '<i class="fa-solid fa-location-dot"></i>' : '<i class="fa-solid fa-map-pin" style="font-size:9px;opacity:0.4;"></i>'}
-                                <span title="${escapeHtml(areaName)}">${escapeHtml(areaName.length > 6 ? areaName.substring(0, 6) + '..' : areaName)}</span>
+                                <span title="${escapeHtml(areaName)}">${escapeHtml(areaName)}</span>
                             </span>
-                            ${!isCurrent ? `<i class="fa-solid fa-walking acu-dash-goto-btn" data-location="${escapeHtml(areaName)}" style="cursor:pointer;color:var(--acu-text-sub);opacity:0.4;font-size:10px;" title="前往${areaName}"></i>` : '<i class="fa-solid fa-street-view" title="您在这里"></i>'}
+                            ${!isCurrent ? `<i class="fa-solid fa-walking acu-dash-goto-btn" data-location="${escapeHtml(areaName)}" style="cursor:pointer;color:var(--acu-text-sub);opacity:0.4;font-size:10px;flex-shrink:0;" title="前往${areaName}"></i>` : '<i class="fa-solid fa-street-view" style="flex-shrink:0;" title="您在这里"></i>'}
                         </div>`;
                             })
                             .join('')
@@ -17892,7 +17878,6 @@
   };
 
   const renderTableContent = (tableData, tableName) => {
-    const _tableStart = performance.now();
     if (!tableData || !tableData.rows.length)
       return `
             <div class="acu-panel-header"><div class="acu-panel-title"><i class="fa-solid ${getIconForTableName(tableName)}"></i> ${tableName}</div><button class="acu-close-btn" title="关闭"><i class="fa-solid fa-times"></i></button></div>
