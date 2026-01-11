@@ -268,6 +268,7 @@
   // [新增] 智能填充输入栏函数
   const smartInsertToTextarea = (newContent, contentType) => {
     // contentType: 'action' (交互选项) 或 'dice' (骰子结果)
+    const { $ } = getCore();
     const $ta = $('#send_textarea');
     if (!$ta.length) return;
 
@@ -285,9 +286,25 @@
     // 交互选项的识别正则（以<user>开头，匹配到句末标点）
     const actionRegex = /<user>(?:(?!<user>).)*?[。！？]/g;
 
+    // 占位符识别正则
+    const placeholderRegex = /\[投骰结果已隐藏\]/g;
+
+    // [修复] 如果配置启用隐藏，且是骰子结果，则使用占位符显示，但保存真实结果
+    const diceCfg = getDiceConfig();
+    let contentToInsert = newContent;
+    let shouldSaveOriginal = false;
+    if (contentType === 'dice' && diceCfg.hideDiceResultFromUser) {
+      contentToInsert = '[投骰结果已隐藏]';
+      shouldSaveOriginal = true;
+    }
+
     // 如果输入栏为空，直接填入
     if (!currentVal) {
-      $ta.val(newContent).trigger('input').trigger('change');
+      $ta.val(contentToInsert).trigger('input').trigger('change');
+      // [修复] 始终保存真实结果到 data 属性（即使不隐藏也要保存，以便后续处理）
+      if (contentType === 'dice') {
+        $ta.data('acu-original-dice-text', newContent);
+      }
       return;
     }
 
@@ -295,11 +312,28 @@
     let workingText = currentVal;
     let existingAction = '';
     let existingDice = '';
+    let existingDiceOriginal = '';
+
+    // [修复] 0. 先检查是否有占位符（需要替换而不是添加）
+    if (placeholderRegex.test(workingText)) {
+      // 如果有占位符，说明之前已经有骰子结果，需要替换
+      const originalText = $ta.data('acu-original-dice-text') || '';
+      if (originalText) {
+        // 用原始文本替换占位符，以便后续处理
+        workingText = workingText.replace(placeholderRegex, originalText);
+        existingDice = originalText;
+        existingDiceOriginal = originalText;
+      } else {
+        // 如果没有保存的原始文本，直接移除占位符
+        workingText = workingText.replace(placeholderRegex, '').trim();
+      }
+    }
 
     // 1. 先提取对抗检定结果（优先级更高，格式更长）
     const contestMatches = workingText.match(contestDiceRegex);
     if (contestMatches && contestMatches.length > 0) {
       existingDice = contestMatches[contestMatches.length - 1];
+      existingDiceOriginal = existingDice;
       workingText = workingText.replace(contestDiceRegex, '\u0000').trim();
       console.log('[ACU SmartInsert] Found and extracted contest roll:', existingDice);
     }
@@ -309,6 +343,7 @@
     if (normalMatches && normalMatches.length > 0) {
       // 如果已有对抗检定结果，普通检定会覆盖它；否则取普通检定
       existingDice = normalMatches[normalMatches.length - 1];
+      existingDiceOriginal = existingDice;
       workingText = workingText.replace(normalDiceRegex, '\u0000').trim();
       console.log('[ACU SmartInsert] Found and extracted normal roll:', existingDice);
     }
@@ -329,7 +364,11 @@
 
     // 5. 根据新内容类型，更新对应部分
     if (contentType === 'dice') {
-      existingDice = newContent;
+      // [修复] 保存真实结果，显示占位符（如果配置启用）
+      existingDice = contentToInsert;
+      existingDiceOriginal = newContent;
+      // 始终保存真实结果到 data 属性
+      $ta.data('acu-original-dice-text', newContent);
     } else if (contentType === 'action') {
       existingAction = newContent;
     }
@@ -342,6 +381,69 @@
 
     const finalVal = parts.join(' ');
     $ta.val(finalVal).trigger('input').trigger('change');
+  };
+
+  // [新增] 在发送消息前恢复真实结果
+  const restoreDiceResultBeforeSend = () => {
+    const { $ } = getCore();
+    const $ta = $('#send_textarea');
+    if (!$ta.length) return;
+
+    const currentVal = $ta.val() || '';
+    const originalText = $ta.data('acu-original-dice-text');
+
+    // 如果有占位符且有保存的原始文本，替换为真实结果
+    if (currentVal.includes('[投骰结果已隐藏]') && originalText) {
+      const restoredVal = currentVal.replace(/\[投骰结果已隐藏\]/g, originalText);
+      $ta.val(restoredVal);
+      // 发送后不需要再保存，因为消息已经发送
+      $ta.removeData('acu-original-dice-text');
+    }
+  };
+
+  // [新增] 拦截输入框的 value 属性，确保读取时自动替换占位符
+  const interceptTextareaValue = () => {
+    const { $ } = getCore();
+    const $ta = $('#send_textarea');
+    if (!$ta.length) return;
+
+    const textarea = $ta[0] as HTMLTextAreaElement;
+    if (!textarea || (textarea as any)._acuValueIntercepted) return;
+
+    // 标记已拦截，避免重复拦截
+    (textarea as any)._acuValueIntercepted = true;
+
+    // 保存原始的 value 属性描述符
+    const originalDescriptor = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+    const originalValue = textarea.value;
+
+    // 拦截 value 属性的 getter
+    Object.defineProperty(textarea, 'value', {
+      get: function (this: HTMLTextAreaElement) {
+        // 先获取原始值
+        let val: string;
+        if (originalDescriptor && originalDescriptor.get) {
+          val = originalDescriptor.get.call(this);
+        } else {
+          val = (this as any)._value || originalValue || '';
+        }
+
+        // 检查是否有占位符需要替换
+        const originalText = $(this).data('acu-original-dice-text');
+        if (val && typeof val === 'string' && val.includes('[投骰结果已隐藏]') && originalText) {
+          return val.replace(/\[投骰结果已隐藏\]/g, originalText);
+        }
+        return val;
+      },
+      set: function (this: HTMLTextAreaElement, val: string) {
+        if (originalDescriptor && originalDescriptor.set) {
+          originalDescriptor.set.call(this, val);
+        } else {
+          (this as any)._value = val;
+        }
+      },
+      configurable: true,
+    });
   };
   const STORAGE_KEY_TABLE_ORDER = 'acu_table_order';
   const STORAGE_KEY_ACTION_ORDER = 'acu_action_order';
@@ -2688,10 +2790,148 @@
     dndCritFail: 1,
     // 对抗平手规则: initiator_lose | tie | initiator_win
     contestTieRule: 'initiator_lose',
+    // 仅对user隐藏投骰结果
+    hideDiceResultFromUser: false,
   };
 
   const getDiceConfig = () => Store.get(STORAGE_KEY_DICE_CONFIG, DEFAULT_DICE_CONFIG);
   const saveDiceConfig = cfg => Store.set(STORAGE_KEY_DICE_CONFIG, { ...getDiceConfig(), ...cfg });
+
+  // [新增] 隐藏用户消息中的投骰结果（也处理输入栏）
+  const hideDiceResultsInUserMessages = () => {
+    const diceCfg = getDiceConfig();
+    const shouldHide = diceCfg.hideDiceResultFromUser;
+
+    // 普通检定正则：格式: "角色名发起了【属性名】检定，掷出XX，判定式，【结果】"
+    const normalDiceRegex = /[\u4e00-\u9fa5a-zA-Z<>]+发起了【[^】]+】检定，掷出\d+，[^【]*【[^】]+】/g;
+
+    // 对抗检定正则：格式: "进行了一次【... vs ...】的对抗检定。... (目标...) 掷出 ...，判定为【...】；... (目标...) 掷出 ...，判定为【...】。最终结果：【...】"
+    const contestDiceRegex =
+      /进行了一次【[^】]+ vs [^】]+】的对抗检定。.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】；.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】。最终结果：【[^】]+】/g;
+
+    // [新增] 处理输入栏
+    try {
+      const $ta = $('#send_textarea');
+      if ($ta.length) {
+        let textareaVal = $ta.val() || '';
+        let modifiedText = textareaVal;
+
+        if (shouldHide) {
+          // 隐藏模式：替换为占位符
+          const contestRegex =
+            /进行了一次【[^】]+ vs [^】]+】的对抗检定。.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】；.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】。最终结果：【[^】]+】/g;
+          const normalRegex = /[\u4e00-\u9fa5a-zA-Z<>]+发起了【[^】]+】检定，掷出\d+，[^【]*【[^】]+】/g;
+
+          if (contestRegex.test(modifiedText)) {
+            modifiedText = modifiedText.replace(contestRegex, '[投骰结果已隐藏]');
+          }
+          if (normalRegex.test(modifiedText)) {
+            modifiedText = modifiedText.replace(normalRegex, '[投骰结果已隐藏]');
+          }
+        } else {
+          // 显示模式：如果有保存的原始文本，恢复它
+          const originalText = $ta.data('acu-original-dice-text');
+          if (originalText && textareaVal.includes('[投骰结果已隐藏]')) {
+            // 替换占位符为原始文本
+            modifiedText = textareaVal.replace(/\[投骰结果已隐藏\]/g, originalText);
+            $ta.removeData('acu-original-dice-text');
+          }
+        }
+
+        if (modifiedText !== textareaVal) {
+          $ta.val(modifiedText).trigger('input').trigger('change');
+        }
+      }
+    } catch (e) {
+      console.warn('[ACU] 处理输入栏投骰结果失败:', e);
+    }
+
+    // 处理已存在的消息
+    if (!shouldHide) {
+      // 如果禁用隐藏，需要恢复原始文本（从消息数据重新获取）
+      try {
+        const lastMessageId = getLastMessageId();
+        if (lastMessageId >= 0) {
+          const userMessages = getChatMessages(`0-${lastMessageId}`, { role: 'user' });
+          userMessages.forEach(msg => {
+            try {
+              const $msgElement = retrieveDisplayedMessage(msg.message_id);
+              if (!$msgElement || !$msgElement.length) return;
+
+              const $mesText = $msgElement.find('.mes_text');
+              if (!$mesText || !$mesText.length) return;
+
+              // 如果显示的是占位符，从消息数据恢复原始文本
+              const currentText = $mesText.text();
+              if (currentText.includes('[投骰结果已隐藏]')) {
+                // 从消息数据获取原始文本
+                const originalText = msg.message || '';
+                if (originalText) {
+                  $mesText.text(originalText);
+                }
+              }
+            } catch (e) {
+              console.warn(`[ACU] 恢复第 ${msg.message_id} 楼投骰结果失败:`, e);
+            }
+          });
+        }
+      } catch (e) {
+        console.warn('[ACU] 恢复投骰结果失败:', e);
+      }
+      return;
+    }
+
+    // 隐藏模式：处理已存在的消息
+    try {
+      const lastMessageId = getLastMessageId();
+      if (lastMessageId < 0) return;
+
+      const userMessages = getChatMessages(`0-${lastMessageId}`, { role: 'user' });
+
+      userMessages.forEach(msg => {
+        try {
+          const $msgElement = retrieveDisplayedMessage(msg.message_id);
+          if (!$msgElement || !$msgElement.length) return;
+
+          const $mesText = $msgElement.find('.mes_text');
+          if (!$mesText || !$mesText.length) return;
+
+          // 获取原始文本内容
+          let textContent = $mesText.text();
+          // 如果已经是占位符，跳过
+          if (textContent.includes('[投骰结果已隐藏]')) {
+            return;
+          }
+
+          let modifiedText = textContent;
+
+          // 先处理对抗检定（优先级更高，格式更长）
+          // 每次使用新的正则实例，避免全局正则的 lastIndex 副作用
+          const contestRegex =
+            /进行了一次【[^】]+ vs [^】]+】的对抗检定。.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】；.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】。最终结果：【[^】]+】/g;
+          if (contestRegex.test(modifiedText)) {
+            modifiedText = modifiedText.replace(contestRegex, '[投骰结果已隐藏]');
+          }
+
+          // 再处理普通检定（使用新的正则实例）
+          const normalRegex = /[\u4e00-\u9fa5a-zA-Z<>]+发起了【[^】]+】检定，掷出\d+，[^【]*【[^】]+】/g;
+          if (normalRegex.test(modifiedText)) {
+            modifiedText = modifiedText.replace(normalRegex, '[投骰结果已隐藏]');
+          }
+
+          // 如果有匹配，更新显示内容（只修改文本，保持原有HTML结构）
+          if (modifiedText !== textContent) {
+            // 使用 text() 方法设置纯文本，避免破坏HTML结构
+            $mesText.text(modifiedText);
+          }
+        } catch (e) {
+          console.warn(`[ACU] 隐藏第 ${msg.message_id} 楼投骰结果失败:`, e);
+        }
+      });
+    } catch (e) {
+      console.warn('[ACU] 隐藏投骰结果失败:', e);
+    }
+  };
 
   // ========================================
   // 属性规则预设系统
@@ -3367,6 +3607,30 @@
       placeholderText: '#a09080',
       btnActiveBg: '#8d7b6f',
       btnActiveText: '#fdfaf5',
+      // 检定结果相关
+      failureText: '#e74c3c',
+      failureBg: 'rgba(231, 76, 60, 0.15)',
+      warningText: '#f39c12',
+      warningBg: 'rgba(243, 156, 18, 0.15)',
+      critSuccessText: '#9b59b6',
+      critSuccessBg: 'rgba(155, 89, 182, 0.15)',
+      critFailureText: '#c0392b',
+      critFailureBg: 'rgba(192, 57, 43, 0.15)',
+      extremeSuccessText: '#2980b9',
+      extremeSuccessBg: 'rgba(41, 128, 185, 0.15)',
+      // UI通用颜色
+      overlayBg: 'rgba(0,0,0,0.6)',
+      overlayBgLight: 'rgba(0,0,0,0.5)',
+      shadowBg: 'rgba(0,0,0,0.4)',
+      lightBg: 'rgba(0,0,0,0.1)',
+      veryLightBg: 'rgba(0,0,0,0.02)',
+      buttonText: '#fff',
+      grayBg: 'rgba(128,128,128,0.1)',
+      // 警告/错误相关
+      errorText: '#e74c3c',
+      errorBg: 'rgba(231, 76, 60, 0.15)',
+      errorBorder: 'rgba(231, 76, 60, 0.5)',
+      warningIcon: '#e67e22',
     },
     dark: {
       bgPanel: 'rgba(30, 30, 30, 0.98)',
@@ -3384,6 +3648,30 @@
       placeholderText: '#777',
       btnActiveBg: '#6a5acd',
       btnActiveText: '#fff',
+      // 检定结果相关
+      failureText: '#ff6b6b',
+      failureBg: 'rgba(255, 107, 107, 0.2)',
+      warningText: '#ffa726',
+      warningBg: 'rgba(255, 167, 38, 0.2)',
+      critSuccessText: '#ba68c8',
+      critSuccessBg: 'rgba(186, 104, 200, 0.2)',
+      critFailureText: '#d32f2f',
+      critFailureBg: 'rgba(211, 47, 47, 0.2)',
+      extremeSuccessText: '#42a5f5',
+      extremeSuccessBg: 'rgba(66, 165, 245, 0.2)',
+      // UI通用颜色
+      overlayBg: 'rgba(0,0,0,0.75)',
+      overlayBgLight: 'rgba(0,0,0,0.65)',
+      shadowBg: 'rgba(0,0,0,0.6)',
+      lightBg: 'rgba(255,255,255,0.05)',
+      veryLightBg: 'rgba(255,255,255,0.02)',
+      buttonText: '#fff',
+      grayBg: 'rgba(255,255,255,0.1)',
+      // 警告/错误相关
+      errorText: '#ff6b6b',
+      errorBg: 'rgba(255, 107, 107, 0.2)',
+      errorBorder: 'rgba(255, 107, 107, 0.5)',
+      warningIcon: '#ffa726',
     },
     modern: {
       bgPanel: '#f8f9fa',
@@ -3401,6 +3689,30 @@
       placeholderText: '#999',
       btnActiveBg: '#007bff',
       btnActiveText: '#fff',
+      // 检定结果相关
+      failureText: '#dc3545',
+      failureBg: 'rgba(220, 53, 69, 0.15)',
+      warningText: '#ffc107',
+      warningBg: 'rgba(255, 193, 7, 0.15)',
+      critSuccessText: '#6f42c1',
+      critSuccessBg: 'rgba(111, 66, 193, 0.15)',
+      critFailureText: '#c82333',
+      critFailureBg: 'rgba(200, 35, 51, 0.15)',
+      extremeSuccessText: '#17a2b8',
+      extremeSuccessBg: 'rgba(23, 162, 184, 0.15)',
+      // UI通用颜色
+      overlayBg: 'rgba(0,0,0,0.6)',
+      overlayBgLight: 'rgba(0,0,0,0.5)',
+      shadowBg: 'rgba(0,0,0,0.4)',
+      lightBg: 'rgba(0,0,0,0.1)',
+      veryLightBg: 'rgba(0,0,0,0.02)',
+      buttonText: '#fff',
+      grayBg: 'rgba(128,128,128,0.1)',
+      // 警告/错误相关
+      errorText: '#dc3545',
+      errorBg: 'rgba(220, 53, 69, 0.15)',
+      errorBorder: 'rgba(220, 53, 69, 0.5)',
+      warningIcon: '#fd7e14',
     },
     forest: {
       bgPanel: '#e8f5e9',
@@ -3418,6 +3730,30 @@
       placeholderText: '#81c784',
       btnActiveBg: '#43a047',
       btnActiveText: '#fff',
+      // 检定结果相关
+      failureText: '#c62828',
+      failureBg: 'rgba(198, 40, 40, 0.15)',
+      warningText: '#f57c00',
+      warningBg: 'rgba(245, 124, 0, 0.15)',
+      critSuccessText: '#7b1fa2',
+      critSuccessBg: 'rgba(123, 31, 162, 0.15)',
+      critFailureText: '#b71c1c',
+      critFailureBg: 'rgba(183, 28, 28, 0.15)',
+      extremeSuccessText: '#0277bd',
+      extremeSuccessBg: 'rgba(2, 119, 189, 0.15)',
+      // UI通用颜色
+      overlayBg: 'rgba(0,0,0,0.6)',
+      overlayBgLight: 'rgba(0,0,0,0.5)',
+      shadowBg: 'rgba(0,0,0,0.4)',
+      lightBg: 'rgba(0,0,0,0.1)',
+      veryLightBg: 'rgba(0,0,0,0.02)',
+      buttonText: '#fff',
+      grayBg: 'rgba(128,128,128,0.1)',
+      // 警告/错误相关
+      errorText: '#c62828',
+      errorBg: 'rgba(198, 40, 40, 0.15)',
+      errorBorder: 'rgba(198, 40, 40, 0.5)',
+      warningIcon: '#e67e22',
     },
     ocean: {
       bgPanel: '#e3f2fd',
@@ -3435,6 +3771,30 @@
       placeholderText: '#64b5f6',
       btnActiveBg: '#1976d2',
       btnActiveText: '#fff',
+      // 检定结果相关
+      failureText: '#d32f2f',
+      failureBg: 'rgba(211, 47, 47, 0.15)',
+      warningText: '#f57c00',
+      warningBg: 'rgba(245, 124, 0, 0.15)',
+      critSuccessText: '#7b1fa2',
+      critSuccessBg: 'rgba(123, 31, 162, 0.15)',
+      critFailureText: '#b71c1c',
+      critFailureBg: 'rgba(183, 28, 28, 0.15)',
+      extremeSuccessText: '#0277bd',
+      extremeSuccessBg: 'rgba(2, 119, 189, 0.15)',
+      // UI通用颜色
+      overlayBg: 'rgba(0,0,0,0.6)',
+      overlayBgLight: 'rgba(0,0,0,0.5)',
+      shadowBg: 'rgba(0,0,0,0.4)',
+      lightBg: 'rgba(0,0,0,0.1)',
+      veryLightBg: 'rgba(0,0,0,0.02)',
+      buttonText: '#fff',
+      grayBg: 'rgba(128,128,128,0.1)',
+      // 警告/错误相关
+      errorText: '#d32f2f',
+      errorBg: 'rgba(211, 47, 47, 0.15)',
+      errorBorder: 'rgba(211, 47, 47, 0.5)',
+      warningIcon: '#f57c00',
     },
     cyber: {
       bgPanel: '#0a0a0a',
@@ -3452,6 +3812,35 @@
       placeholderText: '#006655',
       btnActiveBg: '#ff00ff',
       btnActiveText: '#fff',
+      // 检定结果相关
+      failureText: '#ff0066',
+      failureBg: 'rgba(255, 0, 102, 0.2)',
+      warningText: '#ffaa00',
+      warningBg: 'rgba(255, 170, 0, 0.2)',
+      critSuccessText: '#ff00ff',
+      critSuccessBg: 'rgba(255, 0, 255, 0.2)',
+      critFailureText: '#ff0000',
+      critFailureBg: 'rgba(255, 0, 0, 0.2)',
+      extremeSuccessText: '#00ffff',
+      extremeSuccessBg: 'rgba(0, 255, 255, 0.2)',
+      // UI通用颜色
+      overlayBg: 'rgba(0,0,0,0.8)',
+      overlayBgLight: 'rgba(0,0,0,0.7)',
+      shadowBg: 'rgba(0,255,204,0.3)',
+      lightBg: 'rgba(0,255,204,0.05)',
+      veryLightBg: 'rgba(0,255,204,0.02)',
+      buttonText: '#fff',
+      grayBg: 'rgba(0,255,204,0.1)',
+      // 按钮专用颜色（更暗，提高可读性）
+      buttonBg: 'rgba(0, 200, 150, 0.6)',
+      buttonBgActive: 'rgba(0, 180, 130, 0.7)',
+      presetButtonBg: 'rgba(0, 200, 150, 0.3)',
+      presetButtonBgActive: 'rgba(0, 200, 150, 0.6)',
+      // 警告/错误相关
+      errorText: '#ff0066',
+      errorBg: 'rgba(255, 0, 102, 0.2)',
+      errorBorder: 'rgba(255, 0, 102, 0.5)',
+      warningIcon: '#ffaa00',
     },
     nightowl: {
       bgPanel: '#011627',
@@ -3469,10 +3858,230 @@
       placeholderText: '#6a8090',
       btnActiveBg: '#7fdbca',
       btnActiveText: '#011627',
+      // 检定结果相关
+      failureText: '#ff6b6b',
+      failureBg: 'rgba(255, 107, 107, 0.2)',
+      warningText: '#ffa726',
+      warningBg: 'rgba(255, 167, 38, 0.2)',
+      critSuccessText: '#c792ea',
+      critSuccessBg: 'rgba(199, 146, 234, 0.2)',
+      critFailureText: '#ef5350',
+      critFailureBg: 'rgba(239, 83, 80, 0.2)',
+      extremeSuccessText: '#82aaff',
+      extremeSuccessBg: 'rgba(130, 170, 255, 0.2)',
+      // UI通用颜色
+      overlayBg: 'rgba(0,0,0,0.75)',
+      overlayBgLight: 'rgba(0,0,0,0.65)',
+      shadowBg: 'rgba(0,0,0,0.6)',
+      lightBg: 'rgba(255,255,255,0.05)',
+      veryLightBg: 'rgba(255,255,255,0.02)',
+      buttonText: '#fff',
+      grayBg: 'rgba(255,255,255,0.1)',
+      // 按钮专用颜色（更暗，提高可读性）
+      buttonBg: 'rgba(127, 219, 202, 0.4)',
+      buttonBgActive: 'rgba(127, 219, 202, 0.5)',
+      presetButtonBg: 'rgba(127, 219, 202, 0.2)',
+      presetButtonBgActive: 'rgba(127, 219, 202, 0.4)',
+      // 警告/错误相关
+      errorText: '#ff6b6b',
+      errorBg: 'rgba(255, 107, 107, 0.2)',
+      errorBorder: 'rgba(255, 107, 107, 0.5)',
+      warningIcon: '#ffa726',
+    },
+    sakura: {
+      bgPanel: '#fff5f9',
+      border: '#ffd6e8',
+      textMain: '#d81b60',
+      textSub: '#f06292',
+      btnBg: '#ffe0eb',
+      btnHover: '#ffd6e8',
+      accent: '#f06292',
+      tableHead: '#fff0f5',
+      successText: '#d81b60',
+      successBg: 'rgba(216, 27, 96, 0.12)',
+      inputBg: '#fffafc',
+      inputText: '#d81b60',
+      placeholderText: '#ffb3d9',
+      btnActiveBg: '#f06292',
+      btnActiveText: '#fff',
+      // 检定结果相关
+      failureText: '#d32f2f',
+      failureBg: 'rgba(211, 47, 47, 0.12)',
+      warningText: '#f57c00',
+      warningBg: 'rgba(245, 124, 0, 0.12)',
+      critSuccessText: '#7b1fa2',
+      critSuccessBg: 'rgba(123, 31, 162, 0.12)',
+      critFailureText: '#b71c1c',
+      critFailureBg: 'rgba(183, 28, 28, 0.12)',
+      extremeSuccessText: '#c2185b',
+      extremeSuccessBg: 'rgba(194, 24, 91, 0.12)',
+      // UI通用颜色
+      overlayBg: 'rgba(0,0,0,0.6)',
+      overlayBgLight: 'rgba(0,0,0,0.5)',
+      shadowBg: 'rgba(0,0,0,0.4)',
+      lightBg: 'rgba(240, 98, 146, 0.08)',
+      veryLightBg: 'rgba(240, 98, 146, 0.02)',
+      buttonText: '#fff',
+      grayBg: 'rgba(240, 98, 146, 0.08)',
+      // 按钮专用颜色（更暗，提高可读性）
+      buttonBg: 'rgba(240, 98, 146, 0.5)',
+      buttonBgActive: 'rgba(240, 98, 146, 0.6)',
+      presetButtonBg: 'rgba(240, 98, 146, 0.25)',
+      presetButtonBgActive: 'rgba(240, 98, 146, 0.5)',
+      // 警告/错误相关
+      errorText: '#d32f2f',
+      errorBg: 'rgba(211, 47, 47, 0.12)',
+      errorBorder: 'rgba(211, 47, 47, 0.5)',
+      warningIcon: '#f57c00',
+    },
+    minepink: {
+      bgPanel: '#1a1a1a',
+      border: '#333333',
+      textMain: '#ffb3d9',
+      textSub: '#ff80c1',
+      btnBg: '#2a2a2a',
+      btnHover: '#3a3a3a',
+      accent: '#ff80c1',
+      tableHead: '#252525',
+      successText: '#ff80c1',
+      successBg: 'rgba(255, 128, 193, 0.2)',
+      inputBg: '#222222',
+      inputText: '#ffb3d9',
+      placeholderText: '#666666',
+      btnActiveBg: '#ff80c1',
+      btnActiveText: '#1a1a1a',
+      // 检定结果相关
+      failureText: '#ff6b6b',
+      failureBg: 'rgba(255, 107, 107, 0.2)',
+      warningText: '#ffa726',
+      warningBg: 'rgba(255, 167, 38, 0.2)',
+      critSuccessText: '#ff80c1',
+      critSuccessBg: 'rgba(255, 128, 193, 0.2)',
+      critFailureText: '#ff4444',
+      critFailureBg: 'rgba(255, 68, 68, 0.2)',
+      extremeSuccessText: '#ffb3d9',
+      extremeSuccessBg: 'rgba(255, 179, 217, 0.2)',
+      // UI通用颜色
+      overlayBg: 'rgba(0,0,0,0.8)',
+      overlayBgLight: 'rgba(0,0,0,0.7)',
+      shadowBg: 'rgba(0,0,0,0.6)',
+      lightBg: 'rgba(255, 128, 193, 0.1)',
+      veryLightBg: 'rgba(255, 128, 193, 0.02)',
+      buttonText: '#1a1a1a',
+      grayBg: 'rgba(255, 128, 193, 0.1)',
+      // 按钮专用颜色（更暗，提高可读性）
+      buttonBg: 'rgba(255, 128, 193, 0.4)',
+      buttonBgActive: 'rgba(255, 128, 193, 0.5)',
+      presetButtonBg: 'rgba(255, 128, 193, 0.2)',
+      presetButtonBgActive: 'rgba(255, 128, 193, 0.4)',
+      // 警告/错误相关
+      errorText: '#ff6b6b',
+      errorBg: 'rgba(255, 107, 107, 0.2)',
+      errorBorder: 'rgba(255, 107, 107, 0.5)',
+      warningIcon: '#ffa726',
+    },
+    purple: {
+      bgPanel: '#f3e5f5',
+      border: '#ce93d8',
+      textMain: '#6a1b9a',
+      textSub: '#9c27b0',
+      btnBg: '#e1bee7',
+      btnHover: '#ce93d8',
+      accent: '#9c27b0',
+      tableHead: '#f8e1f5',
+      successText: '#6a1b9a',
+      successBg: 'rgba(106, 27, 154, 0.15)',
+      inputBg: '#fce4ec',
+      inputText: '#6a1b9a',
+      placeholderText: '#ba68c8',
+      btnActiveBg: '#9c27b0',
+      btnActiveText: '#fff',
+      // 检定结果相关
+      failureText: '#d32f2f',
+      failureBg: 'rgba(211, 47, 47, 0.15)',
+      warningText: '#f57c00',
+      warningBg: 'rgba(245, 124, 0, 0.15)',
+      critSuccessText: '#7b1fa2',
+      critSuccessBg: 'rgba(123, 31, 162, 0.15)',
+      critFailureText: '#b71c1c',
+      critFailureBg: 'rgba(183, 28, 28, 0.15)',
+      extremeSuccessText: '#6a1b9a',
+      extremeSuccessBg: 'rgba(106, 27, 154, 0.15)',
+      // UI通用颜色
+      overlayBg: 'rgba(0,0,0,0.6)',
+      overlayBgLight: 'rgba(0,0,0,0.5)',
+      shadowBg: 'rgba(0,0,0,0.4)',
+      lightBg: 'rgba(156, 39, 176, 0.1)',
+      veryLightBg: 'rgba(156, 39, 176, 0.02)',
+      buttonText: '#fff',
+      grayBg: 'rgba(156, 39, 176, 0.1)',
+      // 按钮专用颜色（更暗，提高可读性）
+      buttonBg: 'rgba(156, 39, 176, 0.6)',
+      buttonBgActive: 'rgba(156, 39, 176, 0.7)',
+      presetButtonBg: 'rgba(156, 39, 176, 0.3)',
+      presetButtonBgActive: 'rgba(156, 39, 176, 0.6)',
+      // 警告/错误相关
+      errorText: '#d32f2f',
+      errorBg: 'rgba(211, 47, 47, 0.15)',
+      errorBorder: 'rgba(211, 47, 47, 0.5)',
+      warningIcon: '#f57c00',
     },
   };
-  const getThemeColors = () => THEME_COLORS[getConfig().theme] || THEME_COLORS['retro'];
+  const getThemeColors = () => {
+    const theme = THEME_COLORS[getConfig().theme] || THEME_COLORS['retro'];
+    // 为没有定义按钮专用颜色的主题提供默认值
+    if (!theme.buttonBg) {
+      theme.buttonBg = theme.accent;
+      theme.buttonBgActive = theme.accent;
+      theme.presetButtonBg = theme.btnBg;
+      theme.presetButtonBgActive = theme.accent;
+    }
+    return theme;
+  };
   const getGMConfig = () => Store.get(STORAGE_KEY_GM_CONFIG, DEFAULT_GM_CONFIG);
+
+  // 统一的结果标签样式生成函数（融入主题，保证对比度）
+  const getResultBadgeStyle = (resultType, t) => {
+    // resultType: 'critSuccess' | 'extremeSuccess' | 'success' | 'warning' | 'failure' | 'critFailure'
+    const styles = {
+      critSuccess: {
+        bg: t.critSuccessText,
+        text: '#fff',
+      },
+      extremeSuccess: {
+        bg: t.extremeSuccessText,
+        text: '#fff',
+      },
+      success: {
+        bg: t.successText,
+        text: '#fff',
+      },
+      warning: {
+        bg: t.warningText,
+        text: '#fff',
+      },
+      failure: {
+        bg: t.failureText,
+        text: '#fff',
+      },
+      critFailure: {
+        bg: t.critFailureText,
+        text: '#fff',
+      },
+    };
+    const style = styles[resultType] || styles.failure;
+    return {
+      'background-color': style.bg,
+      color: style.text,
+      padding: '3px 8px',
+      'border-radius': '6px',
+      'font-size': '11px',
+      'font-weight': 'bold',
+      'white-space': 'nowrap',
+      display: 'inline-flex',
+      'align-items': 'center',
+    };
+  };
 
   const getActionsForTable = tableName => {
     const config = getGMConfig();
@@ -3800,6 +4409,9 @@
     { id: 'ocean', name: '深海幽蓝 (Ocean)', icon: 'fa-water' },
     { id: 'cyber', name: '赛博霓虹 (Cyber)', icon: 'fa-bolt' },
     { id: 'nightowl', name: '深蓝磨砂 (Night Owl)', icon: 'fa-feather' },
+    { id: 'sakura', name: '樱花粉彩 (Sakura)', icon: 'fa-heart' },
+    { id: 'minepink', name: '地雷量产 (Mine Pink)', icon: 'fa-skull' },
+    { id: 'purple', name: '紫罗兰梦 (Purple)', icon: 'fa-gem' },
   ];
 
   // [优化] 缓存 core 对象 (修复竞态条件 + 增强 ST 穿透查找)
@@ -5119,6 +5731,8 @@
         : '';
 
     const tieRule = diceCfg.contestTieRule || 'initiator_lose';
+    const hideDiceResultFromUser =
+      diceCfg.hideDiceResultFromUser !== undefined ? diceCfg.hideDiceResultFromUser : false;
 
     const cocExtraHtml = isDND
       ? ''
@@ -5126,11 +5740,19 @@
             <div class="acu-dice-cfg-row">
                 <div class="acu-dice-cfg-item">
                     <label>困难 (÷)</label>
-                    <input type="number" id="cfg-hard-div" value="${currentHardDiv}" placeholder="${defaults.hardDiv}" min="2" max="5">
+                    <div class="acu-stepper" data-id="cfg-hard-div" data-min="2" data-max="5" data-step="1">
+                        <button class="acu-stepper-btn acu-stepper-dec"><i class="fa-solid fa-minus"></i></button>
+                        <span class="acu-stepper-value">${currentHardDiv || defaults.hardDiv}</span>
+                        <button class="acu-stepper-btn acu-stepper-inc"><i class="fa-solid fa-plus"></i></button>
+                    </div>
                 </div>
                 <div class="acu-dice-cfg-item">
                     <label>极难 (÷)</label>
-                    <input type="number" id="cfg-extreme-div" value="${currentExtremeDiv}" placeholder="${defaults.extremeDiv}" min="3" max="10">
+                    <div class="acu-stepper" data-id="cfg-extreme-div" data-min="3" data-max="10" data-step="1">
+                        <button class="acu-stepper-btn acu-stepper-dec"><i class="fa-solid fa-minus"></i></button>
+                        <span class="acu-stepper-value">${currentExtremeDiv || defaults.extremeDiv}</span>
+                        <button class="acu-stepper-btn acu-stepper-inc"><i class="fa-solid fa-plus"></i></button>
+                    </div>
                 </div>
             </div>
         `;
@@ -5146,11 +5768,19 @@
                         <div class="acu-dice-cfg-row">
                             <div class="acu-dice-cfg-item">
                                 <label>大成功阈值</label>
-                                <input type="number" id="cfg-crit-success" value="${currentCritSuccess}" placeholder="${defaults.critSuccess}" min="1" max="100">
+                                <div class="acu-stepper" data-id="cfg-crit-success" data-min="1" data-max="100" data-step="1">
+                                    <button class="acu-stepper-btn acu-stepper-dec"><i class="fa-solid fa-minus"></i></button>
+                                    <span class="acu-stepper-value">${currentCritSuccess || defaults.critSuccess}</span>
+                                    <button class="acu-stepper-btn acu-stepper-inc"><i class="fa-solid fa-plus"></i></button>
+                                </div>
                             </div>
                             <div class="acu-dice-cfg-item">
                                 <label>大失败阈值</label>
-                                <input type="number" id="cfg-crit-fail" value="${currentCritFail}" placeholder="${defaults.critFail}" min="1" max="100">
+                                <div class="acu-stepper" data-id="cfg-crit-fail" data-min="1" data-max="100" data-step="1">
+                                    <button class="acu-stepper-btn acu-stepper-dec"><i class="fa-solid fa-minus"></i></button>
+                                    <span class="acu-stepper-value">${currentCritFail || defaults.critFail}</span>
+                                    <button class="acu-stepper-btn acu-stepper-inc"><i class="fa-solid fa-plus"></i></button>
+                                </div>
                             </div>
                         </div>
                         ${cocExtraHtml}
@@ -5164,9 +5794,18 @@
                                 </select>
                             </div>
                         </div>
+                        <div class="acu-dice-cfg-row acu-cfg-full-row">
+                            <div class="acu-dice-cfg-item acu-cfg-toggle-item">
+                                <label>仅对user隐藏投骰结果</label>
+                                <label class="acu-toggle">
+                                    <input type="checkbox" id="cfg-hide-dice-result" ${hideDiceResultFromUser ? 'checked' : ''}>
+                                    <span class="acu-toggle-slider"></span>
+                                </label>
+                            </div>
+                        </div>
                         <div class="acu-dice-cfg-actions">
                             <button id="cfg-reset-dice">${resetText}</button>
-                            <button id="cfg-save-dice" class="primary"><i class="fa-solid fa-check"></i> 保存</button>
+                            <button id="cfg-save-dice" class="primary">保存</button>
                         </div>
                     </div>
                 </div>
@@ -5199,37 +5838,86 @@
       if ($(e.target).hasClass('acu-dice-config-overlay')) closePanel();
     });
 
+    // === Stepper 步进器事件 ===
+    $panel.find('.acu-stepper').each(function () {
+      const $stepper = $(this);
+      const id = $stepper.data('id');
+      const min = parseInt($stepper.data('min'));
+      const max = parseInt($stepper.data('max'));
+      const step = parseInt($stepper.data('step'));
+      const $value = $stepper.find('.acu-stepper-value');
+
+      const updateValue = newVal => {
+        newVal = Math.max(min, Math.min(max, newVal));
+        $value.text(newVal);
+      };
+
+      const getCurrentValue = () => {
+        const text = $value.text().replace(/[^\d]/g, '');
+        return parseInt(text) || min;
+      };
+
+      $stepper.find('.acu-stepper-dec').on('click', function () {
+        updateValue(getCurrentValue() - step);
+      });
+
+      $stepper.find('.acu-stepper-inc').on('click', function () {
+        updateValue(getCurrentValue() + step);
+      });
+    });
+
     $panel.find('#cfg-save-dice').click(function () {
       const newCfg = { contestTieRule: $('#cfg-tie-rule').val() };
 
-      // 读取值，空则用默认值
-      const critSuccessVal = $('#cfg-crit-success').val().trim();
-      const critFailVal = $('#cfg-crit-fail').val().trim();
+      // 从stepper读取值
+      const getStepperValue = id => {
+        const $stepper = $panel.find(`.acu-stepper[data-id="${id}"]`);
+        if ($stepper.length) {
+          const text = $stepper.find('.acu-stepper-value').text().replace(/[^\d]/g, '');
+          return text !== '' ? parseInt(text, 10) : null;
+        }
+        return null;
+      };
+
+      const critSuccessVal = getStepperValue('cfg-crit-success');
+      const critFailVal = getStepperValue('cfg-crit-fail');
 
       if (isDND) {
-        newCfg.dndCritSuccess = critSuccessVal !== '' ? parseInt(critSuccessVal, 10) : defaults.critSuccess;
-        newCfg.dndCritFail = critFailVal !== '' ? parseInt(critFailVal, 10) : defaults.critFail;
+        newCfg.dndCritSuccess = critSuccessVal !== null ? critSuccessVal : defaults.critSuccess;
+        newCfg.dndCritFail = critFailVal !== null ? critFailVal : defaults.critFail;
       } else {
-        newCfg.critSuccessMax = critSuccessVal !== '' ? parseInt(critSuccessVal, 10) : defaults.critSuccess;
-        newCfg.critFailMin = critFailVal !== '' ? parseInt(critFailVal, 10) : defaults.critFail;
+        newCfg.critSuccessMax = critSuccessVal !== null ? critSuccessVal : defaults.critSuccess;
+        newCfg.critFailMin = critFailVal !== null ? critFailVal : defaults.critFail;
 
-        const hardDivVal = $('#cfg-hard-div').val().trim();
-        const extremeDivVal = $('#cfg-extreme-div').val().trim();
-        newCfg.difficultSuccessDiv = hardDivVal !== '' ? parseInt(hardDivVal, 10) : defaults.hardDiv;
-        newCfg.hardSuccessDiv = extremeDivVal !== '' ? parseInt(extremeDivVal, 10) : defaults.extremeDiv;
+        const hardDivVal = getStepperValue('cfg-hard-div');
+        const extremeDivVal = getStepperValue('cfg-extreme-div');
+        newCfg.difficultSuccessDiv = hardDivVal !== null ? hardDivVal : defaults.hardDiv;
+        newCfg.hardSuccessDiv = extremeDivVal !== null ? extremeDivVal : defaults.extremeDiv;
       }
 
+      // 保存"仅对user隐藏投骰结果"设置
+      newCfg.hideDiceResultFromUser = $('#cfg-hide-dice-result').is(':checked');
+
       saveDiceConfig(newCfg);
+      // 保存后立即应用隐藏逻辑
+      hideDiceResultsInUserMessages();
       closePanel();
     });
 
     $panel.find('#cfg-reset-dice').click(function () {
-      // 重置后清空输入框，让 placeholder 显示默认值
-      $panel.find('#cfg-crit-success').val('');
-      $panel.find('#cfg-crit-fail').val('');
+      // 重置stepper到默认值
+      const resetStepper = (id, defaultValue) => {
+        const $stepper = $panel.find(`.acu-stepper[data-id="${id}"]`);
+        if ($stepper.length) {
+          $stepper.find('.acu-stepper-value').text(defaultValue);
+        }
+      };
+
+      resetStepper('cfg-crit-success', defaults.critSuccess);
+      resetStepper('cfg-crit-fail', defaults.critFail);
       if (!isDND) {
-        $panel.find('#cfg-hard-div').val('');
-        $panel.find('#cfg-extreme-div').val('');
+        resetStepper('cfg-hard-div', defaults.hardDiv);
+        resetStepper('cfg-extreme-div', defaults.extremeDiv);
       }
     });
   };
@@ -5289,7 +5977,7 @@
     const t = getThemeColors();
 
     const overlay = $(
-      `<div class="acu-dice-overlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:2147483647;"></div>`,
+      `<div class="acu-dice-overlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:${t.overlayBgLight};z-index:2147483647;"></div>`,
     );
 
     // [精简] 成功标准选项：只保留 COC 和 DND
@@ -5314,7 +6002,7 @@
                 background: ${t.bgPanel};
                 border: 1px solid ${t.border};
                 border-radius: 12px;
-                box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+                box-shadow: 0 20px 60px ${t.shadowBg};
                 z-index: 2147483648;
                 overflow: hidden;
                 font-family: 'Microsoft YaHei', sans-serif;
@@ -5335,9 +6023,9 @@
                 </div>
                 <div style="padding: 15px; max-height: 70vh; overflow-y: auto;">
                     <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; align-items: center;" class="acu-dice-presets">
-                        <button class="acu-dice-preset ${diceType === '1d20' ? 'active' : ''}" data-dice="1d20" data-criteria="gte" style="padding: 4px 10px; background: ${diceType === '1d20' ? t.accent : t.btnBg}; border: 1px solid ${t.border}; border-radius: 4px; color: ${diceType === '1d20' ? '#fff' : t.textMain}; font-size: 11px; cursor: pointer;">1d20</button>
-                        <button class="acu-dice-preset ${diceType === '1d100' ? 'active' : ''}" data-dice="1d100" data-criteria="lte" style="padding: 4px 10px; background: ${diceType === '1d100' ? t.accent : t.btnBg}; border: 1px solid ${t.border}; border-radius: 4px; color: ${diceType === '1d100' ? '#fff' : t.textMain}; font-size: 11px; cursor: pointer;">1d100</button>
-                        <button class="acu-dice-preset acu-dice-custom-btn" data-dice="custom" style="padding: 4px 10px; background: ${!['1d20', '1d100'].includes(diceType) ? t.accent : t.btnBg}; border: 1px solid ${t.border}; border-radius: 4px; color: ${!['1d20', '1d100'].includes(diceType) ? '#fff' : t.textMain}; font-size: 11px; cursor: pointer;">自定义</button>
+                        <button class="acu-dice-preset ${diceType === '1d20' ? 'active' : ''}" data-dice="1d20" data-criteria="gte" style="padding: 4px 10px; background: ${diceType === '1d20' ? t.presetButtonBgActive || t.accent : t.presetButtonBg || t.btnBg}; border: 1px solid ${t.border}; border-radius: 4px; color: ${diceType === '1d20' ? '#fff' : t.textMain}; font-size: 11px; cursor: pointer;">1d20</button>
+                        <button class="acu-dice-preset ${diceType === '1d100' ? 'active' : ''}" data-dice="1d100" data-criteria="lte" style="padding: 4px 10px; background: ${diceType === '1d100' ? t.presetButtonBgActive || t.accent : t.presetButtonBg || t.btnBg}; border: 1px solid ${t.border}; border-radius: 4px; color: ${diceType === '1d100' ? '#fff' : t.textMain}; font-size: 11px; cursor: pointer;">1d100</button>
+                        <button class="acu-dice-preset acu-dice-custom-btn" data-dice="custom" style="padding: 4px 10px; background: ${!['1d20', '1d100'].includes(diceType) ? t.presetButtonBgActive || t.accent : t.presetButtonBg || t.btnBg}; border: 1px solid ${t.border}; border-radius: 4px; color: ${!['1d20', '1d100'].includes(diceType) ? '#fff' : t.textMain}; font-size: 11px; cursor: pointer;">自定义</button>
                         <input type="text" id="dice-custom-input" placeholder="如2d6" value="${!['1d20', '1d100'].includes(diceType) ? diceType : ''}" style="width:60px;">
                     </div>
 
@@ -5412,10 +6100,9 @@
                     <!-- 隐藏的骰子公式 -->
                     <input type="hidden" id="dice-formula" value="${diceType}">
 
-                    <button id="dice-roll-btn" style="width: 100%; padding: 12px; background: ${t.accent}; border: none; border-radius: 8px; color: #fff; font-size: 15px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                    <button id="dice-roll-btn" style="width: 100%; padding: 12px; background: ${t.buttonBg || t.accent}; border: none; border-radius: 8px; color: ${t.buttonText}; font-size: 15px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; position: relative;">
                         <i class="fa-solid fa-dice"></i> 掷骰！
                     </button>
-                    <div id="dice-result-area"></div>
                 </div>
             </div>
         `);
@@ -5457,7 +6144,7 @@
       html += `<button class="acu-dice-gen-attr-btn" style="padding:3px 8px;background:transparent;border:1px dashed ${t.accent};border-radius:4px;color:${t.accent};font-size:11px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;" title="为当前角色生成属性"><i class="fa-solid fa-dice"></i></button>`;
 
       // 清空属性按钮
-      html += `<button class="acu-dice-clear-attr-btn" style="padding:3px 8px;background:transparent;border:1px dashed #e74c3c;border-radius:4px;color:#e74c3c;font-size:11px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;margin-left:4px;" title="清空当前规则的属性（保留自定义属性）"><i class="fa-solid fa-trash-alt"></i></button>`;
+      html += `<button class="acu-dice-clear-attr-btn" style="padding:3px 8px;background:transparent;border:1px dashed ${t.errorText};border-radius:4px;color:${t.errorText};font-size:11px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;margin-left:4px;" title="清空当前规则的属性（保留自定义属性）"><i class="fa-solid fa-trash-alt"></i></button>`;
 
       $container.html(html);
 
@@ -5681,8 +6368,8 @@
       // 自定义按钮有单独的处理逻辑，这里跳过
       if (newDice === 'custom') return;
 
-      panel.find('.acu-dice-preset').css({ background: t.btnBg, color: t.textMain });
-      $(this).css({ background: t.accent, color: '#fff' });
+      panel.find('.acu-dice-preset').css({ background: t.presetButtonBg || t.btnBg, color: t.textMain });
+      $(this).css({ background: t.presetButtonBgActive || t.accent, color: t.buttonText });
 
       // 保存本次选择的骰子类型
       saveDiceConfig({ lastDiceType: newDice });
@@ -5714,8 +6401,8 @@
     // 自定义骰子按钮点击事件
     panel.find('.acu-dice-custom-btn').click(function () {
       // 立即高亮自定义按钮，取消其他按钮高亮
-      panel.find('.acu-dice-preset').css({ background: t.btnBg, color: t.textMain });
-      $(this).css({ background: t.accent, color: '#fff' });
+      panel.find('.acu-dice-preset').css({ background: t.presetButtonBg || t.btnBg, color: t.textMain });
+      $(this).css({ background: t.presetButtonBgActive || t.accent, color: t.buttonText });
 
       const customDice = panel.find('#dice-custom-input').val().trim();
       // 如果输入框为空，聚焦并等待用户输入
@@ -5808,8 +6495,8 @@
       }
     };
 
-    // 掷骰按钮点击
-    panel.find('#dice-roll-btn').click(function () {
+    // 投骰逻辑函数（可被按钮点击和重投按钮调用）
+    const performDiceRoll = function () {
       const formula = panel.find('#dice-formula').val().trim() || '1d100';
       const mod = parseInt(panel.find('#dice-modifier').val(), 10) || 0;
       const attrName = panel.find('#dice-attr-name').val().trim() || '自由检定';
@@ -5958,20 +6645,55 @@
         outcomeClass = 'failure';
       }
 
-      const successColor = t.successText;
-      const failureColor = '#e74c3c';
       const criteriaSymbol = isDND ? '≥' : '≤';
+      const hideDiceResultFromUser =
+        diceCfg.hideDiceResultFromUser !== undefined ? diceCfg.hideDiceResultFromUser : false;
+      const displayValue = hideDiceResultFromUser ? '？？' : finalValue;
+      const displayOutcomeText = hideDiceResultFromUser ? '' : outcomeText;
 
-      // 显示结果区域
-      panel.find('#dice-result-area').html(`
-                <div style="display:flex; align-items:center; justify-content:space-between; padding:8px 12px; background:${t.tableHead}; border-radius:6px; margin-top:8px; gap:8px;">
-                    <div style="display:flex; align-items:center; gap:8px;">
-                        <span style="font-size:22px; font-weight:bold; color:${t.accent};">${finalValue}</span>
-                        <span style="font-size:11px; color:${t.textSub};">${criteriaSymbol}${requiredTarget}${difficultyLabel ? '(' + difficultyLabel + ')' : ''}</span>
-                    </div>
-                    <span style="padding:4px 12px; border-radius:12px; font-size:12px; font-weight:bold; white-space:nowrap; background:${outcomeClass === 'success' ? t.successBg : 'rgba(231, 76, 60, 0.15)'}; color:${outcomeClass === 'success' ? successColor : failureColor};">${outcomeText}</span>
-                </div>
-            `);
+      // 确定结果类型和样式
+      let resultType;
+      if (isCritSuccess) {
+        resultType = 'critSuccess';
+      } else if (isCritFailure) {
+        resultType = 'critFailure';
+      } else if (isSuccess) {
+        if (difficulty === 'extreme' || (difficulty === 'normal' && finalValue <= Math.floor(target / extremeDiv))) {
+          resultType = 'extremeSuccess';
+        } else if (difficulty === 'hard' || (difficulty === 'normal' && finalValue <= Math.floor(target / hardDiv))) {
+          resultType = 'success';
+        } else {
+          resultType = 'warning';
+        }
+      } else {
+        resultType = 'failure';
+      }
+
+      const badgeStyle = getResultBadgeStyle(resultType, t);
+      const badgeStyleStr = Object.entries(badgeStyle)
+        .map(([k, v]) => `${k}:${v}`)
+        .join(';');
+
+      // 将按钮内容替换为结果显示（居中布局，旋转箭头在结果后面）
+      const $rollBtn = panel.find('#dice-roll-btn');
+      $rollBtn.html(`
+        <div style="display:flex; align-items:center; justify-content:center; width:100%; gap:8px;">
+          <span style="font-size:22px; font-weight:bold; color:${t.buttonText};">${displayValue}</span>
+          <span style="font-size:11px; color:${t.buttonText}; opacity:0.9;">${criteriaSymbol}${requiredTarget}${difficultyLabel ? '(' + difficultyLabel + ')' : ''}</span>
+          ${displayOutcomeText ? `<span style="${badgeStyleStr}">${displayOutcomeText}</span>` : ''}
+          <button class="dice-retry-btn" style="background:transparent; border:none; color:${t.buttonText}; cursor:pointer; padding:4px; display:flex; align-items:center; justify-content:center; opacity:0.8; transition:opacity 0.2s;" title="重新投骰">
+            <i class="fa-solid fa-rotate-right"></i>
+          </button>
+        </div>
+      `);
+
+      // 绑定重投按钮点击事件（使用事件委托，因为按钮内容会动态更新）
+      $rollBtn.off('click', '.dice-retry-btn').on('click', '.dice-retry-btn', function (e) {
+        e.stopPropagation();
+        e.preventDefault();
+        // 直接调用投骰逻辑函数
+        performDiceRoll();
+      });
 
       // 生成 Prompt 文本
       const initiatorName = panel.find('#dice-initiator-name').val().trim() || '<user>';
@@ -6037,6 +6759,11 @@
           formula: formulaText,
         });
       }
+    };
+
+    // 绑定按钮点击事件
+    panel.find('#dice-roll-btn').click(function () {
+      performDiceRoll();
     });
 
     // 切换到对抗检定（标题栏图标）
@@ -6153,6 +6880,8 @@
     }
 
     const t = getThemeColors();
+    const isCyberTheme = getConfig().theme === 'cyber';
+    const inputTextColor = isCyberTheme ? '#ff00ff' : t.inputText;
 
     const buildAttrButtons = (attrs, targetType) => {
       if (attrs.length === 0)
@@ -6183,14 +6912,18 @@
     };
 
     const overlay = $(
-      '<div class="acu-contest-overlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:2147483647;"></div>',
+      '<div class="acu-contest-overlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:' +
+        t.overlayBg +
+        ';z-index:2147483647;"></div>',
     );
     const panelHtml =
       '<div class="acu-contest-panel" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:360px;max-width:92vw;background:' +
       t.bgPanel +
       ';border:1px solid ' +
       t.border +
-      ';border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.4);z-index:2147483648;font-family:Microsoft YaHei,sans-serif;overflow:hidden;">' +
+      ';border-radius:12px;box-shadow:0 20px 60px ' +
+      t.shadowBg +
+      ';z-index:2147483648;font-family:Microsoft YaHei,sans-serif;overflow:hidden;">' +
       '<div style="padding:12px 15px;background:' +
       t.tableHead +
       ';border-bottom:1px solid ' +
@@ -6216,7 +6949,7 @@
       '<button class="acu-contest-preset' +
       (diceType === '1d20' ? ' active' : '') +
       '" data-dice="1d20" style="padding:4px 10px;background:' +
-      (diceType === '1d20' ? t.accent : t.btnBg) +
+      (diceType === '1d20' ? t.presetButtonBgActive || t.accent : t.presetButtonBg || t.btnBg) +
       ';border:1px solid ' +
       t.border +
       ';border-radius:4px;color:' +
@@ -6225,14 +6958,14 @@
       '<button class="acu-contest-preset' +
       (diceType === '1d100' ? ' active' : '') +
       '" data-dice="1d100" style="padding:4px 10px;background:' +
-      (diceType === '1d100' ? t.accent : t.btnBg) +
+      (diceType === '1d100' ? t.presetButtonBgActive || t.accent : t.presetButtonBg || t.btnBg) +
       ';border:1px solid ' +
       t.border +
       ';border-radius:4px;color:' +
       (diceType === '1d100' ? '#fff' : t.textMain) +
       ';font-size:11px;cursor:pointer;">1d100</button>' +
       '<button class="acu-contest-preset acu-contest-custom-btn" data-dice="custom" style="padding:4px 10px;background:' +
-      (!['1d20', '1d100'].includes(diceType) ? t.accent : t.btnBg) +
+      (!['1d20', '1d100'].includes(diceType) ? t.presetButtonBgActive || t.accent : t.presetButtonBg || t.btnBg) +
       ';border:1px solid ' +
       t.border +
       ';border-radius:4px;color:' +
@@ -6245,7 +6978,7 @@
       ' !important;border:1px solid ' +
       t.border +
       ';border-radius:4px;color:' +
-      t.inputText +
+      inputTextColor +
       ' !important;font-size:11px;text-align:center;box-sizing:border-box;" />' +
       '</div>' +
       '<input type="hidden" id="contest-dice-type" value="' +
@@ -6262,7 +6995,7 @@
       ' !important;border:1px solid ' +
       t.border +
       ';border-radius:4px;color:' +
-      t.inputText +
+      inputTextColor +
       ' !important;font-size:12px;text-align:center;box-sizing:border-box;"></div>' +
       '<div><div style="font-size:10px;color:' +
       t.textSub +
@@ -6275,7 +7008,7 @@
       ' !important;border:1px solid ' +
       t.border +
       ';border-radius:4px;color:' +
-      t.inputText +
+      inputTextColor +
       ' !important;font-size:12px;text-align:center;box-sizing:border-box;"></div>' +
       '</div>' +
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">' +
@@ -6288,7 +7021,7 @@
       ' !important;border:1px solid ' +
       t.border +
       ';border-radius:4px;color:' +
-      t.inputText +
+      inputTextColor +
       ' !important;font-size:12px;text-align:center;box-sizing:border-box;"></div>' +
       '<div><div style="font-size:10px;color:' +
       t.textSub +
@@ -6297,7 +7030,7 @@
       ' !important;border:1px solid ' +
       t.border +
       ';border-radius:4px;color:' +
-      t.inputText +
+      inputTextColor +
       ' !important;font-size:12px;text-align:center;box-sizing:border-box;"></div>' +
       '</div>' +
       '<div id="init-attr-buttons" style="display:flex;flex-wrap:wrap;gap:2px;margin-bottom:8px;max-height:50px;overflow-y:auto;">' +
@@ -6316,7 +7049,7 @@
       ' !important;border:1px solid ' +
       t.border +
       ';border-radius:4px;color:' +
-      t.inputText +
+      inputTextColor +
       ' !important;font-size:12px;text-align:center;box-sizing:border-box;"></div>' +
       '<div><div style="font-size:10px;color:' +
       t.textSub +
@@ -6329,7 +7062,7 @@
       ' !important;border:1px solid ' +
       t.border +
       ';border-radius:4px;color:' +
-      t.inputText +
+      inputTextColor +
       ' !important;font-size:12px;text-align:center;box-sizing:border-box;"></div>' +
       '</div>' +
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">' +
@@ -6342,7 +7075,7 @@
       ' !important;border:1px solid ' +
       t.border +
       ';border-radius:4px;color:' +
-      t.inputText +
+      inputTextColor +
       ' !important;font-size:12px;text-align:center;box-sizing:border-box;"></div>' +
       '<div><div style="font-size:10px;color:' +
       t.textSub +
@@ -6351,16 +7084,30 @@
       ' !important;border:1px solid ' +
       t.border +
       ';border-radius:4px;color:' +
-      t.inputText +
+      inputTextColor +
       ' !important;font-size:12px;text-align:center;box-sizing:border-box;"></div>' +
       '</div>' +
       '<div id="opp-attr-buttons" style="display:flex;flex-wrap:wrap;gap:2px;margin-bottom:10px;max-height:50px;overflow-y:auto;">' +
       buildAttrButtons(opponentAttrs, 'opp') +
       '</div>' +
+      '<div id="contest-result-display" style="display:none;margin-bottom:10px;padding:8px;background:' +
+      t.inputBg +
+      ';border:1px solid ' +
+      t.border +
+      ';border-radius:6px;">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;width:100%;">' +
+      '<div id="contest-result-init" style="display:flex;align-items:center;gap:4px;min-width:0;flex:1;"></div>' +
+      '<span style="color:' +
+      t.textSub +
+      ';opacity:0.9;font-size:11px;font-weight:bold;white-space:nowrap;">VS</span>' +
+      '<div id="contest-result-opp" style="display:flex;align-items:center;gap:4px;min-width:0;flex:1;justify-content:flex-end;"></div>' +
+      '</div>' +
+      '</div>' +
       '<button id="contest-roll-btn" style="width:100%;padding:12px;background:' +
-      t.accent +
-      ';border:none;border-radius:8px;color:#fff;font-size:15px;font-weight:bold;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;"><i class="fa-solid fa-dice"></i> 开始对抗！</button>' +
-      '<div id="contest-result-area"></div>' +
+      (t.buttonBg || t.accent) +
+      ';border:none;border-radius:8px;color:' +
+      t.buttonText +
+      ';font-size:15px;font-weight:bold;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;position:relative;"><i class="fa-solid fa-dice"></i> 开始对抗！</button>' +
       '</div>' +
       '</div>';
 
@@ -6450,7 +7197,11 @@
       html +=
         '<button class="acu-contest-clear-attr-btn" data-type="' +
         targetType +
-        '" style="padding:2px 6px;background:transparent;border:1px dashed #e74c3c;border-radius:3px;color:#e74c3c;font-size:10px;cursor:pointer;display:inline-flex;align-items:center;gap:3px;margin-left:4px;" title="清空规则属性"><i class="fa-solid fa-trash-alt" style="font-size:9px;"></i></button>';
+        '" style="padding:2px 6px;background:transparent;border:1px dashed ' +
+        t.errorText +
+        ';border-radius:3px;color:' +
+        t.errorText +
+        ';font-size:10px;cursor:pointer;display:inline-flex;align-items:center;gap:3px;margin-left:4px;" title="清空规则属性"><i class="fa-solid fa-trash-alt" style="font-size:9px;"></i></button>';
 
       $container.html(html);
 
@@ -6677,8 +7428,8 @@
       // 自定义按钮有单独处理，这里跳过
       if (newDice === 'custom') return;
 
-      panel.find('.acu-contest-preset').css({ background: t.btnBg, color: t.textMain });
-      $(this).css({ background: t.accent, color: '#fff' });
+      panel.find('.acu-contest-preset').css({ background: t.presetButtonBg || t.btnBg, color: t.textMain });
+      $(this).css({ background: t.presetButtonBgActive || t.accent, color: t.buttonText });
       panel.find('#contest-dice-type').val(newDice);
 
       // 保存骰子类型
@@ -6688,8 +7439,8 @@
     // 自定义骰子按钮点击事件
     panel.find('.acu-contest-custom-btn').click(function () {
       // 立即高亮自定义按钮，取消其他按钮高亮
-      panel.find('.acu-contest-preset').css({ background: t.btnBg, color: t.textMain });
-      $(this).css({ background: t.accent, color: '#fff' });
+      panel.find('.acu-contest-preset').css({ background: t.presetButtonBg || t.btnBg, color: t.textMain });
+      $(this).css({ background: t.presetButtonBgActive || t.accent, color: t.buttonText });
 
       var customDice = panel.find('#contest-custom-dice').val().trim();
       // 如果输入框为空，聚焦并等待用户输入
@@ -6737,22 +7488,24 @@
     };
 
     const getSuccessLevel = function (roll, target, sides) {
+      const t = getThemeColors();
       if (sides === 100) {
-        if (roll <= 5) return { level: 3, name: '大成功', color: '#9b59b6' };
-        if (roll >= 96) return { level: -1, name: '大失败', color: '#c0392b' };
-        if (roll <= Math.floor(target / 5)) return { level: 2, name: '极难成功', color: '#2980b9' };
-        if (roll <= Math.floor(target / 2)) return { level: 1, name: '困难成功', color: '#27ae60' };
-        if (roll <= target) return { level: 0, name: '普通成功', color: '#f39c12' };
-        return { level: -1, name: '失败', color: '#e74c3c' };
+        if (roll <= 5) return { level: 3, name: '大成功', color: t.critSuccessText };
+        if (roll >= 96) return { level: -1, name: '大失败', color: t.critFailureText };
+        if (roll <= Math.floor(target / 5)) return { level: 2, name: '极难成功', color: t.extremeSuccessText };
+        if (roll <= Math.floor(target / 2)) return { level: 1, name: '困难成功', color: t.successText };
+        if (roll <= target) return { level: 0, name: '普通成功', color: t.warningText };
+        return { level: -1, name: '失败', color: t.failureText };
       } else {
-        if (roll === 20) return { level: 3, name: '大成功', color: '#9b59b6' };
-        if (roll === 1) return { level: -1, name: '大失败', color: '#c0392b' };
-        if (roll >= target) return { level: 0, name: '成功', color: '#27ae60' };
-        return { level: -1, name: '失败', color: '#e74c3c' };
+        if (roll === 20) return { level: 3, name: '大成功', color: t.critSuccessText };
+        if (roll === 1) return { level: -1, name: '大失败', color: t.critFailureText };
+        if (roll >= target) return { level: 0, name: '成功', color: t.successText };
+        return { level: -1, name: '失败', color: t.failureText };
       }
     };
 
-    panel.find('#contest-roll-btn').click(function () {
+    // 对抗检定投骰逻辑函数（可被按钮点击和重投按钮调用）
+    const performContestRoll = function () {
       var formula = panel.find('#contest-dice-type').val() || '1d100';
 
       var initName = panel.find('#contest-init-display').val().trim() || '<user>';
@@ -6808,85 +7561,130 @@
       var winner, winnerColor, resultDesc;
       var diceCfg = getDiceConfig();
       var tieRule = diceCfg.contestTieRule || 'initiator_lose';
+      var hideDiceResultFromUser =
+        diceCfg.hideDiceResultFromUser !== undefined ? diceCfg.hideDiceResultFromUser : false;
+      var displayInitValue = hideDiceResultFromUser ? '？？' : initResult.total;
+      var displayOppValue = hideDiceResultFromUser ? '？？' : oppResult.total;
+      var displayInitSuccessName = hideDiceResultFromUser ? '' : initSuccess.name;
+      var displayOppSuccessName = hideDiceResultFromUser ? '' : oppSuccess.name;
 
       if (initSuccess.level > oppSuccess.level) {
         winner = initName + ' 胜利';
-        winnerColor = '#27ae60';
+        winnerColor = t.successText;
         resultDesc = initSuccess.name + ' 胜过 ' + oppSuccess.name;
       } else if (initSuccess.level < oppSuccess.level) {
         winner = oppName + ' 胜利';
-        winnerColor = '#e74c3c';
+        winnerColor = t.failureText;
         resultDesc = oppSuccess.name + ' 胜过 ' + initSuccess.name;
       } else {
         // 平手情况，根据配置决定结果
         resultDesc = '双方均为 ' + initSuccess.name;
         if (tieRule === 'initiator_win') {
           winner = '平手，' + initName + ' 判胜';
-          winnerColor = '#27ae60';
+          winnerColor = t.successText;
         } else if (tieRule === 'tie') {
           winner = '双方平手';
-          winnerColor = '#f39c12';
+          winnerColor = t.warningText;
         } else {
           // 默认: initiator_lose
           winner = '平手，' + initName + ' 判负';
-          winnerColor = '#e74c3c';
+          winnerColor = t.failureText;
         }
       }
 
-      panel
-        .find('#contest-result-area')
-        .html(
-          '<div style="padding:8px 10px;background:' +
-            t.tableHead +
-            ';border-radius:6px;margin-top:8px;">' +
-            '<div style="display:flex;align-items:center;justify-content:space-between;gap:4px;margin-bottom:6px;flex-wrap:wrap;">' +
-            '<div style="display:flex;align-items:center;gap:4px;min-width:0;">' +
-            '<span style="font-size:11px;color:' +
-            t.textSub +
-            ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:60px;">' +
-            escapeHtml(initName) +
-            '</span>' +
-            '<span style="font-size:18px;font-weight:bold;color:' +
-            t.accent +
-            ';">' +
-            initResult.total +
-            '</span>' +
-            '<span style="padding:2px 5px;background:' +
-            initSuccess.color +
-            ';color:#fff;border-radius:8px;font-size:9px;white-space:nowrap;">' +
-            initSuccess.name +
-            '</span>' +
-            '</div>' +
-            '<span style="color:' +
-            t.textSub +
-            ';font-size:11px;font-weight:bold;">VS</span>' +
-            '<div style="display:flex;align-items:center;gap:4px;min-width:0;">' +
-            '<span style="padding:2px 5px;background:' +
-            oppSuccess.color +
-            ';color:#fff;border-radius:8px;font-size:9px;white-space:nowrap;">' +
-            oppSuccess.name +
-            '</span>' +
-            '<span style="font-size:18px;font-weight:bold;color:' +
-            t.accent +
-            ';">' +
-            oppResult.total +
-            '</span>' +
-            '<span style="font-size:11px;color:' +
-            t.textSub +
-            ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:60px;">' +
-            escapeHtml(oppName) +
-            '</span>' +
-            '</div>' +
-            '</div>' +
-            '<div style="text-align:center;padding:5px 8px;background:' +
-            winnerColor +
-            ';border-radius:4px;">' +
-            '<span style="font-size:12px;font-weight:bold;color:#fff;">' +
-            winner +
-            '</span>' +
-            '</div>' +
-            '</div>',
-        );
+      var displayWinner = hideDiceResultFromUser ? '' : winner;
+
+      // 确定结果类型（用于统一样式）
+      const getResultTypeFromSuccess = success => {
+        if (success.level === 3) return 'critSuccess';
+        if (success.level === 2) return 'extremeSuccess';
+        if (success.level === 1) return 'success';
+        if (success.level === 0) return 'warning';
+        if (success.level === -1) {
+          // 根据name判断是大失败还是普通失败
+          return success.name === '大失败' ? 'critFailure' : 'failure';
+        }
+        return 'failure';
+      };
+      const initResultType = getResultTypeFromSuccess(initSuccess);
+      const oppResultType = getResultTypeFromSuccess(oppSuccess);
+
+      const initBadgeStyle = getResultBadgeStyle(initResultType, t);
+      const oppBadgeStyle = getResultBadgeStyle(oppResultType, t);
+      const winnerBadgeStyle = getResultBadgeStyle(
+        winnerColor === t.successText ? 'success' : winnerColor === t.warningText ? 'warning' : 'failure',
+        t,
+      );
+
+      const initBadgeStyleStr = Object.entries(initBadgeStyle)
+        .map(([k, v]) => `${k}:${v}`)
+        .join(';');
+      const oppBadgeStyleStr = Object.entries(oppBadgeStyle)
+        .map(([k, v]) => `${k}:${v}`)
+        .join(';');
+      const winnerBadgeStyleStr = Object.entries(winnerBadgeStyle)
+        .map(([k, v]) => `${k}:${v}`)
+        .join(';');
+
+      // 显示结果展示区域
+      const $resultDisplay = panel.find('#contest-result-display');
+      const $resultInit = panel.find('#contest-result-init');
+      const $resultOpp = panel.find('#contest-result-opp');
+
+      // 显示甲方结果
+      $resultInit.html(
+        '<span style="font-size:11px;color:' +
+          t.textMain +
+          ';opacity:0.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:60px;">' +
+          escapeHtml(initName) +
+          '</span>' +
+          '<span style="font-size:16px;font-weight:bold;color:' +
+          t.textMain +
+          ';">' +
+          displayInitValue +
+          '</span>' +
+          (displayInitSuccessName
+            ? '<span style="' + initBadgeStyleStr + '">' + displayInitSuccessName + '</span>'
+            : ''),
+      );
+
+      // 显示乙方结果
+      $resultOpp.html(
+        (displayOppSuccessName ? '<span style="' + oppBadgeStyleStr + '">' + displayOppSuccessName + '</span>' : '') +
+          '<span style="font-size:16px;font-weight:bold;color:' +
+          t.textMain +
+          ';">' +
+          displayOppValue +
+          '</span>' +
+          '<span style="font-size:11px;color:' +
+          t.textMain +
+          ';opacity:0.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:60px;">' +
+          escapeHtml(oppName) +
+          '</span>',
+      );
+
+      $resultDisplay.show();
+
+      // 将按钮内容替换为最终结果显示（和普通检定统一设计）
+      const $contestBtn = panel.find('#contest-roll-btn');
+      $contestBtn.html(
+        '<div style="display:flex; align-items:center; justify-content:center; width:100%; gap:8px;">' +
+          (displayWinner ? '<span style="' + winnerBadgeStyleStr + '">' + displayWinner + '</span>' : '') +
+          '<button class="contest-retry-btn" style="background:transparent; border:none; color:' +
+          t.buttonText +
+          '; cursor:pointer; padding:4px; display:flex; align-items:center; justify-content:center; opacity:0.8; transition:opacity 0.2s;" title="重新投骰">' +
+          '<i class="fa-solid fa-rotate-right"></i>' +
+          '</button>' +
+          '</div>',
+      );
+
+      // 绑定重投按钮点击事件
+      $contestBtn.off('click', '.contest-retry-btn').on('click', '.contest-retry-btn', function (e) {
+        e.stopPropagation();
+        e.preventDefault();
+        // 直接调用投骰逻辑函数
+        performContestRoll();
+      });
 
       const contestResultText =
         `进行了一次【${initAttrName} vs ${oppAttrName}】的对抗检定。` +
@@ -6894,7 +7692,13 @@
         `${oppName} (目标${oppTarget}) 掷出 ${oppResult.total}，判定为【${oppSuccess.name}】。` +
         `最终结果：【${winner}】`;
       smartInsertToTextarea(contestResultText, 'dice');
+    };
+
+    // 绑定对抗检定按钮点击事件
+    panel.find('#contest-roll-btn').click(function () {
+      performContestRoll();
     });
+
     // [新增] 切换到普通检定
     panel.find('#contest-switch-normal').click(function () {
       var initValueInput = panel.find('#contest-init-value').val().trim();
@@ -8707,7 +9511,7 @@
                             ? `
                             <div class="acu-import-conflict-section">
                                 <div style="font-size:12px;font-weight:bold;color:${t.textMain};margin-bottom:4px;">
-                                    <i class="fa-solid fa-exclamation-triangle" style="color:#e67e22;"></i> 以下角色已存在：
+                                    <i class="fa-solid fa-exclamation-triangle" style="color:${t.warningIcon};"></i> 以下角色已存在：
                                 </div>
                                 ${conflictListHtml}
                                 <div class="acu-import-conflict-options">
@@ -9284,8 +10088,8 @@
         transition: all 0.2s;
     }
     .acu-close-btn:hover {
-        background: rgba(231, 76, 60, 0.15);
-        color: #e74c3c;
+        background: var(--acu-error-bg, rgba(231, 76, 60, 0.15));
+        color: var(--acu-error-text, #e74c3c);
     }
 
     /* 滚动条全局隐藏 */
@@ -9293,21 +10097,54 @@
     [class^="acu-"] *::-webkit-scrollbar { display: none !important; }
 
     /* ========== 主题变量定义 ========== */
-    .acu-theme-retro { --acu-bg-nav: #e6e2d3; --acu-bg-panel: #e6e2d3; --acu-border: #dcd0c0; --acu-text-main: #5e4b35; --acu-text-sub: #999; --acu-btn-bg: #dcd0c0; --acu-btn-hover: #cbbba8; --acu-btn-active-bg: #8d7b6f; --acu-btn-active-text: #fdfaf5; --acu-accent: #7a695f; --acu-table-head: #efebe4; --acu-table-hover: #f0ebe0; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #fffef9; --acu-badge-bg: #efebe4; --acu-menu-bg: #fff; --acu-menu-text: #333; --acu-success-text: #27ae60; --acu-success-bg: rgba(39, 174, 96, 0.15); --acu-scrollbar-track: #e6e2d3; --acu-scrollbar-thumb: #cbbba8; --acu-input-bg: #f5f2eb;--acu-hl-manual: #d35400; --acu-hl-manual-bg: rgba(211, 84, 0, 0.15); --acu-hl-diff: #2980b9; --acu-hl-diff-bg: rgba(41, 128, 185, 0.15); }
-    .acu-theme-dark { --acu-bg-nav: #2b2b2b; --acu-bg-panel: #252525; --acu-border: #444; --acu-text-main: #eee; --acu-text-sub: #aaa; --acu-btn-bg: #3a3a3a; --acu-btn-hover: #4a4a4a; --acu-btn-active-bg: #6a5acd; --acu-btn-active-text: #fff; --acu-accent: #9b8cd9; --acu-table-head: #333333; --acu-table-hover: #3a3a3a; --acu-shadow: rgba(0,0,0,0.6); --acu-card-bg: #2d3035; --acu-badge-bg: #3a3f4b; --acu-menu-bg: #333; --acu-menu-text: #eee; --acu-success-text: #4cd964; --acu-success-bg: rgba(76, 217, 100, 0.2); --acu-scrollbar-track: #2b2b2b; --acu-scrollbar-thumb: #555; --acu-hl-manual: #ff6b81; --acu-hl-manual-bg: rgba(255, 107, 129, 0.2); --acu-hl-diff: #00d2d3; --acu-hl-diff-bg: rgba(0, 210, 211, 0.2); }
-    .acu-theme-modern { --acu-bg-nav: #ffffff; --acu-bg-panel: #f8f9fa; --acu-border: #e0e0e0; --acu-text-main: #333; --acu-text-sub: #666; --acu-btn-bg: #f1f3f5; --acu-btn-hover: #e9ecef; --acu-btn-active-bg: #007bff; --acu-btn-active-text: #fff; --acu-accent: #007bff; --acu-table-head: #f8f9fa; --acu-table-hover: #f1f3f5; --acu-shadow: rgba(0,0,0,0.1); --acu-card-bg: #ffffff; --acu-badge-bg: #f1f3f5; --acu-menu-bg: #fff; --acu-menu-text: #333; --acu-success-text: #28a745; --acu-success-bg: rgba(40, 167, 69, 0.15); --acu-scrollbar-track: #fff; --acu-scrollbar-thumb: #ccc; --acu-hl-manual: #fd7e14; --acu-hl-manual-bg: rgba(253, 126, 20, 0.15); --acu-hl-diff: #0d6efd; --acu-hl-diff-bg: rgba(13, 110, 253, 0.15); }
+    .acu-theme-retro { --acu-bg-nav: #e6e2d3; --acu-bg-panel: #e6e2d3; --acu-border: #dcd0c0; --acu-text-main: #5e4b35; --acu-text-sub: #999; --acu-btn-bg: #dcd0c0; --acu-btn-hover: #cbbba8; --acu-btn-active-bg: #8d7b6f; --acu-btn-active-text: #fdfaf5; --acu-accent: #7a695f; --acu-table-head: #efebe4; --acu-table-hover: #f0ebe0; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #fffef9; --acu-badge-bg: #efebe4; --acu-menu-bg: #fff; --acu-menu-text: #333; --acu-success-text: #27ae60; --acu-success-bg: rgba(39, 174, 96, 0.15); --acu-scrollbar-track: #e6e2d3; --acu-scrollbar-thumb: #cbbba8; --acu-input-bg: #f5f2eb;--acu-hl-manual: #d35400; --acu-hl-manual-bg: rgba(211, 84, 0, 0.15); --acu-hl-diff: #2980b9; --acu-hl-diff-bg: rgba(41, 128, 185, 0.15); --acu-error-text: #e74c3c; --acu-error-bg: rgba(231, 76, 60, 0.15); --acu-error-border: rgba(231, 76, 60, 0.5); --acu-warning-icon: #e67e22; --acu-failure-text: #e74c3c; --acu-failure-bg: rgba(231, 76, 60, 0.15); --acu-warning-text: #f39c12; --acu-warning-bg: rgba(243, 156, 18, 0.15); --acu-crit-success-text: #9b59b6; --acu-crit-success-bg: rgba(155, 89, 182, 0.15); --acu-crit-failure-text: #c0392b; --acu-crit-failure-bg: rgba(192, 57, 43, 0.15); --acu-extreme-success-text: #2980b9; --acu-extreme-success-bg: rgba(41, 128, 185, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(0,0,0,0.1); --acu-very-light-bg: rgba(0,0,0,0.02); --acu-button-text: #fff; --acu-gray-bg: rgba(128,128,128,0.1); }
+    .acu-theme-dark { --acu-bg-nav: #2b2b2b; --acu-bg-panel: #252525; --acu-border: #444; --acu-text-main: #eee; --acu-text-sub: #aaa; --acu-btn-bg: #3a3a3a; --acu-btn-hover: #4a4a4a; --acu-btn-active-bg: #6a5acd; --acu-btn-active-text: #fff; --acu-accent: #9b8cd9; --acu-table-head: #333333; --acu-table-hover: #3a3a3a; --acu-shadow: rgba(0,0,0,0.6); --acu-card-bg: #2d3035; --acu-badge-bg: #3a3f4b; --acu-menu-bg: #333; --acu-menu-text: #eee; --acu-success-text: #4cd964; --acu-success-bg: rgba(76, 217, 100, 0.2); --acu-scrollbar-track: #2b2b2b; --acu-scrollbar-thumb: #555; --acu-hl-manual: #ff6b81; --acu-hl-manual-bg: rgba(255, 107, 129, 0.2); --acu-hl-diff: #00d2d3; --acu-hl-diff-bg: rgba(0, 210, 211, 0.2); --acu-error-text: #ff6b6b; --acu-error-bg: rgba(255, 107, 107, 0.2); --acu-error-border: rgba(255, 107, 107, 0.5); --acu-warning-icon: #ffa726; --acu-failure-text: #ff6b6b; --acu-failure-bg: rgba(255, 107, 107, 0.2); --acu-warning-text: #ffa726; --acu-warning-bg: rgba(255, 167, 38, 0.2); --acu-crit-success-text: #ba68c8; --acu-crit-success-bg: rgba(186, 104, 200, 0.2); --acu-crit-failure-text: #d32f2f; --acu-crit-failure-bg: rgba(211, 47, 47, 0.2); --acu-extreme-success-text: #42a5f5; --acu-extreme-success-bg: rgba(66, 165, 245, 0.2); --acu-overlay-bg: rgba(0,0,0,0.75); --acu-overlay-bg-light: rgba(0,0,0,0.65); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(255,255,255,0.05); --acu-very-light-bg: rgba(255,255,255,0.02); --acu-button-text: #fff; --acu-gray-bg: rgba(255,255,255,0.1); }
+    .acu-theme-modern { --acu-bg-nav: #ffffff; --acu-bg-panel: #f8f9fa; --acu-border: #e0e0e0; --acu-text-main: #333; --acu-text-sub: #666; --acu-btn-bg: #f1f3f5; --acu-btn-hover: #e9ecef; --acu-btn-active-bg: #007bff; --acu-btn-active-text: #fff; --acu-accent: #007bff; --acu-table-head: #f8f9fa; --acu-table-hover: #f1f3f5; --acu-shadow: rgba(0,0,0,0.1); --acu-card-bg: #ffffff; --acu-badge-bg: #f1f3f5; --acu-menu-bg: #fff; --acu-menu-text: #333; --acu-success-text: #28a745; --acu-success-bg: rgba(40, 167, 69, 0.15); --acu-scrollbar-track: #fff; --acu-scrollbar-thumb: #ccc; --acu-hl-manual: #fd7e14; --acu-hl-manual-bg: rgba(253, 126, 20, 0.15); --acu-hl-diff: #0d6efd; --acu-hl-diff-bg: rgba(13, 110, 253, 0.15); --acu-error-text: #dc3545; --acu-error-bg: rgba(220, 53, 69, 0.15); --acu-error-border: rgba(220, 53, 69, 0.5); --acu-warning-icon: #fd7e14; --acu-failure-text: #dc3545; --acu-failure-bg: rgba(220, 53, 69, 0.15); --acu-warning-text: #ffc107; --acu-warning-bg: rgba(255, 193, 7, 0.15); --acu-crit-success-text: #6f42c1; --acu-crit-success-bg: rgba(111, 66, 193, 0.15); --acu-crit-failure-text: #c82333; --acu-crit-failure-bg: rgba(200, 35, 51, 0.15); --acu-extreme-success-text: #17a2b8; --acu-extreme-success-bg: rgba(23, 162, 184, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(0,0,0,0.1); --acu-very-light-bg: rgba(0,0,0,0.02); --acu-button-text: #fff; --acu-gray-bg: rgba(128,128,128,0.1); }
     .acu-theme-forest { --acu-bg-nav: #e8f5e9; --acu-bg-panel: #e8f5e9; --acu-border: #c8e6c9; --acu-text-main: #2e7d32; --acu-text-sub: #81c784; --acu-btn-bg: #c8e6c9; --acu-btn-hover: #a5d6a7; --acu-btn-active-bg: #43a047; --acu-btn-active-text: #fff; --acu-accent: #4caf50; --acu-table-head: #dcedc8; --acu-table-hover: #f1f8e9; --acu-shadow: rgba(0,0,0,0.1); --acu-card-bg: #ffffff; --acu-badge-bg: #dcedc8; --acu-menu-bg: #fff; --acu-menu-text: #2e7d32; --acu-success-text: #2e7d32; --acu-success-bg: rgba(46, 125, 50, 0.2); --acu-scrollbar-track: #e8f5e9; --acu-scrollbar-thumb: #a5d6a7; --acu-hl-manual: #e67e22; --acu-hl-manual-bg: rgba(230, 126, 34, 0.15); --acu-hl-diff: #1e8449; --acu-hl-diff-bg: rgba(30, 132, 73, 0.2); }
-    .acu-theme-ocean { --acu-bg-nav: #e3f2fd; --acu-bg-panel: #e3f2fd; --acu-border: #bbdefb; --acu-text-main: #1565c0; --acu-text-sub: #64b5f6; --acu-btn-bg: #bbdefb; --acu-btn-hover: #90caf9; --acu-btn-active-bg: #1976d2; --acu-btn-active-text: #fff; --acu-accent: #2196f3; --acu-table-head: #bbdefb; --acu-table-hover: #e1f5fe; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #e3f2fd; --acu-menu-bg: #fff; --acu-menu-text: #1565c0; --acu-success-text: #0288d1; --acu-success-bg: rgba(2, 136, 209, 0.15); --acu-scrollbar-track: #e3f2fd; --acu-scrollbar-thumb: #90caf9; --acu-hl-manual: #ff4757; --acu-hl-manual-bg: rgba(255, 71, 87, 0.15); --acu-hl-diff: #0277bd; --acu-hl-diff-bg: rgba(2, 119, 189, 0.2); }
+    .acu-theme-ocean { --acu-bg-nav: #e3f2fd; --acu-bg-panel: #e3f2fd; --acu-border: #90caf9; --acu-text-main: #1565c0; --acu-text-sub: #64b5f6; --acu-btn-bg: #bbdefb; --acu-btn-hover: #90caf9; --acu-btn-active-bg: #1976d2; --acu-btn-active-text: #fff; --acu-accent: #2196f3; --acu-table-head: #bbdefb; --acu-table-hover: #e1f5fe; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #e3f2fd; --acu-menu-bg: #fff; --acu-menu-text: #1565c0; --acu-success-text: #0288d1; --acu-success-bg: rgba(2, 136, 209, 0.15); --acu-scrollbar-track: #e3f2fd; --acu-scrollbar-thumb: #90caf9; --acu-hl-manual: #ff4757; --acu-hl-manual-bg: rgba(255, 71, 87, 0.15); --acu-hl-diff: #0277bd; --acu-hl-diff-bg: rgba(2, 119, 189, 0.2); --acu-error-text: #d32f2f; --acu-error-bg: rgba(211, 47, 47, 0.15); --acu-error-border: rgba(211, 47, 47, 0.5); --acu-warning-icon: #f57c00; --acu-failure-text: #d32f2f; --acu-failure-bg: rgba(211, 47, 47, 0.15); --acu-warning-text: #f57c00; --acu-warning-bg: rgba(245, 124, 0, 0.15); --acu-crit-success-text: #7b1fa2; --acu-crit-success-bg: rgba(123, 31, 162, 0.15); --acu-crit-failure-text: #b71c1c; --acu-crit-failure-bg: rgba(183, 28, 28, 0.15); --acu-extreme-success-text: #0277bd; --acu-extreme-success-bg: rgba(2, 119, 189, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(0,0,0,0.1); --acu-very-light-bg: rgba(0,0,0,0.02); --acu-button-text: #fff; --acu-gray-bg: rgba(128,128,128,0.1); }
     .acu-theme-cyber { --acu-bg-nav: #000000; --acu-bg-panel: #0a0a0a; --acu-border: #333; --acu-text-main: #00ffcc; --acu-text-sub: #ff00ff; --acu-btn-bg: #111; --acu-btn-hover: #222; --acu-btn-active-bg: #ff00ff; --acu-btn-active-text: #fff; --acu-accent: #00ffcc; --acu-table-head: #050505; --acu-table-hover: #111; --acu-shadow: 0 0 15px rgba(0,255,204,0.15); --acu-card-bg: #050505; --acu-badge-bg: #1a1a1a; --acu-menu-bg: #111; --acu-menu-text: #00ffcc; --acu-success-text: #0f0; --acu-success-bg: rgba(0, 255, 0, 0.15); --acu-scrollbar-track: #000; --acu-scrollbar-thumb: #333; --acu-hl-manual: #ff9f43; --acu-hl-manual-bg: rgba(255, 159, 67, 0.2); --acu-hl-diff: #0abde3; --acu-hl-diff-bg: rgba(10, 189, 227, 0.2); }
     .acu-theme-cyber .acu-nav-btn { border-color: #222; }
     .acu-theme-cyber .acu-data-card { border-color: #222; }
+    .acu-theme-cyber .acu-dice-panel input::placeholder,
+    .acu-theme-cyber .acu-contest-panel input::placeholder {
+        color: #ff00ff !important;
+        opacity: 0.7;
+    }
+    .acu-theme-cyber .acu-dice-panel input[type="text"],
+    .acu-theme-cyber .acu-dice-panel input[type="number"],
+    .acu-theme-cyber .acu-dice-panel input:not([type]),
+    .acu-theme-cyber .acu-contest-panel input[type="text"],
+    .acu-theme-cyber .acu-contest-panel input[type="number"],
+    .acu-theme-cyber .acu-contest-panel input:not([type]) {
+        color: #ff00ff !important;
+    }
     .acu-theme-nightowl { --acu-bg-nav: #0a2133; --acu-bg-panel: #011627; --acu-border: #132e45; --acu-text-main: #e0e6f2; --acu-text-sub: #a6b8cc; --acu-btn-bg: #1f3a52; --acu-btn-hover: #2a4a68; --acu-btn-active-bg: #7fdbca; --acu-btn-active-text: #011627; --acu-accent: #7fdbca; --acu-table-head: #0a2133; --acu-table-hover: #01294a; --acu-shadow: rgba(0,0,0,0.5); --acu-card-bg: #0a2133; --acu-badge-bg: #1f3a52; --acu-menu-bg: #011627; --acu-menu-text: #e0e6f2; --acu-success-text: #addb67; --acu-success-bg: rgba(173, 219, 103, 0.15); --acu-scrollbar-track: #011627; --acu-scrollbar-thumb: #1f3a52; --acu-hl-manual: #ff8f66; --acu-hl-manual-bg: rgba(255, 143, 102, 0.2); --acu-hl-diff: #82aaff; --acu-hl-diff-bg: rgba(130, 170, 255, 0.2); }
+    .acu-theme-sakura { --acu-bg-nav: #fff5f9; --acu-bg-panel: #fff5f9; --acu-border: #ffd6e8; --acu-text-main: #d81b60; --acu-text-sub: #f06292; --acu-btn-bg: #ffe0eb; --acu-btn-hover: #ffd6e8; --acu-btn-active-bg: #f06292; --acu-btn-active-text: #fff; --acu-accent: #f06292; --acu-table-head: #fff0f5; --acu-table-hover: #fffafc; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #fff0f5; --acu-menu-bg: #fff; --acu-menu-text: #d81b60; --acu-success-text: #d81b60; --acu-success-bg: rgba(216, 27, 96, 0.12); --acu-scrollbar-track: #fff5f9; --acu-scrollbar-thumb: #ffd6e8; --acu-hl-manual: #f57c00; --acu-hl-manual-bg: rgba(245, 124, 0, 0.12); --acu-hl-diff: #c2185b; --acu-hl-diff-bg: rgba(194, 24, 91, 0.2); --acu-error-text: #d32f2f; --acu-error-bg: rgba(211, 47, 47, 0.12); --acu-error-border: rgba(211, 47, 47, 0.5); --acu-warning-icon: #f57c00; --acu-failure-text: #d32f2f; --acu-failure-bg: rgba(211, 47, 47, 0.12); --acu-warning-text: #f57c00; --acu-warning-bg: rgba(245, 124, 0, 0.12); --acu-crit-success-text: #7b1fa2; --acu-crit-success-bg: rgba(123, 31, 162, 0.12); --acu-crit-failure-text: #b71c1c; --acu-crit-failure-bg: rgba(183, 28, 28, 0.12); --acu-extreme-success-text: #c2185b; --acu-extreme-success-bg: rgba(194, 24, 91, 0.12); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(240, 98, 146, 0.08); --acu-very-light-bg: rgba(240, 98, 146, 0.02); --acu-button-text: #fff; --acu-gray-bg: rgba(240, 98, 146, 0.08); }
+    .acu-theme-minepink { --acu-bg-nav: #1a1a1a; --acu-bg-panel: #1a1a1a; --acu-border: #333333; --acu-text-main: #ffb3d9; --acu-text-sub: #ff80c1; --acu-btn-bg: #2a2a2a; --acu-btn-hover: #3a3a3a; --acu-btn-active-bg: #ff80c1; --acu-btn-active-text: #1a1a1a; --acu-accent: #ff80c1; --acu-table-head: #252525; --acu-table-hover: #2a2a2a; --acu-shadow: rgba(0,0,0,0.6); --acu-card-bg: #222222; --acu-badge-bg: #2a2a2a; --acu-menu-bg: #1a1a1a; --acu-menu-text: #ffb3d9; --acu-success-text: #ff80c1; --acu-success-bg: rgba(255, 128, 193, 0.2); --acu-scrollbar-track: #1a1a1a; --acu-scrollbar-thumb: #333333; --acu-hl-manual: #ffa726; --acu-hl-manual-bg: rgba(255, 167, 38, 0.2); --acu-hl-diff: #ff80c1; --acu-hl-diff-bg: rgba(255, 128, 193, 0.2); --acu-error-text: #ff6b6b; --acu-error-bg: rgba(255, 107, 107, 0.2); --acu-error-border: rgba(255, 107, 107, 0.5); --acu-warning-icon: #ffa726; --acu-failure-text: #ff6b6b; --acu-failure-bg: rgba(255, 107, 107, 0.2); --acu-warning-text: #ffa726; --acu-warning-bg: rgba(255, 167, 38, 0.2); --acu-crit-success-text: #ff80c1; --acu-crit-success-bg: rgba(255, 128, 193, 0.2); --acu-crit-failure-text: #ff4444; --acu-crit-failure-bg: rgba(255, 68, 68, 0.2); --acu-extreme-success-text: #ffb3d9; --acu-extreme-success-bg: rgba(255, 179, 217, 0.2); --acu-overlay-bg: rgba(0,0,0,0.8); --acu-overlay-bg-light: rgba(0,0,0,0.7); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(255, 128, 193, 0.1); --acu-very-light-bg: rgba(255, 128, 193, 0.02); --acu-button-text: #1a1a1a; --acu-gray-bg: rgba(255, 128, 193, 0.1); }
+    .acu-theme-purple { --acu-bg-nav: #f3e5f5; --acu-bg-panel: #f3e5f5; --acu-border: #ce93d8; --acu-text-main: #6a1b9a; --acu-text-sub: #9c27b0; --acu-btn-bg: #e1bee7; --acu-btn-hover: #ce93d8; --acu-btn-active-bg: #9c27b0; --acu-btn-active-text: #fff; --acu-accent: #9c27b0; --acu-table-head: #f8e1f5; --acu-table-hover: #fce4ec; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #f8e1f5; --acu-menu-bg: #fff; --acu-menu-text: #6a1b9a; --acu-success-text: #6a1b9a; --acu-success-bg: rgba(106, 27, 154, 0.15); --acu-scrollbar-track: #f3e5f5; --acu-scrollbar-thumb: #ce93d8; --acu-hl-manual: #f57c00; --acu-hl-manual-bg: rgba(245, 124, 0, 0.15); --acu-hl-diff: #6a1b9a; --acu-hl-diff-bg: rgba(106, 27, 154, 0.2); --acu-error-text: #d32f2f; --acu-error-bg: rgba(211, 47, 47, 0.15); --acu-error-border: rgba(211, 47, 47, 0.5); --acu-warning-icon: #f57c00; --acu-failure-text: #d32f2f; --acu-failure-bg: rgba(211, 47, 47, 0.15); --acu-warning-text: #f57c00; --acu-warning-bg: rgba(245, 124, 0, 0.15); --acu-crit-success-text: #7b1fa2; --acu-crit-success-bg: rgba(123, 31, 162, 0.15); --acu-crit-failure-text: #b71c1c; --acu-crit-failure-bg: rgba(183, 28, 28, 0.15); --acu-extreme-success-text: #6a1b9a; --acu-extreme-success-bg: rgba(106, 27, 154, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(156, 39, 176, 0.1); --acu-very-light-bg: rgba(156, 39, 176, 0.02); --acu-button-text: #fff; --acu-gray-bg: rgba(156, 39, 176, 0.1); }
     /* 浅色强调色主题的按钮文字修正 */
     .acu-theme-cyber .acu-btn-confirm,
     .acu-theme-cyber .acu-changes-count,
     .acu-theme-nightowl .acu-btn-confirm,
     .acu-theme-nightowl .acu-changes-count {
         color: #111 !important;
+    }
+    /* Night Owl主题：数据验证和表格管理框框使用更暗的边框 */
+    .acu-theme-nightowl .acu-table-manager-item,
+    .acu-theme-nightowl .acu-validation-rule-item {
+        border-color: var(--acu-border) !important;
+    }
+    .acu-theme-nightowl .acu-table-manager-item:hover,
+    .acu-theme-nightowl .acu-validation-rule-item:hover {
+        border-color: rgba(127, 219, 202, 0.4) !important;
+    }
+    /* Night Owl主题：预设卡片框框使用更暗的边框 */
+    .acu-theme-nightowl .acu-preset-item {
+        border-color: var(--acu-border) !important;
+    }
+    .acu-theme-nightowl .acu-preset-item:hover,
+    .acu-theme-nightowl .acu-preset-item.active {
+        border-color: rgba(127, 219, 202, 0.4) !important;
     }
     .acu-wrapper { position: relative; width: 100%; margin: 15px 0; z-index: 2147483640 !important; font-family: 'Microsoft YaHei', sans-serif; display: flex; flex-direction: column-reverse; }
     .acu-wrapper.acu-mode-embedded { position: relative !important; width: 100% !important; margin-top: 8px !important; z-index: 2147483641 !important; clear: both; display: flex; flex-direction: column-reverse !important; padding: 0; }
@@ -9363,7 +10200,7 @@
             .acu-nav-btn.active:hover { background: var(--acu-btn-active-bg); color: var(--acu-btn-active-text); transform: none; }
             .acu-nav-btn.active:focus, .acu-nav-btn.active:focus-visible { outline: none; box-shadow: inset 0 1px 3px rgba(0,0,0,0.2) !important; }
             .acu-nav-btn.has-validation-errors { border-color: rgba(231, 76, 60, 0.5); }
-            .acu-nav-btn .acu-nav-warning-icon { color: #e74c3c; font-size: 10px; margin-left: 2px; animation: pulse 1.5s infinite; }
+            .acu-nav-btn .acu-nav-warning-icon { color: var(--acu-error-text, #e74c3c); font-size: 10px; margin-left: 2px; animation: pulse 1.5s infinite; }
             @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
             .acu-action-btn { flex: 1; height: 36px; display: flex; align-items: center; justify-content: center; background: var(--acu-btn-bg); border-radius: 8px; color: var(--acu-text-sub); cursor: pointer; border: 1px solid transparent; transition: all 0.2s; margin: 0; }
             .acu-action-btn:hover { background: var(--acu-btn-hover); color: var(--acu-text-main); transform: translateY(-2px); box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
@@ -9440,8 +10277,8 @@
 .acu-layout-vertical .acu-card-grid { flex-wrap: wrap !important; justify-content: center; padding-bottom: 20px; height: auto; }
 .acu-wrapper:not(.acu-layout-vertical) .acu-manual-mode .acu-card-grid { height: 100%; } .acu-manual-mode .acu-data-card { max-height: 100% !important; overscroll-behavior-y: auto; } .acu-data-card { flex: 0 0 var(--acu-card-width, 260px); width: var(--acu-card-width, 260px); background: var(--acu-card-bg); border: 1px solid var(--acu-border); border-radius: 8px; height: auto; max-height: 60vh; overflow-y: auto; overscroll-behavior-y: auto; touch-action: manipulation; transition: all 0.2s ease; display: flex; flex-direction: column; position: relative; }
             .acu-data-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px var(--acu-shadow); border-color: var(--acu-accent); }
-            .acu-data-card.pending-deletion { opacity: 0.6; border: 1px dashed #e74c3c; }
-            .acu-data-card.pending-deletion::after { content: "待删除"; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-15deg); color: #e74c3c; font-size: 24px; font-weight: bold; border: 2px solid #e74c3c; padding: 5px 10px; border-radius: 8px; opacity: 0.8; pointer-events: none; }
+            .acu-data-card.pending-deletion { opacity: 0.6; border: 1px dashed var(--acu-error-text, #e74c3c); }
+            .acu-data-card.pending-deletion::after { content: "待删除"; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-15deg); color: var(--acu-error-text, #e74c3c); font-size: 24px; font-weight: bold; border: 2px solid var(--acu-error-text, #e74c3c); padding: 5px 10px; border-radius: 8px; opacity: 0.8; pointer-events: none; }
             @keyframes pulse-highlight { 0% { opacity: 0.7; } 50% { opacity: 1; } 100% { opacity: 0.7; } }
             .acu-highlight-manual { color: var(--acu-hl-manual) !important; background-color: var(--acu-hl-manual-bg) !important; border-radius: 4px; padding: 0 4px; font-weight: bold; animation: pulse-highlight 2s infinite; display: inline-block; }
             .acu-highlight-diff { color: var(--acu-hl-diff) !important; background-color: var(--acu-hl-diff-bg) !important; border-radius: 4px; padding: 0 4px; font-weight: bold; animation: pulse-highlight 2s infinite; display: inline-block; }
@@ -9580,8 +10417,8 @@
 }
 
 /* 4. 特殊按钮优化 */
-            .acu-cell-menu-item#act-delete { color: #e74c3c; }
-            .acu-cell-menu-item#act-delete:hover { background: rgba(231, 76, 60, 0.1); } /* 红色半透明背景，任何主题都适配 */
+            .acu-cell-menu-item#act-delete { color: var(--acu-error-text, #e74c3c); }
+            .acu-cell-menu-item#act-delete:hover { background: var(--acu-error-bg, rgba(231, 76, 60, 0.1)); } /* 红色半透明背景，任何主题都适配 */
             .acu-cell-menu-item#act-close { border-top: 1px dashed var(--acu-border); color: var(--acu-text-sub); }
             .acu-edit-overlay { position: fixed !important; top: 0; left: 0; right: 0; bottom: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.75) !important; z-index: 2147483646 !important; display: flex; justify-content: center !important; align-items: center !important; backdrop-filter: blur(2px); }
             .acu-edit-dialog { background: var(--acu-bg-panel); width: 95%; max-width: 500px; max-height: 95vh; padding: 16px; border-radius: 12px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 15px 50px rgba(0,0,0,0.6); color: var(--acu-text-main); border: 1px solid var(--acu-border); overflow: hidden; flex-shrink: 0; }
@@ -10084,8 +10921,8 @@
             }
 
             .acu-preview-close:hover {
-                background: rgba(231, 76, 60, 0.1);
-                color: #e74c3c;
+                background: var(--acu-error-bg, rgba(231, 76, 60, 0.1));
+                color: var(--acu-error-text, #e74c3c);
             }
 
             .acu-preview-body {
@@ -10516,8 +11353,8 @@
                 background: var(--acu-btn-hover) !important;
                 color: var(--acu-accent) !important;
             }
-            .acu-avatar-save-btn:hover { color: #27ae60 !important; }
-            .acu-avatar-clear-btn:hover { color: #e74c3c !important; }
+            .acu-avatar-save-btn:hover { color: var(--acu-success-text, #27ae60) !important; }
+            .acu-avatar-clear-btn:hover { color: var(--acu-error-text, #e74c3c) !important; }
             .acu-avatar-import-btn,
             .acu-avatar-export-btn {
                 width: 28px;
@@ -10749,6 +11586,17 @@
                 color: var(--acu-text-sub);
                 font-weight: 500;
             }
+            .acu-dice-cfg-item.acu-cfg-toggle-item {
+                flex-direction: row;
+                align-items: center;
+                justify-content: space-between;
+                padding: 8px 0;
+            }
+            .acu-dice-cfg-item.acu-cfg-toggle-item > label {
+                margin: 0;
+                font-size: 13px;
+                color: var(--acu-text-main);
+            }
             .acu-dice-cfg-item input,
             .acu-dice-cfg-item select {
                 width: 100%;
@@ -10815,12 +11663,13 @@
                 background: var(--acu-btn-hover);
             }
             .acu-dice-cfg-actions button.primary {
-                background: var(--acu-accent);
-                border-color: var(--acu-accent);
-                color: #fff;
+                background: var(--acu-btn-bg);
+                border-color: var(--acu-btn-bg);
+                color: var(--acu-button-text);
             }
             .acu-dice-cfg-actions button.primary:hover {
-                opacity: 0.9;
+                background: var(--acu-btn-hover);
+                border-color: var(--acu-btn-hover);
             }
             /* ========== 新版设置面板样式 ========== */
             .acu-settings-dialog {
@@ -11196,7 +12045,7 @@
             .acu-stepper {
                 display: flex;
                 align-items: center;
-                border: 1.5px solid var(--acu-accent);
+                border: 1px solid var(--acu-border);
                 border-radius: 6px;
                 overflow: hidden;
                 background: transparent !important;
@@ -11225,7 +12074,7 @@
             .acu-stepper-btn:active {
                 transform: scale(0.95);
                 background: var(--acu-accent) !important;
-                color: #fff;
+                color: var(--acu-button-text);
             }
             .acu-stepper-value {
                 min-width: 60px;
@@ -11236,8 +12085,8 @@
                 font-weight: 600;
                 color: var(--acu-text-main);
                 background: transparent !important;
-                border-left: 1px solid var(--acu-accent);
-                border-right: 1px solid var(--acu-accent);
+                border-left: 1px solid var(--acu-border);
+                border-right: 1px solid var(--acu-border);
             }
             /* ========== 变更审核面板样式 ========== */
             .acu-changes-content {
@@ -12366,7 +13215,7 @@
       <div class="acu-edit-overlay acu-validation-modal-overlay">
         <div class="acu-edit-dialog acu-validation-modal ${currentThemeClass}">
           <div class="acu-settings-header">
-            <div class="acu-settings-title"><i class="fa-solid fa-plus"></i> 添加验证规则</div>
+            <div class="acu-settings-title"><i class="fa-solid fa-plus"></i> 添加自定义验证规则</div>
             <button class="acu-close-btn" id="dlg-rule-close"><i class="fa-solid fa-times"></i></button>
           </div>
           <div class="acu-validation-modal-body">
@@ -13295,7 +14144,7 @@
           </div>
 
           <div style="display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid ${t.border};">
-            <button id="acu-preset-new" style="flex: 1; padding: 10px; background: ${t.accent}; border: none; border-radius: 6px; color: #fff; cursor: pointer; font-size: 13px;">
+            <button id="acu-preset-new" style="flex: 1; padding: 10px; background: ${t.buttonBg || t.accent}; border: none; border-radius: 6px; color: ${t.buttonText}; cursor: pointer; font-size: 13px;">
               <i class="fa-solid fa-plus"></i> 新建预设
             </button>
             <button id="acu-preset-import" style="flex: 1; padding: 10px; background: ${t.btnBg}; border: 1px solid ${t.border}; border-radius: 6px; color: ${t.textMain}; cursor: pointer; font-size: 13px;">
@@ -13506,7 +14355,7 @@
           </div>
 
           <div style="display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid ${t.border};">
-            <button id="preset-save" style="flex: 1; padding: 10px; background: ${t.accent}; border: none; border-radius: 6px; color: #fff; cursor: pointer; font-size: 13px; font-weight: bold;">
+            <button id="preset-save" style="flex: 1; padding: 10px; background: ${t.buttonBg || t.accent}; border: none; border-radius: 6px; color: ${t.buttonText}; cursor: pointer; font-size: 13px; font-weight: bold;">
               <i class="fa-solid fa-check"></i> 保存
             </button>
             <button id="preset-cancel" style="padding: 10px 16px; background: ${t.btnBg}; border: 1px solid ${t.border}; border-radius: 6px; color: ${t.textMain}; cursor: pointer; font-size: 13px;">
@@ -13820,7 +14669,7 @@
                                 </select>
                             </div>
                             <div class="acu-setting-row">
-                                <button id="cfg-attr-preset-manage" style="width: 100%; padding: 8px; background: ${t.accent}; border: none; border-radius: 6px; color: #fff; cursor: pointer; font-size: 13px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                                <button id="cfg-attr-preset-manage" style="width: 100%; padding: 8px; background: ${t.buttonBg || t.accent}; border: none; border-radius: 6px; color: ${t.buttonText}; cursor: pointer; font-size: 13px; display: flex; align-items: center; justify-content: center; gap: 6px;">
                                     <i class="fa-solid fa-cog"></i> 管理规则预设
                                 </button>
                             </div>
@@ -13922,7 +14771,7 @@
                     <div class="acu-settings-group ${isGroupExpanded('validation') ? '' : 'collapsed'}" data-group="validation">
                         <div class="acu-settings-group-title">
                             <i class="fa-solid ${chevron('validation')} acu-group-chevron"></i>
-                            <i class="fa-solid fa-shield-check"></i> 数据验证规则
+                            <i class="fa-solid fa-clipboard-check"></i> 数据验证规则
                         </div>
                         <div class="acu-settings-group-body">
                             <!-- 预设选择器 -->
@@ -13978,7 +14827,7 @@
                                   .join('')}
                             </div>
                             <button class="acu-add-rule-btn" id="btn-add-validation-rule">
-                                <i class="fa-solid fa-plus"></i> 添加自定义规则
+                                <i class="fa-solid fa-plus"></i> 添加自定义验证规则
                             </button>
                         </div>
                     </div>
@@ -14116,7 +14965,6 @@
     dialog.find('#cfg-show-opt').on('change', function () {
       const checked = $(this).is(':checked');
       saveConfig({ showOptionPanel: checked });
-      if (!checked) Store.set('acu_hide_nav_only', false);
       if (checked) dialog.find('#row-auto-send').slideDown(200);
       else dialog.find('#row-auto-send').slideUp(200);
       renderInterface();
@@ -14692,11 +15540,11 @@
         if (k.includes('选项')) optionTables.push(tables[k]);
       });
 
-      // [修改开始] 添加隐藏主面板的开关
+      // [修改开始] 添加收起面板的开关
       if (optionTables.length > 0) {
-        const isNavHidden = Store.get('acu_hide_nav_only', false);
-        const eyeIcon = isNavHidden ? 'fa-eye-slash' : 'fa-eye';
-        const eyeTitle = isNavHidden ? '显示主面板' : '隐藏主面板';
+        const isCollapsed = getCollapsedState();
+        const eyeIcon = isCollapsed ? 'fa-eye-slash' : 'fa-eye';
+        const eyeTitle = isCollapsed ? '展开面板' : '收起面板';
         // 在标题栏右侧加一个小眼睛
         let buttonsHtml = `
                     <div class="acu-opt-header" style="position:relative;">
@@ -14727,8 +15575,8 @@
         if (hasBtns) {
           optionHtml = `<div class="acu-option-panel">${buttonsHtml}</div>`;
           // 生成选项内容的指纹 (简单拼接)
-          // [修复] 将隐藏状态加入指纹，强制触发重绘
-          currentOptionHash = optionValues.join('|||') + (isNavHidden ? '_hidden' : '_show');
+          // [修复] 将收起状态加入指纹，强制触发重绘
+          currentOptionHash = optionValues.join('|||') + (isCollapsed ? '_collapsed' : '_expanded');
         }
       }
     }
@@ -14749,17 +15597,11 @@
       html += optionHtml;
     }
 
-    // [修改开始] 读取隐藏状态
-    const isNavHidden = Store.get('acu_hide_nav_only', false);
-    const hideStyle = isNavHidden ? 'display:none !important;' : '';
-
     if (isCollapsed) {
       const colStyleClass = `acu-col-${config.collapseStyle || 'bar'}`;
-      // 如果处于隐藏模式，连收起的小条也隐藏
-      const collapseStyle = isNavHidden ? 'display:none !important;' : '';
       const alignClass = `acu-align-${config.collapseAlign || 'right'}`;
       html += `
-                <div class="acu-expand-trigger ${colStyleClass} ${alignClass}" id="acu-btn-expand" style="${collapseStyle}">
+                <div class="acu-expand-trigger ${colStyleClass} ${alignClass}" id="acu-btn-expand">
                     <i class="fa-solid fa-table"></i> <span>数据库助手 (${Object.keys(tables).length})</span>
                 </div>
             `;
@@ -14772,7 +15614,7 @@
       const shouldShowPanel = isDashboardActive || isChangesPanelActive || currentTabName;
 
       html += `
-                <div class="acu-data-display ${shouldShowPanel ? 'visible' : ''} ${savedHeight ? 'acu-manual-mode' : ''}" id="acu-data-area" style="${savedHeight ? 'height:' + savedHeight + 'px;' : ''} ${hideStyle}">
+                <div class="acu-data-display ${shouldShowPanel ? 'visible' : ''} ${savedHeight ? 'acu-manual-mode' : ''}" id="acu-data-area" style="${savedHeight ? 'height:' + savedHeight + 'px;' : ''}">
                     ${
                       isChangesPanelActive
                         ? renderChangesPanel(rawData)
@@ -14790,7 +15632,7 @@
       const gridFixStyle = `grid-template-columns: repeat(${finalGridCols}, 1fr);`;
 
       html += `
-                <div class="acu-nav-container ${config.actionsPosition === 'top' ? 'acu-pos-top' : ''}" id="acu-nav-bar" style="${hideStyle} ${gridFixStyle}">
+                <div class="acu-nav-container ${config.actionsPosition === 'top' ? 'acu-pos-top' : ''}" id="acu-nav-bar" style="${gridFixStyle}">
                     <div class="acu-order-controls" id="acu-order-hint"><i class="fa-solid fa-arrows-alt"></i> 拖动调整顺序，完成后点击保存退出</div>
             `;
 
@@ -15209,6 +16051,7 @@
   const renderChangesPanel = rawData => {
     const snapshot = loadSnapshot();
     const config = getConfig();
+    const t = getThemeColors();
 
     // 运行数据验证
     const validationErrors = rawData ? ValidationEngine.validateAllData(rawData) : [];
@@ -15369,7 +16212,7 @@
     // === 数据验证模式：在内容区域之前添加提示（不参与横向滚动） ===
     if (isValidationMode) {
       html += `<div class="acu-validation-mode-hint">
-        <i class="fa-solid fa-info-circle"></i>即使回滚，只要数据不合法仍会显示在此
+        <i class="fa-solid fa-info-circle"></i>即使回滚，不合法的数据仍会显示警告
       </div>`;
     }
 
@@ -15397,7 +16240,7 @@
                     <div class="acu-changes-group-header acu-validation-group-header" data-table="${escapeHtml(tableName)}" style="cursor:pointer;">
                         <i class="fa-solid fa-chevron-${isCollapsed ? 'right' : 'down'} acu-collapse-icon" style="font-size:10px;width:12px;transition:transform 0.2s;"></i>
                         <i class="fa-solid ${getIconForTableName(tableName)}"></i> ${escapeHtml(tableName)}
-                        <span class="acu-changes-count" style="background:#e74c3c;">${tableErrors.length}</span>
+                        <span class="acu-changes-count" style="background:${t.errorText};">${tableErrors.length}</span>
                     </div>
                     <div class="acu-changes-group-body" style="${isCollapsed ? 'display:none;' : ''}">`;
 
@@ -17508,23 +18351,9 @@
       .on('click.acu_nav_toggle', '.acu-nav-toggle-btn', function (e) {
         e.stopPropagation();
         e.preventDefault();
-
-        // 1. 切换数据状态
-        const current = Store.get('acu_hide_nav_only', false);
-        const newState = !current;
-        Store.set('acu_hide_nav_only', newState);
-
-        // 2. [新增] 立即手动切换图标 (视觉瞬时反馈)
-        const $icon = $(this);
-        if (newState) {
-          $icon.removeClass('fa-eye').addClass('fa-eye-slash');
-          $icon.attr('title', '显示主面板');
-        } else {
-          $icon.removeClass('fa-eye-slash').addClass('fa-eye');
-          $icon.attr('title', '隐藏主面板');
-        }
-
-        // 3. 触发重绘
+        if (isEditingOrder) return;
+        const currentState = getCollapsedState();
+        saveCollapsedState(!currentState);
         renderInterface();
       });
 
@@ -19696,6 +20525,10 @@
         // --------------------------------------------------
 
         renderInterface(); // 首次渲染
+        // [新增] 初始化时处理已存在的消息中的投骰结果
+        setTimeout(() => {
+          hideDiceResultsInUserMessages();
+        }, 500);
         // 注册回调
         if (api.registerTableUpdateCallback) {
           api.registerTableUpdateCallback(UpdateController.handleUpdate);
@@ -19724,11 +20557,74 @@
 
     // [新增] 监听用户发送消息 - 隐藏选项面板（选项已过时）
     const setupOptionHideListener = () => {
+      const { $ } = getCore();
       const hideOptionPanel = () => {
         optionPanelVisible = false;
         $('.acu-option-panel, .acu-embedded-options-container').fadeOut(200, function () {
           $(this).remove();
         });
+      };
+
+      // [修复] 在发送按钮点击时恢复真实结果
+      const setupSendButtonListener = () => {
+        // [新增] 拦截输入框的 value 属性，确保读取时自动替换占位符
+        interceptTextareaValue();
+
+        // [修复] 使用捕获阶段拦截，确保在发送逻辑之前执行
+        const sendButton = document.getElementById('send_but');
+        if (sendButton) {
+          sendButton.addEventListener(
+            'click',
+            function (e) {
+              // 在捕获阶段立即恢复真实结果
+              restoreDiceResultBeforeSend();
+            },
+            true, // 使用捕获阶段
+          );
+        }
+
+        // 监听发送按钮点击（jQuery方式作为备用）
+        $(document)
+          .off('click.acu_restore_dice', '#send_but')
+          .on('click.acu_restore_dice', '#send_but', function (e) {
+            // 在事件冒泡前恢复真实结果
+            restoreDiceResultBeforeSend();
+          });
+
+        // 监听回车发送（在输入框中按回车）
+        const textarea = document.getElementById('send_textarea');
+        if (textarea) {
+          textarea.addEventListener(
+            'keydown',
+            function (e) {
+              // 如果按的是回车且没有按 Shift（Shift+Enter 是换行）
+              if (e.key === 'Enter' && !e.shiftKey) {
+                // 在发送前恢复真实结果
+                restoreDiceResultBeforeSend();
+              }
+            },
+            true, // 使用捕获阶段
+          );
+        }
+
+        $('#send_textarea')
+          .off('keydown.acu_restore_dice')
+          .on('keydown.acu_restore_dice', function (e) {
+            // 如果按的是回车且没有按 Shift（Shift+Enter 是换行）
+            if (e.key === 'Enter' && !e.shiftKey) {
+              // 在发送前恢复真实结果
+              restoreDiceResultBeforeSend();
+            }
+          });
+
+        // [新增] 监听输入框的创建/替换，重新拦截新的输入框
+        const observer = new MutationObserver(() => {
+          const $ta = $('#send_textarea');
+          if ($ta.length && !$ta[0]._acuValueIntercepted) {
+            interceptTextareaValue();
+          }
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
       };
 
       // [优化] 统一事件注册逻辑 (优先 ST 原生 -> 降级到全局)
@@ -19740,18 +20636,39 @@
       // 1. 优先使用 ST.eventSource (官方标准)
       if (ST?.eventSource) {
         ST.eventSource.on(evtName, hideOptionPanel);
+        // [新增] 同时监听消息发送事件，应用投骰结果隐藏
+        ST.eventSource.on(evtName, () => {
+          // 延迟执行，确保消息已渲染到DOM
+          setTimeout(() => {
+            hideDiceResultsInUserMessages();
+          }, 100);
+        });
+        setupSendButtonListener();
         return;
       }
 
       // 2. 降级尝试全局 eventOn (TavernHelper 或旧版环境)
       if (typeof window.eventOn === 'function') {
         window.eventOn(evtName, hideOptionPanel);
+        // [新增] 同时监听消息发送事件，应用投骰结果隐藏
+        window.eventOn(evtName, () => {
+          // 延迟执行，确保消息已渲染到DOM
+          setTimeout(() => {
+            hideDiceResultsInUserMessages();
+          }, 100);
+        });
+        setupSendButtonListener();
         return;
       }
     };
 
     // 延迟执行，确保酒馆助手已加载
     setTimeout(setupOptionHideListener, 2000);
+
+    // [新增] 立即尝试拦截输入框（如果已经存在）
+    setTimeout(() => {
+      interceptTextareaValue();
+    }, 500);
 
     // [新增] 页面卸载时清理资源
     $(window)
