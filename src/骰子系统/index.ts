@@ -2501,7 +2501,7 @@
                                 <span>MVU 变量</span>
                             </div>
                             <div class="acu-header-actions">
-                                <button class="mvu-header-btn mvu-btn-close" title="关闭">
+                                <button class="acu-close-btn" title="关闭">
                                     <i class="fa-solid fa-times"></i>
                                 </button>
                             </div>
@@ -2548,10 +2548,13 @@
                             <span class="mvu-card-count" style="margin-left:4px;">(${topKeys.length})</span>
                         </div>
                         <div class="acu-header-actions">
+                            <div class="acu-height-control">
+                                <i class="fa-solid fa-arrows-up-down acu-height-drag-handle" data-table="${MvuModule.MODULE_ID}" title="↕️ 拖动调整面板高度 | 双击恢复默认"></i>
+                            </div>
                             <button class="mvu-header-btn mvu-btn-refresh" title="刷新">
                                 <i class="fa-solid fa-sync-alt"></i>
                             </button>
-                            <button class="mvu-header-btn mvu-btn-close" title="关闭">
+                            <button class="acu-close-btn" title="关闭">
                                 <i class="fa-solid fa-times"></i>
                             </button>
                         </div>
@@ -2595,17 +2598,6 @@
           e.stopPropagation();
           console.log('[MvuModule] Refresh clicked');
           MvuModule.refresh($panel);
-        });
-
-        // 关闭按钮
-        $panel.on('click.mvu', '.mvu-btn-close', function (e) {
-          e.stopPropagation();
-          console.log('[MvuModule] Close clicked');
-          if (typeof Store !== 'undefined' && typeof STORAGE_KEY_ACTIVE_TAB !== 'undefined') {
-            Store.set(STORAGE_KEY_ACTIVE_TAB, null);
-          }
-          $panel.removeClass('visible');
-          $('.acu-nav-btn').removeClass('active');
         });
 
         // 点击值编辑
@@ -2769,11 +2761,25 @@
       },
 
       refresh: function ($container) {
-        if (!$container || !$container.length) return;
+        if (!$container || !$container.length) {
+          const $panel = $('#acu-data-area');
+          if (!$panel.length) return;
+          $container = $panel;
+        }
         console.log('[MvuModule] refresh called');
+        // 获取最新变量数据（getData 内部会调用 window.Mvu.getMvuData 获取最新数据）
+        const mvuData = getData();
+        if (!mvuData || !mvuData.stat_data) {
+          console.log('[MvuModule] No data available after refresh');
+        }
+        // 重新渲染面板内容
         const panelHtml = this.renderPanel();
-        $container.html('<div class="acu-mvu-panel">' + panelHtml + '</div>');
-        this.bindEvents($container);
+        const $panel = $('#acu-data-area');
+        if ($panel.length) {
+          $panel.html('<div class="acu-mvu-panel">' + panelHtml + '</div>');
+          // 重新绑定变量面板特有的事件
+          this.bindEvents($panel);
+        }
       },
     };
   })();
@@ -3968,8 +3974,8 @@
       buttonText: '#1a1a1a',
       grayBg: 'rgba(255, 128, 193, 0.1)',
       // 按钮专用颜色（更暗，提高可读性）
-      buttonBg: 'rgba(255, 128, 193, 0.4)',
-      buttonBgActive: 'rgba(255, 128, 193, 0.5)',
+      buttonBg: 'rgba(255, 128, 193, 0.7)',
+      buttonBgActive: 'rgba(255, 128, 193, 0.8)',
       presetButtonBg: 'rgba(255, 128, 193, 0.2)',
       presetButtonBgActive: 'rgba(255, 128, 193, 0.4)',
       // 警告/错误相关
@@ -10627,6 +10633,10 @@
             .acu-btn-block:hover { background: #555; color: #fff; }
             .acu-expand-trigger { background: var(--acu-bg-nav); border: 1px solid var(--acu-border); box-shadow: 0 2px 6px var(--acu-shadow); cursor: pointer; color: var(--acu-text-main); font-size: 13px; font-weight: bold; display: flex; align-items: center; gap: 6px; transition: all 0.2s; z-index: 2147483645 !important; }
             .acu-expand-trigger:hover { background: var(--acu-btn-hover); transform: translateY(-2px); }
+            .acu-col-bar { width: 100%; justify-content: center; padding: 8px 10px; border-radius: 6px; }
+            .acu-col-pill { width: auto !important; padding: 6px 16px; border-radius: 50px; }
+            .acu-col-mini { width: 40px !important; height: 40px !important; padding: 0; justify-content: center; border-radius: 50%; }
+            .acu-col-mini span { display: none; }
             /* [优化] 小眼睛图标悬停效果 */
             .acu-nav-toggle-btn:hover { opacity: 1 !important; transform: translateY(-50%) scale(1.2); color: var(--acu-accent); }
             .acu-align-right { margin-left: auto; align-self: flex-end; }
@@ -15697,21 +15707,26 @@
     } else {
       // [修改] 读取保存的高度
       const savedHeight = currentTabName ? getTableHeights()[currentTabName] : null;
-      // [修改] 支持仪表盘和变更面板渲染
+      // [修改] 支持仪表盘、变更面板和变量面板渲染
       const isDashboardActive = Store.get(STORAGE_KEY_DASHBOARD_ACTIVE, false);
       const isChangesPanelActive = Store.get('acu_changes_panel_active', false);
-      const shouldShowPanel = isDashboardActive || isChangesPanelActive || currentTabName;
+      const isMvuActive = getActiveTabState() === MvuModule.MODULE_ID && MvuModule.isAvailable();
+      const mvuSavedHeight = isMvuActive ? getTableHeights()[MvuModule.MODULE_ID] : null;
+      const finalSavedHeight = mvuSavedHeight || savedHeight;
+      const shouldShowPanel = isDashboardActive || isChangesPanelActive || isMvuActive || currentTabName;
 
       html += `
-                <div class="acu-data-display ${shouldShowPanel ? 'visible' : ''} ${savedHeight ? 'acu-manual-mode' : ''}" id="acu-data-area" style="${savedHeight ? 'height:' + savedHeight + 'px;' : ''}">
+                <div class="acu-data-display ${shouldShowPanel ? 'visible' : ''} ${finalSavedHeight ? 'acu-manual-mode' : ''}" id="acu-data-area" style="${finalSavedHeight ? 'height:' + finalSavedHeight + 'px;' : ''}">
                     ${
                       isChangesPanelActive
                         ? renderChangesPanel(rawData)
                         : isDashboardActive
                           ? renderDashboard(tables)
-                          : currentTabName
-                            ? renderTableContent(tables[currentTabName], currentTabName)
-                            : ''
+                          : isMvuActive
+                            ? '<div class="acu-mvu-panel">' + MvuModule.renderPanel() + '</div>'
+                            : currentTabName
+                              ? renderTableContent(tables[currentTabName], currentTabName)
+                              : ''
                     }
                 </div>
                 `;
@@ -15898,6 +15913,13 @@
     // [修复] 如果审核面板激活，绑定其事件
     if (Store.get('acu_changes_panel_active', false)) {
       bindChangesEvents();
+    }
+    // [修复] 如果变量面板激活，绑定其事件
+    if (getActiveTabState() === MvuModule.MODULE_ID && MvuModule.isAvailable()) {
+      const $panel = $('#acu-data-area');
+      if ($panel.length) {
+        MvuModule.bindEvents($panel);
+      }
     }
 
     setTimeout(() => {
@@ -18512,31 +18534,6 @@
             }
             return false;
           }
-          // [新增] MVU 变量按钮特殊处理
-          if ($navBtn.attr('id') === 'acu-btn-mvu') {
-            e.preventDefault();
-            e.stopImmediatePropagation();
-            const isMvuActive = getActiveTabState() === MvuModule.MODULE_ID;
-            const isPanelVisible = $('#acu-data-area').hasClass('visible');
-
-            if (isMvuActive && isPanelVisible) {
-              // MVU面板已打开，关闭面板
-              saveActiveTabState(null);
-              $('#acu-data-area').removeClass('visible');
-              $('.acu-nav-btn').removeClass('active');
-            } else {
-              // 打开MVU面板
-              Store.set(STORAGE_KEY_DASHBOARD_ACTIVE, false);
-              Store.set('acu_changes_panel_active', false);
-              saveActiveTabState(MvuModule.MODULE_ID);
-              $('.acu-nav-btn').removeClass('active');
-              // 渲染MVU面板
-              const $panel = $('#acu-data-area');
-              $panel.html(MvuModule.renderPanel()).addClass('visible');
-              MvuModule.bindEvents($panel);
-            }
-            return false;
-          }
           e.stopPropagation();
           // [修复] 点击普通表格时，必须关闭仪表盘和变更面板状态
           Store.set(STORAGE_KEY_DASHBOARD_ACTIVE, false);
@@ -18944,6 +18941,15 @@
         if (isDashboardActive) {
           // 仪表盘状态：关闭仪表盘，重新渲染到默认状态
           Store.set(STORAGE_KEY_DASHBOARD_ACTIVE, false);
+          saveActiveTabState(null);
+          renderInterface();
+          return;
+        }
+
+        // 检查是否是变量面板状态
+        const isMvuActive = getActiveTabState() === MvuModule.MODULE_ID;
+        if (isMvuActive) {
+          // 变量面板状态：关闭变量面板，重新渲染到默认状态
           saveActiveTabState(null);
           renderInterface();
           return;
