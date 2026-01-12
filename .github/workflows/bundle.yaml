@@ -76,6 +76,23 @@ jobs:
           echo "Files before rename:"
           ls -la "dist/骰子系统/" || echo "Directory does not exist"
           
+          # Determine source file (could be index.js or stable.js)
+          SOURCE_JS=""
+          SOURCE_MAP=""
+          
+          if [ -f "dist/骰子系统/stable.js" ]; then
+            SOURCE_JS="stable.js"
+            SOURCE_MAP="stable.js.map"
+            echo "Found stable.js as source file"
+          elif [ -f "dist/骰子系统/index.js" ]; then
+            SOURCE_JS="index.js"
+            SOURCE_MAP="index.js.map"
+            echo "Found index.js as source file"
+          else
+            echo "ERROR: Neither stable.js nor index.js found in dist/骰子系统/"
+            exit 1
+          fi
+          
           # Clean up old files first
           rm -f "dist/骰子系统/stable.js" "dist/骰子系统/stable.js.map"
           rm -f "dist/骰子系统/main.js" "dist/骰子系统/main.js.map"
@@ -83,30 +100,32 @@ jobs:
           
           if [ "${{ github.ref_name }}" = "nightly" ]; then
             echo "Renaming to nightly.js"
-            if [ -f "dist/骰子系统/index.js" ]; then
-              mv "dist/骰子系统/index.js" "dist/骰子系统/nightly.js"
-              echo "Renamed index.js to nightly.js"
+            if [ -f "dist/骰子系统/$SOURCE_JS" ]; then
+              mv "dist/骰子系统/$SOURCE_JS" "dist/骰子系统/nightly.js"
+              echo "Renamed $SOURCE_JS to nightly.js"
             else
-              echo "ERROR: dist/骰子系统/index.js not found!"
+              echo "ERROR: dist/骰子系统/$SOURCE_JS not found!"
+              exit 1
             fi
-            if [ -f "dist/骰子系统/index.js.map" ]; then
-              mv "dist/骰子系统/index.js.map" "dist/骰子系统/nightly.js.map"
-              echo "Renamed index.js.map to nightly.js.map"
+            if [ -f "dist/骰子系统/$SOURCE_MAP" ]; then
+              mv "dist/骰子系统/$SOURCE_MAP" "dist/骰子系统/nightly.js.map"
+              echo "Renamed $SOURCE_MAP to nightly.js.map"
             fi
           elif [ "${{ github.ref_name }}" = "main" ] || [ "${{ github.ref_name }}" = "master" ]; then
             echo "Renaming to main.js"
-            if [ -f "dist/骰子系统/index.js" ]; then
-              mv "dist/骰子系统/index.js" "dist/骰子系统/main.js"
-              echo "Renamed index.js to main.js"
+            if [ -f "dist/骰子系统/$SOURCE_JS" ]; then
+              mv "dist/骰子系统/$SOURCE_JS" "dist/骰子系统/main.js"
+              echo "Renamed $SOURCE_JS to main.js"
             else
-              echo "ERROR: dist/骰子系统/index.js not found!"
+              echo "ERROR: dist/骰子系统/$SOURCE_JS not found!"
+              exit 1
             fi
-            if [ -f "dist/骰子系统/index.js.map" ]; then
-              mv "dist/骰子系统/index.js.map" "dist/骰子系统/main.js.map"
-              echo "Renamed index.js.map to main.js.map"
+            if [ -f "dist/骰子系统/$SOURCE_MAP" ]; then
+              mv "dist/骰子系统/$SOURCE_MAP" "dist/骰子系统/main.js.map"
+              echo "Renamed $SOURCE_MAP to main.js.map"
             fi
           else
-            echo "WARNING: Unknown branch, keeping index.js"
+            echo "WARNING: Unknown branch, keeping original filename"
           fi
           
           echo "Files after rename:"
