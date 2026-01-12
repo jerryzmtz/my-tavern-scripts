@@ -43,7 +43,15 @@ jobs:
           echo ""
           echo "Checking if index.ts exists:"
           test -f "src/骰子系统/index.ts" && echo "✓ src/骰子系统/index.ts exists" || echo "✗ src/骰子系统/index.ts NOT FOUND"
-      - run: pnpm install && pnpm format && pnpm build
+      - name: Install dependencies
+        run: pnpm install
+      - name: Format code
+        run: pnpm format
+      - name: Build
+        run: |
+          echo "Starting build process..."
+          pnpm build
+          echo "Build completed!"
         continue-on-error: false
       - name: Check build output
         run: |
