@@ -36,7 +36,32 @@ jobs:
         with:
           version: 10
 
+      - name: Check source files
+        run: |
+          echo "Checking if 骰子系统 source exists:"
+          ls -la "src/骰子系统/" 2>&1 || echo "src/骰子系统/ does not exist"
+          echo ""
+          echo "Checking if index.ts exists:"
+          test -f "src/骰子系统/index.ts" && echo "✓ src/骰子系统/index.ts exists" || echo "✗ src/骰子系统/index.ts NOT FOUND"
       - run: pnpm install && pnpm format && pnpm build
+        continue-on-error: false
+      - name: Check build output
+        run: |
+          echo "=== Build Output Check ==="
+          echo "All .js files in dist:"
+          find dist -type f -name "*.js" | sort || echo "No .js files found"
+          echo ""
+          echo "All directories in dist:"
+          find dist -type d | sort || echo "No directories found"
+          echo ""
+          echo "Checking if 骰子系统 directory exists:"
+          if [ -d "dist/骰子系统" ]; then
+            echo "✓ dist/骰子系统/ exists"
+            ls -la "dist/骰子系统/" || echo "Directory is empty"
+          else
+            echo "✗ dist/骰子系统/ does NOT exist"
+            echo "This is a problem! The build may have failed for this entry."
+          fi
       - name: Rename 骰子系统 files based on branch
         run: |
           echo "Current branch: ${{ github.ref_name }}"
