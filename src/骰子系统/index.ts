@@ -1979,6 +1979,8 @@
                 height: 100%;
                 display: flex;
                 flex-direction: column;
+                min-height: 0; /* 关键：确保 flex 容器可以正确计算子项高度 */
+                overflow: hidden; /* 不在这里滚动，让父容器处理 */
             }
             .acu-mvu-panel .acu-panel-header {
                 background: var(--acu-table-head);
@@ -2022,16 +2024,33 @@
                 border-color: var(--acu-accent);
             }
 
-            /* MVU 内容区 */
+            /* MVU 内容区 - 始终使用竖向滚动模式 */
             .mvu-content {
-                flex: 1;
-                overflow-y: auto;
+                display: flex;
+                flex-direction: column;
                 overflow-x: hidden;
+                overflow-y: auto; /* 直接在内容区启用滚动 */
+                flex: 1 1 auto;
+                min-height: 0; /* 关键：允许 flex 子项缩小以启用滚动 */
+                max-height: 100%; /* 限制最大高度为父容器 */
                 padding: 12px;
-                scrollbar-width: none;
+                scrollbar-width: thin;
             }
             .mvu-content::-webkit-scrollbar {
                 display: none;
+            }
+            .mvu-content .mvu-card {
+                flex: 0 0 auto; /* 不拉伸，保持自然高度 */
+                min-width: 100%;
+                max-width: 100%;
+                width: 100%;
+            }
+            /* MVU面板始终支持滚动 */
+            .acu-mvu-panel {
+                overflow-y: auto !important;
+                overflow-x: hidden !important;
+                flex: 1 1 0; /* 关键：使用 flex-basis: 0 让容器可以正确计算滚动 */
+                min-height: 0;
             }
 
             /* MVU 卡片 */
@@ -2081,6 +2100,7 @@
             .mvu-card-body {
                 padding: 8px 12px;
                 display: block;
+                overflow: hidden; /* 为 slideUp/slideDown 动画提供支持 */
             }
             .mvu-card.collapsed .mvu-card-body {
                 display: none;
@@ -2097,6 +2117,66 @@
             }
             .mvu-card .mvu-card .mvu-card-body {
                 padding: 6px 10px;
+            }
+
+            /* 嵌套卡片横向布局 - 只对嵌套卡片生效，键值对保持正常块级显示 */
+            .mvu-card-body.horizontal-nested {
+                display: flex;
+                flex-direction: row;
+                flex-wrap: nowrap;
+                gap: 12px;
+                overflow-x: auto;
+                overflow-y: visible;
+                -webkit-overflow-scrolling: touch;
+                padding-bottom: 8px;
+                align-items: flex-start;
+            }
+            /* 如果父卡片有 has-nested-cards 类，使用 wrap 布局，让键值对和嵌套卡片可以换行 */
+            .mvu-card.has-nested-cards .mvu-card-body.horizontal-nested {
+                flex-wrap: wrap;
+            }
+            /* 键值对行保持正常块级显示，占满一行 */
+            .mvu-card-body.horizontal-nested > .mvu-row {
+                display: flex;
+                flex: 0 0 100%;
+                width: 100%;
+                max-width: 100%; /* 确保不超过容器宽度 */
+                box-sizing: border-box;
+            }
+            /* 如果父卡片有 has-nested-cards 类，键值对应该根据内容自适应宽度，但仍然占满一行 */
+            .mvu-card.has-nested-cards .mvu-card-body.horizontal-nested > .mvu-row {
+                flex: 0 0 auto; /* 根据内容自适应宽度 */
+                min-width: 100%; /* 确保占满一行 */
+                width: auto; /* 根据内容自适应宽度 */
+                max-width: 450px; /* 限制键值对的最大宽度，避免占用过多横向空间 */
+                box-sizing: border-box;
+            }
+            @media (min-width: 769px) {
+                .mvu-card.has-nested-cards .mvu-card-body.horizontal-nested > .mvu-row {
+                    max-width: 550px; /* 大屏幕下也限制键值对的最大宽度 */
+                }
+            }
+            /* 只有嵌套卡片才横向排列 - 智能宽度 */
+            .mvu-card-body.horizontal-nested > .mvu-card {
+                flex: 0 0 auto; /* 根据内容自动调整宽度 */
+                min-width: 200px;
+                max-width: 350px;
+                width: auto;
+            }
+            /* 如果嵌套卡片内部也有横向排列的子卡片，移除最大宽度限制，允许根据内容自适应 */
+            .mvu-card-body.horizontal-nested > .mvu-card.has-nested-cards {
+                min-width: 400px; /* 为包含嵌套卡片的嵌套卡片设置更大的最小宽度 */
+                max-width: none; /* 移除最大宽度限制，允许根据内容自适应 */
+            }
+            @media (min-width: 769px) {
+                .mvu-card-body.horizontal-nested > .mvu-card {
+                    min-width: 240px;
+                    max-width: 400px;
+                }
+                .mvu-card-body.horizontal-nested > .mvu-card.has-nested-cards {
+                    min-width: 500px; /* 为包含嵌套卡片的嵌套卡片设置更大的最小宽度 */
+                    max-width: none; /* 移除最大宽度限制，允许根据内容自适应 */
+                }
             }
 
             /* 键值对行 */
@@ -2164,6 +2244,12 @@
                 text-align: center;
                 padding: 40px 20px;
                 color: var(--acu-text-sub);
+                flex: 1;
+                min-width: 100%;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
             }
             .mvu-empty i {
                 font-size: 32px;
@@ -2302,22 +2388,83 @@
     }
 
     function isAvailable() {
+      // 简化逻辑：只检查 MVU 框架是否加载，不再判断是否是 MVU 卡
+      // 总是显示 MVU 按钮，让用户可以随时尝试查看变量
       return typeof window.Mvu !== 'undefined' && typeof window.Mvu.getMvuData === 'function';
     }
 
     function getData() {
-      if (!isAvailable()) return null;
+      // 简化：直接尝试获取数据，如果失败返回 null
+      // 注意：这个函数是同步的，如果 MVU 框架还没初始化，会返回 null
+      // 应该使用 getDataWithRetry 来异步获取数据
       try {
-        const allVars = window.Mvu.getMvuData({ type: 'message', message_id: -1 });
-        if (!allVars) return null;
-        return {
+        if (typeof window.Mvu === 'undefined' || typeof window.Mvu.getMvuData !== 'function') {
+          return null;
+        }
+
+        const allVars = window.Mvu.getMvuData({ type: 'message', message_id: 'latest' });
+
+        if (!allVars) {
+          return null;
+        }
+
+        // 即使 stat_data 为空，也返回数据（让用户看到空状态）
+        const data = {
           stat_data: allVars.stat_data || null,
           display_data: allVars.display_data || {},
           delta_data: allVars.delta_data || {},
           schema: allVars.schema || null,
         };
+
+        return data;
       } catch (e) {
         console.warn('[MvuModule] getData error:', e);
+        console.error('[MvuModule] getData error stack:', e.stack);
+        return null;
+      }
+    }
+
+    // 支持重试获取数据的函数
+    async function getDataWithRetry(maxRetries = 3, retryDelay = 500) {
+      try {
+        // 首先等待 MVU 框架初始化完成（这是关键！）
+        await waitGlobalInitialized('Mvu');
+
+        // MVU 框架已初始化，现在尝试获取数据
+        let attempts = 0;
+        while (attempts < maxRetries) {
+          attempts++;
+          try {
+            // 使用 'latest' 获取最新消息的变量（也可以使用 -1）
+            const allVars = window.Mvu.getMvuData({ type: 'message', message_id: 'latest' });
+
+            // 只要 allVars 存在就返回数据，即使 stat_data 为空
+            // 这样可以让用户看到空状态，而不是一直显示加载中
+            if (allVars) {
+              const data = {
+                stat_data: allVars.stat_data || null,
+                display_data: allVars.display_data || {},
+                delta_data: allVars.delta_data || {},
+                schema: allVars.schema || null,
+              };
+
+              return data;
+            }
+          } catch (e) {
+            console.warn('[MvuModule] Error getting data on attempt', attempts, ':', e);
+            console.error('[MvuModule] Error stack:', e.stack);
+          }
+
+          if (attempts < maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, retryDelay));
+          }
+        }
+
+        console.warn('[MvuModule] Failed to get data after', attempts, 'attempts');
+        return null;
+      } catch (e) {
+        console.error('[MvuModule] Error waiting for MVU framework or getting data:', e);
+        console.error('[MvuModule] Error stack:', e.stack);
         return null;
       }
     }
@@ -2410,11 +2557,14 @@
     }
 
     // 渲染卡片（递归）
-    function renderCard(key, value, path, deltaData, depth, defaultExpanded) {
+    function renderCard(key, value, path, deltaData, depth, defaultExpanded, isHorizontal) {
       const childCount = countChildren(value);
       const collapsedClass = defaultExpanded ? '' : 'collapsed';
 
       let bodyHtml = '';
+      let hasNestedCards = false; // 标记是否有嵌套卡片
+      let nestedCardCount = 0; // 统计嵌套卡片数量（用于计算宽度）
+      let rowCount = 0; // 统计键值对数量
 
       if (Array.isArray(value) && !isVWD(value) && !isSimpleArray(value)) {
         // 复杂数组：每个元素作为子卡片或行
@@ -2422,8 +2572,11 @@
           const itemPath = `${path}[${index}]`;
 
           if (item && typeof item === 'object' && !isVWD(item) && !isSimpleArray(item)) {
-            bodyHtml += renderCard(`[${index}]`, item, itemPath, deltaData, depth + 1, false);
+            hasNestedCards = true;
+            nestedCardCount++;
+            bodyHtml += renderCard(`[${index}]`, item, itemPath, deltaData, depth + 1, false, isHorizontal);
           } else {
+            rowCount++;
             bodyHtml += renderRow(`[${index}]`, item, itemPath, deltaData);
           }
         });
@@ -2436,9 +2589,12 @@
 
           if (childValue && typeof childValue === 'object' && !isVWD(childValue) && !isSimpleArray(childValue)) {
             // 嵌套对象/数组 → 子卡片
-            bodyHtml += renderCard(childKey, childValue, childPath, deltaData, depth + 1, false);
+            hasNestedCards = true;
+            nestedCardCount++;
+            bodyHtml += renderCard(childKey, childValue, childPath, deltaData, depth + 1, false, isHorizontal);
           } else {
             // 原始值或简单数组 → 行
+            rowCount++;
             bodyHtml += renderRow(childKey, childValue, childPath, deltaData);
           }
         }
@@ -2446,8 +2602,48 @@
 
       const countText = Array.isArray(value) ? `[${childCount}]` : `(${childCount})`;
 
+      // 如果是横向模式且有嵌套卡片，为 card-body 添加 horizontal-nested 类
+      const bodyClass = isHorizontal && hasNestedCards ? 'mvu-card-body horizontal-nested' : 'mvu-card-body';
+
+      // 检查嵌套卡片是否需要更大的宽度（递归检查）
+      let nestedCardsNeedWidth = false;
+      if (isHorizontal && hasNestedCards && depth === 0) {
+        // 对于顶层卡片，检查嵌套卡片内部是否有多个子卡片（需要横向排列）
+        if (Array.isArray(value) && !isVWD(value) && !isSimpleArray(value)) {
+          // 数组：检查每个嵌套项
+          value.forEach(item => {
+            if (item && typeof item === 'object' && !isVWD(item) && !isSimpleArray(item)) {
+              const itemChildCount = countChildren(item);
+              if (itemChildCount >= 2) nestedCardsNeedWidth = true;
+            }
+          });
+        } else if (value && typeof value === 'object' && !isVWD(value)) {
+          // 对象：检查每个嵌套键值
+          const entries = Object.entries(value).filter(([k]) => !k.startsWith('$'));
+          for (const [childKey, childValue] of entries) {
+            if (childValue && typeof childValue === 'object' && !isVWD(childValue) && !isSimpleArray(childValue)) {
+              const childChildCount = countChildren(childValue);
+              if (childChildCount >= 2) nestedCardsNeedWidth = true;
+            }
+          }
+        }
+      }
+
+      // 在横向模式下，只有当卡片内部主要是嵌套卡片（键值对很少或没有）时，才添加 has-nested-cards 类
+      // 这样可以避免键值对占用过多横向空间
+      // 对于顶层卡片（depth === 0）：
+      //   - 如果嵌套卡片数量 >= 2 且键值对数量 <= 1，添加 has-nested-cards
+      //   - 或者，如果嵌套卡片本身需要更大的宽度（内部有多个子卡片），也添加 has-nested-cards
+      // 对于嵌套卡片（depth > 0），只有当只有嵌套卡片（rowCount === 0）且嵌套卡片数量 >= 2 时，才添加 has-nested-cards
+      const shouldAddHasNestedClass =
+        isHorizontal &&
+        hasNestedCards &&
+        ((depth === 0 && ((nestedCardCount >= 2 && rowCount <= 1) || nestedCardsNeedWidth)) || // 顶层卡片：嵌套卡片数量 >= 2 且键值对 <= 1，或者嵌套卡片需要更大宽度
+          (depth > 0 && rowCount === 0 && nestedCardCount >= 2)); // 嵌套卡片：没有键值对且嵌套卡片数量 >= 2
+      const hasNestedClass = shouldAddHasNestedClass ? ' has-nested-cards' : '';
+
       return `
-                <div class="mvu-card ${collapsedClass}" data-path="${escapeHtml(path)}" data-depth="${depth}">
+                <div class="mvu-card${hasNestedClass} ${collapsedClass}" data-path="${escapeHtml(path)}" data-depth="${depth}">
                     <div class="mvu-card-header">
                         <div class="mvu-card-title">
                             <span>${escapeHtml(key)}</span>
@@ -2455,7 +2651,7 @@
                         </div>
                         <span class="mvu-card-toggle">▼</span>
                     </div>
-                    <div class="mvu-card-body">
+                    <div class="${bodyClass}">
                         ${bodyHtml}
                     </div>
                 </div>
@@ -2468,12 +2664,12 @@
 
       isAvailable: isAvailable,
       getData: getData,
+      getDataWithRetry: getDataWithRetry,
 
       injectStyles: function () {
         // 获取主页面的 document（兼容 iframe 环境）
         const targetDoc = window.parent?.document || document;
         if (targetDoc.getElementById('mvu-module-styles')) return;
-        console.log('[MvuModule] Injecting styles to parent document');
         const styleEl = targetDoc.createElement('style');
         styleEl.id = 'mvu-module-styles';
         styleEl.textContent = STYLES;
@@ -2481,7 +2677,7 @@
       },
 
       renderNavButton: function (isActive) {
-        if (!isAvailable()) return '';
+        // 总是显示按钮，不检查 isAvailable()，让用户可以随时尝试查看变量
         const activeClass = isActive ? 'active' : '';
         return `<button class="acu-nav-btn acu-mvu-btn $${activeClass}" id="acu-btn-mvu" data-table="$${MODULE_ID}" style="order:-1;">
                     <i class="fa-solid fa-code-branch"></i><span>变量</span>
@@ -2489,36 +2685,79 @@
       },
 
       renderPanel: function () {
-        console.log('[MvuModule] renderPanel called');
+        // 简化逻辑：总是显示面板，不依赖复杂的加载状态判断
+        // 直接尝试获取数据，如果失败或为空，显示相应的提示信息，但始终显示刷新按钮
+
         const mvuData = getData();
 
-        if (!mvuData || !mvuData.stat_data) {
-          console.log('[MvuModule] No data available');
+        // MVU面板始终使用竖向滚动模式，不受全局布局配置影响
+        const layoutMode = 'vertical-layout';
+
+        // 如果无法获取数据（MVU 框架未加载或数据为 null）
+        if (!mvuData) {
           return `
                         <div class="acu-panel-header">
                             <div class="acu-panel-title">
-                                <i class="fa-solid fa-code-branch"></i>
-                                <span>MVU 变量</span>
+                                <div class="acu-title-main"><i class="fa-solid fa-code-branch"></i> <span class="acu-title-text">MVU 变量</span></div>
+                                <div class="acu-title-sub">(0项)</div>
                             </div>
                             <div class="acu-header-actions">
+                                <div class="acu-height-control">
+                                    <i class="fa-solid fa-arrows-up-down acu-height-drag-handle" data-table="${MvuModule.MODULE_ID}" title="↕️ 拖动调整面板高度 | 双击恢复默认"></i>
+                                </div>
+                                <button class="mvu-header-btn mvu-btn-refresh" title="刷新（自动重试获取变量）">
+                                    <i class="fa-solid fa-sync-alt"></i>
+                                </button>
                                 <button class="acu-close-btn" title="关闭">
                                     <i class="fa-solid fa-times"></i>
                                 </button>
                             </div>
                         </div>
-                        <div class="mvu-content">
+                        <div class="mvu-content ${layoutMode}">
                             <div class="mvu-empty">
                                 <i class="fa-solid fa-exclamation-circle"></i>
-                                <p>未检测到 MVU 变量数据</p>
-                                <p class="mvu-empty-hint">请确保角色卡已配置 [InitVar] 并进行过对话</p>
+                                <p>无法获取 MVU 数据</p>
+                                <p class="mvu-empty-hint">请确保角色卡已配置 MVU 框架，或点击刷新按钮自动重试获取变量</p>
                             </div>
                         </div>
                     `;
         }
 
-        // 构建顶层卡片
+        // 如果 stat_data 为空或 null，显示空状态（但数据对象存在）
+        if (
+          !mvuData.stat_data ||
+          (typeof mvuData.stat_data === 'object' && Object.keys(mvuData.stat_data).length === 0)
+        ) {
+          return `
+                        <div class="acu-panel-header">
+                            <div class="acu-panel-title">
+                                <div class="acu-title-main"><i class="fa-solid fa-code-branch"></i> <span class="acu-title-text">MVU 变量</span></div>
+                                <div class="acu-title-sub">(0项)</div>
+                            </div>
+                            <div class="acu-header-actions">
+                                <div class="acu-height-control">
+                                    <i class="fa-solid fa-arrows-up-down acu-height-drag-handle" data-table="${MvuModule.MODULE_ID}" title="↕️ 拖动调整面板高度 | 双击恢复默认"></i>
+                                </div>
+                                <button class="mvu-header-btn mvu-btn-refresh" title="刷新（自动重试获取变量）">
+                                    <i class="fa-solid fa-sync-alt"></i>
+                                </button>
+                                <button class="acu-close-btn" title="关闭">
+                                    <i class="fa-solid fa-times"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="mvu-content ${layoutMode}">
+                            <div class="mvu-empty">
+                                <i class="fa-solid fa-inbox"></i>
+                                <p>当前没有变量数据</p>
+                                <p class="mvu-empty-hint">变量数据将在 AI 回复后自动初始化，或点击刷新按钮自动重试获取变量</p>
+                            </div>
+                        </div>
+                    `;
+        }
+
+        // 有数据，正常显示
         const topKeys = Object.keys(mvuData.stat_data).filter(k => !k.startsWith('$'));
-        console.log('[MvuModule] Top level keys:', topKeys);
 
         let cardsHtml = '';
         for (const key of topKeys) {
@@ -2527,7 +2766,8 @@
 
           if (value && typeof value === 'object' && !isVWD(value) && !isSimpleArray(value)) {
             // 对象/复杂数组 → 卡片（顶层默认展开）
-            cardsHtml += renderCard(key, value, key, mvuData.delta_data, 0, true);
+            // MVU面板始终使用竖向滚动，所以 isHorizontal 始终为 false
+            cardsHtml += renderCard(key, value, key, mvuData.delta_data, 0, true, false);
           } else {
             // 原始值或简单数组 → 单独一个迷你卡片
             cardsHtml += `
@@ -2543,15 +2783,14 @@
         return `
                     <div class="acu-panel-header">
                         <div class="acu-panel-title">
-                            <i class="fa-solid fa-code-branch"></i>
-                            <span>MVU 变量</span>
-                            <span class="mvu-card-count" style="margin-left:4px;">(${topKeys.length})</span>
+                            <div class="acu-title-main"><i class="fa-solid fa-code-branch"></i> <span class="acu-title-text">MVU 变量</span></div>
+                            <div class="acu-title-sub">(${topKeys.length}项)</div>
                         </div>
                         <div class="acu-header-actions">
                             <div class="acu-height-control">
                                 <i class="fa-solid fa-arrows-up-down acu-height-drag-handle" data-table="${MvuModule.MODULE_ID}" title="↕️ 拖动调整面板高度 | 双击恢复默认"></i>
                             </div>
-                            <button class="mvu-header-btn mvu-btn-refresh" title="刷新">
+                            <button class="mvu-header-btn mvu-btn-refresh" title="刷新（自动重试获取变量）">
                                 <i class="fa-solid fa-sync-alt"></i>
                             </button>
                             <button class="acu-close-btn" title="关闭">
@@ -2559,7 +2798,7 @@
                             </button>
                         </div>
                     </div>
-                    <div class="mvu-content">
+                    <div class="mvu-content ${layoutMode}">
                         ${cardsHtml}
                     </div>
                 `;
@@ -2573,8 +2812,6 @@
           return;
         }
 
-        console.log('[MvuModule] bindEvents called, container:', $container.attr('id') || $container.attr('class'));
-
         // 使用主页面的 jQuery 重新获取容器
         const $panel = $('#acu-data-area');
         if (!$panel.length) {
@@ -2585,18 +2822,34 @@
         // 解绑旧事件
         $panel.off('.mvu');
 
-        // 卡片折叠/展开
+        // 卡片折叠/展开（改进版，添加平滑动画）
         $panel.on('click.mvu', '.mvu-card-header', function (e) {
           e.stopPropagation();
           const $card = $(this).closest('.mvu-card');
-          $card.toggleClass('collapsed');
-          console.log('[MvuModule] Toggle card:', $card.data('path'), 'collapsed:', $card.hasClass('collapsed'));
+          const $body = $card.find('> .mvu-card-body').first();
+
+          // 防止动画过程中重复点击
+          if ($body.is(':animated') || $body.hasClass('animating')) return;
+
+          if ($card.hasClass('collapsed')) {
+            // 展开：先用 hide() 确保元素隐藏，移除 collapsed 类后再播放动画
+            $body.hide();
+            $card.removeClass('collapsed');
+            $body.addClass('animating').slideDown(180, function () {
+              $(this).removeClass('animating');
+            });
+          } else {
+            // 收起
+            $body.addClass('animating').slideUp(180, function () {
+              $card.addClass('collapsed');
+              $(this).removeClass('animating');
+            });
+          }
         });
 
         // 刷新按钮
         $panel.on('click.mvu', '.mvu-btn-refresh', function (e) {
           e.stopPropagation();
-          console.log('[MvuModule] Refresh clicked');
           MvuModule.refresh($panel);
         });
 
@@ -2613,7 +2866,6 @@
             .text()
             .replace(/\s*\$\s*$/, '')
             .trim(); // 移除末尾的 $
-          console.log('[MvuModule] Edit value:', path, currentValue);
 
           MvuModule.showEditDialog(path, currentValue, async function (newValue) {
             if (newValue !== null && newValue !== currentValue) {
@@ -2630,12 +2882,209 @@
           });
         });
 
-        console.log(
-          '[MvuModule] Events bindbindEvents complete. Cards:',
-          $panel.find('.mvu-card').length,
-          'Values:',
-          $panel.find('.mvu-value').length,
-        );
+        // 阻止水平滑动冒泡，防止触发 ST 的 swipe regenerate
+        (function () {
+          // 使用主页面的 document（iframe 环境）
+          const targetDoc = window.parent?.document || document;
+          const $doc = $(targetDoc);
+
+          // 先解绑旧事件，避免重复绑定
+          $doc.off('touchstart.mvuSwipeFix touchmove.mvuSwipeFix touchend.mvuSwipeFix', '#acu-data-area');
+
+          let touchStartX = 0;
+          let touchStartY = 0;
+          let isHorizontalSwipe = false;
+
+          // 在 #acu-data-area 上处理，但检查是否是 MVU 面板
+          $doc.on('touchstart.mvuSwipeFix', '#acu-data-area', function (e) {
+            const $target = $(e.target);
+            const isInMvuPanel = $target.closest('.acu-mvu-panel').length > 0;
+
+            // 检查是否在 MVU 面板内
+            if (!isInMvuPanel) return;
+
+            if (e.originalEvent.touches.length === 1) {
+              touchStartX = e.originalEvent.touches[0].clientX;
+              touchStartY = e.originalEvent.touches[0].clientY;
+              isHorizontalSwipe = false;
+            }
+          });
+
+          $doc.on('touchmove.mvuSwipeFix', '#acu-data-area', function (e) {
+            const $target = $(e.target);
+            const isInMvuPanel = $target.closest('.acu-mvu-panel').length > 0;
+
+            // 检查是否在 MVU 面板内
+            if (!isInMvuPanel) {
+              return;
+            }
+
+            if (e.originalEvent.touches.length !== 1) return;
+
+            const touch = e.originalEvent.touches[0];
+            const deltaX = Math.abs(touch.clientX - touchStartX);
+            const deltaY = Math.abs(touch.clientY - touchStartY);
+
+            // 如果是水平滑动为主（X位移 > Y位移 * 1.5），阻止冒泡和默认行为
+            // 修改判断逻辑：当deltaY很小时，降低deltaX阈值；否则使用原来的判断
+            const isHorizontal =
+              deltaY < 5
+                ? deltaX > 5 && deltaX > deltaY * 2 // deltaY很小时，只要deltaX > 5且明显大于deltaY就认为是水平滑动
+                : deltaX > deltaY * 1.5 && deltaX > 10; // 正常情况使用原判断
+
+            if (isHorizontal) {
+              isHorizontalSwipe = true;
+              e.stopImmediatePropagation();
+              e.stopPropagation();
+            }
+          });
+
+          $doc.on('touchend.mvuSwipeFix', '#acu-data-area', function (e) {
+            const $target = $(e.target);
+            const isInMvuPanel = $target.closest('.acu-mvu-panel').length > 0;
+
+            // 检查是否在 MVU 面板内
+            if (!isInMvuPanel) {
+              isHorizontalSwipe = false;
+              touchStartX = 0;
+              touchStartY = 0;
+              return;
+            }
+
+            // 如果是水平滑动，阻止冒泡和默认行为
+            if (isHorizontalSwipe) {
+              e.stopImmediatePropagation();
+              e.stopPropagation();
+              isHorizontalSwipe = false;
+            }
+            touchStartX = 0;
+            touchStartY = 0;
+          });
+
+          // 尝试在捕获阶段也监听
+          const captureHandlerTouchStart = function (e) {
+            const $target = $(e.target);
+            const isInMvuPanel = $target.closest('.acu-mvu-panel').length > 0;
+            if (isInMvuPanel && e.touches && e.touches.length === 1) {
+              touchStartX = e.touches[0].clientX;
+              touchStartY = e.touches[0].clientY;
+            }
+          };
+          const captureHandlerTouchMove = function (e) {
+            const $target = $(e.target);
+            const isInMvuPanel = $target.closest('.acu-mvu-panel').length > 0;
+            if (isInMvuPanel && e.touches && e.touches.length === 1 && touchStartX && touchStartY) {
+              const touch = e.touches[0];
+              const deltaX = Math.abs(touch.clientX - touchStartX);
+              const deltaY = Math.abs(touch.clientY - touchStartY);
+              // 使用与冒泡阶段相同的判断逻辑
+              const isHorizontal =
+                deltaY < 5 ? deltaX > 5 && deltaX > deltaY * 2 : deltaX > deltaY * 1.5 && deltaX > 10;
+              if (isHorizontal) {
+                e.stopImmediatePropagation();
+                e.stopPropagation();
+                e.preventDefault();
+              }
+            }
+          };
+          const captureHandlerTouchEnd = function (e) {
+            const $target = $(e.target);
+            const isInMvuPanel = $target.closest('.acu-mvu-panel').length > 0;
+            if (isInMvuPanel && isHorizontalSwipe) {
+              e.stopImmediatePropagation();
+              e.stopPropagation();
+              e.preventDefault();
+            }
+          };
+          // 在捕获阶段也监听
+          targetDoc.addEventListener('touchstart', captureHandlerTouchStart, true);
+          targetDoc.addEventListener('touchmove', captureHandlerTouchMove, true);
+          targetDoc.addEventListener('touchend', captureHandlerTouchEnd, true);
+        })();
+
+        // 关闭按钮
+        $panel.on('click.mvu', '.acu-close-btn', function (e) {
+          e.stopPropagation();
+          const $input = $panel.find('.acu-search-input');
+
+          // 如果搜索框有内容，清空搜索框
+          if ($input.length && $input.val()) {
+            $input.val('').trigger('input').focus();
+            return;
+          }
+
+          // 变量面板状态：关闭变量面板，重新渲染到默认状态
+          if (typeof saveActiveTabState === 'function') {
+            saveActiveTabState(null);
+          }
+          if (typeof renderInterface === 'function') {
+            renderInterface();
+          }
+        });
+
+        // 高度拖拽
+        $panel.on('pointerdown.mvu', '.acu-height-drag-handle', function (e) {
+          if (e.button !== 0) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const handle = this;
+          handle.setPointerCapture(e.pointerId);
+          $(handle).addClass('active');
+          const startHeight = $panel.height();
+          const startY = e.clientY;
+          const tableName = $(handle).data('table');
+
+          // 定义 MIN_PANEL_HEIGHT 和 MAX_PANEL_HEIGHT（如果未定义）
+          const MIN_PANEL_HEIGHT = typeof window.MIN_PANEL_HEIGHT !== 'undefined' ? window.MIN_PANEL_HEIGHT : 200;
+          const MAX_PANEL_HEIGHT = typeof window.MAX_PANEL_HEIGHT !== 'undefined' ? window.MAX_PANEL_HEIGHT : 800;
+
+          handle.onpointermove = function (moveE) {
+            const dy = moveE.clientY - startY;
+            let newHeight = startHeight - dy; // 向上拖动增加高度
+            if (newHeight < MIN_PANEL_HEIGHT) newHeight = MIN_PANEL_HEIGHT;
+            if (newHeight > MAX_PANEL_HEIGHT) newHeight = MAX_PANEL_HEIGHT;
+            $panel.css('height', newHeight + 'px');
+          };
+          handle.onpointerup = function (upE) {
+            $(handle).removeClass('active');
+            handle.releasePointerCapture(upE.pointerId);
+            handle.onpointermove = null;
+            handle.onpointerup = null;
+            if (tableName && typeof getTableHeights === 'function' && typeof saveTableHeights === 'function') {
+              const heights = getTableHeights();
+              heights[tableName] = parseInt($panel.css('height'));
+              saveTableHeights(heights);
+              $panel.addClass('acu-manual-mode');
+            }
+          };
+        });
+
+        // 双击重置高度
+        $panel.on('dblclick.mvu', '.acu-height-drag-handle', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          const tableName = $(this).data('table');
+          if (tableName && typeof getTableHeights === 'function' && typeof saveTableHeights === 'function') {
+            const heights = getTableHeights();
+            delete heights[tableName];
+            saveTableHeights(heights);
+            $panel.css('height', '').removeClass('acu-manual-mode');
+          }
+        });
+
+        // 双击头部任意位置也可重置高度
+        $panel.on('dblclick.mvu', '.acu-panel-header', function (e) {
+          if ($(e.target).closest('.acu-search-input, .acu-close-btn, .mvu-header-btn').length) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const tableName = MvuModule.MODULE_ID;
+          if (tableName && typeof getTableHeights === 'function' && typeof saveTableHeights === 'function') {
+            const heights = getTableHeights();
+            delete heights[tableName];
+            saveTableHeights(heights);
+            $panel.css('height', '').removeClass('acu-manual-mode');
+          }
+        });
       },
 
       showEditDialog: function (path, currentValue, onSave) {
@@ -2729,9 +3178,7 @@
             parsedValue = Number(newValue);
           }
 
-          console.log('[MvuModule] setValue:', path, '→', parsedValue);
-
-          const mvuData = window.Mvu.getMvuData({ type: 'message', message_id: -1 });
+          const mvuData = window.Mvu.getMvuData({ type: 'message', message_id: 'latest' });
           if (!mvuData) {
             console.error('[MvuModule] 无法获取 MVU 数据');
             return false;
@@ -2743,8 +3190,7 @@
           });
 
           if (success) {
-            await window.Mvu.replaceMvuData(mvuData, { type: 'message', message_id: -1 });
-            console.log('[MvuModule] 变量已更新成功');
+            await window.Mvu.replaceMvuData(mvuData, { type: 'message', message_id: 'latest' });
           } else {
             console.warn('[MvuModule] setMvuVariable 返回 false');
           }
@@ -2766,20 +3212,47 @@
           if (!$panel.length) return;
           $container = $panel;
         }
-        console.log('[MvuModule] refresh called');
-        // 获取最新变量数据（getData 内部会调用 window.Mvu.getMvuData 获取最新数据）
-        const mvuData = getData();
-        if (!mvuData || !mvuData.stat_data) {
-          console.log('[MvuModule] No data available after refresh');
+        // 显示加载状态（带刷新动画）
+        const $refreshBtn = $container.find('.mvu-btn-refresh');
+        if ($refreshBtn.length) {
+          $refreshBtn.find('i').addClass('fa-spin');
         }
-        // 重新渲染面板内容
-        const panelHtml = this.renderPanel();
-        const $panel = $('#acu-data-area');
-        if ($panel.length) {
-          $panel.html('<div class="acu-mvu-panel">' + panelHtml + '</div>');
-          // 重新绑定变量面板特有的事件
-          this.bindEvents($panel);
-        }
+
+        // 使用重试机制获取最新变量数据（增加重试次数和延迟，让用户可以反复尝试）
+        // 最多重试 10 次，每次延迟 1 秒，总共最多等待 10 秒
+        this.getDataWithRetry(10, 1000)
+          .then(mvuData => {
+            // 移除加载动画
+            if ($refreshBtn.length) {
+              $refreshBtn.find('i').removeClass('fa-spin');
+            }
+
+            // 无论成功失败，都重新渲染面板（简化后的 renderPanel 会处理所有状态）
+            $container.html('<div class="acu-mvu-panel">' + this.renderPanel() + '</div>');
+            this.bindEvents($container);
+
+            // 使用 toastr 提示失败结果
+            const toastr = window.parent?.toastr || window.toastr;
+            if (toastr && !mvuData) {
+              toastr.warning('无法获取变量数据，请稍后重试或确保角色卡已配置 MVU 框架');
+            }
+          })
+          .catch(err => {
+            console.error('[MvuModule] Error refreshing data:', err);
+
+            // 移除加载动画
+            if ($refreshBtn.length) {
+              $refreshBtn.find('i').removeClass('fa-spin');
+            }
+
+            // 显示错误状态（简化后的 renderPanel 会处理）
+            $container.html('<div class="acu-mvu-panel">' + this.renderPanel() + '</div>');
+            this.bindEvents($container);
+
+            // 使用 toastr 提示失败
+            const toastr = window.parent?.toastr || window.toastr;
+            if (toastr) toastr.error('获取变量数据时出错');
+          });
       },
     };
   })();
@@ -4030,52 +4503,6 @@
       errorBorder: 'rgba(211, 47, 47, 0.5)',
       warningIcon: '#f57c00',
     },
-    cherrypink: {
-      bgPanel: '#FFE4E6',
-      border: '#FFC0CB',
-      textMain: '#8B4A5C',
-      textSub: '#C97A8F',
-      btnBg: '#FFC0CB',
-      btnHover: '#FFB0C0',
-      accent: '#FF91A4',
-      tableHead: '#FFE8EA',
-      successText: '#B85C7A',
-      successBg: 'rgba(255, 145, 164, 0.15)',
-      inputBg: '#FFF0F2',
-      inputText: '#8B4A5C',
-      placeholderText: '#C97A8F',
-      btnActiveBg: '#FF91A4',
-      btnActiveText: '#FFFFFF',
-      // 检定结果相关
-      failureText: '#D85C7A',
-      failureBg: 'rgba(216, 92, 122, 0.15)',
-      warningText: '#E68A9F',
-      warningBg: 'rgba(230, 138, 159, 0.15)',
-      critSuccessText: '#B85C7A',
-      critSuccessBg: 'rgba(184, 92, 122, 0.15)',
-      critFailureText: '#C85C7A',
-      critFailureBg: 'rgba(200, 92, 122, 0.15)',
-      extremeSuccessText: '#C97A8F',
-      extremeSuccessBg: 'rgba(201, 122, 143, 0.15)',
-      // UI通用颜色
-      overlayBg: 'rgba(139, 74, 92, 0.6)',
-      overlayBgLight: 'rgba(139, 74, 92, 0.5)',
-      shadowBg: 'rgba(139, 74, 92, 0.3)',
-      lightBg: 'rgba(255, 145, 164, 0.1)',
-      veryLightBg: 'rgba(255, 145, 164, 0.03)',
-      buttonText: '#FFFFFF',
-      grayBg: 'rgba(255, 145, 164, 0.1)',
-      // 按钮专用颜色（更暗，提高可读性）
-      buttonBg: 'rgba(255, 145, 164, 0.65)',
-      buttonBgActive: 'rgba(255, 145, 164, 0.75)',
-      presetButtonBg: 'rgba(255, 145, 164, 0.35)',
-      presetButtonBgActive: 'rgba(255, 145, 164, 0.55)',
-      // 警告/错误相关
-      errorText: '#D85C7A',
-      errorBg: 'rgba(216, 92, 122, 0.15)',
-      errorBorder: 'rgba(216, 92, 122, 0.45)',
-      warningIcon: '#E68A9F',
-    },
     wechat: {
       bgPanel: '#F7F7F7',
       border: '#E5E5E5',
@@ -4508,7 +4935,6 @@
     { id: 'sakura', name: '暖粉手账 (Warm Pink)', icon: 'fa-heart' },
     { id: 'minepink', name: '地雷量产 (Mine Pink)', icon: 'fa-skull' },
     { id: 'purple', name: '紫罗兰梦 (Purple)', icon: 'fa-gem' },
-    { id: 'cherrypink', name: '樱花粉彩 (Cherry Pink)', icon: 'fa-cherry' },
     { id: 'wechat', name: '绿色泡泡 (Green Bubble)', icon: 'fa-weixin' },
   ];
 
@@ -10229,7 +10655,6 @@
     .acu-theme-sakura { --acu-bg-nav: #F9F0EF; --acu-bg-panel: #F9F0EF; --acu-border: #EBDCD9; --acu-text-main: #6B5552; --acu-text-sub: #C08D8D; --acu-btn-bg: #EBDCD9; --acu-btn-hover: #D8C7C4; --acu-btn-active-bg: #C08D8D; --acu-btn-active-text: #F9F0EF; --acu-accent: #C08D8D; --acu-table-head: #F9F0EF; --acu-table-hover: #F5EAE8; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #F9F0EF; --acu-menu-bg: #fff; --acu-menu-text: #6B5552; --acu-success-text: #6B5552; --acu-success-bg: rgba(192, 141, 141, 0.12); --acu-scrollbar-track: #F9F0EF; --acu-scrollbar-thumb: #EBDCD9; --acu-hl-manual: #A68A7A; --acu-hl-manual-bg: rgba(166, 138, 122, 0.12); --acu-hl-diff: #9B7A7A; --acu-hl-diff-bg: rgba(155, 122, 122, 0.2); --acu-error-text: #9B7A7A; --acu-error-bg: rgba(155, 122, 122, 0.12); --acu-error-border: rgba(155, 122, 122, 0.4); --acu-warning-icon: #A68A7A; --acu-failure-text: #9B7A7A; --acu-failure-bg: rgba(155, 122, 122, 0.12); --acu-warning-text: #A68A7A; --acu-warning-bg: rgba(166, 138, 122, 0.12); --acu-crit-success-text: #8B7A7A; --acu-crit-success-bg: rgba(139, 122, 122, 0.12); --acu-crit-failure-text: #8B6F6F; --acu-crit-failure-bg: rgba(139, 111, 111, 0.12); --acu-extreme-success-text: #9B8A8A; --acu-extreme-success-bg: rgba(155, 138, 138, 0.12); --acu-overlay-bg: rgba(107, 85, 82, 0.6); --acu-overlay-bg-light: rgba(107, 85, 82, 0.5); --acu-shadow-bg: rgba(107, 85, 82, 0.3); --acu-light-bg: rgba(192, 141, 141, 0.08); --acu-very-light-bg: rgba(192, 141, 141, 0.02); --acu-button-text: #6B5552; --acu-gray-bg: rgba(192, 141, 141, 0.08); }
     .acu-theme-minepink { --acu-bg-nav: #1a1a1a; --acu-bg-panel: #1a1a1a; --acu-border: #333333; --acu-text-main: #ffb3d9; --acu-text-sub: #ff80c1; --acu-btn-bg: #2a2a2a; --acu-btn-hover: #3a3a3a; --acu-btn-active-bg: #ff80c1; --acu-btn-active-text: #1a1a1a; --acu-accent: #ff80c1; --acu-table-head: #252525; --acu-table-hover: #2a2a2a; --acu-shadow: rgba(0,0,0,0.6); --acu-card-bg: #222222; --acu-badge-bg: #2a2a2a; --acu-menu-bg: #1a1a1a; --acu-menu-text: #ffb3d9; --acu-success-text: #ff80c1; --acu-success-bg: rgba(255, 128, 193, 0.2); --acu-scrollbar-track: #1a1a1a; --acu-scrollbar-thumb: #333333; --acu-hl-manual: #ffa726; --acu-hl-manual-bg: rgba(255, 167, 38, 0.2); --acu-hl-diff: #ff80c1; --acu-hl-diff-bg: rgba(255, 128, 193, 0.2); --acu-error-text: #ff6b6b; --acu-error-bg: rgba(255, 107, 107, 0.2); --acu-error-border: rgba(255, 107, 107, 0.5); --acu-warning-icon: #ffa726; --acu-failure-text: #ff6b6b; --acu-failure-bg: rgba(255, 107, 107, 0.2); --acu-warning-text: #ffa726; --acu-warning-bg: rgba(255, 167, 38, 0.2); --acu-crit-success-text: #ff80c1; --acu-crit-success-bg: rgba(255, 128, 193, 0.2); --acu-crit-failure-text: #ff4444; --acu-crit-failure-bg: rgba(255, 68, 68, 0.2); --acu-extreme-success-text: #ffb3d9; --acu-extreme-success-bg: rgba(255, 179, 217, 0.2); --acu-overlay-bg: rgba(0,0,0,0.8); --acu-overlay-bg-light: rgba(0,0,0,0.7); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(255, 128, 193, 0.1); --acu-very-light-bg: rgba(255, 128, 193, 0.02); --acu-button-text: #1a1a1a; --acu-gray-bg: rgba(255, 128, 193, 0.1); }
     .acu-theme-purple { --acu-bg-nav: #f3e5f5; --acu-bg-panel: #f3e5f5; --acu-border: #ce93d8; --acu-text-main: #6a1b9a; --acu-text-sub: #9c27b0; --acu-btn-bg: #e1bee7; --acu-btn-hover: #ce93d8; --acu-btn-active-bg: #9c27b0; --acu-btn-active-text: #fff; --acu-accent: #9c27b0; --acu-table-head: #f8e1f5; --acu-table-hover: #fce4ec; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #f8e1f5; --acu-menu-bg: #fff; --acu-menu-text: #6a1b9a; --acu-success-text: #6a1b9a; --acu-success-bg: rgba(106, 27, 154, 0.15); --acu-scrollbar-track: #f3e5f5; --acu-scrollbar-thumb: #ce93d8; --acu-hl-manual: #f57c00; --acu-hl-manual-bg: rgba(245, 124, 0, 0.15); --acu-hl-diff: #6a1b9a; --acu-hl-diff-bg: rgba(106, 27, 154, 0.2); --acu-error-text: #d32f2f; --acu-error-bg: rgba(211, 47, 47, 0.15); --acu-error-border: rgba(211, 47, 47, 0.5); --acu-warning-icon: #f57c00; --acu-failure-text: #d32f2f; --acu-failure-bg: rgba(211, 47, 47, 0.15); --acu-warning-text: #f57c00; --acu-warning-bg: rgba(245, 124, 0, 0.15); --acu-crit-success-text: #7b1fa2; --acu-crit-success-bg: rgba(123, 31, 162, 0.15); --acu-crit-failure-text: #b71c1c; --acu-crit-failure-bg: rgba(183, 28, 28, 0.15); --acu-extreme-success-text: #6a1b9a; --acu-extreme-success-bg: rgba(106, 27, 154, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(156, 39, 176, 0.1); --acu-very-light-bg: rgba(156, 39, 176, 0.02); --acu-button-text: #6a1b9a; --acu-gray-bg: rgba(156, 39, 176, 0.1); }
-    .acu-theme-cherrypink { --acu-bg-nav: #FFE4E6; --acu-bg-panel: #FFE4E6; --acu-border: #FFC0CB; --acu-text-main: #8B4A5C; --acu-text-sub: #C97A8F; --acu-btn-bg: #FFC0CB; --acu-btn-hover: #FFB0C0; --acu-btn-active-bg: #FF91A4; --acu-btn-active-text: #FFFFFF; --acu-accent: #FF91A4; --acu-table-head: #FFE8EA; --acu-table-hover: #FFF0F2; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #FFE8EA; --acu-menu-bg: #fff; --acu-menu-text: #8B4A5C; --acu-success-text: #B85C7A; --acu-success-bg: rgba(255, 145, 164, 0.15); --acu-scrollbar-track: #FFE4E6; --acu-scrollbar-thumb: #FFC0CB; --acu-hl-manual: #E68A9F; --acu-hl-manual-bg: rgba(230, 138, 159, 0.15); --acu-hl-diff: #C97A8F; --acu-hl-diff-bg: rgba(201, 122, 143, 0.2); --acu-error-text: #D85C7A; --acu-error-bg: rgba(216, 92, 122, 0.15); --acu-error-border: rgba(216, 92, 122, 0.45); --acu-warning-icon: #E68A9F; --acu-failure-text: #D85C7A; --acu-failure-bg: rgba(216, 92, 122, 0.15); --acu-warning-text: #E68A9F; --acu-warning-bg: rgba(230, 138, 159, 0.15); --acu-crit-success-text: #B85C7A; --acu-crit-success-bg: rgba(184, 92, 122, 0.15); --acu-crit-failure-text: #C85C7A; --acu-crit-failure-bg: rgba(200, 92, 122, 0.15); --acu-extreme-success-text: #C97A8F; --acu-extreme-success-bg: rgba(201, 122, 143, 0.15); --acu-overlay-bg: rgba(139, 74, 92, 0.6); --acu-overlay-bg-light: rgba(139, 74, 92, 0.5); --acu-shadow-bg: rgba(139, 74, 92, 0.3); --acu-light-bg: rgba(255, 145, 164, 0.1); --acu-very-light-bg: rgba(255, 145, 164, 0.03); --acu-button-text: #8B4A5C; --acu-gray-bg: rgba(255, 145, 164, 0.1); }
     .acu-theme-wechat { --acu-bg-nav: #F7F7F7; --acu-bg-panel: #F7F7F7; --acu-border: #E5E5E5; --acu-text-main: #333333; --acu-text-sub: #666666; --acu-btn-bg: #E5E5E5; --acu-btn-hover: #D5D5D5; --acu-btn-active-bg: #09B83E; --acu-btn-active-text: #FFFFFF; --acu-accent: #09B83E; --acu-table-head: #F0F0F0; --acu-table-hover: #EBEBEB; --acu-shadow: rgba(0,0,0,0.1); --acu-card-bg: #ffffff; --acu-badge-bg: #F0F0F0; --acu-menu-bg: #fff; --acu-menu-text: #333333; --acu-success-text: #09B83E; --acu-success-bg: rgba(9, 184, 62, 0.12); --acu-scrollbar-track: #F7F7F7; --acu-scrollbar-thumb: #E5E5E5; --acu-hl-manual: #FF9500; --acu-hl-manual-bg: rgba(255, 149, 0, 0.12); --acu-hl-diff: #09B83E; --acu-hl-diff-bg: rgba(9, 184, 62, 0.2); --acu-error-text: #E53E3E; --acu-error-bg: rgba(229, 62, 62, 0.12); --acu-error-border: rgba(229, 62, 62, 0.5); --acu-warning-icon: #FF9500; --acu-failure-text: #E53E3E; --acu-failure-bg: rgba(229, 62, 62, 0.12); --acu-warning-text: #FF9500; --acu-warning-bg: rgba(255, 149, 0, 0.12); --acu-crit-success-text: #07A832; --acu-crit-success-bg: rgba(7, 168, 50, 0.15); --acu-crit-failure-text: #C53030; --acu-crit-failure-bg: rgba(197, 48, 48, 0.15); --acu-extreme-success-text: #09B83E; --acu-extreme-success-bg: rgba(9, 184, 62, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.2); --acu-light-bg: rgba(9, 184, 62, 0.08); --acu-very-light-bg: rgba(9, 184, 62, 0.02); --acu-button-text: #333333; --acu-gray-bg: rgba(9, 184, 62, 0.08); }
     /* 浅色强调色主题的按钮文字修正 */
     .acu-theme-cyber .acu-btn-confirm,
@@ -13274,6 +13699,41 @@
     return Array.from(options).sort();
   }
 
+  // 检查值是否已存在于关联表的任何列中（用于判断是否需要反向写入）
+  function isValueInRelationTable(value, refTable, refColumns, rawData) {
+    if (!value || !refTable || !refColumns || !rawData) return false;
+    if (String(value).trim() === '') return false;
+
+    const columns = Array.isArray(refColumns) ? refColumns : [refColumns];
+    const strVal = String(value).trim();
+
+    // 查找引用表
+    for (const sheetId in rawData) {
+      if (rawData[sheetId]?.name === refTable) {
+        const headers = rawData[sheetId].content?.[0] || [];
+        const rows = rawData[sheetId].content?.slice(1) || [];
+
+        // 遍历所有指定的列
+        for (const col of columns) {
+          const colIdx = headers.indexOf(col);
+          if (colIdx === -1) continue;
+
+          // 检查值是否存在于该列
+          for (let i = 0; i < rows.length; i++) {
+            const cellValue = rows[i]?.[colIdx];
+            if (cellValue !== null && cellValue !== undefined && String(cellValue).trim() === strVal) {
+              return true; // 找到匹配值
+            }
+          }
+        }
+
+        break; // 找到表后跳出
+      }
+    }
+
+    return false; // 值不存在于任何列中
+  }
+
   // 获取同列其他行的示例值（用于 required 规则）
   function getColumnExamples(tableName, columnName, currentRowIndex, rawData, maxCount = 5) {
     const examples = new Set();
@@ -13815,24 +14275,80 @@
     } else if (ruleType === 'relation' && rule.config?.refTable && rule.config?.refColumn) {
       // 关联验证：显示可用值列表（带搜索）
       const options = getRelationOptions(rule.config.refTable, rule.config.refColumn, rawData);
+      const refColumns = Array.isArray(rule.config.refColumn) ? rule.config.refColumn : [rule.config.refColumn];
+      const hasMultipleColumns = refColumns.length > 1;
+      const currentInvalidValue = String(error.currentValue || '').trim();
+      const valueExists = isValueInRelationTable(
+        currentInvalidValue,
+        rule.config.refTable,
+        rule.config.refColumn,
+        rawData,
+      );
+
+      // 构建可用值列表HTML
+      let optionsHtml = '';
       if (options.length > 0) {
+        optionsHtml = `
+          <div class="acu-smart-fix-suggest-label">
+            <i class="fa-solid fa-link"></i> 关联表 "${escapeHtml(rule.config.refTable)}" 可用值 (${options.length}项):
+          </div>
+          <div class="acu-smart-fix-suggest-options acu-smart-fix-suggest-options-scroll" id="smart-fix-options-container">
+            ${options
+              .map(
+                val => `
+              <span class="acu-smart-fix-option ${error.currentValue === val ? 'acu-smart-fix-option-current' : ''}"
+                    data-value="${escapeHtml(val)}" title="${error.currentValue === val ? '当前值（无效）' : '点击选择'}">
+                ${escapeHtml(val)}
+              </span>
+            `,
+              )
+              .join('')}
+          </div>
+        `;
+      }
+
+      // 反向写入选项：仅在值不存在于关联表中时显示
+      let reverseWriteHtml = '';
+      if (currentInvalidValue && !valueExists) {
+        if (hasMultipleColumns) {
+          // 多个列：显示选择器
+          reverseWriteHtml = `
+            <div class="acu-smart-fix-reverse-write" style="margin-top:15px;padding-top:15px;border-top:1px solid rgba(255,255,255,0.1);">
+              <div class="acu-smart-fix-suggest-label">
+                <i class="fa-solid fa-arrow-left"></i> 反向写入到关联表:
+              </div>
+              <div style="margin-top:8px;">
+                <select id="smart-fix-reverse-column" class="acu-edit-select" style="width:100%;margin-bottom:8px;">
+                  ${refColumns.map(col => `<option value="${escapeHtml(col)}">${escapeHtml(col)}</option>`).join('')}
+                </select>
+                <button class="acu-smart-fix-quick-btn" id="smart-fix-reverse-write-btn" style="width:100%;">
+                  <i class="fa-solid fa-plus"></i> 将 "${escapeHtml(currentInvalidValue.length > 30 ? currentInvalidValue.substring(0, 30) + '...' : currentInvalidValue)}" 写入到 "${escapeHtml(rule.config.refTable)}"
+                </button>
+              </div>
+            </div>
+          `;
+        } else {
+          // 单个列：直接显示按钮
+          reverseWriteHtml = `
+            <div class="acu-smart-fix-reverse-write" style="margin-top:15px;padding-top:15px;border-top:1px solid rgba(255,255,255,0.1);">
+              <div class="acu-smart-fix-suggest-label">
+                <i class="fa-solid fa-arrow-left"></i> 反向写入到关联表:
+              </div>
+              <div style="margin-top:8px;">
+                <button class="acu-smart-fix-quick-btn" id="smart-fix-reverse-write-btn" data-column="${escapeHtml(refColumns[0])}" style="width:100%;">
+                  <i class="fa-solid fa-plus"></i> 将 "${escapeHtml(currentInvalidValue.length > 30 ? currentInvalidValue.substring(0, 30) + '...' : currentInvalidValue)}" 写入到 "${escapeHtml(rule.config.refTable)}.${escapeHtml(refColumns[0])}"
+                </button>
+              </div>
+            </div>
+          `;
+        }
+      }
+
+      if (optionsHtml || reverseWriteHtml) {
         smartSuggestHtml = `
           <div class="acu-smart-fix-suggest">
-            <div class="acu-smart-fix-suggest-label">
-              <i class="fa-solid fa-link"></i> 关联表 "${escapeHtml(rule.config.refTable)}" 可用值 (${options.length}项):
-            </div>
-            <div class="acu-smart-fix-suggest-options acu-smart-fix-suggest-options-scroll" id="smart-fix-options-container">
-              ${options
-                .map(
-                  val => `
-                <span class="acu-smart-fix-option ${error.currentValue === val ? 'acu-smart-fix-option-current' : ''}"
-                      data-value="${escapeHtml(val)}" title="${error.currentValue === val ? '当前值（无效）' : '点击选择'}">
-                  ${escapeHtml(val)}
-                </span>
-              `,
-                )
-                .join('')}
-            </div>
+            ${optionsHtml}
+            ${reverseWriteHtml}
           </div>
         `;
       }
@@ -13900,9 +14416,90 @@
 
     // 点击建议选项或快速修正按钮，填充到输入框
     dialog.on('click', '.acu-smart-fix-option, .acu-smart-fix-quick-btn', function () {
+      // 排除反向写入按钮
+      if ($(this).attr('id') === 'smart-fix-reverse-write-btn') return;
       if ($(this).hasClass('acu-smart-fix-option-current')) return;
       const optionValue = $(this).data('value') || $(this).text().trim();
       dialog.find('#smart-fix-value').val(optionValue).trigger('input');
+    });
+
+    // 反向写入到关联表
+    dialog.on('click', '#smart-fix-reverse-write-btn', async function () {
+      const currentInvalidValue = String(error.currentValue || '').trim();
+      if (!currentInvalidValue) {
+        if (window.toastr) window.toastr.warning('无法写入空值');
+        return;
+      }
+
+      // 确定要写入的列
+      let targetColumn;
+      if (ruleType === 'relation' && rule.config?.refColumn) {
+        const refColumns = Array.isArray(rule.config.refColumn) ? rule.config.refColumn : [rule.config.refColumn];
+        if (refColumns.length > 1) {
+          // 多个列：从选择器获取
+          targetColumn = dialog.find('#smart-fix-reverse-column').val();
+        } else {
+          // 单个列：从按钮的data属性或直接使用
+          targetColumn = $(this).data('column') || refColumns[0];
+        }
+      } else {
+        if (window.toastr) window.toastr.error('无法确定目标列');
+        return;
+      }
+
+      if (!targetColumn || !rule.config?.refTable) {
+        if (window.toastr) window.toastr.error('无法确定目标表或列');
+        return;
+      }
+
+      try {
+        const rawData = cachedRawData || getTableData();
+        let refSheet = null;
+        let refSheetId = null;
+
+        // 查找关联表
+        for (const sheetId in rawData) {
+          if (rawData[sheetId]?.name === rule.config.refTable) {
+            refSheet = rawData[sheetId];
+            refSheetId = sheetId;
+            break;
+          }
+        }
+
+        if (!refSheet || !refSheet.content) {
+          if (window.toastr) window.toastr.error(`找不到关联表 "${rule.config.refTable}"`);
+          return;
+        }
+
+        const headers = refSheet.content[0] || [];
+        const targetColIdx = headers.indexOf(targetColumn);
+
+        if (targetColIdx === -1) {
+          if (window.toastr) window.toastr.error(`关联表中不存在列 "${targetColumn}"`);
+          return;
+        }
+
+        // 创建新行：长度与表头一致，填充空字符串
+        const newRow = new Array(headers.length).fill('');
+        newRow[targetColIdx] = currentInvalidValue;
+
+        // 添加到表末尾
+        refSheet.content.push(newRow);
+
+        // 保存数据
+        await saveDataToDatabase(rawData, false, false);
+
+        // 显示成功提示
+        if (window.toastr)
+          window.toastr.success(`已将 "${currentInvalidValue}" 写入到 "${rule.config.refTable}.${targetColumn}"`);
+
+        // 关闭弹窗并重新渲染界面（会自动重新验证，所有相关错误会消失）
+        closeDialog();
+        renderInterface();
+      } catch (e) {
+        console.error('[ACU] 反向写入失败:', e);
+        if (window.toastr) window.toastr.error('反向写入失败: ' + (e.message || '未知错误'));
+      }
     });
 
     // 恢复快照值
@@ -14611,8 +15208,7 @@
 
       // 添加特殊按钮
       SPECIAL_BUTTONS_CONFIG.forEach(btn => {
-        // MVU 按钮仅当 MVU 可用时显示
-        if (btn.key === '__mvu__' && !MvuModule.isAvailable()) return;
+        // MVU 按钮始终参与管理，让用户可以设置顺序和可见性
         allItems.push({ key: btn.key, name: btn.name, icon: btn.icon, isSpecial: true });
       });
 
@@ -15710,7 +16306,7 @@
       // [修改] 支持仪表盘、变更面板和变量面板渲染
       const isDashboardActive = Store.get(STORAGE_KEY_DASHBOARD_ACTIVE, false);
       const isChangesPanelActive = Store.get('acu_changes_panel_active', false);
-      const isMvuActive = getActiveTabState() === MvuModule.MODULE_ID && MvuModule.isAvailable();
+      const isMvuActive = getActiveTabState() === MvuModule.MODULE_ID;
       const mvuSavedHeight = isMvuActive ? getTableHeights()[MvuModule.MODULE_ID] : null;
       const finalSavedHeight = mvuSavedHeight || savedHeight;
       const shouldShowPanel = isDashboardActive || isChangesPanelActive || isMvuActive || currentTabName;
@@ -15803,7 +16399,6 @@
           label: '变量',
           id: 'acu-btn-mvu',
           extraClass: 'acu-mvu-btn',
-          checkAvailable: () => MvuModule.isAvailable(),
           isActive: getActiveTabState() === MvuModule.MODULE_ID,
         },
       ];
@@ -15813,8 +16408,17 @@
 
       // 添加特殊按钮
       SPECIAL_NAV_ITEMS.forEach(item => {
+        // 先检查是否被用户隐藏
+        if (navHiddenList.includes(item.key)) return;
+
+        // 对于MVU按钮，总是显示（不再检查是否可用）
+        if (item.key === '__mvu__') {
+          allNavItems.push({ ...item, isSpecial: true });
+          return;
+        }
+
+        // 其他按钮的checkAvailable检查
         if (item.checkAvailable && !item.checkAvailable()) return;
-        if (navHiddenList.includes(item.key)) return; // 被隐藏则跳过
         allNavItems.push({ ...item, isSpecial: true });
       });
 
@@ -15914,11 +16518,31 @@
     if (Store.get('acu_changes_panel_active', false)) {
       bindChangesEvents();
     }
-    // [修复] 如果变量面板激活，绑定其事件
-    if (getActiveTabState() === MvuModule.MODULE_ID && MvuModule.isAvailable()) {
+    // [修复] 如果变量面板激活，绑定其事件并尝试获取数据
+    if (getActiveTabState() === MvuModule.MODULE_ID) {
       const $panel = $('#acu-data-area');
       if ($panel.length) {
+        // 总是尝试获取数据（带重试，增加重试次数）
+        // 简化逻辑：直接显示面板，不等待数据加载
+        // 用户可以通过刷新按钮来获取数据
+        $panel.html('<div class="acu-mvu-panel">' + MvuModule.renderPanel() + '</div>');
         MvuModule.bindEvents($panel);
+
+        // 可选：在后台尝试获取数据（不阻塞界面显示）
+        MvuModule.getDataWithRetry(5, 800)
+          .then(mvuData => {
+            // 如果获取到数据，刷新面板显示
+            if (mvuData) {
+              $panel.html('<div class="acu-mvu-panel">' + MvuModule.renderPanel() + '</div>');
+              MvuModule.bindEvents($panel);
+            }
+          })
+          .catch(err => {
+            console.error('[MvuModule] Error getting data:', err);
+            // 错误时也刷新面板，显示错误状态
+            $panel.html('<div class="acu-mvu-panel">' + MvuModule.renderPanel() + '</div>');
+            MvuModule.bindEvents($panel);
+          });
       }
     }
 
@@ -18531,6 +19155,62 @@
               $('#acu-data-area').html(renderChangesPanel(rawData)).addClass('visible');
               // 绑定变更面板内的事件
               bindChangesEvents();
+            }
+            return false;
+          }
+          // [新增] MVU变量按钮特殊处理
+          if ($navBtn.attr('id') === 'acu-btn-mvu') {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            const isMvuActive = getActiveTabState() === MvuModule.MODULE_ID;
+            const isPanelVisible = $('#acu-data-area').hasClass('visible');
+
+            if (isMvuActive && isPanelVisible) {
+              // 变量面板已打开，关闭面板
+              saveActiveTabState(null);
+              $('#acu-data-area').removeClass('visible');
+              $('.acu-nav-btn').removeClass('active');
+            } else {
+              // 打开变量面板（总是显示，不检查 isAvailable）
+              Store.set(STORAGE_KEY_DASHBOARD_ACTIVE, false);
+              Store.set('acu_changes_panel_active', false);
+              saveActiveTabState(MvuModule.MODULE_ID);
+              $('.acu-nav-btn').removeClass('active');
+              $navBtn.addClass('active');
+
+              // 直接显示面板（简化逻辑，不等待数据加载）
+              const $panel = $('#acu-data-area');
+              try {
+                const panelHtml = MvuModule.renderPanel();
+                // 确保面板有正确的高度设置
+                const mvuSavedHeight = getTableHeights()[MvuModule.MODULE_ID];
+                if (mvuSavedHeight) {
+                  $panel.css('height', mvuSavedHeight + 'px').addClass('acu-manual-mode');
+                } else {
+                  $panel.css('height', '').removeClass('acu-manual-mode');
+                }
+                $panel.html('<div class="acu-mvu-panel">' + panelHtml + '</div>').addClass('visible');
+                MvuModule.bindEvents($panel);
+              } catch (error) {
+                console.error('[MVU] Error rendering panel:', error);
+              }
+
+              // 可选：在后台尝试获取数据（不阻塞界面显示）
+              // 用户可以通过刷新按钮来主动获取数据
+              MvuModule.getDataWithRetry(5, 800)
+                .then(mvuData => {
+                  // 如果获取到数据，刷新面板显示
+                  if (mvuData) {
+                    $panel.html('<div class="acu-mvu-panel">' + MvuModule.renderPanel() + '</div>');
+                    MvuModule.bindEvents($panel);
+                  }
+                })
+                .catch(err => {
+                  console.error('[MvuModule] Error getting data:', err);
+                  // 错误时也刷新面板，显示错误状态
+                  $panel.html('<div class="acu-mvu-panel">' + MvuModule.renderPanel() + '</div>');
+                  MvuModule.bindEvents($panel);
+                });
             }
             return false;
           }
