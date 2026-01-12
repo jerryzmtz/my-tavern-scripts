@@ -259,6 +259,136 @@
       this._cache = null;
     },
   };
+  // ========================================
+  // BookmarkManager - 书签管理器（按聊天隔离）
+  // ========================================
+  const BookmarkManager = {
+    STORAGE_KEY_PREFIX: 'acu_bookmarks_v1_',
+    MAX_CONTEXTS: 20, // 最多保留多少个聊天的bookmark数据
+
+    _cache: null,
+    _currentContextId: null,
+
+    // 获取当前上下文专属的存储键
+    _getStorageKey(ctxId) {
+      return this.STORAGE_KEY_PREFIX + (ctxId || getCurrentContextFingerprint());
+    },
+
+    // 清理过旧的bookmark数据，只保留最近使用的 N 个
+    _cleanupOldContexts() {
+      try {
+        const prefix = this.STORAGE_KEY_PREFIX;
+        const allKeys = [];
+
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith(prefix)) {
+            allKeys.push(key);
+          }
+        }
+
+        if (allKeys.length <= this.MAX_CONTEXTS) {
+          // 数据量在限制内，无需清理
+          return;
+        }
+
+        // 按最后访问时间排序（通过内部 _lastAccess 字段）
+        const keyWithTime = allKeys.map(key => {
+          try {
+            const data = JSON.parse(localStorage.getItem(key));
+            return { key, time: data?._lastAccess || 0 };
+          } catch {
+            return { key, time: 0 };
+          }
+        });
+
+        keyWithTime.sort((a, b) => b.time - a.time);
+
+        // 删除超出限制的旧数据
+        const toDelete = keyWithTime.slice(this.MAX_CONTEXTS);
+        toDelete.forEach(item => {
+          localStorage.removeItem(item.key);
+        });
+
+        if (toDelete.length > 0) {
+          console.log(
+            `[BookmarkManager] 清理了 ${toDelete.length} 个过期的bookmark数据（当前保留 ${this.MAX_CONTEXTS} 个聊天的数据，清理前共有 ${allKeys.length} 个）`,
+          );
+        }
+      } catch (e) {
+        console.warn('[BookmarkManager] 清理失败', e);
+      }
+    },
+
+    _load() {
+      const ctxId = getCurrentContextFingerprint();
+
+      // 上下文变化时清空缓存
+      if (this._currentContextId !== ctxId) {
+        this._cache = null;
+        this._currentContextId = ctxId;
+      }
+
+      if (!this._cache) {
+        try {
+          const stored = localStorage.getItem(this._getStorageKey());
+          this._cache = stored ? JSON.parse(stored) : {};
+          // 移除内部元数据字段，不暴露给业务逻辑
+          delete this._cache._lastAccess;
+        } catch (e) {
+          this._cache = {};
+        }
+      }
+      return this._cache;
+    },
+
+    _save() {
+      try {
+        // 写入时附带最后访问时间戳
+        const dataToSave = { ...this._cache, _lastAccess: Date.now() };
+        localStorage.setItem(this._getStorageKey(), JSON.stringify(dataToSave));
+
+        // 每次保存后尝试清理（内部有数量判断，不会频繁执行）
+        this._cleanupOldContexts();
+      } catch (e) {
+        console.warn('[BookmarkManager] 保存失败', e);
+      }
+    },
+
+    isBookmarked(tableName, rowKey) {
+      const data = this._load();
+      return !!(data[tableName] && data[tableName][rowKey]);
+    },
+
+    toggleBookmark(tableName, rowKey) {
+      const data = this._load();
+      if (!data[tableName]) data[tableName] = {};
+
+      if (data[tableName][rowKey]) {
+        // 取消bookmark
+        delete data[tableName][rowKey];
+        if (Object.keys(data[tableName]).length === 0) {
+          delete data[tableName];
+        }
+      } else {
+        // 添加bookmark
+        data[tableName][rowKey] = true;
+      }
+      this._save();
+    },
+
+    getBookmarks(tableName) {
+      const data = this._load();
+      if (!data[tableName]) return [];
+      return Object.keys(data[tableName]);
+    },
+
+    // 清理当前聊天的所有bookmark（调试用）
+    clearCurrentContext() {
+      localStorage.removeItem(this._getStorageKey());
+      this._cache = null;
+    },
+  };
   const escapeHtml = s =>
     String(s ?? '')
       .replace(/&/g, '&amp;')
@@ -482,43 +612,73 @@
     // 表级规则
     tableReadonly: { name: '表级只读', scope: 'table', icon: 'fa-lock', desc: '禁止修改整个表' },
     rowLimit: { name: '行数限制', scope: 'table', icon: 'fa-arrows-up-down', desc: '限制表的行数范围' },
+    sequence: { name: '序列递增', scope: 'table', icon: 'fa-sort-numeric-up', desc: '检查字段值是否严格递增' },
     // 字段级规则
     required: { name: '必填', scope: 'field', icon: 'fa-asterisk', desc: '字段不能为空' },
     format: { name: '格式验证', scope: 'field', icon: 'fa-font', desc: '正则表达式匹配' },
     enum: { name: '枚举验证', scope: 'field', icon: 'fa-list', desc: '值必须在列表中' },
     numeric: { name: '数值范围', scope: 'field', icon: 'fa-hashtag', desc: '数值必须在范围内' },
     relation: { name: '关联验证', scope: 'field', icon: 'fa-link', desc: '引用其他表的值' },
+    keyValue: { name: '键值对验证', scope: 'field', icon: 'fa-key', desc: '验证键值对格式和数值范围' },
   };
 
   // 内置验证规则定义
   const BUILTIN_VALIDATION_RULES = [
-    // 总结表编码格式
+    // 总结表编码递增验证
     {
-      id: 'summary_code_format',
-      name: '总结表编码格式',
-      description: '编码索引必须为 AM+三位数字格式，如 AM001',
+      id: 'summary_code_sequence',
+      name: '总结表编码递增',
+      description: '编码索引必须从AM001开始严格递增，不可跳号或重复',
       enabled: true,
       builtin: true,
       intercept: false,
       targetTable: '总结表',
       targetColumn: '编码索引',
-      ruleType: 'format',
-      config: { pattern: '^AM\\d{3}$' },
-      errorMessage: '编码索引必须为 AM+三位数字格式（如 AM001）',
+      ruleType: 'sequence',
+      config: { prefix: 'AM', startFrom: 1 },
+      errorMessage: '编码索引必须从AM001开始严格递增，发现跳号或重复',
     },
-    // 总体大纲编码格式
+    // 总体大纲编码递增验证
     {
-      id: 'outline_code_format',
-      name: '总体大纲编码格式',
-      description: '编码索引必须为 AM+三位数字格式，如 AM001',
+      id: 'outline_code_sequence',
+      name: '总体大纲编码递增',
+      description: '编码索引必须从AM001开始严格递增，不可跳号或重复',
       enabled: true,
       builtin: true,
       intercept: false,
       targetTable: '总体大纲',
       targetColumn: '编码索引',
-      ruleType: 'format',
-      config: { pattern: '^AM\\d{3}$' },
-      errorMessage: '编码索引必须为 AM+三位数字格式（如 AM001）',
+      ruleType: 'sequence',
+      config: { prefix: 'AM', startFrom: 1 },
+      errorMessage: '编码索引必须从AM001开始严格递增，发现跳号或重复',
+    },
+    // 总结表编码索引必填验证
+    {
+      id: 'summary_code_required',
+      name: '总结表编码索引必填',
+      description: '编码索引不能为空',
+      enabled: true,
+      builtin: true,
+      intercept: false,
+      targetTable: '总结表',
+      targetColumn: '编码索引',
+      ruleType: 'required',
+      config: {},
+      errorMessage: '编码索引不能为空',
+    },
+    // 总体大纲编码索引必填验证
+    {
+      id: 'outline_code_required',
+      name: '总体大纲编码索引必填',
+      description: '编码索引不能为空',
+      enabled: true,
+      builtin: true,
+      intercept: false,
+      targetTable: '总体大纲',
+      targetColumn: '编码索引',
+      ruleType: 'required',
+      config: {},
+      errorMessage: '编码索引不能为空',
     },
     // 任务表状态枚举
     {
@@ -730,19 +890,131 @@
       config: { refTable: '世界地图点', refColumn: '详细地点' },
       errorMessage: '所在地点必须是世界地图点表中已存在的详细地点',
     },
-    // 地图元素所在地点关联验证（元素的所在地点可以是详细地点或次要地区）
+    // 地图元素所在地点关联验证（只允许详细地点，与表格模板保持一致）
     {
       id: 'element_location_relation',
       name: '元素地点关联',
-      description: '元素所在地点必须存在于世界地图点表的详细地点或次要地区',
+      description: '元素所在地点必须存在于世界地图点表的详细地点',
       enabled: true,
       builtin: true,
       intercept: false,
       targetTable: '地图元素表',
       targetColumn: '所在地点',
       ruleType: 'relation',
-      config: { refTable: '世界地图点', refColumn: ['详细地点', '次要地区'] },
-      errorMessage: '所在地点必须是世界地图点表中已存在的详细地点或次要地区',
+      config: { refTable: '世界地图点', refColumn: '详细地点' },
+      errorMessage: '所在地点必须是世界地图点表中已存在的详细地点',
+    },
+    // 全局数据表当前详细地点关联验证
+    {
+      id: 'global_detail_location_relation',
+      name: '全局详细地点关联',
+      description: '当前详细地点必须存在于世界地图点表',
+      enabled: true,
+      builtin: true,
+      intercept: false,
+      targetTable: '全局数据表',
+      targetColumn: '当前详细地点',
+      ruleType: 'relation',
+      config: { refTable: '世界地图点', refColumn: '详细地点' },
+      errorMessage: '当前详细地点必须是世界地图点表中已存在的详细地点',
+    },
+    // 主角信息表 - 基本属性（键值对，数值型）
+    {
+      id: 'player_base_attributes_keyvalue',
+      name: '主角基本属性',
+      description: '基本属性必须为键值对格式，数值范围[0,100]',
+      enabled: true,
+      builtin: true,
+      intercept: false,
+      targetTable: '主角信息',
+      targetColumn: '基础属性',
+      ruleType: 'keyValue',
+      config: { valueType: 'numeric', valueMin: 0, valueMax: 100 },
+      errorMessage: '基础属性格式必须为"属性名:数值;属性名:数值"，数值范围[0,100]',
+    },
+    // 主角信息表 - 特有属性（键值对，数值型）
+    {
+      id: 'player_special_attributes_keyvalue',
+      name: '主角特有属性',
+      description: '特有属性必须为键值对格式，数值范围[0,100]',
+      enabled: true,
+      builtin: true,
+      intercept: false,
+      targetTable: '主角信息',
+      targetColumn: '特有属性',
+      ruleType: 'keyValue',
+      config: { valueType: 'numeric', valueMin: 0, valueMax: 100 },
+      errorMessage: '特有属性格式必须为"属性名:数值;属性名:数值"，数值范围[0,100]',
+    },
+    // 主角信息表 - 人际关系（键值对，文本型）
+    {
+      id: 'player_relationships_keyvalue',
+      name: '主角人际关系',
+      description: '人际关系必须为键值对格式',
+      enabled: true,
+      builtin: true,
+      intercept: false,
+      targetTable: '主角信息',
+      targetColumn: '人际关系',
+      ruleType: 'keyValue',
+      config: { valueType: 'text' },
+      errorMessage: '人际关系格式必须为"角色名:关系词;角色名:关系词"',
+    },
+    // 重要人物表 - 基本属性（键值对，数值型）
+    {
+      id: 'npc_base_attributes_keyvalue',
+      name: 'NPC基本属性',
+      description: '基本属性必须为键值对格式，数值范围[0,100]',
+      enabled: true,
+      builtin: true,
+      intercept: false,
+      targetTable: '重要人物表',
+      targetColumn: '基础属性',
+      ruleType: 'keyValue',
+      config: { valueType: 'numeric', valueMin: 0, valueMax: 100 },
+      errorMessage: '基础属性格式必须为"属性名:数值;属性名:数值"，数值范围[0,100]',
+    },
+    // 重要人物表 - 特有属性（键值对，数值型）
+    {
+      id: 'npc_special_attributes_keyvalue',
+      name: 'NPC特有属性',
+      description: '特有属性必须为键值对格式，数值范围[0,100]',
+      enabled: true,
+      builtin: true,
+      intercept: false,
+      targetTable: '重要人物表',
+      targetColumn: '特有属性',
+      ruleType: 'keyValue',
+      config: { valueType: 'numeric', valueMin: 0, valueMax: 100 },
+      errorMessage: '特有属性格式必须为"属性名:数值;属性名:数值"，数值范围[0,100]',
+    },
+    // 重要人物表 - 人际关系（键值对，文本型）
+    {
+      id: 'npc_relationships_keyvalue',
+      name: 'NPC人际关系',
+      description: '人际关系必须为键值对格式',
+      enabled: true,
+      builtin: true,
+      intercept: false,
+      targetTable: '重要人物表',
+      targetColumn: '人际关系',
+      ruleType: 'keyValue',
+      config: { valueType: 'text' },
+      errorMessage: '人际关系格式必须为"角色名:关系词;角色名:关系词"',
+    },
+    // 任务表 - 进度格式验证
+    {
+      id: 'quest_progress_format',
+      name: '任务进度格式',
+      description: '进度必须为数字+%格式，如50%',
+      enabled: true,
+      builtin: true,
+      intercept: false,
+      targetTable: '任务表',
+      targetColumn: '进度',
+      ruleType: 'format',
+      config: { pattern: '^\\d+%$' },
+      errorMessage: '进度必须为数字+%格式（如50%、100%）',
     },
   ];
 
@@ -872,13 +1144,51 @@
       }
     },
 
+    // 获取内置规则版本（用于检测更新）
+    _getBuiltinRulesVersion() {
+      try {
+        const rulesStr = JSON.stringify(BUILTIN_VALIDATION_RULES);
+        // 简单的哈希函数
+        let hash = 0;
+        for (let i = 0; i < rulesStr.length; i++) {
+          const char = rulesStr.charCodeAt(i);
+          hash = (hash << 5) - hash + char;
+          hash = hash & hash; // Convert to 32bit integer
+        }
+        return hash.toString(36);
+      } catch (e) {
+        console.error('[PresetManager] 计算版本失败:', e);
+        return '0';
+      }
+    },
+
     // 初始化默认预设
     _initDefaultPreset() {
+      const currentVersion = this._getBuiltinRulesVersion();
+      const stored = Store.get(STORAGE_KEY_PRESETS, null);
+
+      // 检查是否需要更新默认预设
+      if (stored && Array.isArray(stored)) {
+        const defaultPreset = stored.find(p => p.id === 'default');
+        if (defaultPreset && defaultPreset._builtinVersion !== currentVersion) {
+          console.log('[PresetManager] 检测到内置规则更新，自动更新默认预设');
+          // 保留自定义规则（非内置规则）
+          const customRules = defaultPreset.rules.filter(r => !r.builtin);
+          defaultPreset.rules = [...BUILTIN_VALIDATION_RULES.map(r => ({ ...r })), ...customRules];
+          defaultPreset._builtinVersion = currentVersion;
+          this._cache = stored;
+          this._save(stored);
+          Store.set(STORAGE_KEY_ACTIVE_PRESET, 'default');
+          return;
+        }
+      }
+
       const defaultPreset = {
         id: 'default',
         name: '默认预设',
         builtin: true,
         rules: BUILTIN_VALIDATION_RULES.map(r => ({ ...r })),
+        _builtinVersion: currentVersion,
         createdAt: new Date().toISOString(),
       };
       // 迁移旧版自定义规则
@@ -897,7 +1207,10 @@
       const presets = this.getAllPresets();
       const defaultPreset = presets.find(p => p.id === 'default');
       if (defaultPreset) {
-        defaultPreset.rules = BUILTIN_VALIDATION_RULES.map(r => ({ ...r }));
+        // 保留自定义规则（非内置规则）
+        const customRules = defaultPreset.rules.filter(r => !r.builtin);
+        defaultPreset.rules = [...BUILTIN_VALIDATION_RULES.map(r => ({ ...r })), ...customRules];
+        defaultPreset._builtinVersion = this._getBuiltinRulesVersion();
         this._save(presets);
         ValidationRuleManager.clearCache();
         console.log('[PresetManager] 默认预设已恢复');
@@ -1144,6 +1457,60 @@
       return value !== null && value !== undefined && String(value).trim() !== '';
     },
 
+    // 键值对验证
+    validateKeyValue(value, ruleConfig) {
+      if (value === null || value === undefined || value === '') return true; // 空值不验证
+
+      const valueType = ruleConfig?.valueType || 'text';
+      const valueMin = ruleConfig?.valueMin;
+      const valueMax = ruleConfig?.valueMax;
+
+      // 预处理：修正中文标点符号和去除空格
+      let processedValue = String(value);
+
+      // 修正中文标点符号
+      processedValue = processedValue
+        .replace(/：/g, ':') // 中文冒号 → 英文冒号
+        .replace(/；/g, ';') // 中文分号 → 英文分号
+        .replace(/，/g, ';'); // 中文逗号 → 英文分号（键值对分隔符）
+
+      // 去除所有空格
+      processedValue = processedValue.replace(/\s+/g, '');
+
+      // 解析键值对
+      const pairs = processedValue.split(';').filter(p => p.trim());
+
+      if (pairs.length === 0) return false; // 至少需要一个键值对
+
+      // 验证每个键值对
+      for (const pair of pairs) {
+        const colonIndex = pair.indexOf(':');
+        if (colonIndex === -1 || colonIndex === 0 || colonIndex === pair.length - 1) {
+          return false; // 格式错误：缺少冒号或键/值为空
+        }
+
+        const key = pair.substring(0, colonIndex);
+        const val = pair.substring(colonIndex + 1);
+
+        if (!key || !val) return false; // 键或值不能为空
+
+        // 如果是数值型，验证数值范围
+        if (valueType === 'numeric') {
+          // 验证值必须是纯数字（不能包含非数字字符）
+          if (!/^-?\d+(\.\d+)?$/.test(val.trim())) return false; // 不是纯数字格式
+
+          const numVal = parseFloat(val);
+          if (isNaN(numVal)) return false; // 不是有效数字
+
+          if (valueMin !== undefined && valueMin !== null && numVal < valueMin) return false;
+          if (valueMax !== undefined && valueMax !== null && numVal > valueMax) return false;
+        }
+        // 文本型只验证格式，不验证值内容
+      }
+
+      return true;
+    },
+
     // 表级只读验证（比较新旧数据）
     validateTableReadonly(oldContent, newContent) {
       if (!oldContent || !newContent) return true;
@@ -1154,6 +1521,257 @@
     validateRowLimit(rowCount, min, max) {
       if (min !== undefined && min !== null && rowCount < min) return false;
       if (max !== undefined && max !== null && rowCount > max) return false;
+      return true;
+    },
+
+    // 序列递增验证（检查字段值是否严格递增）
+    validateSequence(sheet, columnName, config) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          location: 'index.ts:1500',
+          message: 'validateSequence entry',
+          data: {
+            tableName: sheet?.name,
+            columnName,
+            config,
+            hasContent: !!sheet?.content,
+            contentLength: sheet?.content?.length,
+          },
+          timestamp: Date.now(),
+          sessionId: 'debug-session',
+          runId: 'run1',
+          hypothesisId: 'A',
+        }),
+      }).catch(() => {});
+      // #endregion
+      if (!sheet || !sheet.content || sheet.content.length < 2) return true; // 空表或只有表头，通过验证
+      if (!columnName || !config) return true;
+
+      const headers = sheet.content[0] || [];
+      const rows = sheet.content.slice(1) || [];
+      const colIndex = headers.indexOf(columnName);
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          location: 'index.ts:1507',
+          message: 'column check',
+          data: { columnName, colIndex, headers: headers.slice(0, 5) },
+          timestamp: Date.now(),
+          sessionId: 'debug-session',
+          runId: 'run1',
+          hypothesisId: 'E',
+        }),
+      }).catch(() => {});
+      // #endregion
+      if (colIndex < 0) return true; // 列不存在，跳过验证
+
+      const prefix = config.prefix || '';
+      const startFrom = config.startFrom !== undefined ? config.startFrom : 1;
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          location: 'index.ts:1510',
+          message: 'config values',
+          data: { prefix, startFrom },
+          timestamp: Date.now(),
+          sessionId: 'debug-session',
+          runId: 'run1',
+          hypothesisId: 'D',
+        }),
+      }).catch(() => {});
+      // #endregion
+
+      // 提取所有编码索引的数字部分
+      const numbers = [];
+      const allRowValues = []; // 记录所有行的原始值用于调试
+      for (let i = 0; i < rows.length; i++) {
+        const value = rows[i]?.[colIndex];
+        allRowValues.push({ rowIndex: i, rawValue: value, type: typeof value });
+        if (value === null || value === undefined || value === '') continue;
+
+        const strValue = String(value).trim();
+        if (!strValue) continue;
+
+        // 匹配前缀+数字格式
+        if (prefix) {
+          const regex = new RegExp(`^${prefix}(\\d+)$`);
+          const match = strValue.match(regex);
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              location: 'index.ts:1574',
+              message: 'regex match attempt',
+              data: {
+                rowIndex: i,
+                strValue,
+                prefix,
+                regexPattern: regex.toString(),
+                match: match?.[1] || null,
+                matched: !!match,
+              },
+              timestamp: Date.now(),
+              sessionId: 'debug-session',
+              runId: 'run1',
+              hypothesisId: 'C',
+            }),
+          }).catch(() => {});
+          // #endregion
+          if (match) {
+            const num = parseInt(match[1], 10);
+            if (!isNaN(num)) numbers.push({ rowIndex: i, value: strValue, num });
+          }
+        } else {
+          // 无前缀，直接解析数字
+          const num = parseInt(strValue, 10);
+          if (!isNaN(num)) numbers.push({ rowIndex: i, value: strValue, num });
+        }
+      }
+
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          location: 'index.ts:1602',
+          message: 'extracted numbers complete',
+          data: {
+            totalRows: rows.length,
+            numbersCount: numbers.length,
+            allRowValues: allRowValues.slice(0, 30), // 记录前30行的原始值
+            extractedNumbers: numbers.map(n => ({ rowIndex: n.rowIndex, value: n.value, num: n.num })),
+          },
+          timestamp: Date.now(),
+          sessionId: 'debug-session',
+          runId: 'run1',
+          hypothesisId: 'C',
+        }),
+      }).catch(() => {});
+      // #endregion
+      if (numbers.length === 0) return true; // 没有有效值，通过验证
+
+      // 按行索引排序（保持原始顺序）
+      numbers.sort((a, b) => a.rowIndex - b.rowIndex);
+
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          location: 'index.ts:1623',
+          message: 'numbers after sort',
+          data: {
+            numbersCount: numbers.length,
+            sortedNumbers: numbers.map(n => ({ rowIndex: n.rowIndex, value: n.value, num: n.num })),
+            startFrom,
+          },
+          timestamp: Date.now(),
+          sessionId: 'debug-session',
+          runId: 'run1',
+          hypothesisId: 'B',
+        }),
+      }).catch(() => {});
+      // #endregion
+
+      // 检查是否有重复值
+      const numSet = new Set(numbers.map(n => n.num));
+      if (numSet.size !== numbers.length) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            location: 'index.ts:1643',
+            message: 'duplicate detected',
+            data: { numSetSize: numSet.size, numbersLength: numbers.length, numbers: numbers.map(n => n.num) },
+            timestamp: Date.now(),
+            sessionId: 'debug-session',
+            runId: 'run1',
+            hypothesisId: 'B',
+          }),
+        }).catch(() => {});
+        // #endregion
+        return false; // 有重复值
+      }
+
+      // 检查是否从startFrom开始严格递增
+      // 要求：第一行必须是startFrom，第二行必须是startFrom+1，以此类推
+      for (let i = 0; i < numbers.length; i++) {
+        const expectedNum = startFrom + i;
+        const actualNum = numbers[i].num;
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            location: 'index.ts:1650',
+            message: 'sequence check iteration',
+            data: {
+              i,
+              expectedNum,
+              actualNum,
+              rowIndex: numbers[i].rowIndex,
+              value: numbers[i].value,
+              match: actualNum === expectedNum,
+            },
+            timestamp: Date.now(),
+            sessionId: 'debug-session',
+            runId: 'run1',
+            hypothesisId: 'B',
+          }),
+        }).catch(() => {});
+        // #endregion
+        if (actualNum !== expectedNum) {
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              location: 'index.ts:1672',
+              message: 'sequence mismatch detected',
+              data: {
+                i,
+                expectedNum,
+                actualNum,
+                rowIndex: numbers[i].rowIndex,
+                value: numbers[i].value,
+                allNumbers: numbers.map(n => n.num),
+                startFrom,
+              },
+              timestamp: Date.now(),
+              sessionId: 'debug-session',
+              runId: 'run1',
+              hypothesisId: 'B',
+            }),
+          }).catch(() => {});
+          // #endregion
+          return false; // 发现跳号、重复或不是从startFrom开始
+        }
+      }
+
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          location: 'index.ts:1555',
+          message: 'validateSequence passed',
+          data: { numbersCount: numbers.length },
+          timestamp: Date.now(),
+          sessionId: 'debug-session',
+          runId: 'run1',
+          hypothesisId: 'B',
+        }),
+      }).catch(() => {});
+      // #endregion
       return true;
     },
 
@@ -1207,6 +1825,17 @@
                   `表 "${rule.targetTable}" 行数 ${rowCount} 超出限制 (${rule.config?.min || 0}-${rule.config?.max || '∞'})`,
               });
             }
+          } else if (rule.ruleType === 'sequence' && rule.targetColumn) {
+            // 序列递增验证
+            if (!this.validateSequence(newSheet, rule.targetColumn, rule.config || {})) {
+              violations.push({
+                rule,
+                tableName: rule.targetTable,
+                message:
+                  rule.errorMessage ||
+                  `字段 "${rule.targetColumn}" 的编码索引必须从${rule.config?.prefix || ''}${String(rule.config?.startFrom || 1).padStart(3, '0')}开始严格递增，不可跳号或重复`,
+              });
+            }
           }
         }
         // 字段级规则检查
@@ -1252,6 +1881,8 @@
           return this.validateRelation(value, rawData, rule.config?.refTable, rule.config?.refColumn);
         case 'required':
           return this.validateRequired(value);
+        case 'keyValue':
+          return this.validateKeyValue(value, rule.config);
         default:
           return true;
       }
@@ -1293,9 +1924,67 @@
 
     // 验证整个数据集
     validateAllData(rawData) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          location: 'index.ts:1706',
+          message: 'validateAllData entry',
+          data: {
+            hasRawData: !!rawData,
+            sheetCount: rawData ? Object.keys(rawData).filter(k => k.startsWith('sheet_')).length : 0,
+          },
+          timestamp: Date.now(),
+          sessionId: 'debug-session',
+          runId: 'run1',
+          hypothesisId: 'A',
+        }),
+      }).catch(() => {});
+      // #endregion
       if (!rawData) return [];
 
       const rules = ValidationRuleManager.getEnabledRules();
+      const allRules = ValidationRuleManager.getAllRules();
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          location: 'index.ts:1863',
+          message: 'all rules check',
+          data: {
+            enabledRulesCount: rules.length,
+            allRulesCount: allRules.length,
+            enabledSequenceRules: rules
+              .filter(r => r.ruleType === 'sequence')
+              .map(r => ({ id: r.id, name: r.name, targetTable: r.targetTable, enabled: r.enabled })),
+            allSequenceRules: allRules
+              .filter(r => r.ruleType === 'sequence')
+              .map(r => ({
+                id: r.id,
+                name: r.name,
+                targetTable: r.targetTable,
+                enabled: r.enabled,
+                builtin: r.builtin,
+              })),
+            codeRules: allRules
+              .filter(r => r.targetColumn === '编码索引')
+              .map(r => ({
+                id: r.id,
+                ruleType: r.ruleType,
+                targetTable: r.targetTable,
+                enabled: r.enabled,
+                builtin: r.builtin,
+              })),
+          },
+          timestamp: Date.now(),
+          sessionId: 'debug-session',
+          runId: 'run1',
+          hypothesisId: 'A',
+        }),
+      }).catch(() => {});
+      // #endregion
       if (rules.length === 0) return [];
 
       const allErrors = [];
@@ -1308,10 +1997,38 @@
         const tableName = sheet.name;
         const headers = sheet.content[0];
         const tableRules = rules.filter(r => r.targetTable === tableName);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            location: 'index.ts:1944',
+            message: 'table rules filter',
+            data: {
+              tableName,
+              tableRulesCount: tableRules.length,
+              allRules: tableRules.map(r => ({
+                id: r.id,
+                ruleType: r.ruleType,
+                enabled: r.enabled,
+                targetColumn: r.targetColumn,
+                config: r.config,
+              })),
+              sequenceRules: tableRules
+                .filter(r => r.ruleType === 'sequence')
+                .map(r => ({ id: r.id, enabled: r.enabled, targetColumn: r.targetColumn, config: r.config })),
+            },
+            timestamp: Date.now(),
+            sessionId: 'debug-session',
+            runId: 'run1',
+            hypothesisId: 'A',
+          }),
+        }).catch(() => {});
+        // #endregion
 
         if (tableRules.length === 0) continue;
 
-        // 检查表级规则（如行数限制）
+        // 检查表级规则（如行数限制、序列递增）
         for (const rule of tableRules) {
           const typeInfo = RULE_TYPE_INFO[rule.ruleType];
           if (typeInfo?.scope === 'table') {
@@ -1332,6 +2049,77 @@
                     `行数 ${rowCount} 超出限制 (${rule.config?.min || 0}-${rule.config?.max || '∞'})`,
                   severity: 'warning',
                 });
+              }
+            } else if (rule.ruleType === 'sequence' && rule.targetColumn) {
+              // 序列递增验证
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  location: 'index.ts:1747',
+                  message: 'sequence rule check',
+                  data: {
+                    tableName,
+                    ruleId: rule.id,
+                    ruleName: rule.name,
+                    targetColumn: rule.targetColumn,
+                    config: rule.config,
+                  },
+                  timestamp: Date.now(),
+                  sessionId: 'debug-session',
+                  runId: 'run1',
+                  hypothesisId: 'A',
+                }),
+              }).catch(() => {});
+              // #endregion
+              const isValid = this.validateSequence(sheet, rule.targetColumn, rule.config || {});
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  location: 'index.ts:1749',
+                  message: 'sequence validation result',
+                  data: { tableName, ruleId: rule.id, isValid },
+                  timestamp: Date.now(),
+                  sessionId: 'debug-session',
+                  runId: 'run1',
+                  hypothesisId: 'B',
+                }),
+              }).catch(() => {});
+              // #endregion
+              if (!isValid) {
+                const error = {
+                  ruleId: rule.id,
+                  ruleName: rule.name,
+                  ruleType: rule.ruleType,
+                  rule: rule, // 保存完整规则对象用于智能修改
+                  tableName: tableName,
+                  rowIndex: -1, // 表级错误
+                  columnName: rule.targetColumn,
+                  currentValue: '',
+                  errorMessage:
+                    rule.errorMessage ||
+                    `字段 "${rule.targetColumn}" 的编码索引必须从${rule.config?.prefix || ''}${String(rule.config?.startFrom || 1).padStart(3, '0')}开始严格递增，不可跳号或重复`,
+                  severity: 'error',
+                };
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    location: 'index.ts:1750',
+                    message: 'adding sequence error',
+                    data: { tableName, ruleId: rule.id, errorMessage: error.errorMessage },
+                    timestamp: Date.now(),
+                    sessionId: 'debug-session',
+                    runId: 'run1',
+                    hypothesisId: 'F',
+                  }),
+                }).catch(() => {});
+                // #endregion
+                allErrors.push(error);
               }
             }
             // tableReadonly 不在这里检查（需要对比快照）
@@ -1748,12 +2536,6 @@
         }
       }
 
-      const playerName = getPlayerName();
-      if (name === '<user>' || name === '主角' || (playerName && name === playerName)) {
-        const stAvatar = getUserAvatarUrl();
-        if (stAvatar) return stAvatar;
-      }
-
       return null;
     },
 
@@ -1979,7 +2761,7 @@
                 height: 100%;
                 display: flex;
                 flex-direction: column;
-                min-height: 0; /* 关键：确保 flex 容器可以正确计算子项高度 */
+                min-height: 300px; /* 确保面板有足够的最小高度，避免显示为白条 */
                 overflow: hidden; /* 不在这里滚动，让父容器处理 */
             }
             .acu-mvu-panel .acu-panel-header {
@@ -2050,7 +2832,7 @@
                 overflow-y: auto !important;
                 overflow-x: hidden !important;
                 flex: 1 1 0; /* 关键：使用 flex-basis: 0 让容器可以正确计算滚动 */
-                min-height: 0;
+                min-height: 300px; /* 确保面板有足够的最小高度，避免显示为白条 */
             }
 
             /* MVU 卡片 */
@@ -7721,7 +8503,7 @@
         t.accent +
         ';border-radius:3px;color:' +
         t.accent +
-        ';font-size:10px;cursor:pointer;display:inline-flex;align-items:center;gap:3px;" title="生成属性"><i class="fa-solid fa-dice" style="font-size:9px;"></i>生成</button>';
+        ';font-size:10px;cursor:pointer;display:inline-flex;align-items:center;gap:3px;" title="生成属性"><i class="fa-solid fa-dice"></i></button>';
 
       // 清空属性按钮
       html +=
@@ -8335,7 +9117,41 @@
     const nodes = new Map();
     const edges = [];
 
-    const resolveName = name => AvatarManager.getPrimaryName(name);
+    // 统一解析用户占位符为{{user}}主键（仅用于渲染，不自动管理别名）
+    const resolveUserPlaceholder = name => {
+      if (!name) return name;
+      const playerName = getPlayerName();
+      const personaName = getPersonaName();
+
+      // 明确的用户占位符变体
+      const explicitUserVariants = ['<user>', '{{user}}'];
+      const isExplicitUserVariant = explicitUserVariants.some(
+        v => name === v || name.toLowerCase() === v.toLowerCase(),
+      );
+
+      // 如果当前persona名匹配，也视为用户占位符
+      const isPersonaName = personaName && name === personaName;
+
+      // 检查是否是主角表名称（模糊匹配：表名包含"主角"）
+      const isPlayerName = (() => {
+        if (!playerName) return false;
+        // 精确匹配
+        if (name === playerName) return true;
+        // 或者通过别名系统检查
+        const primaryName = AvatarManager.getPrimaryName(name);
+        return primaryName === playerName;
+      })();
+
+      // 统一映射到{{user}}主键（仅用于渲染）
+      if (isExplicitUserVariant || isPersonaName || isPlayerName) {
+        return '{{user}}';
+      }
+
+      // 其他情况使用别名系统解析
+      return AvatarManager.getPrimaryName(name);
+    };
+
+    const resolveName = name => resolveUserPlaceholder(name);
 
     const rawData = cachedRawData || getTableData();
     let playerName = '主角';
@@ -8666,13 +9482,17 @@
     const playerBaseRadius = isMobileView ? 28 : 35;
     const radiusPerConnection = isMobileView ? 2.5 : 3.5;
 
+    // 新增：节点大小和过滤状态（必须在 getNodeRadius 之前声明）
+    let nodeSizeMultiplier = 1.0; // 节点大小倍数，默认1.0
+    let filterInScene = false; // 是否只显示主角+在场角色
+    let filterDirectOnly = false; // 是否只显示与主角直接相关的
+
     const getNodeRadius = (nodeName, isPlayer) => {
-      if (isPlayer) {
-        const count = connectionCount.get(nodeName) || 0;
-        return Math.min(maxRadius, playerBaseRadius + Math.sqrt(count) * radiusPerConnection);
-      }
+      const base = isPlayer ? playerBaseRadius : baseRadius;
       const count = connectionCount.get(nodeName) || 0;
-      return Math.min(maxRadius, baseRadius + Math.sqrt(count) * radiusPerConnection);
+      const calculated = Math.min(maxRadius, base + Math.sqrt(count) * radiusPerConnection);
+      // 应用全局大小倍数
+      return calculated * nodeSizeMultiplier;
     };
 
     // 将半径信息存入节点
@@ -8680,19 +9500,239 @@
       node.radius = getNodeRadius(node.name, node.isPlayer);
     });
 
-    // 根据最大节点尺寸调整布局半径
-    const maxNodeRadius = Math.max(...nodeArr.map(n => n.radius));
-    const radius = Math.min(280, Math.max(180, nodeArr.length * 30 + maxNodeRadius));
-    nodeArr.forEach((node, i) => {
-      if (node.isPlayer) {
-        node.x = centerX;
-        node.y = centerY;
-      } else {
-        const angle = (2 * Math.PI * i) / nodeArr.length;
-        node.x = centerX + radius * Math.cos(angle);
-        node.y = centerY + radius * Math.sin(angle);
+    // 过滤节点逻辑（支持两个筛选条件的交集）
+    const getFilteredNodes = () => {
+      // 两个都关闭时显示全部
+      if (!filterInScene && !filterDirectOnly) return nodeArr;
+
+      // 计算主角直接相关的节点集合（如果需要）
+      let directNodes: Set<string> | null = null;
+      if (filterDirectOnly) {
+        directNodes = new Set([resolvedPlayerName]);
+        edges.forEach(edge => {
+          if (edge.source === resolvedPlayerName) directNodes!.add(edge.target);
+          if (edge.target === resolvedPlayerName) directNodes!.add(edge.source);
+        });
       }
-    });
+
+      return nodeArr.filter(n => {
+        // 检查在场条件
+        const passInScene = !filterInScene || n.isInScene || n.isPlayer;
+        // 检查主角相关条件
+        const passDirectOnly = !filterDirectOnly || directNodes!.has(n.name);
+        // 两个条件取交集
+        return passInScene && passDirectOnly;
+      });
+    };
+
+    // [Modified] 力导向布局实现
+    // ---------------------------------------------------------
+    // 物理参数常量 (已调整以增加间距)
+    const kRepulsion = 20000; // 斥力常数 (库仑定律) - 大幅增大以推开节点
+    const kSpring = 0.02; // 弹力常数 (胡克定律) - 减小以避免拉得太紧
+    const kGravity = 0.01; // 中心引力 - 减小以允许图表扩展遍布画面
+    const idealLen = 250; // 理想边长 - 增大以拉开连线距离
+    const iterations = 300; // 预计算迭代次数
+    const timeStep = 0.5; // 模拟时间步长
+    const damping = 0.8; // 速度阻尼 (摩擦力)
+
+    // 布局缓存管理
+    const LAYOUT_CACHE_KEY = 'acu-relation-graph-layout-cache';
+
+    // 生成布局缓存键（基于节点名单）
+    const getLayoutCacheKey = () => {
+      const nodeNames = nodeArr
+        .map(n => n.name)
+        .sort()
+        .join('|');
+      return `${LAYOUT_CACHE_KEY}-${nodeNames}`;
+    };
+
+    // 保存布局到缓存
+    const saveLayoutCache = () => {
+      try {
+        const cacheKey = getLayoutCacheKey();
+        const layoutData = {};
+        nodeArr.forEach(node => {
+          layoutData[node.name] = { x: node.x, y: node.y };
+        });
+        localStorage.setItem(cacheKey, JSON.stringify(layoutData));
+        console.log('[关系图] 布局已保存到缓存');
+      } catch (e) {
+        console.warn('[关系图] 保存布局缓存失败:', e);
+      }
+    };
+
+    // 从缓存加载布局
+    const loadLayoutCache = () => {
+      try {
+        const cacheKey = getLayoutCacheKey();
+        const cached = localStorage.getItem(cacheKey);
+        if (!cached) return false;
+
+        const layoutData = JSON.parse(cached);
+        let allNodesFound = true;
+
+        // 验证缓存中是否包含所有节点
+        for (const node of nodeArr) {
+          if (!layoutData[node.name]) {
+            allNodesFound = false;
+            break;
+          }
+        }
+
+        if (allNodesFound) {
+          // 应用缓存的位置
+          nodeArr.forEach(node => {
+            const cached = layoutData[node.name];
+            if (cached) {
+              node.x = cached.x;
+              node.y = cached.y;
+              node.vx = 0;
+              node.vy = 0;
+            }
+          });
+          console.log('[关系图] 已从缓存加载布局');
+          return true;
+        }
+        return false;
+      } catch (e) {
+        console.warn('[关系图] 加载布局缓存失败:', e);
+        return false;
+      }
+    };
+
+    // 清除布局缓存
+    const clearLayoutCache = () => {
+      try {
+        const cacheKey = getLayoutCacheKey();
+        localStorage.removeItem(cacheKey);
+        console.log('[关系图] 布局缓存已清除');
+      } catch (e) {
+        console.warn('[关系图] 清除布局缓存失败:', e);
+      }
+    };
+
+    // 力导向布局物理模拟函数
+    const runForceDirectedLayout = () => {
+      // 初始化位置：在中心附近随机散布，开始模拟
+      nodeArr.forEach(node => {
+        if (node.isPlayer) {
+          node.x = centerX;
+          node.y = centerY;
+          node.vx = 0;
+          node.vy = 0;
+        } else {
+          // 在中心 100px 范围内随机散布
+          const angle = Math.random() * 2 * Math.PI;
+          const dist = 50 + Math.random() * 100;
+          node.x = centerX + Math.cos(angle) * dist;
+          node.y = centerY + Math.sin(angle) * dist;
+          node.vx = 0;
+          node.vy = 0;
+        }
+      });
+
+      // 建立映射以便 O(1) 查找节点
+      const nodeMap = new Map();
+      nodeArr.forEach(n => nodeMap.set(n.name, n));
+
+      // 预计算模拟 (迭代运行物理引擎)
+      for (let iter = 0; iter < iterations; iter++) {
+        // 1. 斥力 (节点 vs 节点)
+        for (let i = 0; i < nodeArr.length; i++) {
+          const u = nodeArr[i];
+          for (let j = i + 1; j < nodeArr.length; j++) {
+            const v = nodeArr[j];
+            const dx = v.x - u.x;
+            const dy = v.y - u.y;
+            let distSq = dx * dx + dy * dy;
+            if (distSq < 1) distSq = 1; // 防止除以零
+
+            const dist = Math.sqrt(distSq);
+            const force = kRepulsion / distSq;
+
+            const fx = (dx / dist) * force;
+            const fy = (dy / dist) * force;
+
+            if (!u.isPlayer) {
+              u.vx -= fx;
+              u.vy -= fy;
+            }
+            if (!v.isPlayer) {
+              v.vx += fx;
+              v.vy += fy;
+            }
+          }
+        }
+
+        // 2. 引力 (边连接)
+        edges.forEach(edge => {
+          const u = nodeMap.get(edge.source);
+          const v = nodeMap.get(edge.target);
+          if (!u || !v) return;
+
+          const dx = v.x - u.x;
+          const dy = v.y - u.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+
+          // 弹簧力: F = k * (当前距离 - 理想距离)
+          const force = (dist - idealLen) * kSpring;
+
+          const fx = (dx / dist) * force;
+          const fy = (dy / dist) * force;
+
+          if (!u.isPlayer) {
+            u.vx += fx;
+            u.vy += fy;
+          }
+          if (!v.isPlayer) {
+            v.vx -= fx;
+            v.vy -= fy;
+          }
+        });
+
+        // 3. 中心重力 (轻微拉向中心)
+        nodeArr.forEach(node => {
+          if (node.isPlayer) return;
+          const dx = centerX - node.x;
+          const dy = centerY - node.y;
+          node.vx += dx * kGravity;
+          node.vy += dy * kGravity;
+        });
+
+        // 4. 更新位置
+        // 限制最大速度以防爆炸
+        const maxSpeed = 50 * (1 - iter / iterations); // 随迭代冷却最大速度
+
+        nodeArr.forEach(node => {
+          if (node.isPlayer) return; // 玩家节点固定不动 (作为锚点)
+
+          // 阻尼
+          node.vx *= damping;
+          node.vy *= damping;
+
+          // 限制速度
+          const vMag = Math.sqrt(node.vx * node.vx + node.vy * node.vy);
+          if (vMag > maxSpeed) {
+            node.vx = (node.vx / vMag) * maxSpeed;
+            node.vy = (node.vy / vMag) * maxSpeed;
+          }
+
+          node.x += node.vx * timeStep;
+          node.y += node.vy * timeStep;
+        });
+      }
+
+      // 物理模拟完成后保存布局
+      saveLayoutCache();
+    };
+
+    // 运行初始布局（优先使用缓存）
+    if (!loadLayoutCache()) {
+      // 缓存不存在或不匹配，运行物理模拟
+      runForceDirectedLayout();
+    }
 
     // 视图状态
     let scale = 1;
@@ -8705,10 +9745,13 @@
             <div class="acu-relation-graph-overlay acu-theme-${config.theme}">
                 <div class="acu-relation-graph-container">
                     <div class="acu-panel-header">
-                        <div class="acu-graph-title"><i class="fa-solid fa-project-diagram"></i> 人物关系图</div>
+                        <div class="acu-graph-title">
+                            <i class="fa-solid fa-project-diagram"></i>
+                            <button class="acu-graph-btn acu-filter-toggle" id="filter-in-scene" title="只显示主角和在场角色" style="margin-left:8px;padding:4px 6px;font-size:12px;"><i class="fa-solid fa-map-marker-alt"></i></button>
+                            <button class="acu-graph-btn acu-filter-toggle" id="filter-direct-only" title="只显示与主角直接相关" style="padding:4px 6px;font-size:12px;"><i class="fa-solid fa-link"></i></button>
+                        </div>
                         <div class="acu-graph-actions">
-                            <button class="acu-graph-btn" id="graph-zoom-in" title="放大"><i class="fa-solid fa-plus"></i></button>
-                            <button class="acu-graph-btn" id="graph-zoom-out" title="缩小"><i class="fa-solid fa-minus"></i></button>
+                            <button class="acu-graph-btn" id="graph-relayout" title="重新布局（清除缓存并重新计算节点位置）"><i class="fa-solid fa-sync"></i></button>
                             <button class="acu-graph-btn" id="graph-manage-avatar" title="管理头像"><i class="fa-solid fa-user-circle"></i></button>
                             <button class="acu-graph-btn acu-graph-close" title="关闭"><i class="fa-solid fa-times"></i></button>
                         </div>
@@ -8734,10 +9777,46 @@
                                 <g class="acu-graph-nodes"></g>
                             </g>
                         </svg>
+                        <div class="acu-node-size-slider-container" style="
+                            position: absolute;
+                            display: none;
+                            width: 200px;
+                            padding: 10px;
+                            background: ${t.bgPanel};
+                            border: 1px solid ${t.border};
+                            border-radius: 8px;
+                            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                            z-index: 10;
+                        ">
+                            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                                <span style="font-size:11px;color:${t.textSub};white-space:nowrap;">节点大小</span>
+                                <span id="slider-size-display" style="font-size:11px;color:${t.accent};font-weight:bold;min-width:35px;text-align:right;">${Math.round(nodeSizeMultiplier * 100)}%</span>
+                            </div>
+                            <input type="range" id="node-size-slider" min="0.5" max="2.0" step="0.1" value="${nodeSizeMultiplier}" style="
+                                width: 100%;
+                                height: 8px;
+                                border-radius: 4px;
+                                background: ${t.btnBg};
+                                outline: none;
+                                cursor: pointer;
+                                -webkit-appearance: none;
+                            " />
+                        </div>
                     </div>
                     <div class="acu-graph-legend">
-                        <button class="acu-graph-btn" id="graph-zoom-reset" title="重置视图" style="width:auto;height:auto;padding:4px 10px;font-size:11px;display:flex;align-items:center;gap:4px;"><i class="fa-solid fa-compress-arrows-alt"></i><span>重置</span></button>
-                        <span class="acu-zoom-display">${Math.round(scale * 100)}%</span>
+                        <button class="acu-graph-btn" id="graph-zoom-reset" title="重置视图和节点大小" style="width:auto;height:auto;padding:4px 10px;font-size:11px;display:flex;align-items:center;gap:4px;"><i class="fa-solid fa-compress-arrows-alt"></i><span>重置</span></button>
+                        <div class="acu-node-size-stepper-wrapper" style="display:flex;align-items:center;justify-content:center;gap:6px;">
+                            <span style="font-size:11px;color:var(--acu-text-sub);white-space:nowrap;">节点:</span>
+                            <div class="acu-stepper" data-id="graph-node-size" data-min="50" data-max="200" data-step="10" style="display:flex;align-items:center;">
+                                <button class="acu-stepper-btn acu-stepper-dec"><i class="fa-solid fa-minus"></i></button>
+                                <span class="acu-stepper-value" id="node-size-display" style="display:flex;align-items:center;justify-content:center;">${Math.round(nodeSizeMultiplier * 100)}%</span>
+                                <button class="acu-stepper-btn acu-stepper-inc"><i class="fa-solid fa-plus"></i></button>
+                            </div>
+                        </div>
+                        <span class="acu-zoom-display" style="display:flex;align-items:center;gap:4px;color:var(--acu-text-sub);font-size:11px;">
+                            <span>视图:</span>
+                            <span>${Math.round(scale * 100)}%</span>
+                        </span>
                     </div>
                 </div>
             </div>
@@ -8749,12 +9828,19 @@
     const $transform = overlay.find('.acu-graph-transform');
     const $edgesGroup = overlay.find('.acu-graph-edges');
     const $nodesGroup = overlay.find('.acu-graph-nodes');
-    const $zoomDisplay = overlay.find('.acu-zoom-display');
+    const $zoomDisplay = overlay.find('.acu-zoom-display span:last-child');
+    const $nodeSizeDisplay = overlay.find('#node-size-display');
     const $wrapper = overlay.find('.acu-graph-canvas-wrapper');
 
     const updateTransform = () => {
       $transform.attr('transform', `translate(${panX}, ${panY}) scale(${scale})`);
       $zoomDisplay.text(`${Math.round(scale * 100)}%`);
+    };
+
+    const updateNodeSizeDisplay = () => {
+      if ($nodeSizeDisplay.length) {
+        $nodeSizeDisplay.text(`${Math.round(nodeSizeMultiplier * 100)}%`);
+      }
     };
 
     const zoomTo = (newScale, centerX = 400, centerY = 300) => {
@@ -8767,8 +9853,17 @@
     };
 
     const render = async () => {
+      // 获取过滤后的节点
+      const filteredNodes = getFilteredNodes();
+      const filteredNodeNames = new Set(filteredNodes.map(n => n.name));
+
+      // 过滤边：只保留连接两个可见节点的边
+      const filteredEdges = edges.filter(
+        edge => filteredNodeNames.has(edge.source) && filteredNodeNames.has(edge.target),
+      );
+
       let edgesHtml = '';
-      edges.forEach((edge, edgeIdx) => {
+      filteredEdges.forEach((edge, edgeIdx) => {
         const source = nodes.get(edge.source);
         const target = nodes.get(edge.target);
         if (!source || !target) return;
@@ -9021,15 +10116,15 @@
       });
       $edgesGroup.html(edgesHtml);
 
-      // [修复] 异步获取头像后再渲染节点
+      // [修复] 异步获取头像后再渲染节点（使用过滤后的节点）
       let nodesHtml = '';
-      for (const node of nodeArr) {
+      for (const node of filteredNodes) {
         // 使用异步方法获取头像（优先本地 > URL > ST头像）
         const nodeAvatar = await AvatarManager.getAsync(node.name);
         const isPlayer = node.isPlayer;
 
-        // 在场标记：左上角小圆点（放大尺寸，确保可见）
-        const indicatorRadius = Math.max(8, node.radius * 0.28);
+        // 在场标记：左上角小圆点（随节点大小缩放）
+        const indicatorRadius = node.radius * 0.28;
         const indicatorOffset = node.radius * 0.65;
         const inSceneIndicator = node.isInScene
           ? `<circle class="acu-node-inscene-indicator" cx="${-indicatorOffset}" cy="${-indicatorOffset}" r="${indicatorRadius}" style="fill:var(--acu-accent);stroke:var(--acu-bg-panel);stroke-width:2;" />`
@@ -9038,7 +10133,7 @@
         const nodeDisplayName = replaceUserPlaceholders(node.name);
         nodesHtml += `
                 <g class="acu-graph-node acu-dash-preview-trigger" data-name="${escapeHtml(node.name)}" data-table-key="${node.tableKey || ''}" data-row-index="${node.rowIndex !== undefined ? node.rowIndex : ''}" transform="translate(${node.x}, ${node.y})">
-                    <circle class="acu-node-bg ${isPlayer ? 'player' : ''}" r="${node.radius}" />
+                    <circle class="acu-node-bg" r="${node.radius}" />
                     ${
                       nodeAvatar
                         ? (() => {
@@ -9068,10 +10163,6 @@
       $nodesGroup.html(nodesHtml);
     };
 
-    render().then(() => {
-      updateTransform();
-    });
-
     // [新增] 悬浮高亮交互函数
     const highlightNode = nodeName => {
       $svg.addClass('highlighting');
@@ -9086,6 +10177,7 @@
       // 找出所有与该节点相连的边和对端节点
       const connectedNodes = new Set([nodeName]);
 
+      // 使用所有边（不仅仅是过滤后的），以便高亮显示所有相关连接
       edges.forEach(edge => {
         if (edge.source === nodeName || edge.target === nodeName) {
           const otherNode = edge.source === nodeName ? edge.target : edge.source;
@@ -9273,6 +10365,11 @@
       });
     }
 
+    // 初始渲染
+    render().then(() => {
+      updateTransform();
+    });
+
     // 画布平移和缩放 - 使用 Pointer Events API
     let isPanning = false;
     let panStartX = 0,
@@ -9290,6 +10387,8 @@
       if (e.button !== 0) return;
       // [修复] 如果点击的是节点，不启动画布拖拽
       if ($(e.target).closest('.acu-graph-node').length) return;
+      // [修复] 如果点击的是滑条容器，不启动画布拖拽
+      if ($(e.target).closest('.acu-node-size-slider-container').length) return;
       e.preventDefault();
       wrapperEl.setPointerCapture(e.pointerId);
       activePointerId = e.pointerId;
@@ -9383,13 +10482,263 @@
       wrapperEl.onpointerup = null;
       wrapperEl.onpointercancel = null;
       wrapperEl.onwheel = null;
+      // 清理滑条相关事件和定时器
+      if (sliderHideTimer) {
+        clearTimeout(sliderHideTimer);
+        sliderHideTimer = null;
+      }
+      $(document).off('click.slider-hide');
     };
 
-    // 按钮
-    overlay.find('#graph-zoom-in').click(() => zoomTo(scale + 0.25));
-    overlay.find('#graph-zoom-out').click(() => zoomTo(scale - 0.25));
+    // 节点大小滑条控制
+    const $nodeSizeSlider = overlay.find('#node-size-slider');
+    const $sliderSizeDisplay = overlay.find('#slider-size-display');
+    const $sliderContainer = overlay.find('.acu-node-size-slider-container');
+    const $nodeSizeDisplayTrigger = overlay.find('#node-size-display-trigger');
+    const $legend = overlay.find('.acu-graph-legend');
 
-    // 重置视图（缩放、位置 + 节点布局）
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        location: 'index.ts:9508',
+        message: '元素选择器检查',
+        data: {
+          nodeSizeSliderLen: $nodeSizeSlider.length,
+          sliderContainerLen: $sliderContainer.length,
+          nodeSizeDisplayTriggerLen: $nodeSizeDisplayTrigger.length,
+          legendLen: $legend.length,
+        },
+        timestamp: Date.now(),
+        sessionId: 'debug-session',
+        hypothesisId: 'B',
+      }),
+    }).catch(() => {});
+    // #endregion
+
+    // #region agent log - 在legend区域添加全局点击监听用于调试
+    $legend.on('click', function (e) {
+      fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          location: 'index.ts:legend-click',
+          message: 'legend区域点击',
+          data: {
+            targetId: (e.target as HTMLElement).id,
+            targetClass: (e.target as HTMLElement).className,
+            targetTagName: (e.target as HTMLElement).tagName,
+          },
+          timestamp: Date.now(),
+          sessionId: 'debug-session',
+          hypothesisId: 'C',
+        }),
+      }).catch(() => {});
+    });
+    // #endregion
+
+    let sliderVisible = false;
+    let sliderHideTimer: ReturnType<typeof setTimeout> | null = null;
+    const SLIDER_AUTO_HIDE_DELAY = 4000; // 4秒无操作自动隐藏
+
+    // 显示滑条
+    const showSlider = () => {
+      if (sliderVisible) return;
+
+      // 清除之前的隐藏定时器
+      if (sliderHideTimer) {
+        clearTimeout(sliderHideTimer);
+        sliderHideTimer = null;
+      }
+
+      sliderVisible = true;
+
+      // 计算位置：在"节点"文字上方（因为滑条容器在wrapper内，而trigger在legend中，legend在wrapper下方）
+      // 使用getBoundingClientRect获取相对于viewport的位置
+      const triggerRect = $nodeSizeDisplayTrigger[0].getBoundingClientRect();
+      const wrapperRect = $wrapper[0].getBoundingClientRect();
+
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          location: 'index.ts:showSlider',
+          message: '位置计算',
+          data: {
+            triggerTop: triggerRect.top,
+            triggerBottom: triggerRect.bottom,
+            wrapperTop: wrapperRect.top,
+            wrapperBottom: wrapperRect.bottom,
+            wrapperHeight: wrapperRect.height,
+          },
+          timestamp: Date.now(),
+          sessionId: 'debug-session',
+          hypothesisId: 'D',
+        }),
+      }).catch(() => {});
+      // #endregion
+
+      // 修复：滑条应该显示在wrapper底部附近，在trigger上方
+      const sliderHeight = 60; // 估算滑条高度
+      const top = wrapperRect.height - sliderHeight - 10; // 在wrapper底部上方
+      const left = triggerRect.left - wrapperRect.left;
+
+      $sliderContainer.css({
+        display: 'block',
+        top: `${top}px`,
+        left: `${left}px`,
+      });
+
+      // 设置自动隐藏定时器
+      resetSliderHideTimer();
+    };
+
+    // 隐藏滑条
+    const hideSlider = () => {
+      if (!sliderVisible) return;
+
+      if (sliderHideTimer) {
+        clearTimeout(sliderHideTimer);
+        sliderHideTimer = null;
+      }
+
+      sliderVisible = false;
+      $sliderContainer.hide();
+    };
+
+    // 重置自动隐藏定时器
+    const resetSliderHideTimer = () => {
+      if (sliderHideTimer) {
+        clearTimeout(sliderHideTimer);
+      }
+      sliderHideTimer = setTimeout(() => {
+        hideSlider();
+      }, SLIDER_AUTO_HIDE_DELAY);
+    };
+
+    // 点击"节点"文字切换滑条显示/隐藏（使用事件委托确保可靠触发）
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        location: 'index.ts:9571',
+        message: '事件委托绑定执行',
+        data: {
+          overlayExists: overlay.length > 0,
+          triggerExists: overlay.find('#node-size-display-trigger').length > 0,
+        },
+        timestamp: Date.now(),
+        sessionId: 'debug-session',
+        hypothesisId: 'A',
+      }),
+    }).catch(() => {});
+    // #endregion
+    overlay.on('click', '#node-size-display-trigger, #node-size-display-trigger *', function (e) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          location: 'index.ts:9572',
+          message: '节点点击事件触发',
+          data: {
+            sliderVisible,
+            targetId: (e.target as HTMLElement).id,
+            targetClass: (e.target as HTMLElement).className,
+          },
+          timestamp: Date.now(),
+          sessionId: 'debug-session',
+          hypothesisId: 'B',
+        }),
+      }).catch(() => {});
+      // #endregion
+      e.stopPropagation();
+      if (sliderVisible) {
+        hideSlider();
+      } else {
+        showSlider();
+      }
+    });
+
+    // 滑条操作时重置自动隐藏定时器
+    $nodeSizeSlider.on('input mousedown touchstart', function (e) {
+      e.stopPropagation();
+      if (sliderVisible) {
+        resetSliderHideTimer();
+      }
+    });
+
+    // 滑条容器内操作时阻止事件冒泡
+    $sliderContainer.on('pointerdown mousedown touchstart', function (e) {
+      e.stopPropagation();
+    });
+
+    // 点击滑条外部区域时隐藏滑条
+    $(document).on('click.slider-hide', function (e) {
+      if (
+        sliderVisible &&
+        !$sliderContainer.is(e.target) &&
+        $sliderContainer.has(e.target).length === 0 &&
+        !$nodeSizeDisplayTrigger.is(e.target) &&
+        $nodeSizeDisplayTrigger.has(e.target).length === 0
+      ) {
+        hideSlider();
+      }
+    });
+
+    $nodeSizeSlider.on('input', function () {
+      nodeSizeMultiplier = parseFloat($(this).val());
+      $sliderSizeDisplay.text(Math.round(nodeSizeMultiplier * 100) + '%');
+      updateNodeSizeDisplay();
+
+      // 重新计算节点半径并渲染
+      nodeArr.forEach(node => {
+        node.radius = getNodeRadius(node.name, node.isPlayer);
+      });
+      render();
+
+      // 重置自动隐藏定时器
+      resetSliderHideTimer();
+    });
+
+    // 过滤 toggle 按钮
+    const $filterInSceneBtn = overlay.find('#filter-in-scene');
+    const $filterDirectOnlyBtn = overlay.find('#filter-direct-only');
+
+    const updateFilterToggleStyles = () => {
+      $filterInSceneBtn.css({
+        background: filterInScene ? t.accent : t.btnBg,
+        color: filterInScene ? t.btnActiveText : t.textMain,
+        borderColor: filterInScene ? t.accent : t.border,
+      });
+      $filterDirectOnlyBtn.css({
+        background: filterDirectOnly ? t.accent : t.btnBg,
+        color: filterDirectOnly ? t.btnActiveText : t.textMain,
+        borderColor: filterDirectOnly ? t.accent : t.border,
+      });
+    };
+
+    // 初始化按钮样式
+    updateFilterToggleStyles();
+
+    $filterInSceneBtn.click(function (e) {
+      e.stopPropagation();
+      filterInScene = !filterInScene;
+      updateFilterToggleStyles();
+      render();
+    });
+
+    $filterDirectOnlyBtn.click(function (e) {
+      e.stopPropagation();
+      filterDirectOnly = !filterDirectOnly;
+      updateFilterToggleStyles();
+      render();
+    });
+
+    // 重置视图（缩放、位置 + 节点布局 + 节点大小）
     overlay.find('#graph-zoom-reset').click(() => {
       // 重置缩放和平移
       scale = 1;
@@ -9397,22 +10746,94 @@
       panY = 0;
       updateTransform();
 
-      // 同时重置节点布局
-      nodeArr.forEach((node, i) => {
-        if (node.isPlayer) {
-          node.x = centerX;
-          node.y = centerY;
-        } else {
-          const angle = (2 * Math.PI * i) / nodeArr.length;
-          node.x = centerX + radius * Math.cos(angle);
-          node.y = centerY + radius * Math.sin(angle);
-        }
+      // 重置节点大小
+      nodeSizeMultiplier = 1.0;
+      $nodeSizeSlider.val(1.0);
+      $sliderSizeDisplay.text('100%');
+      updateNodeSizeDisplay();
+
+      // 重置stepper显示值
+      const $nodeSizeStepper = overlay.find('.acu-stepper[data-id="graph-node-size"]');
+      if ($nodeSizeStepper.length) {
+        $nodeSizeStepper.find('.acu-stepper-value').text('100%');
+      }
+
+      // 重新计算节点半径
+      nodeArr.forEach(node => {
+        node.radius = getNodeRadius(node.name, node.isPlayer);
       });
+
+      // 重新加载布局（优先使用缓存）
+      if (!loadLayoutCache()) {
+        // 缓存不存在或不匹配，运行物理模拟
+        runForceDirectedLayout();
+      }
       render();
     });
 
+    // Stepper 步进器事件处理 - 节点大小控制
+    const $nodeSizeStepper = overlay.find('.acu-stepper[data-id="graph-node-size"]');
+    if ($nodeSizeStepper.length) {
+      const min = parseInt($nodeSizeStepper.data('min')); // 50
+      const max = parseInt($nodeSizeStepper.data('max')); // 200
+      const step = parseInt($nodeSizeStepper.data('step')); // 10
+      const $value = $nodeSizeStepper.find('.acu-stepper-value');
+
+      const updateNodeSizeValue = (newPercent: number) => {
+        newPercent = Math.max(min, Math.min(max, newPercent));
+        nodeSizeMultiplier = newPercent / 100; // 转换为倍数 (0.5-2.0)
+        $value.text(`${newPercent}%`);
+        updateNodeSizeDisplay();
+
+        // 重新计算节点半径并渲染
+        nodeArr.forEach(node => {
+          node.radius = getNodeRadius(node.name, node.isPlayer);
+        });
+        render();
+      };
+
+      const getCurrentPercent = () => {
+        const text = $value.text().replace(/[^\d]/g, '');
+        return parseInt(text) || 100;
+      };
+
+      $nodeSizeStepper.find('.acu-stepper-dec').on('click', function () {
+        updateNodeSizeValue(getCurrentPercent() - step);
+      });
+
+      $nodeSizeStepper.find('.acu-stepper-inc').on('click', function () {
+        updateNodeSizeValue(getCurrentPercent() + step);
+      });
+    }
+
+    // 重新布局按钮
+    overlay.find('#graph-relayout').click(() => {
+      // 清除缓存
+      clearLayoutCache();
+
+      // 重新计算节点半径
+      nodeArr.forEach(node => {
+        node.radius = getNodeRadius(node.name, node.isPlayer);
+      });
+
+      // 重新运行物理模拟
+      runForceDirectedLayout();
+      render();
+
+      if (window.toastr) {
+        window.toastr.success('布局已重新计算');
+      }
+    });
+
     overlay.find('#graph-manage-avatar').click(() => {
-      showAvatarManager(nodeArr, () => render());
+      // 使用过滤后的节点数组，但头像管理应该显示所有节点
+      showAvatarManager(nodeArr, () => {
+        // 重新计算节点半径（因为大小可能改变了）
+        nodeArr.forEach(node => {
+          node.radius = getNodeRadius(node.name, node.isPlayer);
+        });
+        render();
+      });
     });
 
     const closeGraph = () => {
@@ -9690,11 +11111,107 @@
     const t = getThemeColors();
     const avatars = AvatarManager.getAll();
 
+    // 统一解析用户占位符为{{user}}主键（用于头像管理界面）
+    const resolveUserPlaceholderForAvatar = name => {
+      if (!name) return name;
+      const playerName = getPlayerName();
+      const personaName = getPersonaName();
+
+      // 明确的用户占位符变体
+      const explicitUserVariants = ['<user>', '{{user}}'];
+      const isExplicitUserVariant = explicitUserVariants.some(
+        v => name === v || name.toLowerCase() === v.toLowerCase(),
+      );
+
+      // 如果当前persona名匹配，也视为用户占位符
+      const isPersonaName = personaName && name === personaName;
+
+      // 检查是否是主角表名称（模糊匹配：表名包含"主角"）
+      const isPlayerName = (() => {
+        if (!playerName) return false;
+        // 精确匹配
+        if (name === playerName) return true;
+        // 或者通过别名系统检查
+        const primaryName = AvatarManager.getPrimaryName(name);
+        return primaryName === playerName;
+      })();
+
+      // 统一映射到{{user}}主键
+      if (isExplicitUserVariant || isPersonaName || isPlayerName) {
+        return '{{user}}';
+      }
+
+      // 其他情况使用别名系统解析
+      return AvatarManager.getPrimaryName(name);
+    };
+
     // 异步构建列表
     const buildList = async () => {
       let listHtml = '';
 
-      for (const node of nodeArr) {
+      // 分离{{user}}节点和其他节点
+      const userNode = nodeArr.find(n => {
+        const resolved = resolveUserPlaceholderForAvatar(n.name);
+        return resolved === '{{user}}';
+      });
+      const otherNodes = nodeArr.filter(n => {
+        const resolved = resolveUserPlaceholderForAvatar(n.name);
+        return resolved !== '{{user}}';
+      });
+
+      // 先渲染{{user}}（如果存在）
+      if (userNode) {
+        // 创建{{user}}节点的副本，使用'{{user}}'作为名称
+        const userNodeForDisplay = {
+          ...userNode,
+          name: '{{user}}', // 统一使用{{user}}作为显示名称
+        };
+
+        const data = avatars[userNodeForDisplay.name] || {};
+        let currentUrl = data.url || '';
+
+        // 检查是否有本地图片
+        const hasLocal = await AvatarManager.hasLocalAvatar(userNodeForDisplay.name);
+        let displayUrl = '';
+        let sourceLabel = '';
+
+        if (hasLocal) {
+          displayUrl = await LocalAvatarDB.get(userNodeForDisplay.name);
+          sourceLabel = '<span class="acu-avatar-source acu-source-local">本地</span>';
+        } else if (currentUrl) {
+          displayUrl = currentUrl;
+          sourceLabel = '<span class="acu-avatar-source acu-source-url">URL</span>';
+        }
+
+        const aliases = (data.aliases || []).join(', ');
+        const hasAvatar = !!displayUrl;
+
+        listHtml += `
+                    <div class="acu-avatar-item" data-name="${escapeHtml(userNodeForDisplay.name)}" data-has-local="${hasLocal}" data-display-url="${escapeHtml(displayUrl)}">
+                        <div class="acu-avatar-preview-wrap">
+                            <div class="acu-avatar-preview ${hasAvatar ? 'has-image' : ''}" style="${hasAvatar ? `background-image: url('${displayUrl}'); background-position: ${data.offsetX ?? 50}% ${data.offsetY ?? 50}%; background-size: ${data.scale ?? 150}%;` : ''}">
+                                ${!hasAvatar ? `<span>${escapeHtml(userNodeForDisplay.name.charAt(0))}</span><i class="fa-solid fa-camera acu-avatar-camera-hint"></i>` : ''}
+                            </div>
+                            ${sourceLabel}
+                        </div>
+                        <div class="acu-avatar-info">
+                            <div class="acu-avatar-name-row">
+                                <div class="acu-avatar-name">${escapeHtml(userNodeForDisplay.name)}</div>
+                                <div class="acu-avatar-actions">
+                                    <button class="acu-avatar-save-btn" title="保存"><i class="fa-solid fa-check"></i></button>
+                                    <button class="acu-avatar-clear-btn" title="清除"><i class="fa-solid fa-trash"></i></button>
+                                </div>
+                            </div>
+                            <input type="text" class="acu-avatar-url" placeholder="粘贴URL..." value="${escapeHtml(currentUrl)}" />
+                            <input type="text" class="acu-avatar-aliases" placeholder="别名（逗号分隔）..." value="${escapeHtml(aliases)}" title="例如: 睦, 睦头" />
+                            <input type="file" accept="image/*" class="acu-avatar-file-input" style="display:none;" />
+                        </div>
+                    </div>
+                `;
+      }
+
+      // 再渲染其他节点
+      for (const node of otherNodes) {
         const data = avatars[node.name] || {};
         let currentUrl = data.url || '';
 
@@ -9709,13 +11226,6 @@
         } else if (currentUrl) {
           displayUrl = currentUrl;
           sourceLabel = '<span class="acu-avatar-source acu-source-url">URL</span>';
-        } else {
-          const playerName = getPlayerName();
-          const isPlayer = node.name === '<user>' || node.name === '主角' || (playerName && node.name === playerName);
-          if (isPlayer) {
-            displayUrl = getUserAvatarUrl() || '';
-            if (displayUrl) sourceLabel = '<span class="acu-avatar-source acu-source-auto">酒馆</span>';
-          }
         }
 
         const aliases = (data.aliases || []).join(', ');
@@ -10816,10 +12326,13 @@
             .acu-highlight-manual { color: var(--acu-hl-manual) !important; background-color: var(--acu-hl-manual-bg) !important; border-radius: 4px; padding: 0 4px; font-weight: bold; animation: pulse-highlight 2s infinite; display: inline-block; }
             .acu-highlight-diff { color: var(--acu-hl-diff) !important; background-color: var(--acu-hl-diff-bg) !important; border-radius: 4px; padding: 0 4px; font-weight: bold; animation: pulse-highlight 2s infinite; display: inline-block; }
             .acu-editable-title.acu-highlight-manual, .acu-editable-title.acu-highlight-diff { width: auto; display: inline-block; }
-            .acu-card-header { flex: 0 0 auto; padding: 8px 10px; background: var(--acu-table-head); border-bottom: 1px dashed var(--acu-border); font-weight: bold; color: var(--acu-text-main); font-size: 14px; display: flex; flex-direction: row !important; align-items: center !important; justify-content: flex-start !important; gap: 8px; min-height: 40px; height: auto !important; }
+            .acu-card-header { flex: 0 0 auto; padding: 8px 10px; background: var(--acu-table-head); border-bottom: 1px dashed var(--acu-border); font-weight: bold; color: var(--acu-text-main); font-size: 14px; display: flex; flex-direction: row !important; align-items: center !important; justify-content: flex-start !important; gap: 8px; min-height: 40px; height: auto !important; position: relative; }
             .acu-editable-title { flex: 1; width: auto !important; cursor: pointer; border-bottom: 1px dashed transparent; transition: all 0.2s; white-space: pre-wrap !important; overflow: visible !important; word-break: break-word !important; text-align: center; line-height: 1.3; margin: 0; }
             .acu-editable-title:hover { border-bottom-color: var(--acu-accent); color: var(--acu-accent); }
             .acu-card-index { position: static !important; transform: none !important; margin: 0; flex-shrink: 0; font-size: 11px; color: var(--acu-text-sub); font-weight: normal; background: var(--acu-badge-bg); padding: 2px 6px; border-radius: 4px; }
+            .acu-bookmark-icon { position: absolute; top: 8px; right: 8px; color: var(--acu-accent); cursor: pointer; font-size: 16px; opacity: 0.3; transition: opacity 0.2s, color 0.2s, transform 0.2s; z-index: 10; }
+            .acu-bookmark-icon:hover { opacity: 0.6; transform: scale(1.1); }
+            .acu-bookmark-icon.bookmarked { color: var(--acu-accent); opacity: 1; }
             .acu-card-body { padding: 6px 12px; display: flex; flex-direction: column; gap: 0; font-size: var(--acu-font-size, 13px); flex: 1; }
             .acu-card-row { display: block; padding: 6px 0; border-bottom: 1px dashed var(--acu-border); cursor: pointer; overflow: hidden; }
             .acu-card-row:last-child { border-bottom: none; }
@@ -11716,6 +13229,50 @@
                 color: var(--acu-accent);
                 min-width: 45px;
                 text-align: center;
+            }
+            .acu-node-size-slider-container input[type="range"] {
+                -webkit-appearance: none;
+                appearance: none;
+                height: 10px;
+                border-radius: 5px;
+                background: var(--acu-btn-bg);
+                outline: none;
+                cursor: pointer;
+            }
+            .acu-node-size-slider-container input[type="range"]::-webkit-slider-thumb {
+                -webkit-appearance: none;
+                appearance: none;
+                width: 20px;
+                height: 20px;
+                border-radius: 50%;
+                background: var(--acu-accent);
+                cursor: pointer;
+                border: 2px solid var(--acu-bg-panel);
+                box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+                transition: all 0.2s;
+            }
+            .acu-node-size-slider-container input[type="range"]::-webkit-slider-thumb:hover {
+                transform: scale(1.1);
+                box-shadow: 0 3px 6px rgba(0,0,0,0.4);
+            }
+            .acu-node-size-slider-container input[type="range"]::-moz-range-thumb {
+                width: 20px;
+                height: 20px;
+                border-radius: 50%;
+                background: var(--acu-accent);
+                cursor: pointer;
+                border: 2px solid var(--acu-bg-panel);
+                box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+                transition: all 0.2s;
+            }
+            .acu-node-size-slider-container input[type="range"]::-moz-range-thumb:hover {
+                transform: scale(1.1);
+                box-shadow: 0 3px 6px rgba(0,0,0,0.4);
+            }
+            .acu-node-size-slider-container input[type="range"]::-moz-range-track {
+                height: 10px;
+                border-radius: 5px;
+                background: var(--acu-btn-bg);
             }
             @media (max-width: 768px) {
                 .acu-relation-graph-container {
@@ -13093,16 +14650,40 @@
                 outline: none !important;
                 border-color: var(--acu-accent) !important;
             }
+            .acu-validation-modal-body .acu-panel-input::placeholder,
+            .acu-validation-modal input[type="text"]::placeholder,
+            .acu-validation-modal input[type="number"]::placeholder {
+                color: var(--acu-text-sub) !important;
+                opacity: 0.7 !important;
+            }
+            .acu-validation-modal select option {
+                background: var(--acu-bg-panel) !important;
+                color: var(--acu-text-main) !important;
+            }
+            .acu-validation-modal select option[value=""] {
+                color: var(--acu-text-sub) !important;
+                opacity: 0.7 !important;
+            }
             .acu-rule-config-section {
                 padding: 8px 0;
             }
             .acu-validation-modal-footer {
                 display: flex;
-                justify-content: flex-end;
-                gap: 10px;
-                padding: 12px 16px;
+                justify-content: center;
+                gap: 12px;
+                padding: 16px;
                 border-top: 1px solid var(--acu-border);
                 background: var(--acu-table-head);
+            }
+            .acu-validation-modal-footer .acu-btn {
+                flex: 1;
+                padding: 10px 12px !important;
+                font-size: 13px !important;
+                font-weight: 500 !important;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 6px;
             }
             /* 智能修改弹窗样式 */
             .acu-smart-fix-meta {
@@ -13636,7 +15217,7 @@
   // ========================================
 
   // 格式验证智能推算
-  function suggestFormatValue(pattern, rowIndex, existingValues = []) {
+  function suggestFormatValue(pattern, rowIndex, existingValues = [], tableContent = null) {
     if (!pattern || rowIndex === undefined || rowIndex < 0) return null;
 
     try {
@@ -13649,8 +15230,37 @@
       if (prefixMatch) {
         const prefix = prefixMatch[1]; // "AM"
         const digits = parseInt(prefixMatch[2], 10); // 3
-        const nextNum = String(rowIndex + 1).padStart(digits, '0'); // rowIndex是0-based，+1后补零
-        return prefix + nextNum; // "AM001"
+
+        // 【改进】对于总结表和总体大纲，基于现有值计算下一个编码
+        if (tableContent && (tableContent.name === '总结表' || tableContent.name === '总体大纲')) {
+          const headers = tableContent.content?.[0] || [];
+          const rows = tableContent.content?.slice(1) || [];
+          const codeIndex = headers.indexOf('编码索引');
+
+          if (codeIndex >= 0) {
+            // 提取所有现有编码索引的数字部分
+            const existingNumbers = [];
+            rows.forEach(row => {
+              const codeValue = row?.[codeIndex];
+              if (codeValue && typeof codeValue === 'string') {
+                const match = codeValue.match(new RegExp(`^${prefix}(\\d+)$`));
+                if (match) {
+                  const num = parseInt(match[1], 10);
+                  if (!isNaN(num)) existingNumbers.push(num);
+                }
+              }
+            });
+
+            // 计算下一个数字
+            const maxNum = existingNumbers.length > 0 ? Math.max(...existingNumbers) : 0;
+            const nextNum = String(maxNum + 1).padStart(digits, '0');
+            return prefix + nextNum;
+          }
+        }
+
+        // 原有逻辑：基于行索引（作为后备方案）
+        const nextNum = String(rowIndex + 1).padStart(digits, '0');
+        return prefix + nextNum;
       }
 
       // 尝试识别其他常见模式，如 \d{3} 单独出现（仅数字）
@@ -13815,6 +15425,7 @@
                 <optgroup label="── 表级规则 ──">
                   <option value="tableReadonly">表级只读（禁止修改）</option>
                   <option value="rowLimit">行数限制</option>
+                  <option value="sequence">序列递增</option>
                 </optgroup>
                 <optgroup label="── 字段级规则 ──">
                   <option value="required">必填</option>
@@ -13822,13 +15433,14 @@
                   <option value="enum">枚举验证（可选值）</option>
                   <option value="numeric">数值范围</option>
                   <option value="relation">关联验证（引用其他表）</option>
+                  <option value="keyValue">键值对验证</option>
                 </optgroup>
               </select>
             </div>
             <!-- 表级只读无需配置 -->
             <div class="acu-rule-config-section" id="config-tableReadonly">
               <div style="font-size:11px;color:var(--acu-text-sub);padding:8px;background:var(--acu-card-bg);border-radius:4px;">
-                <i class="fa-solid fa-info-circle"></i> 启用后，该表将不允许任何修改（需开启更新拦截）
+                <i class="fa-solid fa-info-circle"></i> 启用后，该表将不允许任何修改
               </div>
             </div>
             <!-- 行数限制配置 -->
@@ -13838,6 +15450,28 @@
                 <input type="number" id="cfg-row-min" class="acu-panel-input" placeholder="0" style="width:80px;">
                 <div class="acu-setting-info" style="margin-left:16px;"><span class="acu-setting-label">最多行数</span></div>
                 <input type="number" id="cfg-row-max" class="acu-panel-input" placeholder="不限" style="width:80px;">
+              </div>
+            </div>
+            <!-- 序列递增配置 -->
+            <div class="acu-rule-config-section" id="config-sequence" style="display:none;">
+              <div class="acu-setting-row">
+                <div class="acu-setting-info"><span class="acu-setting-label">编码前缀</span></div>
+                <input type="text" id="cfg-sequence-prefix" class="acu-panel-input" placeholder="如：AM" style="width:120px;">
+              </div>
+              <div class="acu-setting-row">
+                <div class="acu-setting-info"><span class="acu-setting-label">起始数字</span></div>
+                <input type="number" id="cfg-sequence-start" class="acu-panel-input" placeholder="1" value="1" style="width:120px;">
+              </div>
+              <div class="acu-setting-row">
+                <div class="acu-setting-info"><span class="acu-setting-label">配对表（可选）</span></div>
+                <select id="cfg-sequence-paired-table" class="acu-setting-select" style="flex:1;">
+                  <option value="">无（单表修复）</option>
+                  ${tableNames.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('')}
+                </select>
+              </div>
+              <div style="font-size:11px;color:var(--acu-text-sub);padding:8px;background:var(--acu-card-bg);border-radius:4px;margin-top:8px;">
+                <i class="fa-solid fa-info-circle"></i> 检查指定列的值是否从"前缀+起始数字"开始严格递增（如AM001, AM002, AM003...），不可跳号或重复。需要指定目标列。<br>
+                <i class="fa-solid fa-link" style="margin-top:4px;display:block;"></i> 如果设置了配对表，修复时会同时修复两个表的编码，确保相同编码值修复后仍然相同。
               </div>
             </div>
             <!-- 必填无需配置 -->
@@ -13888,6 +15522,25 @@
                 <i class="fa-solid fa-info-circle"></i> 可选择多列，任一列匹配即通过验证（OR 逻辑）。使用 Ctrl/Cmd 键可选择多个列。
               </div>
             </div>
+            <!-- 键值对验证配置 -->
+            <div class="acu-rule-config-section" id="config-keyValue" style="display:none;">
+              <div class="acu-setting-row">
+                <div class="acu-setting-info"><span class="acu-setting-label">值类型</span></div>
+                <select id="cfg-keyvalue-type" class="acu-setting-select">
+                  <option value="text">文本型（只验证格式）</option>
+                  <option value="numeric">数值型（验证格式和数值范围）</option>
+                </select>
+              </div>
+              <div class="acu-setting-row" id="row-keyvalue-range" style="display:none;">
+                <div class="acu-setting-info"><span class="acu-setting-label">最小值</span></div>
+                <input type="number" id="cfg-keyvalue-min" class="acu-panel-input" placeholder="0" style="width:80px;">
+                <div class="acu-setting-info" style="margin-left:16px;"><span class="acu-setting-label">最大值</span></div>
+                <input type="number" id="cfg-keyvalue-max" class="acu-panel-input" placeholder="100" style="width:80px;">
+              </div>
+              <div style="font-size:11px;color:var(--acu-text-sub);padding:8px;background:var(--acu-card-bg);border-radius:4px;margin-top:8px;">
+                <i class="fa-solid fa-info-circle"></i> 格式：键:值;键:值（使用英文标点，自动去除空格）。数值型会验证每个值的范围。
+              </div>
+            </div>
             <div class="acu-setting-row">
               <div class="acu-setting-info"><span class="acu-setting-label">错误提示</span></div>
               <input type="text" id="rule-error-msg" class="acu-panel-input" placeholder="验证失败时显示的提示信息" style="flex:1;">
@@ -13903,13 +15556,53 @@
 
     $('body').append(dialog);
 
-    // 表格选择变化时更新列选项
+    // 统一设置select的颜色（当选中空值时显示为灰色）
+    const updateSelectColor = $select => {
+      const val = $select.val();
+      if (!val || val === '') {
+        $select.css('color', 'var(--acu-text-sub)');
+        $select.css('opacity', '0.7');
+      } else {
+        $select.css('color', 'var(--acu-text-main)');
+        $select.css('opacity', '1');
+      }
+    };
+
+    // 初始化所有select的颜色
+    dialog.find('select').each(function () {
+      updateSelectColor($(this));
+      $(this).on('change', function () {
+        updateSelectColor($(this));
+      });
+    });
+
+    // 表格选择变化时更新列选项和配对表选项
     dialog.find('#rule-table').on('change', function () {
       const tableName = $(this).val();
       const $colSelect = dialog.find('#rule-column');
+      const $pairedTableSelect = dialog.find('#cfg-sequence-paired-table');
+      updateSelectColor($(this));
+
+      // 更新配对表选项（排除当前选择的表）
+      if ($pairedTableSelect.length > 0) {
+        const currentPairedValue = $pairedTableSelect.val();
+        $pairedTableSelect.empty();
+        $pairedTableSelect.append('<option value="">无（单表修复）</option>');
+        tableNames
+          .filter(name => name !== tableName)
+          .forEach(name => {
+            $pairedTableSelect.append(`<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`);
+          });
+        // 如果之前选择的值仍然有效，恢复它
+        if (currentPairedValue && currentPairedValue !== tableName) {
+          $pairedTableSelect.val(currentPairedValue);
+        }
+        updateSelectColor($pairedTableSelect);
+      }
 
       if (!tableName || !tables[tableName]) {
         $colSelect.html('<option value="">请先选择表格...</option>').prop('disabled', true);
+        updateSelectColor($colSelect);
         return;
       }
 
@@ -13920,15 +15613,18 @@
         .join('');
 
       $colSelect.html('<option value="">请选择...</option>' + options).prop('disabled', false);
+      updateSelectColor($colSelect);
     });
 
     // 关联表格选择变化时更新关联列选项
     dialog.find('#cfg-ref-table').on('change', function () {
       const refTableName = $(this).val();
       const $refColSelect = dialog.find('#cfg-ref-column');
+      updateSelectColor($(this));
 
       if (!refTableName || !tables[refTableName]) {
         $refColSelect.html('<option value="">请先选择关联表格...</option>').prop('disabled', true);
+        updateSelectColor($refColSelect);
         return;
       }
 
@@ -13939,6 +15635,7 @@
         .join('');
 
       $refColSelect.html(options).prop('disabled', false);
+      updateSelectColor($refColSelect);
     });
 
     // 规则类型变化时切换配置区域和目标列显示
@@ -13946,13 +15643,14 @@
       const type = $(this).val();
       const typeInfo = RULE_TYPE_INFO[type];
       const isTableRule = typeInfo?.scope === 'table';
+      updateSelectColor($(this));
 
       // 切换配置区域
       dialog.find('.acu-rule-config-section').hide();
       dialog.find('#config-' + type).show();
 
-      // 表级规则隐藏目标列选择
-      if (isTableRule) {
+      // 表级规则隐藏目标列选择（但sequence规则需要目标列）
+      if (isTableRule && type !== 'sequence') {
         dialog.find('#row-column').hide();
         dialog.find('#rule-column').val('').prop('disabled', true);
       } else {
@@ -13961,6 +15659,16 @@
         if (dialog.find('#rule-table').val()) {
           dialog.find('#rule-column').prop('disabled', false);
         }
+      }
+    });
+
+    // 键值对类型变化时显示/隐藏数值范围输入框
+    dialog.find('#cfg-keyvalue-type').on('change', function () {
+      const valueType = $(this).val();
+      if (valueType === 'numeric') {
+        dialog.find('#row-keyvalue-range').show();
+      } else {
+        dialog.find('#row-keyvalue-range').hide();
       }
     });
 
@@ -13990,8 +15698,8 @@
         if (window.toastr) window.toastr.warning('请选择目标表格');
         return;
       }
-      // 字段级规则必须选择目标列
-      if (!isTableRule && !targetColumn) {
+      // 字段级规则和sequence规则必须选择目标列
+      if ((!isTableRule || ruleType === 'sequence') && !targetColumn) {
         if (window.toastr) window.toastr.warning('请选择目标列');
         return;
       }
@@ -14054,6 +15762,29 @@
         ruleConfig.refTable = refTable;
         // 如果只有一列，保存为字符串；如果多列，保存为数组
         ruleConfig.refColumn = selectedColumns.length === 1 ? selectedColumns[0] : selectedColumns;
+      } else if (ruleType === 'keyValue') {
+        const valueType = dialog.find('#cfg-keyvalue-type').val();
+        ruleConfig.valueType = valueType || 'text';
+
+        if (valueType === 'numeric') {
+          const min = dialog.find('#cfg-keyvalue-min').val();
+          const max = dialog.find('#cfg-keyvalue-max').val();
+          if (min !== '') ruleConfig.valueMin = parseFloat(min);
+          if (max !== '') ruleConfig.valueMax = parseFloat(max);
+        }
+      } else if (ruleType === 'sequence') {
+        const prefix = dialog.find('#cfg-sequence-prefix').val()?.trim() || '';
+        const startFrom = dialog.find('#cfg-sequence-start').val();
+        const pairedTable = dialog.find('#cfg-sequence-paired-table').val()?.trim() || null;
+        ruleConfig.prefix = prefix;
+        ruleConfig.startFrom = startFrom !== '' ? parseInt(startFrom, 10) : 1;
+        if (isNaN(ruleConfig.startFrom)) {
+          if (window.toastr) window.toastr.warning('起始数字必须是有效数字');
+          return;
+        }
+        if (pairedTable) {
+          ruleConfig.pairedTable = pairedTable;
+        }
       }
 
       // 生成规则 ID
@@ -14065,7 +15796,7 @@
         name: name,
         description: '',
         targetTable: targetTable,
-        targetColumn: isTableRule ? '' : targetColumn, // 表级规则不需要 targetColumn
+        targetColumn: isTableRule && ruleType !== 'sequence' ? '' : targetColumn, // 表级规则不需要 targetColumn，但sequence规则需要
         ruleType: ruleType,
         config: ruleConfig,
         errorMessage: errorMessage || typeInfo?.desc || '数据验证失败',
@@ -14084,7 +15815,7 @@
             </div>
             <div class="acu-rule-info">
               <div class="acu-rule-name">${escapeHtml(name)}</div>
-              <div class="acu-rule-target">${escapeHtml(targetTable)}${isTableRule ? ' (整表)' : '.' + escapeHtml(targetColumn)}</div>
+              <div class="acu-rule-target">${escapeHtml(targetTable)}${isTableRule && ruleType !== 'sequence' ? ' (整表)' : '.' + escapeHtml(targetColumn)}</div>
             </div>
             <div class="acu-rule-intercept" data-rule-id="${escapeHtml(ruleId)}" title="点击启用拦截（违反时回滚）"><i class="fa-solid fa-shield-halved"></i></div>
             <div class="acu-rule-toggle active" title="点击切换启用/禁用">
@@ -14167,6 +15898,9 @@
     } else if (ruleType === 'format' && rule.config?.pattern) {
       inputHtml = `<textarea id="smart-fix-value" class="acu-edit-textarea" spellcheck="false"
         style="width:100%;min-height:60px;max-height:200px;resize:none;">${escapeHtml(error.currentValue || '')}</textarea>`;
+    } else if (ruleType === 'keyValue') {
+      inputHtml = `<textarea id="smart-fix-value" class="acu-edit-textarea" spellcheck="false"
+        style="width:100%;min-height:60px;max-height:200px;resize:none;">${escapeHtml(error.currentValue || '')}</textarea>`;
     } else {
       // 必填或其他
       inputHtml = `<textarea id="smart-fix-value" class="acu-edit-textarea" spellcheck="false"
@@ -14223,7 +15957,17 @@
       `;
     } else if (ruleType === 'format' && rule.config?.pattern) {
       // 格式验证：显示格式说明和推荐值
-      const suggestedValue = suggestFormatValue(rule.config.pattern, error.rowIndex);
+      // 获取表数据用于智能推算
+      let tableContent = null;
+      if (rawData && error.tableName) {
+        for (const sheetId in rawData) {
+          if (rawData[sheetId]?.name === error.tableName) {
+            tableContent = rawData[sheetId];
+            break;
+          }
+        }
+      }
+      const suggestedValue = suggestFormatValue(rule.config.pattern, error.rowIndex, [], tableContent);
       smartSuggestHtml = `
         <div class="acu-smart-fix-suggest">
           <div class="acu-smart-fix-suggest-label">
@@ -14352,6 +16096,130 @@
           </div>
         `;
       }
+    } else if (ruleType === 'keyValue') {
+      // 键值对验证：显示格式说明和问题列表
+      const valueType = rule.config?.valueType || 'text';
+      const valueMin = rule.config?.valueMin;
+      const valueMax = rule.config?.valueMax;
+
+      // 预处理当前值
+      let processedValue = String(error.currentValue || '');
+      processedValue = processedValue.replace(/：/g, ':').replace(/；/g, ';').replace(/，/g, ';').replace(/\s+/g, '');
+
+      // 解析键值对并检测问题
+      const pairs = processedValue.split(';').filter(p => p.trim());
+      const issues = [];
+      const fixedPairs = [];
+
+      for (const pair of pairs) {
+        const colonIndex = pair.indexOf(':');
+        if (colonIndex === -1 || colonIndex === 0 || colonIndex === pair.length - 1) {
+          issues.push({ pair, error: '格式错误：缺少冒号或键/值为空' });
+          continue;
+        }
+
+        const key = pair.substring(0, colonIndex);
+        const val = pair.substring(colonIndex + 1);
+
+        if (!key || !val) {
+          issues.push({ pair, error: '键或值不能为空' });
+          continue;
+        }
+
+        let fixedVal = val;
+        let hasIssue = false;
+
+        if (valueType === 'numeric') {
+          const numVal = parseFloat(val);
+          if (isNaN(numVal)) {
+            issues.push({ pair, error: `"${val}" 不是有效数字` });
+            hasIssue = true;
+          } else {
+            if (valueMin !== undefined && valueMin !== null && numVal < valueMin) {
+              fixedVal = String(valueMin);
+              issues.push({ pair, error: `数值 ${numVal} 小于最小值 ${valueMin}` });
+              hasIssue = true;
+            } else if (valueMax !== undefined && valueMax !== null && numVal > valueMax) {
+              fixedVal = String(valueMax);
+              issues.push({ pair, error: `数值 ${numVal} 大于最大值 ${valueMax}` });
+              hasIssue = true;
+            }
+          }
+        }
+
+        fixedPairs.push({ key, val: fixedVal, originalVal: val, hasIssue });
+      }
+
+      // 生成修正后的完整字符串
+      const fixedValue = fixedPairs.map(p => `${p.key}:${p.val}`).join(';');
+      const hasIssues = issues.length > 0 || fixedPairs.some(p => p.hasIssue);
+
+      let issuesHtml = '';
+      if (hasIssues) {
+        issuesHtml = `
+          <div class="acu-smart-fix-suggest-label" style="margin-bottom:8px;">
+            <i class="fa-solid fa-exclamation-triangle"></i> 问题列表:
+          </div>
+          <div style="margin-bottom:8px;">
+            ${issues
+              .map(
+                issue => `
+              <div style="font-size:11px;color:var(--acu-text-sub);padding:4px 8px;background:var(--acu-card-bg);border-radius:4px;margin-bottom:4px;">
+                <span style="color:var(--acu-hl-manual);">❌</span> ${escapeHtml(issue.pair)} - ${escapeHtml(issue.error)}
+              </div>
+            `,
+              )
+              .join('')}
+            ${fixedPairs
+              .filter(p => p.hasIssue)
+              .map(
+                p => `
+              <div style="font-size:11px;color:var(--acu-text-sub);padding:4px 8px;background:var(--acu-card-bg);border-radius:4px;margin-bottom:4px;">
+                <span style="color:var(--acu-hl-manual);">⚠️</span> ${escapeHtml(p.key)}:${escapeHtml(p.originalVal)} → ${escapeHtml(p.val)}
+              </div>
+            `,
+              )
+              .join('')}
+          </div>
+        `;
+      }
+
+      smartSuggestHtml = `
+        <div class="acu-smart-fix-suggest">
+          <div class="acu-smart-fix-suggest-label">
+            <i class="fa-solid fa-key"></i> 格式要求: 键:值;键:值（使用英文标点，自动去除空格）
+          </div>
+          ${
+            valueType === 'numeric'
+              ? `
+            <div class="acu-smart-fix-suggest-label" style="margin-top:8px;">
+              <i class="fa-solid fa-hashtag"></i> 数值范围: ${valueMin !== undefined ? valueMin : '-∞'} ~ ${valueMax !== undefined ? valueMax : '+∞'}
+            </div>
+          `
+              : ''
+          }
+          ${issuesHtml}
+          ${
+            hasIssues
+              ? `
+            <div style="margin-top:8px;">
+              <span class="acu-smart-fix-quick-btn" data-value="${escapeHtml(fixedValue)}">
+                <i class="fa-solid fa-magic"></i> 一键修正所有问题
+              </span>
+            </div>
+            <div style="margin-top:8px;padding:8px;background:var(--acu-card-bg);border-radius:4px;font-size:11px;color:var(--acu-text-sub);">
+              <div style="margin-bottom:4px;"><strong>修正后预览:</strong></div>
+              <code style="color:var(--acu-success-text);">${escapeHtml(fixedValue)}</code>
+            </div>
+          `
+              : `
+            <div style="margin-top:8px;padding:8px;background:var(--acu-success-bg);border-radius:4px;font-size:11px;color:var(--acu-success-text);">
+              <i class="fa-solid fa-check-circle"></i> 格式正确
+            </div>
+          `
+          }
+        </div>
+      `;
     }
 
     // 弹窗HTML
@@ -14561,6 +16429,312 @@
   };
 
   // ========================================
+  // ========================================
+  // 配对表编码修复辅助函数
+  // ========================================
+
+  // 从表中提取所有编码值
+  function extractCodesFromTable(sheet, columnName, prefix) {
+    if (!sheet || !sheet.content || sheet.content.length < 2) {
+      return { codes: new Map(), allCodes: new Set(), codeToRows: new Map() };
+    }
+
+    const headers = sheet.content[0] || [];
+    const rows = sheet.content.slice(1) || [];
+    const colIndex = headers.indexOf(columnName);
+
+    if (colIndex < 0) {
+      return { codes: new Map(), allCodes: new Set(), codeToRows: new Map() };
+    }
+
+    const codes = new Map(); // Map<编码值, 行索引数组>
+    const allCodes = new Set(); // Set<编码值>
+    const codeToRows = new Map(); // Map<编码值, 行索引数组>
+
+    for (let i = 0; i < rows.length; i++) {
+      const value = rows[i]?.[colIndex];
+      if (value === null || value === undefined || value === '') continue;
+
+      const strValue = String(value).trim();
+      if (!strValue) continue;
+
+      // 验证编码格式
+      let isValid = false;
+      if (prefix) {
+        const match = strValue.match(new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+)$`));
+        if (match) {
+          isValid = true;
+        }
+      } else {
+        const num = parseInt(strValue, 10);
+        if (!isNaN(num)) {
+          isValid = true;
+        }
+      }
+
+      if (isValid) {
+        allCodes.add(strValue);
+        if (!codeToRows.has(strValue)) {
+          codeToRows.set(strValue, []);
+        }
+        codeToRows.get(strValue).push(i);
+      }
+    }
+
+    return { codes, allCodes, codeToRows };
+  }
+
+  // 构建编码映射：旧编码 → 新编码
+  function buildCodeMapping(codes1, codes2, prefix, startFrom) {
+    // 合并两个表的所有唯一编码值
+    const allUniqueCodes = new Set([...codes1, ...codes2]);
+
+    // 提取数字部分并排序
+    const codeNumbers = [];
+    for (const code of allUniqueCodes) {
+      let num = null;
+      if (prefix) {
+        const match = code.match(new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+)$`));
+        if (match) {
+          num = parseInt(match[1], 10);
+        }
+      } else {
+        num = parseInt(code, 10);
+      }
+
+      if (!isNaN(num)) {
+        codeNumbers.push({ code, num });
+      }
+    }
+
+    // 按数字部分排序
+    codeNumbers.sort((a, b) => a.num - b.num);
+
+    // 建立映射：旧编码 → 新编码
+    const mapping = new Map();
+    for (let i = 0; i < codeNumbers.length; i++) {
+      const oldCode = codeNumbers[i].code;
+      const newNum = startFrom + i;
+      const newCode = prefix + String(newNum).padStart(3, '0');
+      mapping.set(oldCode, newCode);
+    }
+
+    return mapping;
+  }
+
+  // 对齐和修复配对表
+  // 核心逻辑：
+  // 1. 编码为空的行保持原位置不动（这些是错误数据，由必填规则检测）
+  // 2. 有效编码行更新编码值，修复跳号
+  // 3. 缺失的编码插入空白行，保证两表有编码的行数一致
+  function alignAndFixPairedTables(
+    table1Sheet,
+    table1SheetId,
+    table2Sheet,
+    table2SheetId,
+    columnName,
+    mapping,
+    prefix,
+    startFrom,
+    rawData,
+  ) {
+    if (!table1Sheet || !table2Sheet) return { fixedCount1: 0, fixedCount2: 0 };
+
+    const headers1 = table1Sheet.content[0] || [];
+    const rows1 = table1Sheet.content.slice(1) || [];
+    const colIndex1 = headers1.indexOf(columnName);
+
+    const headers2 = table2Sheet.content[0] || [];
+    const rows2 = table2Sheet.content.slice(1) || [];
+    const colIndex2 = headers2.indexOf(columnName);
+
+    if (colIndex1 < 0 || colIndex2 < 0) return { fixedCount1: 0, fixedCount2: 0 };
+
+    let fixedCount1 = 0;
+    let fixedCount2 = 0;
+
+    // 构建反向映射：新编码 -> 旧编码
+    const reverseMapping = new Map();
+    for (const [oldCode, newCode] of mapping.entries()) {
+      reverseMapping.set(newCode, oldCode);
+    }
+
+    // 按新编码的数字部分排序
+    const sortedNewCodes = Array.from(mapping.values()).sort((a, b) => {
+      const numA = parseInt(a.replace(prefix, ''), 10);
+      const numB = parseInt(b.replace(prefix, ''), 10);
+      return numA - numB;
+    });
+
+    // 分析表结构：识别有效编码行和空白编码行，记录空白行在哪两个编码之间
+    const analyzeTable = (rows, colIndex) => {
+      const codeRows = []; // {rowIndex, oldCode, row}
+      const emptyRows = []; // {rowIndex, row, prevOldCode, nextOldCode}
+
+      for (let i = 0; i < rows.length; i++) {
+        const value = rows[i]?.[colIndex];
+        const strValue = value === null || value === undefined ? '' : String(value).trim();
+
+        // 检查是否是有效编码
+        let isValid = false;
+        if (strValue && prefix) {
+          const match = strValue.match(new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+)$`));
+          if (match) isValid = true;
+        } else if (strValue) {
+          const num = parseInt(strValue, 10);
+          if (!isNaN(num)) isValid = true;
+        }
+
+        if (isValid) {
+          codeRows.push({ rowIndex: i, oldCode: strValue, row: rows[i] });
+        } else {
+          emptyRows.push({ rowIndex: i, row: rows[i], prevOldCode: null, nextOldCode: null });
+        }
+      }
+
+      // 为每个空白行确定它在哪两个编码之间
+      for (const emptyRow of emptyRows) {
+        let prevCode = null;
+        let nextCode = null;
+
+        for (const codeRow of codeRows) {
+          if (codeRow.rowIndex < emptyRow.rowIndex) {
+            prevCode = codeRow.oldCode;
+          }
+          if (codeRow.rowIndex > emptyRow.rowIndex && nextCode === null) {
+            nextCode = codeRow.oldCode;
+            break;
+          }
+        }
+
+        emptyRow.prevOldCode = prevCode;
+        emptyRow.nextOldCode = nextCode;
+      }
+
+      return { codeRows, emptyRows };
+    };
+
+    const analysis1 = analyzeTable(rows1, colIndex1);
+    const analysis2 = analyzeTable(rows2, colIndex2);
+
+    // 构建新的行序列
+    const buildNewRows = (analysis, headers, colIndex, allOldCodes) => {
+      const newRows = [];
+      const codeRowMap = new Map(); // oldCode -> row data
+
+      // 构建旧编码到行数据的映射
+      for (const cr of analysis.codeRows) {
+        codeRowMap.set(cr.oldCode, cr.row);
+      }
+
+      // 按新编码顺序构建有效编码行
+      for (const newCode of sortedNewCodes) {
+        const oldCode = reverseMapping.get(newCode);
+
+        if (codeRowMap.has(oldCode)) {
+          // 有对应的旧数据，更新编码
+          const oldRow = codeRowMap.get(oldCode);
+          const newRow = oldRow.map(cell => cell);
+          newRow[colIndex] = newCode;
+          newRows.push({ newCode, row: newRow, isCodeRow: true });
+        } else {
+          // 缺失的编码，创建空白行（只有编码，其他列为空）
+          const newRow = new Array(headers.length).fill(null);
+          newRow[colIndex] = newCode;
+          newRows.push({ newCode, row: newRow, isCodeRow: true, isInserted: true });
+        }
+      }
+
+      // 把空白编码行插入到它们原来的相对位置
+      // 相对位置由 prevOldCode 和 nextOldCode 确定
+      const result = [];
+      let codeRowIndex = 0;
+
+      // 先处理在所有编码之前的空白行
+      for (const emptyRow of analysis.emptyRows) {
+        if (emptyRow.prevOldCode === null && emptyRow.nextOldCode !== null) {
+          // 在第一个编码之前
+          const nextNewCode = mapping.get(emptyRow.nextOldCode);
+          // 在对应的新编码之前插入
+          while (codeRowIndex < newRows.length && newRows[codeRowIndex].newCode !== nextNewCode) {
+            result.push(newRows[codeRowIndex].row);
+            codeRowIndex++;
+          }
+          result.push(emptyRow.row);
+        } else if (emptyRow.prevOldCode === null && emptyRow.nextOldCode === null) {
+          // 表中只有空白行，没有有效编码
+          result.push(emptyRow.row);
+        }
+      }
+
+      // 处理有效编码行和在编码之间的空白行
+      for (; codeRowIndex < newRows.length; codeRowIndex++) {
+        result.push(newRows[codeRowIndex].row);
+        const currentNewCode = newRows[codeRowIndex].newCode;
+        const currentOldCode = reverseMapping.get(currentNewCode);
+
+        // 检查是否有空白行应该在这个编码之后
+        for (const emptyRow of analysis.emptyRows) {
+          if (emptyRow.prevOldCode === currentOldCode) {
+            result.push(emptyRow.row);
+          }
+        }
+      }
+
+      // 处理在所有编码之后的空白行（prevOldCode 是最后一个编码，nextOldCode 为 null）
+      for (const emptyRow of analysis.emptyRows) {
+        if (emptyRow.prevOldCode !== null && emptyRow.nextOldCode === null) {
+          // 已经在上面的循环中处理了
+        }
+      }
+
+      return result;
+    };
+
+    // 构建两个表的新行
+    const newRows1 = buildNewRows(analysis1, headers1, colIndex1, new Set(analysis1.codeRows.map(r => r.oldCode)));
+    const newRows2 = buildNewRows(analysis2, headers2, colIndex2, new Set(analysis2.codeRows.map(r => r.oldCode)));
+
+    // 计算修复数量
+    const countCodeChanges = (oldAnalysis, newRows, colIndex) => {
+      let count = 0;
+      // 统计编码变化的数量
+      const oldCodes = new Set(oldAnalysis.codeRows.map(r => r.oldCode));
+      const newCodes = new Set();
+
+      for (const row of newRows) {
+        const code = row[colIndex];
+        if (code) newCodes.add(code);
+      }
+
+      // 计算更新的编码数量和新插入的行数量
+      for (const [oldCode, newCode] of mapping.entries()) {
+        if (oldCodes.has(oldCode) && oldCode !== newCode) {
+          count++; // 编码被更新
+        }
+      }
+
+      // 计算新插入的行数量
+      for (const newCode of sortedNewCodes) {
+        const oldCode = reverseMapping.get(newCode);
+        if (!oldCodes.has(oldCode)) {
+          count++; // 新插入的行
+        }
+      }
+
+      return count;
+    };
+
+    fixedCount1 = countCodeChanges(analysis1, newRows1, colIndex1);
+    fixedCount2 = countCodeChanges(analysis2, newRows2, colIndex2);
+
+    // 更新表内容
+    table1Sheet.content = [headers1, ...newRows1];
+    table2Sheet.content = [headers2, ...newRows2];
+
+    return { fixedCount1, fixedCount2 };
+  }
+
   // 表级规则智能修改弹窗
   // ========================================
   const showTableRuleFixModal = (error, rule, ruleType, rawData, snapshot, currentThemeClass) => {
@@ -14718,6 +16892,213 @@
       } else {
         actionBtns = `<button class="acu-dialog-btn" id="smart-fix-cancel"><i class="fa-solid fa-times"></i> 关闭</button>`;
       }
+    } else if (ruleType === 'sequence' && rule.targetColumn) {
+      // 序列递增规则：检测跳号、重复，提供自动修复
+      const prefix = rule.config?.prefix || '';
+      const startFrom = rule.config?.startFrom !== undefined ? rule.config?.startFrom : 1;
+      let targetSheet = null;
+      let issues = [];
+      let fixSuggestions = [];
+
+      // 找到目标表
+      for (const sheetId in rawData) {
+        if (rawData[sheetId]?.name === error.tableName) {
+          targetSheet = rawData[sheetId];
+          break;
+        }
+      }
+
+      if (targetSheet && targetSheet.content && targetSheet.content.length > 1) {
+        const headers = targetSheet.content[0] || [];
+        const rows = targetSheet.content.slice(1) || [];
+        const colIndex = headers.indexOf(rule.targetColumn);
+
+        if (colIndex >= 0) {
+          // 提取所有编码索引的数字部分
+          const numbers = [];
+          for (let i = 0; i < rows.length; i++) {
+            const value = rows[i]?.[colIndex];
+            if (value === null || value === undefined || value === '') continue;
+
+            const strValue = String(value).trim();
+            if (!strValue) continue;
+
+            let num = null;
+            if (prefix) {
+              const match = strValue.match(new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+)$`));
+              if (match) {
+                num = parseInt(match[1], 10);
+              }
+            } else {
+              num = parseInt(strValue, 10);
+            }
+
+            if (!isNaN(num)) {
+              numbers.push({ rowIndex: i, value: strValue, num, originalRowIndex: i + 2 }); // +2 因为表头+1索引
+            }
+          }
+
+          // 按行索引排序
+          numbers.sort((a, b) => a.rowIndex - b.rowIndex);
+
+          // 检测问题
+          const numCountMap = new Map(); // 记录每个数字出现的次数和位置
+          const duplicates = [];
+          const gaps = [];
+          const outOfOrder = [];
+
+          // 第一遍：统计每个数字出现的次数
+          for (let i = 0; i < numbers.length; i++) {
+            const actualNum = numbers[i].num;
+            if (!numCountMap.has(actualNum)) {
+              numCountMap.set(actualNum, []);
+            }
+            numCountMap.get(actualNum).push(i);
+          }
+
+          // 第二遍：检测问题
+          for (let i = 0; i < numbers.length; i++) {
+            const expectedNum = startFrom + i;
+            const actualNum = numbers[i].num;
+            const rowNum = numbers[i].originalRowIndex;
+
+            // 检测重复（如果这个数字出现了多次）
+            const occurrences = numCountMap.get(actualNum) || [];
+            if (occurrences.length > 1) {
+              // 只有第一次出现时才添加到重复列表（避免重复报告）
+              if (occurrences[0] === i) {
+                duplicates.push({
+                  rowNum,
+                  value: numbers[i].value,
+                  num: actualNum,
+                  expectedNum,
+                  count: occurrences.length,
+                });
+              }
+            }
+
+            // 检测跳号或顺序错误
+            if (actualNum !== expectedNum) {
+              if (actualNum < expectedNum) {
+                // 数字小于期望值（可能是重复或顺序错误）
+                outOfOrder.push({ rowNum, value: numbers[i].value, num: actualNum, expectedNum });
+              } else {
+                // 数字大于期望值（跳号）
+                gaps.push({ rowNum, value: numbers[i].value, num: actualNum, expectedNum });
+              }
+            }
+          }
+
+          // 生成修复建议
+          for (let i = 0; i < numbers.length; i++) {
+            const expectedNum = startFrom + i;
+            const actualNum = numbers[i].num;
+            const rowNum = numbers[i].originalRowIndex;
+            const currentValue = numbers[i].value;
+            const fixedValue = prefix + String(expectedNum).padStart(3, '0');
+
+            if (actualNum !== expectedNum || duplicates.some(d => d.num === actualNum && d.rowNum === rowNum)) {
+              fixSuggestions.push({
+                rowNum,
+                currentValue,
+                fixedValue,
+                reason: actualNum < expectedNum ? '重复或顺序错误' : actualNum > expectedNum ? '跳号' : '重复',
+              });
+            }
+          }
+
+          // 合并所有问题（去重，因为重复和顺序错误可能有重叠）
+          const issueSet = new Set();
+          duplicates.forEach(d => {
+            issueSet.add(`第${d.rowNum}行: "${d.value}" 重复 (出现${d.count}次)`);
+          });
+          gaps.forEach(g => {
+            issueSet.add(
+              `第${g.rowNum}行: "${g.value}" 应为 "${prefix}${String(g.expectedNum).padStart(3, '0')}" (跳号)`,
+            );
+          });
+          outOfOrder.forEach(o => {
+            issueSet.add(
+              `第${o.rowNum}行: "${o.value}" 应为 "${prefix}${String(o.expectedNum).padStart(3, '0')}" (顺序错误)`,
+            );
+          });
+          issues = Array.from(issueSet);
+        }
+      }
+
+      contentHtml = `
+        <div class="acu-smart-fix-rule-info">
+          <div class="acu-smart-fix-rule-header">
+            <i class="fa-solid fa-sort-numeric-up"></i>
+            <span>序列递增验证</span>
+          </div>
+          <div class="acu-smart-fix-rule-desc">${escapeHtml(error.errorMessage || rule.errorMessage || '')}</div>
+        </div>
+        <div class="acu-smart-fix-table-summary">
+          <div class="acu-smart-fix-stat">
+            <i class="fa-solid fa-exclamation-triangle"></i>
+            检测到 <strong>${issues.length}</strong> 个问题
+          </div>
+          ${
+            issues.length > 0
+              ? `
+            <div class="acu-smart-fix-change-list" style="max-height:200px;overflow-y:auto;margin-top:8px;">
+              ${issues
+                .slice(0, 20)
+                .map(issue => `<div class="acu-smart-fix-change-item">${escapeHtml(issue)}</div>`)
+                .join('')}
+              ${issues.length > 20 ? `<div class="acu-smart-fix-change-item">... 还有 ${issues.length - 20} 个问题</div>` : ''}
+            </div>
+          `
+              : ''
+          }
+          ${
+            fixSuggestions.length > 0
+              ? `
+            <div class="acu-smart-fix-suggest" style="margin-top:12px;">
+              <div class="acu-smart-fix-suggest-label">
+                <i class="fa-solid fa-lightbulb"></i> 修复建议:
+              </div>
+              <div class="acu-smart-fix-change-list" style="max-height:200px;overflow-y:auto;margin-top:8px;">
+                ${fixSuggestions
+                  .slice(0, 20)
+                  .map(
+                    fix => `
+                  <div class="acu-smart-fix-change-item">
+                    <span style="color:var(--acu-text-sub);">第${fix.rowNum}行:</span>
+                    <span style="color:var(--acu-hl-manual);">${escapeHtml(fix.currentValue)}</span>
+                    <span style="color:var(--acu-text-sub);"> → </span>
+                    <span style="color:var(--acu-hl-auto);">${escapeHtml(fix.fixedValue)}</span>
+                    <span style="color:var(--acu-text-sub);font-size:11px;"> (${escapeHtml(fix.reason)})</span>
+                  </div>
+                `,
+                  )
+                  .join('')}
+                ${fixSuggestions.length > 20 ? `<div class="acu-smart-fix-change-item">... 还有 ${fixSuggestions.length - 20} 处需要修复</div>` : ''}
+              </div>
+            </div>
+          `
+              : ''
+          }
+        </div>
+      `;
+
+      if (fixSuggestions.length > 0) {
+        // 检测是否有配对表
+        const pairedTable =
+          rule.config?.pairedTable ||
+          (error.tableName === '总结表' ? '总体大纲' : error.tableName === '总体大纲' ? '总结表' : null);
+        const pairedTableAttr = pairedTable ? `data-paired-table="${escapeHtml(pairedTable)}"` : '';
+
+        actionBtns = `
+          <button class="acu-dialog-btn" id="smart-fix-cancel"><i class="fa-solid fa-times"></i> 取消</button>
+          <button class="acu-dialog-btn acu-btn-confirm" id="smart-fix-fix-sequence" data-table="${escapeHtml(error.tableName)}" data-column="${escapeHtml(rule.targetColumn)}" data-prefix="${escapeHtml(prefix)}" data-start="${startFrom}" ${pairedTableAttr}>
+            <i class="fa-solid fa-magic"></i> 自动修复 ${fixSuggestions.length} 处
+          </button>
+        `;
+      } else {
+        actionBtns = `<button class="acu-dialog-btn" id="smart-fix-cancel"><i class="fa-solid fa-times"></i> 关闭</button>`;
+      }
     }
 
     const dialog = $(`
@@ -14765,6 +17146,162 @@
       } catch (e) {
         console.error('[ACU] 恢复表失败:', e);
         if (window.toastr) window.toastr.error('恢复失败: ' + (e.message || '未知错误'));
+      }
+    });
+
+    // 自动修复序列递增
+    dialog.on('click', '#smart-fix-fix-sequence', async function () {
+      const $btn = $(this);
+      const tableName = $btn.data('table');
+      const columnName = $btn.data('column');
+      const prefix = $btn.data('prefix') || '';
+      const startFrom = parseInt($btn.data('start') || '1', 10);
+      const pairedTableName = $btn.data('paired-table') || null;
+
+      try {
+        $btn.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i> 修复中...');
+
+        // 找到目标表
+        let targetSheet = null;
+        let targetSheetId = null;
+        for (const sheetId in rawData) {
+          if (rawData[sheetId]?.name === tableName) {
+            targetSheet = rawData[sheetId];
+            targetSheetId = sheetId;
+            break;
+          }
+        }
+
+        if (!targetSheet || !targetSheet.content || targetSheet.content.length < 2) {
+          if (window.toastr) window.toastr.warning('未找到目标表');
+          $btn.prop('disabled', false).html('<i class="fa-solid fa-magic"></i> 自动修复');
+          return;
+        }
+
+        const headers = targetSheet.content[0] || [];
+        const rows = targetSheet.content.slice(1) || [];
+        const colIndex = headers.indexOf(columnName);
+
+        if (colIndex < 0) {
+          if (window.toastr) window.toastr.warning('未找到目标列');
+          $btn.prop('disabled', false).html('<i class="fa-solid fa-magic"></i> 自动修复');
+          return;
+        }
+
+        // 如果有配对表，使用配对修复逻辑
+        if (pairedTableName) {
+          // 找到配对表
+          let pairedSheet = null;
+          let pairedSheetId = null;
+          for (const sheetId in rawData) {
+            if (rawData[sheetId]?.name === pairedTableName) {
+              pairedSheet = rawData[sheetId];
+              pairedSheetId = sheetId;
+              break;
+            }
+          }
+
+          if (!pairedSheet || !pairedSheet.content || pairedSheet.content.length < 1) {
+            if (window.toastr) window.toastr.warning(`未找到配对表: ${pairedTableName}`);
+            $btn.prop('disabled', false).html('<i class="fa-solid fa-magic"></i> 自动修复');
+            return;
+          }
+
+          const pairedHeaders = pairedSheet.content[0] || [];
+          const pairedColIndex = pairedHeaders.indexOf(columnName);
+
+          if (pairedColIndex < 0) {
+            if (window.toastr) window.toastr.warning(`配对表中未找到目标列: ${columnName}`);
+            $btn.prop('disabled', false).html('<i class="fa-solid fa-magic"></i> 自动修复');
+            return;
+          }
+
+          // 提取两个表的编码
+          const extract1 = extractCodesFromTable(targetSheet, columnName, prefix);
+          const extract2 = extractCodesFromTable(pairedSheet, columnName, prefix);
+
+          // 构建编码映射
+          const mapping = buildCodeMapping(extract1.allCodes, extract2.allCodes, prefix, startFrom);
+
+          // 对齐和修复
+          const { fixedCount1, fixedCount2 } = alignAndFixPairedTables(
+            targetSheet,
+            targetSheetId,
+            pairedSheet,
+            pairedSheetId,
+            columnName,
+            mapping,
+            prefix,
+            startFrom,
+            rawData,
+          );
+
+          // 保存数据
+          await saveDataToDatabase(rawData, false, false);
+          closeDialog();
+          renderInterface();
+
+          if (window.toastr) {
+            window.toastr.success(
+              `已修复 ${tableName} ${fixedCount1} 处，${pairedTableName} ${fixedCount2} 处序列递增问题`,
+            );
+          }
+        } else {
+          // 原有的单表修复逻辑
+          // 提取所有编码索引的数字部分
+          const numbers = [];
+          for (let i = 0; i < rows.length; i++) {
+            const value = rows[i]?.[colIndex];
+            if (value === null || value === undefined || value === '') continue;
+
+            const strValue = String(value).trim();
+            if (!strValue) continue;
+
+            let num = null;
+            if (prefix) {
+              const match = strValue.match(new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+)$`));
+              if (match) {
+                num = parseInt(match[1], 10);
+              }
+            } else {
+              num = parseInt(strValue, 10);
+            }
+
+            if (!isNaN(num)) {
+              numbers.push({ rowIndex: i, value: strValue, num });
+            }
+          }
+
+          // 按行索引排序
+          numbers.sort((a, b) => a.rowIndex - b.rowIndex);
+
+          // 修复编号
+          let fixedCount = 0;
+          for (let i = 0; i < numbers.length; i++) {
+            const expectedNum = startFrom + i;
+            const actualNum = numbers[i].num;
+            const rowIndex = numbers[i].rowIndex;
+
+            if (actualNum !== expectedNum) {
+              const fixedValue = prefix + String(expectedNum).padStart(3, '0');
+              rows[rowIndex][colIndex] = fixedValue;
+              fixedCount++;
+            }
+          }
+
+          // 保存数据
+          await saveDataToDatabase(rawData, false, false);
+          closeDialog();
+          renderInterface();
+
+          if (window.toastr) {
+            window.toastr.success(`已修复 ${fixedCount} 处序列递增问题`);
+          }
+        }
+      } catch (e) {
+        console.error('[ACU] 修复序列递增失败:', e);
+        if (window.toastr) window.toastr.error('修复失败: ' + (e.message || '未知错误'));
+        $btn.prop('disabled', false).html('<i class="fa-solid fa-magic"></i> 自动修复');
       }
     });
 
@@ -18548,7 +21085,11 @@
     }
 
     // --- 搜索和排序逻辑 ---
-    let processedRows = tableData.rows.map((row, index) => ({ data: row, originalIndex: index }));
+    let processedRows = tableData.rows.map((row, index) => {
+      const rowKey = LockManager.getRowKey(tableName, row, tableData.headers);
+      const isBookmarked = rowKey && BookmarkManager.isBookmarked(tableName, rowKey);
+      return { data: row, originalIndex: index, rowKey, isBookmarked };
+    });
     const searchTerm = (tableSearchStates[tableName] || '').toLowerCase().trim();
 
     // 检查是否需要倒序显示
@@ -18559,6 +21100,10 @@
         item.data.some(cell => String(cell).toLowerCase().includes(searchTerm)),
       );
       processedRows.sort((a, b) => {
+        // 优先按bookmark状态排序：bookmark的在前
+        if (a.isBookmarked && !b.isBookmarked) return -1;
+        if (!a.isBookmarked && b.isBookmarked) return 1;
+        // 在bookmark组内和非bookmark组内，保持原有的搜索匹配度排序
         const titleA = String(a.data[titleColIndex] || '').toLowerCase();
         const titleB = String(b.data[titleColIndex] || '').toLowerCase();
         const aHitTitle = titleA.includes(searchTerm);
@@ -18571,11 +21116,18 @@
       });
     } else {
       // 默认按原始顺序排列，如果启用倒序则反转
-      if (isReversed) {
-        processedRows.sort((a, b) => b.originalIndex - a.originalIndex);
-      } else {
-        processedRows.sort((a, b) => a.originalIndex - b.originalIndex);
-      }
+      // 但bookmark的始终在前
+      processedRows.sort((a, b) => {
+        // 优先按bookmark状态排序：bookmark的在前
+        if (a.isBookmarked && !b.isBookmarked) return -1;
+        if (!a.isBookmarked && b.isBookmarked) return 1;
+        // 在bookmark组内和非bookmark组内，保持原有的排序逻辑
+        if (isReversed) {
+          return b.originalIndex - a.originalIndex;
+        } else {
+          return a.originalIndex - b.originalIndex;
+        }
+      });
     }
 
     const itemsPerPage = config.itemsPerPage || 50;
@@ -18671,16 +21223,60 @@
             let hideLabel = false; // 是否隐藏列标题
             const splitRegex = /[;；]/;
 
+            // [新增] 字段类型判断函数
+            const isIdentityField = headerName => {
+              if (!headerName) return false;
+              const lowerHeader = String(headerName).toLowerCase();
+              return lowerHeader.includes('身份');
+            };
+
+            const isAttributeField = headerName => {
+              if (!headerName) return false;
+              const lowerHeader = String(headerName).toLowerCase();
+              return (
+                lowerHeader.includes('基础属性') || lowerHeader.includes('特有属性') || lowerHeader.includes('属性')
+              );
+            };
+
             // 检测是否是属性格式 (如 "演技:92" 或 "演技:92, 洞察:88")
-            const parsedAttrs = parseAttributeString(rawStr);
-            // [新增] 人际关系智能拆分
-            if (isRelationshipCell(rawStr, headerName)) {
+            // [修复] 如果是身份字段，跳过属性解析，直接作为普通文本处理
+            const parsedAttrs = isIdentityField(rawHeaderName) ? [] : parseAttributeString(rawStr);
+            // [修复] 身份字段优先处理：即使包含括号或分号，也作为普通文本完整显示（左对齐）
+            if (isIdentityField(rawHeaderName)) {
+              const badgeStyle = getBadgeStyle(rawStr);
+              const displayCell = safeStr(rawStr) === '' && String(cell) !== '0' ? '&nbsp;' : safeStr(rawStr);
+              contentHtml = badgeStyle
+                ? '<span class="acu-badge ' + badgeStyle + '">' + displayCell + '</span>'
+                : displayCell;
+            } else if (isRelationshipCell(rawStr, headerName)) {
+              // [新增] 人际关系智能拆分
               const relations = parseRelationshipString(rawStr);
               // [修复] 过滤掉关系标签为无效值的记录
               const validRelations = relations.filter(rel => {
                 if (!rel.relation) return true; // 没有关系标签的保留
                 return !invalidPlaceholders.includes(rel.relation.toLowerCase());
               });
+
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  location: 'index.ts:19252',
+                  message: 'Relationship cell detected',
+                  data: {
+                    rawStr,
+                    headerName,
+                    validRelationsCount: validRelations.length,
+                    relations: validRelations.map(r => ({ name: r.name, relation: r.relation })),
+                  },
+                  timestamp: Date.now(),
+                  sessionId: 'debug-session',
+                  runId: 'run1',
+                  hypothesisId: 'A',
+                }),
+              }).catch(() => {});
+              // #endregion
 
               if (validRelations.length > 1) {
                 hideLabel = true;
@@ -18689,10 +21285,27 @@
                   const rel = validRelations[i];
                   const borderStyle =
                     i < validRelations.length - 1 ? 'border-bottom:1px dashed rgba(128,128,128,0.2);' : '';
-                  relHtml +=
-                    '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;' +
-                    borderStyle +
-                    '">';
+                  // #region agent log
+                  fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      location: 'index.ts:19261',
+                      message: 'Multiple relations branch',
+                      data: {
+                        relationIndex: i,
+                        totalCount: validRelations.length,
+                        usingSpaceBetween: false,
+                        usingGap: true,
+                      },
+                      timestamp: Date.now(),
+                      sessionId: 'debug-session',
+                      runId: 'post-fix',
+                      hypothesisId: 'A',
+                    }),
+                  }).catch(() => {});
+                  // #endregion
+                  relHtml += '<div style="display:flex;align-items:center;gap:8px;padding:3px 0;' + borderStyle + '">';
                   relHtml +=
                     '<span style="color:var(--acu-text-sub);font-size:0.95em;">' + safeStr(rel.name) + '</span>';
                   if (rel.relation) {
@@ -18707,8 +21320,22 @@
               } else if (validRelations.length === 1) {
                 hideLabel = true;
                 const rel = validRelations[0];
-                contentHtml =
-                  '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;">';
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    location: 'index.ts:19283',
+                    message: 'Single relation branch',
+                    data: { name: rel.name, relation: rel.relation, usingSpaceBetween: false, usingGap: true },
+                    timestamp: Date.now(),
+                    sessionId: 'debug-session',
+                    runId: 'post-fix',
+                    hypothesisId: 'A',
+                  }),
+                }).catch(() => {});
+                // #endregion
+                contentHtml = '<div style="display:flex;align-items:center;gap:8px;padding:3px 0;">';
                 contentHtml +=
                   '<span style="color:var(--acu-text-sub);font-size:0.95em;">' + safeStr(rel.name) + '</span>';
                 if (rel.relation) {
@@ -18787,7 +21414,7 @@
                 contentHtml = '';
               }
             } else if (isNumericCell(rawStr) && !rawStr.includes(':') && !rawStr.includes('：')) {
-              // 纯数值加骰子，但保留列标题
+              // 纯数值加骰子，但保留列标题（右对齐，用于显示骰子图标）
               const numVal = extractNumericValue(rawStr);
               contentHtml = '<div style="display:flex;justify-content:space-between;align-items:center;">';
               contentHtml += '<span>' + safeStr(rawStr) + '</span>';
@@ -18796,7 +21423,7 @@
                 safeStr(headerName) +
                 '" data-attr-value="' +
                 numVal +
-                '" style="cursor:pointer;color:var(--acu-accent);opacity:0.5;font-size:11px;margin-left:6px;" title="检定"></i>';
+                '" style="cursor:pointer;color:var(--acu-accent);opacity:0.5;font-size:11px;" title="检定"></i>';
               contentHtml += '</div>';
             } else {
               const badgeStyle = getBadgeStyle(rawStr);
@@ -18921,7 +21548,14 @@
           ? ' <i class="fa-solid fa-lock" style="color:var(--acu-accent);font-size:11px;opacity:0.8;" title="整行已锁定"></i>'
           : '';
 
-        return `<div class="acu-data-card ${isPending ? 'pending-deletion' : ''}"><div class="acu-card-header"><span class="acu-card-index">${showDefaultIndex ? '#' + (realRowIdx + 1) : ''}</span><span class="acu-cell acu-editable-title ${rowClass}" data-key="${escapeHtml(tableData.key)}" data-tname="${escapeHtml(tableName)}" data-row="${realRowIdx}" data-col="${titleColIndex}" data-val="${encodeURIComponent(cardTitle ?? '')}" title="点击编辑标题">${escapeHtml(cardTitle)}${cardLockIcon}</span></div><div class="acu-card-body ${isGridMode ? 'view-grid' : 'view-list'}">${cardBody}</div>${actionsHtml}</div>`;
+        // 检查是否被bookmark
+        const cardBookmarkRowKey = LockManager.getRowKey(tableName, row, tableData.headers);
+        const isBookmarked = cardBookmarkRowKey && BookmarkManager.isBookmarked(tableName, cardBookmarkRowKey);
+        const bookmarkIcon = cardBookmarkRowKey
+          ? `<i class="${isBookmarked ? 'fa-solid' : 'fa-regular'} fa-bookmark acu-bookmark-icon ${isBookmarked ? 'bookmarked' : ''}" data-table="${escapeHtml(tableName)}" data-row-key="${escapeHtml(cardBookmarkRowKey)}" title="${isBookmarked ? '取消书签' : '添加书签'}"></i>`
+          : '';
+
+        return `<div class="acu-data-card ${isPending ? 'pending-deletion' : ''}"><div class="acu-card-header"><span class="acu-card-index">${showDefaultIndex ? '#' + (realRowIdx + 1) : ''}</span><span class="acu-cell acu-editable-title ${rowClass}" data-key="${escapeHtml(tableData.key)}" data-tname="${escapeHtml(tableName)}" data-row="${realRowIdx}" data-col="${titleColIndex}" data-val="${encodeURIComponent(cardTitle ?? '')}" title="点击编辑标题">${escapeHtml(cardTitle)}${cardLockIcon}</span>${bookmarkIcon}</div><div class="acu-card-body ${isGridMode ? 'view-grid' : 'view-list'}">${cardBody}</div>${actionsHtml}</div>`;
       })
       .join('');
     html += `</div></div>`;
@@ -19638,6 +22272,28 @@
         // 普通表格状态：正常关闭面板
         closePanel();
       });
+    // [新增] bookmark图标点击事件
+    $('body')
+      .off('click.acu_bookmark')
+      .on('click.acu_bookmark', '.acu-bookmark-icon', function (e) {
+        e.stopPropagation();
+        e.preventDefault();
+
+        const $icon = $(this);
+        const tableName = $icon.data('table');
+        const rowKey = $icon.data('row-key');
+
+        if (!tableName || !rowKey) return;
+
+        // 切换bookmark状态
+        BookmarkManager.toggleBookmark(tableName, rowKey);
+
+        // 重新渲染表格以更新显示
+        if (typeof renderInterface === 'function') {
+          renderInterface();
+        }
+      });
+
     // [新增] 动作按钮点击事件
     $('body')
       .off('click.acu_action')
@@ -21433,6 +24089,131 @@
           }
         } catch (e) {}
       });
+  };
+
+  // ========================================
+  // 测试函数：验证配对表修复逻辑
+  // ========================================
+  // 在浏览器控制台运行：window.testPairedTableFix()
+  window.testPairedTableFix = function () {
+    // 构造测试数据：包含空白行、共同编码、各自独有编码、跳号
+    const prefix = 'AM';
+    const startFrom = 1;
+    const columnName = '编码索引';
+
+    // 总结表（表1）：AM001, AM002, 空白(错误行), AM030, 空白(错误行)
+    // 有效编码：AM001, AM002, AM030
+    const table1Sheet = {
+      name: '总结表',
+      content: [
+        ['编码索引', '时间跨度', '纪要'],
+        ['AM001', '时间1', '纪要1'],
+        ['AM002', '时间2', '纪要2'],
+        [null, '时间3-错误行', '纪要3-错误行'], // 空白编码（错误行，应保持不动）
+        ['AM030', '时间4', '纪要4'],
+        [null, '时间5-错误行', '纪要5-错误行'], // 空白编码（错误行，应保持不动）
+      ],
+    };
+
+    // 总结大纲表（表2）：空白(错误行), AM002, AM030, AM040, AM050
+    // 有效编码：AM002, AM030, AM040, AM050
+    const table2Sheet = {
+      name: '总体大纲',
+      content: [
+        ['编码索引', '时间跨度', '大纲'],
+        [null, '时间A-错误行', '大纲A-错误行'], // 空白编码（错误行，应保持不动）
+        ['AM002', '时间B', '大纲B'],
+        ['AM030', '时间C', '大纲C'],
+        ['AM040', '时间D', '大纲D'],
+        ['AM050', '时间E', '大纲E'],
+      ],
+    };
+
+    // 提取编码
+    const extract1 = extractCodesFromTable(table1Sheet, columnName, prefix);
+    const extract2 = extractCodesFromTable(table2Sheet, columnName, prefix);
+
+    // 构建映射
+    const mapping = buildCodeMapping(extract1.allCodes, extract2.allCodes, prefix, startFrom);
+
+    // 执行修复
+    const rawData = {};
+    const result = alignAndFixPairedTables(
+      table1Sheet,
+      'sheet1',
+      table2Sheet,
+      'sheet2',
+      columnName,
+      mapping,
+      prefix,
+      startFrom,
+      rawData,
+    );
+
+    // 验证结果
+    const getValidCodes = sheet =>
+      sheet.content
+        .slice(1)
+        .map(r => r[0])
+        .filter(c => c && String(c).match(new RegExp(`^${prefix}\\d+$`)));
+
+    const codes1 = getValidCodes(table1Sheet);
+    const codes2 = getValidCodes(table2Sheet);
+
+    // 检查空白行是否保持原数据
+    const emptyRows1 = table1Sheet.content
+      .slice(1)
+      .filter(r => !r[0] || !String(r[0]).match(new RegExp(`^${prefix}\\d+$`)));
+    const emptyRows2 = table2Sheet.content
+      .slice(1)
+      .filter(r => !r[0] || !String(r[0]).match(new RegExp(`^${prefix}\\d+$`)));
+
+    // 验证编码是否严格递增
+    const validateSequence = (codes, prefix, startFrom) => {
+      const numbers = codes
+        .map(c => {
+          if (!c) return null;
+          const match = c.match(new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+)$`));
+          return match ? parseInt(match[1], 10) : null;
+        })
+        .filter(n => n !== null);
+
+      for (let i = 0; i < numbers.length; i++) {
+        if (numbers[i] !== startFrom + i) {
+          return false;
+        }
+      }
+      return true;
+    };
+
+    const isValid1 = validateSequence(codes1, prefix, startFrom);
+    const isValid2 = validateSequence(codes2, prefix, startFrom);
+
+    // 验证两个表的有效编码集合是否一致
+    const set1 = new Set(codes1);
+    const set2 = new Set(codes2);
+    const setsEqual = set1.size === set2.size && [...set1].every(c => set2.has(c));
+
+    // 验证空白行数据是否保留
+    const emptyRowsPreserved1 = emptyRows1.some(r => r[1] && r[1].includes('错误行'));
+    const emptyRowsPreserved2 = emptyRows2.some(r => r[1] && r[1].includes('错误行'));
+
+    return {
+      table1Sheet,
+      table2Sheet,
+      result,
+      codes1,
+      codes2,
+      emptyRows1,
+      emptyRows2,
+      isValid1,
+      isValid2,
+      setsEqual,
+      emptyRowsPreserved1,
+      emptyRowsPreserved2,
+      // 综合验证：有效编码严格递增 + 两表有效编码一致 + 空白行数据保留
+      isValid: isValid1 && isValid2 && setsEqual && emptyRowsPreserved1 && emptyRowsPreserved2,
+    };
   };
 
   const { $ } = getCore();
