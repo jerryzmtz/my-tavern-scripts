@@ -136,6 +136,10 @@ function watch_tavern_sync(compiler: webpack.Compiler) {
   compiler.hooks.watchRun.tap('watch_tavern_sync', () => {
     if (!child_process) {
       child_process = spawn('pnpm', ['sync', 'watch', 'all', '-f'], {
+<<<<<<< HEAD
+=======
+        shell: true,
+>>>>>>> e0122030df488a5403fb83e8cd5b4d1a5110a013
         stdio: ['ignore', 'pipe', 'pipe'],
         cwd: import.meta.dirname,
         env: { ...process.env, FORCE_COLOR: '1' },
@@ -203,6 +207,7 @@ function parse_configuration(entry: Entry): (_env: any, argv: any) => webpack.Co
 
         return `${is_direct === true ? 'src' : 'webpack'}://${info.namespace}/${resource_path}${is_direct || is_vue_script ? '' : '?' + info.hash}`;
       },
+<<<<<<< HEAD
       filename: (() => {
         if (script_filepath.dir.includes('骰子系统')) {
           const buildType = process.env.BUILD_TYPE || 'stable';
@@ -212,6 +217,9 @@ function parse_configuration(entry: Entry): (_env: any, argv: any) => webpack.Co
         }
         return `${script_filepath.name}.js`;
       })(),
+=======
+      filename: `${script_filepath.name}.js`,
+>>>>>>> e0122030df488a5403fb83e8cd5b4d1a5110a013
       path: path.join(
         import.meta.dirname,
         'dist',
