@@ -4,7 +4,7 @@
 
   const SCRIPT_ID = 'acu_visualizer_ui_v19_6_ai_overlay';
   // ========================================
-  // LockManager - 字段锁定管理器（按聊天隔离）
+  // LockManager - 字段锁定管理器（按聊天隔离）v2
   // ========================================
   const LockManager = {
     STORAGE_KEY_PREFIX: 'acu_locked_fields_v2_',
