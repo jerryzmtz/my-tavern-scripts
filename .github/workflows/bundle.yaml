@@ -5,6 +5,7 @@ on:
     branches:
       - master
       - main
+      - nightly
     paths-ignore:
       - dist/**
   workflow_dispatch:
@@ -36,6 +37,23 @@ jobs:
           version: 10
 
       - run: pnpm install && pnpm format && pnpm build
+      - name: Rename 骰子系统 files based on branch
+        run: |
+          if [ "${{ github.ref_name }}" = "nightly" ]; then
+            if [ -f "dist/骰子系统/index.js" ]; then
+              mv "dist/骰子系统/index.js" "dist/骰子系统/nightly.js"
+            fi
+            if [ -f "dist/骰子系统/index.js.map" ]; then
+              mv "dist/骰子系统/index.js.map" "dist/骰子系统/nightly.js.map"
+            fi
+          elif [ "${{ github.ref_name }}" = "main" ] || [ "${{ github.ref_name }}" = "master" ]; then
+            if [ -f "dist/骰子系统/index.js" ]; then
+              mv "dist/骰子系统/index.js" "dist/骰子系统/main.js"
+            fi
+            if [ -f "dist/骰子系统/index.js.map" ]; then
+              mv "dist/骰子系统/index.js.map" "dist/骰子系统/main.js.map"
+            fi
+          fi
       - name: Commit changes
         uses: EndBug/add-and-commit@v9.1.3
         with:
