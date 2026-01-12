@@ -75,17 +75,17 @@ jobs:
           echo "Current branch: ${{ github.ref_name }}"
           echo "Files before rename:"
           ls -la "dist/骰子系统/" || echo "Directory does not exist"
-          
+
           # Determine target filename based on branch
           if [ "${{ github.ref_name }}" = "nightly" ]; then
             TARGET="nightly"
           elif [ "${{ github.ref_name }}" = "main" ] || [ "${{ github.ref_name }}" = "master" ]; then
-            TARGET="main"
+            TARGET="stable"
           else
             TARGET="index"
           fi
           echo "Target filename: ${TARGET}.js"
-          
+
           # Find and rename source file (could be index.js or stable.js)
           if [ -f "dist/骰子系统/stable.js" ]; then
             mv "dist/骰子系统/stable.js" "dist/骰子系统/${TARGET}.js"
@@ -97,7 +97,7 @@ jobs:
             echo "ERROR: Neither stable.js nor index.js found!"
             exit 1
           fi
-          
+
           # Rename source map if exists
           if [ -f "dist/骰子系统/stable.js.map" ]; then
             mv "dist/骰子系统/stable.js.map" "dist/骰子系统/${TARGET}.js.map"
@@ -106,7 +106,7 @@ jobs:
             mv "dist/骰子系统/index.js.map" "dist/骰子系统/${TARGET}.js.map"
             echo "Renamed index.js.map to ${TARGET}.js.map"
           fi
-          
+
           echo "Files after rename:"
           ls -la "dist/骰子系统/"
       - name: Commit changes
@@ -115,11 +115,13 @@ jobs:
           default_author: github_actions
           message: '[bot] bundle'
 
-      # 自动打版本 tag, 从而让 jsdelivr 基于版本号在 12h 内更新缓存而不是用非版本号的 7d 缓存
-      - id: autotag
+      # 自动打版本 tag (仅 main/master 分支), 从而让 jsdelivr 基于版本号在 12h 内更新缓存而不是用非版本号的 7d 缓存
+      # nightly 分支不创建 tag, 用户直接使用 @nightly 获取最新版本
+      - if: ${{ github.ref_name == 'main' || github.ref_name == 'master' }}
+        id: autotag
         uses: phish108/autotag-action@v1.1.64
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           with-v: true
-      - if: ${{ steps.autotag.outputs.tag != '0.0.0' && steps.autotag.outputs.new-tag != steps.autotag.outputs.tag }}
+      - if: ${{ (github.ref_name == 'main' || github.ref_name == 'master') && steps.autotag.outputs.tag != '0.0.0' && steps.autotag.outputs.new-tag != steps.autotag.outputs.tag }}
         run: git push --delete origin ${{ steps.autotag.outputs.tag }}
