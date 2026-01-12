@@ -70,26 +70,19 @@ jobs:
             echo "✗ dist/骰子系统/ does NOT exist"
             echo "This is a problem! The build may have failed for this entry."
           fi
-      - name: Rename 骰子系统 files based on branch
+      - name: Rename 骰子系统 files to stable.js
         run: |
           echo "Current branch: ${{ github.ref_name }}"
           echo "Files before rename:"
           ls -la "dist/骰子系统/" || echo "Directory does not exist"
 
-          # Determine target filename based on branch
-          if [ "${{ github.ref_name }}" = "nightly" ]; then
-            TARGET="nightly"
-          elif [ "${{ github.ref_name }}" = "main" ] || [ "${{ github.ref_name }}" = "master" ]; then
-            TARGET="main"
-          else
-            TARGET="index"
-          fi
+          # Always rename to stable.js regardless of branch
+          TARGET="stable"
           echo "Target filename: ${TARGET}.js"
 
           # Find and rename source file (could be index.js or stable.js)
           if [ -f "dist/骰子系统/stable.js" ]; then
-            mv "dist/骰子系统/stable.js" "dist/骰子系统/${TARGET}.js"
-            echo "Renamed stable.js to ${TARGET}.js"
+            echo "stable.js already exists, no rename needed"
           elif [ -f "dist/骰子系统/index.js" ]; then
             mv "dist/骰子系统/index.js" "dist/骰子系统/${TARGET}.js"
             echo "Renamed index.js to ${TARGET}.js"
@@ -100,8 +93,7 @@ jobs:
 
           # Rename source map if exists
           if [ -f "dist/骰子系统/stable.js.map" ]; then
-            mv "dist/骰子系统/stable.js.map" "dist/骰子系统/${TARGET}.js.map"
-            echo "Renamed stable.js.map to ${TARGET}.js.map"
+            echo "stable.js.map already exists, no rename needed"
           elif [ -f "dist/骰子系统/index.js.map" ]; then
             mv "dist/骰子系统/index.js.map" "dist/骰子系统/${TARGET}.js.map"
             echo "Renamed index.js.map to ${TARGET}.js.map"
