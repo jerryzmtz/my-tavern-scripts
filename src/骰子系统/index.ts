@@ -4,7 +4,7 @@
 
   const SCRIPT_ID = 'acu_visualizer_ui_v19_6_ai_overlay';
   // ========================================
-  // LockManager - 字段锁定管理器（按聊天隔离）v2
+  // LockManager - 字段锁定管理器（按聊天隔离）
   // ========================================
   const LockManager = {
     STORAGE_KEY_PREFIX: 'acu_locked_fields_v2_',
@@ -1406,7 +1406,7 @@
         numVal = parseFloat(strVal);
       }
 
-      if (isNaN(numVal)) return true; // 非数值跳过
+      if (isNaN(numVal)) return false; // 非数值验证失败
 
       if (min !== undefined && min !== null && numVal < min) return false;
       if (max !== undefined && max !== null && numVal > max) return false;
@@ -1891,6 +1891,8 @@
     // 验证单行数据
     validateRow(row, headers, tableName, rowIndex, rules, rawData) {
       const errors = [];
+      // 获取第一列的值（通常是名称列，优先使用第二列，否则使用第一列）
+      const rowTitle = row[1] || row[0] || `行 ${rowIndex + 1}`;
 
       for (const rule of rules) {
         if (rule.targetTable !== tableName) continue;
@@ -1913,6 +1915,7 @@
             rowIndex: rowIndex,
             columnName: rule.targetColumn,
             currentValue: String(value ?? ''),
+            rowTitle: rowTitle, // 添加第一列的值，用于标识错误行
             errorMessage: rule.errorMessage,
             severity: 'error',
           });
@@ -5175,8 +5178,8 @@
       extremeSuccessText: '#9B8A8A',
       extremeSuccessBg: 'rgba(155, 138, 138, 0.12)',
       // UI通用颜色
-      overlayBg: 'rgba(107, 85, 82, 0.6)',
-      overlayBgLight: 'rgba(107, 85, 82, 0.5)',
+      overlayBg: 'rgba(0,0,0,0.6)',
+      overlayBgLight: 'rgba(0,0,0,0.5)',
       shadowBg: 'rgba(107, 85, 82, 0.3)',
       lightBg: 'rgba(192, 141, 141, 0.08)',
       veryLightBg: 'rgba(192, 141, 141, 0.02)',
@@ -14913,9 +14916,9 @@
                 align-items: center !important;
                 gap: 6px !important;
                 padding: 6px 12px !important;
-                background: var(--acu-success-bg) !important;
-                color: var(--acu-success-text) !important;
-                border: 1px solid var(--acu-success-text) !important;
+                background: var(--acu-accent) !important;
+                color: var(--acu-btn-active-text) !important;
+                border: 1px solid var(--acu-accent) !important;
                 border-radius: 4px !important;
                 font-size: 12px !important;
                 font-weight: 500 !important;
@@ -14923,8 +14926,9 @@
                 transition: all 0.2s !important;
             }
             .acu-smart-fix-quick-btn:hover {
-                background: var(--acu-success-text) !important;
-                color: white !important;
+                background: var(--acu-btn-active-bg) !important;
+                color: var(--acu-btn-active-text) !important;
+                border-color: var(--acu-btn-active-bg) !important;
             }
             .acu-smart-fix-table-summary {
                 padding: 12px !important;
@@ -15853,6 +15857,19 @@
     const rawData = cachedRawData || getTableData();
     const snapshot = loadSnapshot();
 
+    // 如果错误对象中没有 rowTitle，尝试从原始数据中获取
+    if (!error.rowTitle && error.rowIndex >= 0 && rawData && error.tableName) {
+      for (const sheetId in rawData) {
+        if (rawData[sheetId]?.name === error.tableName) {
+          const row = rawData[sheetId].content?.[error.rowIndex + 1];
+          if (row) {
+            error.rowTitle = row[1] || row[0] || `行 ${error.rowIndex + 1}`;
+          }
+          break;
+        }
+      }
+    }
+
     // 获取快照值（用于字段级规则）
     let snapshotValue = '';
     if (!isTableRule && snapshot && error.tableName && error.columnName !== undefined) {
@@ -16057,7 +16074,7 @@
         if (hasMultipleColumns) {
           // 多个列：显示选择器
           reverseWriteHtml = `
-            <div class="acu-smart-fix-reverse-write" style="margin-top:15px;padding-top:15px;border-top:1px solid rgba(255,255,255,0.1);">
+            <div class="acu-smart-fix-reverse-write" style="margin-top:15px;padding-top:15px;border-top:1px solid var(--acu-border);">
               <div class="acu-smart-fix-suggest-label">
                 <i class="fa-solid fa-arrow-left"></i> 反向写入到关联表:
               </div>
@@ -16074,7 +16091,7 @@
         } else {
           // 单个列：直接显示按钮
           reverseWriteHtml = `
-            <div class="acu-smart-fix-reverse-write" style="margin-top:15px;padding-top:15px;border-top:1px solid rgba(255,255,255,0.1);">
+            <div class="acu-smart-fix-reverse-write" style="margin-top:15px;padding-top:15px;border-top:1px solid var(--acu-border);">
               <div class="acu-smart-fix-suggest-label">
                 <i class="fa-solid fa-arrow-left"></i> 反向写入到关联表:
               </div>
@@ -16254,6 +16271,13 @@
 
             <!-- 当前值（可编辑） -->
             <div class="acu-diff-section acu-diff-new-section">
+              ${
+                error.rowTitle && error.rowIndex >= 0
+                  ? `<div style="font-size:12px;color:var(--acu-text-sub);margin-bottom:8px;padding:4px 8px;background:var(--acu-bg-sub);border-radius:4px;">
+                <i class="fa-solid fa-tag" style="margin-right:4px;"></i>${escapeHtml(error.rowTitle)}
+              </div>`
+                  : ''
+              }
               <div class="acu-diff-label">
                 <i class="fa-solid fa-pen"></i> 当前值（可编辑）
               </div>
@@ -19525,6 +19549,7 @@
                     rowIndex: error.rowIndex,
                     columnName: error.columnName || '',
                     currentValue: error.currentValue || '',
+                    rowTitle: error.rowTitle || '', // 添加 rowTitle 到 ruleData
                     rule: error.rule,
                   }),
                 )
@@ -19538,6 +19563,7 @@
                          data-rule-type="${escapeHtml(error.ruleType || '')}"
                          data-rule-data="${ruleData}">
                         <span class="acu-change-badge" style="background:var(--acu-hl-manual-bg);color:var(--acu-hl-manual);">!</span>
+                        ${error.rowTitle && error.rowIndex >= 0 ? `<div class="acu-validation-row-title" style="font-size:11px;color:var(--acu-text-sub);margin-bottom:2px;">${escapeHtml(error.rowTitle)}</div>` : ''}
                         <span class="acu-change-title">${escapeHtml(error.columnName || '整行')}${error.currentValue ? `: ${escapeHtml(error.currentValue.length > 15 ? error.currentValue.substring(0, 15) + '...' : error.currentValue)}` : ''}</span>
                         <span class="acu-validation-error-msg">${escapeHtml(error.errorMessage.length > 25 ? error.errorMessage.substring(0, 25) + '...' : error.errorMessage)}</span>
                         <div class="acu-change-actions">
@@ -19764,6 +19790,7 @@
             rowIndex: parseInt($item.data('row'), 10) || parsed.rowIndex || 0,
             columnName: $item.data('column') || parsed.columnName || '',
             currentValue: parsed.currentValue || '',
+            rowTitle: parsed.rowTitle || '', // 添加 rowTitle 到错误对象
             ruleName: parsed.ruleName || parsed.rule?.name || '',
             errorMessage: parsed.errorMessage || parsed.rule?.errorMessage || '',
           };
@@ -23843,8 +23870,240 @@
   // ==========================================
   // [优化后] 新的初始化入口 (Observer 只创建一次)
   // ==========================================
+  // 检测可视化表格脚本冲突
+  const detectVisualizerConflict = () => {
+    const { $ } = getCore();
+    if (!$) return false;
+
+    // 检测方法1: 检查是否存在可视化表格创建的 DOM 元素（最可靠）
+    // 可视化表格会创建 .acu-wrapper，但骰子系统也会创建，所以需要进一步判断
+    const $wrapper = $('.acu-wrapper');
+    if ($wrapper.length > 0) {
+      // 检查 wrapper 内部是否有可视化表格特有的元素
+      // 可视化表格 v12.60 使用 'acu_visualizer_ui_v20_pagination' 作为 SCRIPT_ID
+      // 检查是否有可视化表格特有的类名或结构
+      const hasVisualizerNav = $wrapper.find('.acu-nav-container').length > 0;
+      const hasVisualizerDataDisplay = $wrapper.find('.acu-data-display').length > 0;
+
+      // 如果 wrapper 存在但没有骰子系统的特征元素，可能是可视化表格
+      // 或者检查 wrapper 的 data 属性或 id
+      const wrapperId = $wrapper.attr('id') || '';
+      const wrapperClass = $wrapper.attr('class') || '';
+
+      // 如果检测到可视化表格特有的结构，判定为冲突
+      if (hasVisualizerNav && hasVisualizerDataDisplay) {
+        // 进一步检查：是否有骰子系统的特征（如骰子按钮等）
+        const hasDiceFeatures = $wrapper.find('[id*="dice"], [class*="dice"]').length > 0;
+        if (!hasDiceFeatures) {
+          return true; // 只有可视化表格的特征，没有骰子系统特征
+        }
+      }
+    }
+
+    // 检测方法2: 检查脚本内容中是否有可视化表格的标识
+    try {
+      const scripts = document.querySelectorAll('script');
+      for (const script of scripts) {
+        const content = script.textContent || script.innerHTML || '';
+        // 检查可视化表格 v12.60 的特定标识
+        if (content.includes('acu_visualizer_ui_v20_pagination') && content.includes('acu_ui_config_v18')) {
+          return true;
+        }
+      }
+    } catch (e) {
+      // 脚本检查失败，忽略
+    }
+
+    // 检测方法3: 检查 localStorage（作为辅助判断）
+    // 只有当 localStorage 中有可视化表格配置，且没有骰子系统配置时，才判定为冲突
+    try {
+      const visualizerConfig = localStorage.getItem('acu_ui_config_v18');
+      const diceConfig = localStorage.getItem('acu_ui_config_v19');
+
+      // 如果只有可视化表格的配置，且 DOM 中没有骰子系统的元素，判定为冲突
+      if (visualizerConfig && !diceConfig) {
+        // 再次检查 DOM，确保没有骰子系统的元素
+        const hasDiceInDOM = $('[id*="dice"], [class*="dice"]').length > 0;
+        if (!hasDiceInDOM) {
+          return true;
+        }
+      }
+    } catch (e) {
+      // localStorage 访问失败，忽略
+    }
+
+    return false;
+  };
+
+  // 显示冲突错误对话框
+  const showConflictDialog = () => {
+    const { $ } = getCore();
+    if (!$) return;
+
+    // 移除可能存在的旧对话框
+    $('.dice-conflict-dialog-overlay').remove();
+
+    const dialogHtml = `
+      <div class="dice-conflict-dialog-overlay" style="
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(0, 0, 0, 0.75);
+        backdrop-filter: blur(4px);
+        z-index: 2147483647;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 20px;
+        box-sizing: border-box;
+      ">
+        <div class="dice-conflict-dialog" style="
+          background: #fff;
+          border-radius: 16px;
+          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+          max-width: 500px;
+          width: 100%;
+          padding: 30px;
+          box-sizing: border-box;
+          animation: diceDialogPop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        ">
+          <div style="
+            text-align: center;
+            margin-bottom: 20px;
+          ">
+            <div style="
+              font-size: 48px;
+              color: #e74c3c;
+              margin-bottom: 15px;
+            ">⚠️</div>
+            <h2 style="
+              font-size: 24px;
+              font-weight: bold;
+              color: #333;
+              margin: 0 0 10px 0;
+            ">脚本冲突检测</h2>
+            <p style="
+              font-size: 16px;
+              color: #666;
+              line-height: 1.6;
+              margin: 0;
+            ">检测到"可视化表格"脚本正在运行</p>
+          </div>
+          <div style="
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+          ">
+            <p style="
+              font-size: 14px;
+              color: #856404;
+              line-height: 1.6;
+              margin: 0;
+            ">
+              <strong>提示：</strong>骰子系统与可视化表格脚本功能冲突，不能同时启用。<br>
+              请在酒馆助手的脚本管理中，<strong>关闭其中一个脚本后刷新酒馆页面</strong>。
+            </p>
+          </div>
+          <div style="
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+          ">
+            <button id="dice-conflict-close" style="
+              background: #6c757d;
+              color: #fff;
+              border: none;
+              border-radius: 8px;
+              padding: 12px 24px;
+              font-size: 16px;
+              font-weight: bold;
+              cursor: pointer;
+              transition: all 0.2s;
+              min-width: 120px;
+            ">我知道了</button>
+          </div>
+        </div>
+      </div>
+      <style>
+        @keyframes diceDialogPop {
+          from {
+            opacity: 0;
+            transform: translateY(20px) scale(0.95);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+        .dice-conflict-dialog button:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+        .dice-conflict-dialog button:active {
+          transform: translateY(0);
+        }
+        @media (max-width: 768px) {
+          .dice-conflict-dialog {
+            padding: 20px !important;
+            margin: 10px !important;
+            max-width: calc(100% - 20px) !important;
+          }
+          .dice-conflict-dialog h2 {
+            font-size: 20px !important;
+          }
+          .dice-conflict-dialog p {
+            font-size: 14px !important;
+          }
+        }
+      </style>
+    `;
+
+    $('body').append(dialogHtml);
+
+    // 绑定关闭事件
+    $('#dice-conflict-close').on('click', function () {
+      $('.dice-conflict-dialog-overlay').fadeOut(200, function () {
+        $(this).remove();
+      });
+    });
+
+    // 点击背景关闭
+    $('.dice-conflict-dialog-overlay').on('click', function (e) {
+      if ($(e.target).hasClass('dice-conflict-dialog-overlay')) {
+        $(this).fadeOut(200, function () {
+          $(this).remove();
+        });
+      }
+    });
+
+    // 使用 toastr 作为补充提示（如果可用）
+    if (window.toastr) {
+      window.toastr.error('脚本冲突：骰子系统与可视化表格不能同时启用', '冲突检测', {
+        timeOut: 0,
+        extendedTimeOut: 0,
+        closeButton: true,
+        preventDuplicates: true,
+      });
+    }
+  };
+
   const init = () => {
     if (isInitialized) return;
+
+    // 冲突检测：在初始化前检查是否有可视化表格脚本
+    if (detectVisualizerConflict()) {
+      showConflictDialog();
+      console.error('[骰子系统] 检测到可视化表格脚本冲突，已阻止初始化');
+      return; // 阻止初始化
+    }
+
     MvuModule.injectStyles();
 
     // 清理旧的 Observer（防止重复监听）
