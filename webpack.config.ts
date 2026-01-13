@@ -98,7 +98,10 @@ function watch_tavern_helper(compiler: webpack.Compiler) {
 
     compiler.hooks.done.tap('watch_tavern_helper', () => {
       console.info('\n\x1b[36m[tavern_helper]\x1b[0m 检测到完成编译, 推送更新事件...');
+<<<<<<< HEAD
       io.emit('iframe_updated');
+=======
+>>>>>>> 5526c7827136208a6a75e0b37bc0620a9dd63ba4
       if (compiler.options.plugins.find(plugin => plugin instanceof HtmlWebpackPlugin)) {
         io.emit('message_iframe_updated');
       } else {
@@ -136,6 +139,10 @@ function watch_tavern_sync(compiler: webpack.Compiler) {
   compiler.hooks.watchRun.tap('watch_tavern_sync', () => {
     if (!child_process) {
       child_process = spawn('pnpm', ['sync', 'watch', 'all', '-f'], {
+<<<<<<< HEAD
+=======
+        shell: true,
+>>>>>>> 5526c7827136208a6a75e0b37bc0620a9dd63ba4
         stdio: ['ignore', 'pipe', 'pipe'],
         cwd: import.meta.dirname,
         env: { ...process.env, FORCE_COLOR: '1' },
@@ -203,6 +210,7 @@ function parse_configuration(entry: Entry): (_env: any, argv: any) => webpack.Co
 
         return `${is_direct === true ? 'src' : 'webpack'}://${info.namespace}/${resource_path}${is_direct || is_vue_script ? '' : '?' + info.hash}`;
       },
+<<<<<<< HEAD
       filename: (() => {
         if (script_filepath.dir.includes('骰子系统')) {
           const buildType = process.env.BUILD_TYPE || 'stable';
@@ -212,6 +220,9 @@ function parse_configuration(entry: Entry): (_env: any, argv: any) => webpack.Co
         }
         return `${script_filepath.name}.js`;
       })(),
+=======
+      filename: `${script_filepath.name}.js`,
+>>>>>>> 5526c7827136208a6a75e0b37bc0620a9dd63ba4
       path: path.join(
         import.meta.dirname,
         'dist',
