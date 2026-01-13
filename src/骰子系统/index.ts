@@ -4059,7 +4059,7 @@
     try {
       const diceCfg = getDiceConfig();
       const shouldHide = diceCfg.hideDiceResultFromUser;
-      
+
       // [修复] 如果未启用隐藏功能，且没有需要恢复的内容，直接返回，避免不必要的错误
       if (!shouldHide) {
         // 只处理输入栏的恢复逻辑，如果输入栏没有占位符，直接返回
@@ -4081,7 +4081,7 @@
           return;
         }
       }
-      
+
       console.info(`[DICE]处理投骰结果显示: ${shouldHide ? '隐藏' : '显示'}`);
 
       // 普通检定正则：格式: "角色名发起了【属性名】检定，掷出XX，判定式，【结果】"
@@ -4719,7 +4719,9 @@
           }
         }
       }
-      console.info(`[DICE]仪表盘查找表格: 模块"${moduleKey}"未找到匹配表格 (关键词: ${config.tableKeywords.join(', ')})`);
+      console.info(
+        `[DICE]仪表盘查找表格: 模块"${moduleKey}"未找到匹配表格 (关键词: ${config.tableKeywords.join(', ')})`,
+      );
       return null;
     },
 
@@ -4779,7 +4781,7 @@
         }
         return obj;
       });
-      
+
       console.info(`[DICE]仪表盘解析数据: 模块"${moduleKey}"解析完成，共${parsed.length}行`);
       return parsed;
     },
@@ -19029,7 +19031,7 @@
   // [优化] 渲染防抖：避免短时间内多次渲染导致重复日志
   let renderInterfaceTimer = null;
   let renderInterfacePending = false;
-  
+
   const renderInterface = () => {
     // 设置面板打开时跳过重绘，防止事件丢失
     if (isSettingsOpen) {
@@ -19039,12 +19041,12 @@
       }
       return;
     }
-    
+
     // 防抖：如果已有待执行的渲染，取消它
     if (renderInterfaceTimer) {
       clearTimeout(renderInterfaceTimer);
     }
-    
+
     // 设置新的防抖定时器（50ms延迟，足够短以保持响应性，足够长以合并多次调用）
     renderInterfaceTimer = setTimeout(() => {
       renderInterfaceTimer = null;
@@ -19052,7 +19054,7 @@
       _renderInterfaceImpl();
     }, 50);
   };
-  
+
   // 实际的渲染实现函数
   const _renderInterfaceImpl = () => {
     console.info('[DICE]开始渲染界面...');
@@ -21549,7 +21551,7 @@
                 </div>
             </div>
     `;
-    
+
     // 统计已加载的模块数量
     const loadedModules = [
       globalResult ? '全局数据' : null,
@@ -21561,7 +21563,7 @@
       skillResult ? '技能' : null,
       equipResult ? '装备' : null,
     ].filter(Boolean);
-    
+
     console.info(`[DICE]仪表盘数据抓取完成，共${loadedModules.length}个模块: ${loadedModules.join(', ')}`);
     return html;
   };
