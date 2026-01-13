@@ -68,10 +68,10 @@
         });
 
         if (toDelete.length > 0) {
-          console.log(`[LockManager] 清理了 ${toDelete.length} 个过期的锁定数据`);
+          console.log(`[DICE]LockManager 清理了 ${toDelete.length} 个过期的锁定数据`);
         }
       } catch (e) {
-        console.warn('[LockManager] 清理失败', e);
+        console.warn('[DICE]LockManager 清理失败', e);
       }
     },
 
@@ -106,7 +106,7 @@
         // 每次保存后尝试清理（内部有数量判断，不会频繁执行）
         this._cleanupOldContexts();
       } catch (e) {
-        console.warn('[LockManager] 保存失败', e);
+        console.warn('[DICE]LockManager 保存失败', e);
       }
     },
 
@@ -312,11 +312,11 @@
 
         if (toDelete.length > 0) {
           console.log(
-            `[BookmarkManager] 清理了 ${toDelete.length} 个过期的bookmark数据（当前保留 ${this.MAX_CONTEXTS} 个聊天的数据，清理前共有 ${allKeys.length} 个）`,
+            `[DICE]BookmarkManager 清理了 ${toDelete.length} 个过期的bookmark数据（当前保留 ${this.MAX_CONTEXTS} 个聊天的数据，清理前共有 ${allKeys.length} 个）`,
           );
         }
       } catch (e) {
-        console.warn('[BookmarkManager] 清理失败', e);
+        console.warn('[DICE]BookmarkManager 清理失败', e);
       }
     },
 
@@ -351,7 +351,7 @@
         // 每次保存后尝试清理（内部有数量判断，不会频繁执行）
         this._cleanupOldContexts();
       } catch (e) {
-        console.warn('[BookmarkManager] 保存失败', e);
+        console.warn('[DICE]BookmarkManager 保存失败', e);
       }
     },
 
@@ -466,7 +466,7 @@
       existingDice = contestMatches[contestMatches.length - 1];
       existingDiceOriginal = existingDice;
       workingText = workingText.replace(contestDiceRegex, '\u0000').trim();
-      console.log('[ACU SmartInsert] Found and extracted contest roll:', existingDice);
+      console.log('[DICE]ACU SmartInsert Found and extracted contest roll:', existingDice);
     }
 
     // 2. 再提取普通检定结果
@@ -476,7 +476,7 @@
       existingDice = normalMatches[normalMatches.length - 1];
       existingDiceOriginal = existingDice;
       workingText = workingText.replace(normalDiceRegex, '\u0000').trim();
-      console.log('[ACU SmartInsert] Found and extracted normal roll:', existingDice);
+      console.log('[DICE]ACU SmartInsert Found and extracted normal roll:', existingDice);
     }
 
     // 3. 提取交互选项
@@ -484,7 +484,7 @@
     if (actionMatches && actionMatches.length > 0) {
       existingAction = actionMatches[actionMatches.length - 1];
       workingText = workingText.replace(actionRegex, '\u0001').trim();
-      console.log('[ACU SmartInsert] Found and extracted action:', existingAction);
+      console.log('[DICE]ACU SmartInsert Found and extracted action:', existingAction);
     }
 
     // 4. 移除占位符，剩下的就是用户输入
@@ -599,6 +599,317 @@
   const STORAGE_KEY_ACTIVE_ATTR_PRESET = 'acu_active_attr_preset_v1';
 
   const STORAGE_KEY_AVATAR_MAP = 'acu_avatar_map_v1';
+
+  // ========================================
+  // ConsoleCaptureManager - Console日志抓取管理器
+  // ========================================
+  const ConsoleCaptureManager = {
+    logs: [],
+    maxLogs: 1000,
+    filters: { log: true, info: true, warn: true, error: true },
+    originalMethods: {},
+    isIntercepted: false,
+    enabled: false, // 默认关闭，需要手动开启或错误时自动开启
+
+    restore() {
+      // 从 localStorage 恢复状态
+      const saved = localStorage.getItem('acu_console_capture_enabled');
+      if (saved === 'true') {
+        this.enable();
+      }
+    },
+
+    enable() {
+      if (this.enabled) return;
+      this.enabled = true;
+      localStorage.setItem('acu_console_capture_enabled', 'true');
+      this.intercept();
+    },
+
+    disable() {
+      if (!this.enabled) return;
+      this.enabled = false;
+      localStorage.setItem('acu_console_capture_enabled', 'false');
+      // 清除错误标志（尊重用户选择）
+      localStorage.removeItem('acu_script_error_detected');
+      // 隐藏紧急入口按钮
+      const emergencyBtn = document.getElementById('acu-emergency-debug-btn');
+      if (emergencyBtn) {
+        emergencyBtn.style.display = 'none';
+      }
+    },
+
+    intercept() {
+      if (this.isIntercepted) return;
+      this.isIntercepted = true;
+
+      ['log', 'info', 'warn', 'error'].forEach(type => {
+        this.originalMethods[type] = console[type];
+        const self = this;
+        console[type] = function (...args) {
+          // 调用原方法
+          self.originalMethods[type].apply(console, args);
+          // 记录日志（仅在启用时）
+          if (self.enabled) {
+            self.capture(type, args);
+          }
+        };
+      });
+    },
+
+    capture(type, args) {
+      if (!this.enabled) return; // 仅在启用时捕获
+      try {
+        const timestamp = new Date();
+        const timeStr = timestamp.toLocaleTimeString('zh-CN', { hour12: false });
+
+        // 将参数转换为字符串
+        const content = args
+          .map(arg => {
+            if (typeof arg === 'object') {
+              try {
+                return JSON.stringify(arg, null, 2);
+              } catch {
+                return String(arg);
+              }
+            }
+            return String(arg);
+          })
+          .join(' ');
+
+        // 获取堆栈信息（仅error）
+        let stack = null;
+        if (type === 'error' && args[0] instanceof Error) {
+          stack = args[0].stack || null;
+        }
+
+        const logEntry = {
+          id: Date.now() + Math.random(),
+          timestamp,
+          timeStr,
+          type,
+          content,
+          stack,
+          rawArgs: args,
+        };
+
+        this.logs.push(logEntry);
+
+        // 限制日志数量
+        if (this.logs.length > this.maxLogs) {
+          this.logs.shift();
+        }
+      } catch (e) {
+        // 捕获失败不影响原console功能
+      }
+    },
+
+    clear() {
+      this.logs = [];
+    },
+
+    getFilteredLogs() {
+      return this.logs.filter(log => this.filters[log.type]);
+    },
+
+    setFilters(filters) {
+      this.filters = { ...this.filters, ...filters };
+    },
+  };
+
+  // 不自动初始化拦截，需要手动开启或错误时自动开启
+  // ConsoleCaptureManager.intercept();
+
+  // ========================================
+  // 全局错误处理机制（高阈值，仅致命错误）
+  // ========================================
+  const ErrorHandler = {
+    errorCount: 0,
+    errorThreshold: 3, // 连续3次致命错误才触发
+    lastErrorTime: 0,
+    errorWindow: 5000, // 5秒内的错误才计入
+    fatalErrorDetected: false,
+
+    // 判断是否为致命错误（高阈值）
+    isFatalError(error, source, lineno, colno, stack) {
+      // 排除第三方库错误
+      const thirdPartyPatterns = [/jquery/i, /lodash/i, /vue/i, /react/i, /pixi/i, /gsap/i, /toastr/i, /node_modules/i];
+
+      const errorInfo = stack || error?.stack || '';
+      const errorSource = source || '';
+
+      // 检查是否来自第三方库
+      for (const pattern of thirdPartyPatterns) {
+        if (pattern.test(errorInfo) || pattern.test(errorSource)) {
+          return false;
+        }
+      }
+
+      // 检查是否来自骰子系统核心代码
+      const corePatterns = [
+        /acu_visualizer/i,
+        /骰子系统/i,
+        /LockManager/i,
+        /Store/i,
+        /ConsoleCaptureManager/i,
+        /renderInterface/i,
+        /init\s*\(/i,
+      ];
+
+      let isCoreError = false;
+      for (const pattern of corePatterns) {
+        if (pattern.test(errorInfo) || pattern.test(errorSource)) {
+          isCoreError = true;
+          break;
+        }
+      }
+
+      // 必须是核心错误才可能是致命错误
+      return isCoreError;
+    },
+
+    // 处理错误
+    handleError(error, source, lineno, colno, stack) {
+      try {
+        // 检查是否为致命错误
+        if (!this.isFatalError(error, source, lineno, colno, stack)) {
+          return; // 非致命错误，忽略
+        }
+
+        const now = Date.now();
+
+        // 如果距离上次错误超过时间窗口，重置计数
+        if (now - this.lastErrorTime > this.errorWindow) {
+          this.errorCount = 0;
+        }
+
+        this.errorCount++;
+        this.lastErrorTime = now;
+
+        // 达到阈值，触发致命错误处理
+        if (this.errorCount >= this.errorThreshold && !this.fatalErrorDetected) {
+          this.fatalErrorDetected = true;
+          this.triggerFatalError();
+        }
+      } catch (e) {
+        // 错误处理本身出错时，避免无限循环
+        console.error('[DICE]ErrorHandler 处理错误时失败:', e);
+      }
+    },
+
+    // 触发致命错误处理
+    triggerFatalError() {
+      try {
+        // 自动开启 console 抓取
+        if (!ConsoleCaptureManager.enabled) {
+          ConsoleCaptureManager.enable();
+        }
+
+        // 设置错误标志
+        localStorage.setItem('acu_script_error_detected', 'true');
+
+        // 显示紧急入口按钮
+        this.showEmergencyButton();
+      } catch (e) {
+        console.error('[DICE]ErrorHandler 触发致命错误处理时失败:', e);
+      }
+    },
+
+    // 显示紧急入口按钮
+    showEmergencyButton() {
+      try {
+        // 检查是否已存在
+        let btn = document.getElementById('acu-emergency-debug-btn');
+        if (btn) {
+          btn.style.display = 'block';
+          return;
+        }
+
+        // 创建紧急入口按钮
+        btn = document.createElement('button');
+        btn.id = 'acu-emergency-debug-btn';
+        btn.innerHTML = '<i class="fa-solid fa-bug"></i> 调试';
+        btn.style.cssText = `
+          position: fixed;
+          bottom: 20px;
+          right: 20px;
+          z-index: 99999;
+          padding: 10px 16px;
+          background: #e74c3c;
+          color: #fff;
+          border: none;
+          border-radius: 6px;
+          font-size: 14px;
+          font-weight: bold;
+          cursor: pointer;
+          box-shadow: 0 4px 12px rgba(231, 76, 60, 0.4);
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          transition: all 0.2s;
+        `;
+
+        btn.onmouseenter = function () {
+          this.style.background = '#c0392b';
+          this.style.transform = 'scale(1.05)';
+        };
+        btn.onmouseleave = function () {
+          this.style.background = '#e74c3c';
+          this.style.transform = 'scale(1)';
+        };
+
+        btn.onclick = function () {
+          try {
+            // 尝试调用全局的 showDebugConsoleModal
+            if (typeof window.showDebugConsoleModal === 'function') {
+              window.showDebugConsoleModal();
+            } else {
+              // 降级方案：提示用户打开浏览器控制台
+              alert('脚本出现错误，请打开浏览器开发者工具（F12）查看控制台');
+            }
+          } catch (e) {
+            console.error('[DICE]紧急入口按钮点击失败:', e);
+            alert('脚本出现错误，请打开浏览器开发者工具（F12）查看控制台');
+          }
+        };
+
+        document.body.appendChild(btn);
+      } catch (e) {
+        console.error('[DICE]显示紧急入口按钮失败:', e);
+      }
+    },
+
+    // 检查并恢复错误状态
+    checkAndRestore() {
+      try {
+        const errorDetected = localStorage.getItem('acu_script_error_detected') === 'true';
+        if (errorDetected) {
+          // 自动开启 console 抓取（仅本次会话）
+          if (!ConsoleCaptureManager.enabled) {
+            ConsoleCaptureManager.enable();
+          }
+          // 显示紧急入口按钮
+          this.showEmergencyButton();
+        }
+      } catch (e) {
+        console.error('[DICE]ErrorHandler 检查错误状态失败:', e);
+      }
+    },
+  };
+
+  // 注册全局错误处理器
+  window.onerror = function (message, source, lineno, colno, error) {
+    ErrorHandler.handleError(error || message, source, lineno, colno, error?.stack);
+    return false; // 不阻止默认错误处理
+  };
+
+  // 注册 Promise 拒绝处理器
+  window.addEventListener('unhandledrejection', function (event) {
+    ErrorHandler.handleError(event.reason, null, null, null, event.reason?.stack);
+  });
+
+  // 在脚本初始化时检查错误状态
+  // 这个会在 init 函数中调用
 
   // ========================================
   // ValidationRuleManager - 数据验证规则系统
@@ -1051,7 +1362,7 @@
       if (!this.getAllPresets().find(p => p.id === id)) return false;
       Store.set(STORAGE_KEY_ACTIVE_PRESET, id);
       ValidationRuleManager.clearCache();
-      console.log('[PresetManager] 切换预设:', id);
+      console.log('[DICE]PresetManager 切换预设:', id);
       return true;
     },
 
@@ -1084,7 +1395,7 @@
       };
       presets.push(newPreset);
       this._save(presets);
-      console.log('[PresetManager] 复制预设:', source.name, '->', newPreset.name);
+      console.log('[DICE]PresetManager 复制预设:', source.name, '->', newPreset.name);
       return newPreset;
     },
 
@@ -1099,7 +1410,7 @@
         Store.set(STORAGE_KEY_ACTIVE_PRESET, 'default');
         ValidationRuleManager.clearCache();
       }
-      console.log('[PresetManager] 删除预设:', id);
+      console.log('[DICE]PresetManager 删除预设:', id);
       return true;
     },
 
@@ -1136,10 +1447,10 @@
         };
         presets.push(newPreset);
         this._save(presets);
-        console.log('[PresetManager] 导入预设:', newPreset.name);
+        console.log('[DICE]PresetManager 导入预设:', newPreset.name);
         return newPreset;
       } catch (e) {
-        console.error('[PresetManager] 导入失败:', e);
+        console.error('[DICE]PresetManager 导入失败:', e);
         return null;
       }
     },
@@ -1157,7 +1468,7 @@
         }
         return hash.toString(36);
       } catch (e) {
-        console.error('[PresetManager] 计算版本失败:', e);
+        console.error('[DICE]PresetManager 计算版本失败:', e);
         return '0';
       }
     },
@@ -1171,7 +1482,7 @@
       if (stored && Array.isArray(stored)) {
         const defaultPreset = stored.find(p => p.id === 'default');
         if (defaultPreset && defaultPreset._builtinVersion !== currentVersion) {
-          console.log('[PresetManager] 检测到内置规则更新，自动更新默认预设');
+          console.log('[DICE]PresetManager 检测到内置规则更新，自动更新默认预设');
           // 保留自定义规则（非内置规则）
           const customRules = defaultPreset.rules.filter(r => !r.builtin);
           defaultPreset.rules = [...BUILTIN_VALIDATION_RULES.map(r => ({ ...r })), ...customRules];
@@ -1195,7 +1506,7 @@
       const oldCustom = Store.get(STORAGE_KEY_VALIDATION_RULES, []);
       if (oldCustom.length > 0) {
         defaultPreset.rules.push(...oldCustom.map(r => ({ ...r, builtin: false })));
-        console.log('[PresetManager] 迁移旧规则:', oldCustom.length, '条');
+        console.log('[DICE]PresetManager 迁移旧规则:', oldCustom.length, '条');
       }
       this._cache = [defaultPreset];
       this._save(this._cache);
@@ -1213,7 +1524,6 @@
         defaultPreset._builtinVersion = this._getBuiltinRulesVersion();
         this._save(presets);
         ValidationRuleManager.clearCache();
-        console.log('[PresetManager] 默认预设已恢复');
         return true;
       }
       return false;
@@ -1265,7 +1575,6 @@
       Store.set(STORAGE_KEY_VALIDATION_ENABLED, states);
       this._enabledCache = states;
       this._cache = null; // 清除缓存以便下次重新计算
-      console.log(`[ValidationRuleManager] 规则 ${ruleId} 已${enabled ? '启用' : '禁用'}`);
     },
 
     // 切换规则拦截状态
@@ -1278,7 +1587,6 @@
 
       rule.intercept = intercept;
       PresetManager.updatePresetRules(preset.id, preset.rules);
-      console.log(`[ValidationRuleManager] 规则 ${ruleId} 拦截已${intercept ? '启用' : '关闭'}`);
       return true;
     },
 
@@ -1290,7 +1598,7 @@
     // 添加自定义规则（到当前激活预设）
     addCustomRule(rule) {
       if (!rule.id || !rule.name || !rule.targetTable) {
-        console.error('[ValidationRuleManager] 规则缺少必要字段');
+        console.error('[DICE]ValidationRuleManager 规则缺少必要字段');
         return false;
       }
 
@@ -1299,14 +1607,14 @@
 
       // 检查 ID 是否重复
       if (preset.rules.some(r => r.id === rule.id)) {
-        console.error('[ValidationRuleManager] 规则 ID 已存在:', rule.id);
+        console.error('[DICE]ValidationRuleManager 规则 ID 已存在:', rule.id);
         return false;
       }
 
       const newRule = { ...rule, builtin: false, enabled: true };
       preset.rules.push(newRule);
       PresetManager.updatePresetRules(preset.id, preset.rules);
-      console.log('[ValidationRuleManager] 添加规则:', newRule.name);
+      console.log('[DICE]ValidationRuleManager 添加规则:', newRule.name);
       return true;
     },
 
@@ -1327,7 +1635,7 @@
       Store.set(STORAGE_KEY_VALIDATION_ENABLED, states);
       this._enabledCache = states;
 
-      console.log('[ValidationRuleManager] 删除规则:', ruleId);
+      console.log('[DICE]ValidationRuleManager 删除规则:', ruleId);
       return true;
     },
 
@@ -1367,7 +1675,7 @@
         const regex = new RegExp(pattern);
         return regex.test(String(value));
       } catch (e) {
-        console.error('[ValidationEngine] 正则表达式错误:', pattern, e);
+        console.error('[DICE]ValidationEngine 正则表达式错误:', pattern, e);
         return true; // 正则错误时跳过验证
       }
     },
@@ -1526,67 +1834,16 @@
 
     // 序列递增验证（检查字段值是否严格递增）
     validateSequence(sheet, columnName, config) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          location: 'index.ts:1500',
-          message: 'validateSequence entry',
-          data: {
-            tableName: sheet?.name,
-            columnName,
-            config,
-            hasContent: !!sheet?.content,
-            contentLength: sheet?.content?.length,
-          },
-          timestamp: Date.now(),
-          sessionId: 'debug-session',
-          runId: 'run1',
-          hypothesisId: 'A',
-        }),
-      }).catch(() => {});
-      // #endregion
       if (!sheet || !sheet.content || sheet.content.length < 2) return true; // 空表或只有表头，通过验证
       if (!columnName || !config) return true;
 
       const headers = sheet.content[0] || [];
       const rows = sheet.content.slice(1) || [];
       const colIndex = headers.indexOf(columnName);
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          location: 'index.ts:1507',
-          message: 'column check',
-          data: { columnName, colIndex, headers: headers.slice(0, 5) },
-          timestamp: Date.now(),
-          sessionId: 'debug-session',
-          runId: 'run1',
-          hypothesisId: 'E',
-        }),
-      }).catch(() => {});
-      // #endregion
       if (colIndex < 0) return true; // 列不存在，跳过验证
 
       const prefix = config.prefix || '';
       const startFrom = config.startFrom !== undefined ? config.startFrom : 1;
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          location: 'index.ts:1510',
-          message: 'config values',
-          data: { prefix, startFrom },
-          timestamp: Date.now(),
-          sessionId: 'debug-session',
-          runId: 'run1',
-          hypothesisId: 'D',
-        }),
-      }).catch(() => {});
-      // #endregion
 
       // 提取所有编码索引的数字部分
       const numbers = [];
@@ -1603,28 +1860,6 @@
         if (prefix) {
           const regex = new RegExp(`^${prefix}(\\d+)$`);
           const match = strValue.match(regex);
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              location: 'index.ts:1574',
-              message: 'regex match attempt',
-              data: {
-                rowIndex: i,
-                strValue,
-                prefix,
-                regexPattern: regex.toString(),
-                match: match?.[1] || null,
-                matched: !!match,
-              },
-              timestamp: Date.now(),
-              sessionId: 'debug-session',
-              runId: 'run1',
-              hypothesisId: 'C',
-            }),
-          }).catch(() => {});
-          // #endregion
           if (match) {
             const num = parseInt(match[1], 10);
             if (!isNaN(num)) numbers.push({ rowIndex: i, value: strValue, num });
@@ -1636,69 +1871,14 @@
         }
       }
 
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          location: 'index.ts:1602',
-          message: 'extracted numbers complete',
-          data: {
-            totalRows: rows.length,
-            numbersCount: numbers.length,
-            allRowValues: allRowValues.slice(0, 30), // 记录前30行的原始值
-            extractedNumbers: numbers.map(n => ({ rowIndex: n.rowIndex, value: n.value, num: n.num })),
-          },
-          timestamp: Date.now(),
-          sessionId: 'debug-session',
-          runId: 'run1',
-          hypothesisId: 'C',
-        }),
-      }).catch(() => {});
-      // #endregion
       if (numbers.length === 0) return true; // 没有有效值，通过验证
 
       // 按行索引排序（保持原始顺序）
       numbers.sort((a, b) => a.rowIndex - b.rowIndex);
 
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          location: 'index.ts:1623',
-          message: 'numbers after sort',
-          data: {
-            numbersCount: numbers.length,
-            sortedNumbers: numbers.map(n => ({ rowIndex: n.rowIndex, value: n.value, num: n.num })),
-            startFrom,
-          },
-          timestamp: Date.now(),
-          sessionId: 'debug-session',
-          runId: 'run1',
-          hypothesisId: 'B',
-        }),
-      }).catch(() => {});
-      // #endregion
-
       // 检查是否有重复值
       const numSet = new Set(numbers.map(n => n.num));
       if (numSet.size !== numbers.length) {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            location: 'index.ts:1643',
-            message: 'duplicate detected',
-            data: { numSetSize: numSet.size, numbersLength: numbers.length, numbers: numbers.map(n => n.num) },
-            timestamp: Date.now(),
-            sessionId: 'debug-session',
-            runId: 'run1',
-            hypothesisId: 'B',
-          }),
-        }).catch(() => {});
-        // #endregion
         return false; // 有重复值
       }
 
@@ -1707,71 +1887,11 @@
       for (let i = 0; i < numbers.length; i++) {
         const expectedNum = startFrom + i;
         const actualNum = numbers[i].num;
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            location: 'index.ts:1650',
-            message: 'sequence check iteration',
-            data: {
-              i,
-              expectedNum,
-              actualNum,
-              rowIndex: numbers[i].rowIndex,
-              value: numbers[i].value,
-              match: actualNum === expectedNum,
-            },
-            timestamp: Date.now(),
-            sessionId: 'debug-session',
-            runId: 'run1',
-            hypothesisId: 'B',
-          }),
-        }).catch(() => {});
-        // #endregion
         if (actualNum !== expectedNum) {
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              location: 'index.ts:1672',
-              message: 'sequence mismatch detected',
-              data: {
-                i,
-                expectedNum,
-                actualNum,
-                rowIndex: numbers[i].rowIndex,
-                value: numbers[i].value,
-                allNumbers: numbers.map(n => n.num),
-                startFrom,
-              },
-              timestamp: Date.now(),
-              sessionId: 'debug-session',
-              runId: 'run1',
-              hypothesisId: 'B',
-            }),
-          }).catch(() => {});
-          // #endregion
           return false; // 发现跳号、重复或不是从startFrom开始
         }
       }
 
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          location: 'index.ts:1555',
-          message: 'validateSequence passed',
-          data: { numbersCount: numbers.length },
-          timestamp: Date.now(),
-          sessionId: 'debug-session',
-          runId: 'run1',
-          hypothesisId: 'B',
-        }),
-      }).catch(() => {});
-      // #endregion
       return true;
     },
 
@@ -1927,67 +2047,9 @@
 
     // 验证整个数据集
     validateAllData(rawData) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          location: 'index.ts:1706',
-          message: 'validateAllData entry',
-          data: {
-            hasRawData: !!rawData,
-            sheetCount: rawData ? Object.keys(rawData).filter(k => k.startsWith('sheet_')).length : 0,
-          },
-          timestamp: Date.now(),
-          sessionId: 'debug-session',
-          runId: 'run1',
-          hypothesisId: 'A',
-        }),
-      }).catch(() => {});
-      // #endregion
       if (!rawData) return [];
 
       const rules = ValidationRuleManager.getEnabledRules();
-      const allRules = ValidationRuleManager.getAllRules();
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          location: 'index.ts:1863',
-          message: 'all rules check',
-          data: {
-            enabledRulesCount: rules.length,
-            allRulesCount: allRules.length,
-            enabledSequenceRules: rules
-              .filter(r => r.ruleType === 'sequence')
-              .map(r => ({ id: r.id, name: r.name, targetTable: r.targetTable, enabled: r.enabled })),
-            allSequenceRules: allRules
-              .filter(r => r.ruleType === 'sequence')
-              .map(r => ({
-                id: r.id,
-                name: r.name,
-                targetTable: r.targetTable,
-                enabled: r.enabled,
-                builtin: r.builtin,
-              })),
-            codeRules: allRules
-              .filter(r => r.targetColumn === '编码索引')
-              .map(r => ({
-                id: r.id,
-                ruleType: r.ruleType,
-                targetTable: r.targetTable,
-                enabled: r.enabled,
-                builtin: r.builtin,
-              })),
-          },
-          timestamp: Date.now(),
-          sessionId: 'debug-session',
-          runId: 'run1',
-          hypothesisId: 'A',
-        }),
-      }).catch(() => {});
-      // #endregion
       if (rules.length === 0) return [];
 
       const allErrors = [];
@@ -2000,34 +2062,6 @@
         const tableName = sheet.name;
         const headers = sheet.content[0];
         const tableRules = rules.filter(r => r.targetTable === tableName);
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            location: 'index.ts:1944',
-            message: 'table rules filter',
-            data: {
-              tableName,
-              tableRulesCount: tableRules.length,
-              allRules: tableRules.map(r => ({
-                id: r.id,
-                ruleType: r.ruleType,
-                enabled: r.enabled,
-                targetColumn: r.targetColumn,
-                config: r.config,
-              })),
-              sequenceRules: tableRules
-                .filter(r => r.ruleType === 'sequence')
-                .map(r => ({ id: r.id, enabled: r.enabled, targetColumn: r.targetColumn, config: r.config })),
-            },
-            timestamp: Date.now(),
-            sessionId: 'debug-session',
-            runId: 'run1',
-            hypothesisId: 'A',
-          }),
-        }).catch(() => {});
-        // #endregion
 
         if (tableRules.length === 0) continue;
 
@@ -2055,43 +2089,7 @@
               }
             } else if (rule.ruleType === 'sequence' && rule.targetColumn) {
               // 序列递增验证
-              // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  location: 'index.ts:1747',
-                  message: 'sequence rule check',
-                  data: {
-                    tableName,
-                    ruleId: rule.id,
-                    ruleName: rule.name,
-                    targetColumn: rule.targetColumn,
-                    config: rule.config,
-                  },
-                  timestamp: Date.now(),
-                  sessionId: 'debug-session',
-                  runId: 'run1',
-                  hypothesisId: 'A',
-                }),
-              }).catch(() => {});
-              // #endregion
               const isValid = this.validateSequence(sheet, rule.targetColumn, rule.config || {});
-              // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  location: 'index.ts:1749',
-                  message: 'sequence validation result',
-                  data: { tableName, ruleId: rule.id, isValid },
-                  timestamp: Date.now(),
-                  sessionId: 'debug-session',
-                  runId: 'run1',
-                  hypothesisId: 'B',
-                }),
-              }).catch(() => {});
-              // #endregion
               if (!isValid) {
                 const error = {
                   ruleId: rule.id,
@@ -2107,21 +2105,6 @@
                     `字段 "${rule.targetColumn}" 的编码索引必须从${rule.config?.prefix || ''}${String(rule.config?.startFrom || 1).padStart(3, '0')}开始严格递增，不可跳号或重复`,
                   severity: 'error',
                 };
-                // #region agent log
-                fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    location: 'index.ts:1750',
-                    message: 'adding sequence error',
-                    data: { tableName, ruleId: rule.id, errorMessage: error.errorMessage },
-                    timestamp: Date.now(),
-                    sessionId: 'debug-session',
-                    runId: 'run1',
-                    hypothesisId: 'F',
-                  }),
-                }).catch(() => {});
-                // #endregion
                 allErrors.push(error);
               }
             }
@@ -2209,7 +2192,7 @@
         const request = indexedDB.open(this.DB_NAME, this.DB_VERSION);
 
         request.onerror = () => {
-          console.error('[LocalAvatarDB] 打开数据库失败:', request.error);
+          console.error('[DICE]LocalAvatarDB 打开数据库失败:', request.error);
           reject(request.error);
         };
 
@@ -2255,12 +2238,12 @@
           const request = store.put(data);
           request.onsuccess = () => resolve(true);
           request.onerror = () => {
-            console.error('[LocalAvatarDB] 保存失败:', request.error);
+            console.error('[DICE]LocalAvatarDB 保存失败:', request.error);
             reject(request.error);
           };
         });
       } catch (e) {
-        console.error('[LocalAvatarDB] save error:', e);
+        console.error('[DICE]LocalAvatarDB save error:', e);
         return false;
       }
     },
@@ -2295,7 +2278,7 @@
           request.onerror = () => resolve(null);
         });
       } catch (e) {
-        console.error('[LocalAvatarDB] get error:', e);
+        console.error('[DICE]LocalAvatarDB get error:', e);
         return null;
       }
     },
@@ -2340,7 +2323,7 @@
           request.onerror = () => resolve(false);
         });
       } catch (e) {
-        console.error('[LocalAvatarDB] delete error:', e);
+        console.error('[DICE]LocalAvatarDB delete error:', e);
         return false;
       }
     },
@@ -2405,7 +2388,7 @@
           request.onerror = () => resolve(false);
         });
       } catch (e) {
-        console.error('[LocalAvatarDB] clearAll error:', e);
+        console.error('[DICE]LocalAvatarDB clearAll error:', e);
         return false;
       }
     },
@@ -2438,7 +2421,7 @@
         }
       }
     } catch (e) {
-      console.warn('[ACU] getUserAvatarUrl error:', e);
+      console.warn('[DICE]ACU getUserAvatarUrl error:', e);
     }
     return null;
   };
@@ -2479,7 +2462,7 @@
         }
       }
     } catch (e) {
-      console.warn('[ACU] getPersonaName error:', e);
+      console.warn('[DICE]ACU getPersonaName error:', e);
     }
     return null;
   };
@@ -3203,8 +3186,8 @@
 
         return data;
       } catch (e) {
-        console.warn('[MvuModule] getData error:', e);
-        console.error('[MvuModule] getData error stack:', e.stack);
+        console.warn('[DICE]MvuModule getData error:', e);
+        console.error('[DICE]MvuModule getData error stack:', e.stack);
         return null;
       }
     }
@@ -3236,8 +3219,8 @@
               return data;
             }
           } catch (e) {
-            console.warn('[MvuModule] Error getting data on attempt', attempts, ':', e);
-            console.error('[MvuModule] Error stack:', e.stack);
+            console.warn('[DICE]MvuModule Error getting data on attempt', attempts, ':', e);
+            console.error('[DICE]MvuModule Error stack:', e.stack);
           }
 
           if (attempts < maxRetries) {
@@ -3245,11 +3228,11 @@
           }
         }
 
-        console.warn('[MvuModule] Failed to get data after', attempts, 'attempts');
+        console.warn('[DICE]MvuModule Failed to get data after', attempts, 'attempts');
         return null;
       } catch (e) {
-        console.error('[MvuModule] Error waiting for MVU framework or getting data:', e);
-        console.error('[MvuModule] Error stack:', e.stack);
+        console.error('[DICE]MvuModule Error waiting for MVU framework or getting data:', e);
+        console.error('[DICE]MvuModule Error stack:', e.stack);
         return null;
       }
     }
@@ -3593,14 +3576,14 @@
         // 使用主页面的 jQuery
         const $ = window.parent?.jQuery || window.jQuery;
         if (!$ || !$container || !$container.length) {
-          console.warn('[MvuModule] bindEvents: jQuery or container not available');
+          console.warn('[DICE]MvuModule bindEvents: jQuery or container not available');
           return;
         }
 
         // 使用主页面的 jQuery 重新获取容器
         const $panel = $('#acu-data-area');
         if (!$panel.length) {
-          console.warn('[MvuModule] bindEvents: #acu-data-area not found');
+          console.warn('[DICE]MvuModule bindEvents: #acu-data-area not found');
           return;
         }
 
@@ -3644,7 +3627,7 @@
           const $value = $(this);
           const path = $value.data('path');
           if (!path) {
-            console.warn('[MvuModule] No path on value element');
+            console.warn('[DICE]MvuModule No path on value element');
             return;
           }
           const currentValue = $value
@@ -3965,7 +3948,7 @@
 
           const mvuData = window.Mvu.getMvuData({ type: 'message', message_id: 'latest' });
           if (!mvuData) {
-            console.error('[MvuModule] 无法获取 MVU 数据');
+            console.error('[DICE]MvuModule 无法获取 MVU 数据');
             return false;
           }
 
@@ -3977,12 +3960,12 @@
           if (success) {
             await window.Mvu.replaceMvuData(mvuData, { type: 'message', message_id: 'latest' });
           } else {
-            console.warn('[MvuModule] setMvuVariable 返回 false');
+            console.warn('[DICE]MvuModule setMvuVariable 返回 false');
           }
 
           return success;
         } catch (e) {
-          console.error('[MvuModule] setValue error:', e);
+          console.error('[DICE]MvuModule setValue error:', e);
           return false;
         }
       },
@@ -4023,7 +4006,7 @@
             }
           })
           .catch(err => {
-            console.error('[MvuModule] Error refreshing data:', err);
+            console.error('[DICE]MvuModule Error refreshing data:', err);
 
             // 移除加载动画
             if ($refreshBtn.length) {
@@ -4060,64 +4043,116 @@
   };
 
   const getDiceConfig = () => Store.get(STORAGE_KEY_DICE_CONFIG, DEFAULT_DICE_CONFIG);
-  const saveDiceConfig = cfg => Store.set(STORAGE_KEY_DICE_CONFIG, { ...getDiceConfig(), ...cfg });
+  const saveDiceConfig = cfg => {
+    const oldCfg = getDiceConfig();
+    const newCfg = { ...oldCfg, ...cfg };
+    Store.set(STORAGE_KEY_DICE_CONFIG, newCfg);
+    // 记录配置变更
+    const changedKeys = Object.keys(cfg).filter(k => oldCfg[k] !== newCfg[k]);
+    if (changedKeys.length > 0) {
+      console.info(`[DICE]投骰配置已更新: ${changedKeys.join(', ')}`);
+    }
+  };
 
   // [新增] 隐藏用户消息中的投骰结果（也处理输入栏）
   const hideDiceResultsInUserMessages = () => {
-    const diceCfg = getDiceConfig();
-    const shouldHide = diceCfg.hideDiceResultFromUser;
-
-    // 普通检定正则：格式: "角色名发起了【属性名】检定，掷出XX，判定式，【结果】"
-    const normalDiceRegex = /[\u4e00-\u9fa5a-zA-Z<>]+发起了【[^】]+】检定，掷出\d+，[^【]*【[^】]+】/g;
-
-    // 对抗检定正则：格式: "进行了一次【... vs ...】的对抗检定。... (目标...) 掷出 ...，判定为【...】；... (目标...) 掷出 ...，判定为【...】。最终结果：【...】"
-    const contestDiceRegex =
-      /进行了一次【[^】]+ vs [^】]+】的对抗检定。.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】；.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】。最终结果：【[^】]+】/g;
-
-    // [新增] 处理输入栏
     try {
-      const $ta = $('#send_textarea');
-      if ($ta.length) {
-        let textareaVal = $ta.val() || '';
-        let modifiedText = textareaVal;
-
-        if (shouldHide) {
-          // 隐藏模式：替换为占位符
-          const contestRegex =
-            /进行了一次【[^】]+ vs [^】]+】的对抗检定。.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】；.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】。最终结果：【[^】]+】/g;
-          const normalRegex = /[\u4e00-\u9fa5a-zA-Z<>]+发起了【[^】]+】检定，掷出\d+，[^【]*【[^】]+】/g;
-
-          if (contestRegex.test(modifiedText)) {
-            modifiedText = modifiedText.replace(contestRegex, '[投骰结果已隐藏]');
+      const diceCfg = getDiceConfig();
+      const shouldHide = diceCfg.hideDiceResultFromUser;
+      
+      // [修复] 如果未启用隐藏功能，且没有需要恢复的内容，直接返回，避免不必要的错误
+      if (!shouldHide) {
+        // 只处理输入栏的恢复逻辑，如果输入栏没有占位符，直接返回
+        try {
+          const $ta = $('#send_textarea');
+          if ($ta.length) {
+            const textareaVal = $ta.val() || '';
+            const originalText = $ta.data('acu-original-dice-text');
+            // 如果输入栏没有占位符，且没有保存的原始文本，直接返回
+            if (!textareaVal.includes('[投骰结果已隐藏]') && !originalText) {
+              return;
+            }
+          } else {
+            // 如果输入栏不存在，直接返回
+            return;
           }
-          if (normalRegex.test(modifiedText)) {
-            modifiedText = modifiedText.replace(normalRegex, '[投骰结果已隐藏]');
-          }
-        } else {
-          // 显示模式：如果有保存的原始文本，恢复它
-          const originalText = $ta.data('acu-original-dice-text');
-          if (originalText && textareaVal.includes('[投骰结果已隐藏]')) {
-            // 替换占位符为原始文本
-            modifiedText = textareaVal.replace(/\[投骰结果已隐藏\]/g, originalText);
-            $ta.removeData('acu-original-dice-text');
-          }
-        }
-
-        if (modifiedText !== textareaVal) {
-          $ta.val(modifiedText).trigger('input').trigger('change');
+        } catch (e) {
+          // 输入栏处理失败，静默返回
+          return;
         }
       }
-    } catch (e) {
-      console.warn('[ACU] 处理输入栏投骰结果失败:', e);
-    }
+      
+      console.info(`[DICE]处理投骰结果显示: ${shouldHide ? '隐藏' : '显示'}`);
 
-    // 处理已存在的消息
-    if (!shouldHide) {
-      // 如果禁用隐藏，需要恢复原始文本（从消息数据重新获取）
+      // 普通检定正则：格式: "角色名发起了【属性名】检定，掷出XX，判定式，【结果】"
+      const normalDiceRegex = /[\u4e00-\u9fa5a-zA-Z<>]+发起了【[^】]+】检定，掷出\d+，[^【]*【[^】]+】/g;
+
+      // 对抗检定正则：格式: "进行了一次【... vs ...】的对抗检定。... (目标...) 掷出 ...，判定为【...】；... (目标...) 掷出 ...，判定为【...】。最终结果：【...】"
+      const contestDiceRegex =
+        /进行了一次【[^】]+ vs [^】]+】的对抗检定。.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】；.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】。最终结果：【[^】]+】/g;
+
+      // [新增] 处理输入栏
       try {
-        const lastMessageId = getLastMessageId();
-        if (lastMessageId >= 0) {
+        const $ta = $('#send_textarea');
+        if ($ta.length) {
+          let textareaVal = $ta.val() || '';
+          let modifiedText = textareaVal;
+
+          if (shouldHide) {
+            // 隐藏模式：替换为占位符
+            const contestRegex =
+              /进行了一次【[^】]+ vs [^】]+】的对抗检定。.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】；.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】。最终结果：【[^】]+】/g;
+            const normalRegex = /[\u4e00-\u9fa5a-zA-Z<>]+发起了【[^】]+】检定，掷出\d+，[^【]*【[^】]+】/g;
+
+            if (contestRegex.test(modifiedText)) {
+              modifiedText = modifiedText.replace(contestRegex, '[投骰结果已隐藏]');
+            }
+            if (normalRegex.test(modifiedText)) {
+              modifiedText = modifiedText.replace(normalRegex, '[投骰结果已隐藏]');
+            }
+          } else {
+            // 显示模式：如果有保存的原始文本，恢复它
+            const originalText = $ta.data('acu-original-dice-text');
+            if (originalText && textareaVal.includes('[投骰结果已隐藏]')) {
+              // 替换占位符为原始文本
+              modifiedText = textareaVal.replace(/\[投骰结果已隐藏\]/g, originalText);
+              $ta.removeData('acu-original-dice-text');
+            }
+          }
+
+          if (modifiedText !== textareaVal) {
+            $ta.val(modifiedText).trigger('input').trigger('change');
+          }
+        }
+      } catch (e) {
+        console.warn('[DICE]ACU 处理输入栏投骰结果失败:', e);
+      }
+
+      // 处理已存在的消息
+      if (!shouldHide) {
+        // 如果禁用隐藏，需要恢复原始文本（从消息数据重新获取）
+        // 先检查聊天是否已加载，避免在首次启动时显示不必要的错误
+        let lastMessageId;
+        try {
+          lastMessageId = getLastMessageId();
+        } catch (e) {
+          // 如果获取 lastMessageId 失败，说明聊天未加载，静默返回
+          return;
+        }
+
+        // 如果聊天未加载或没有消息，直接返回，不显示错误
+        if (lastMessageId < 0) {
+          return;
+        }
+
+        try {
           const userMessages = getChatMessages(`0-${lastMessageId}`, { role: 'user' });
+          // 如果没有用户消息，直接返回
+          if (!userMessages || userMessages.length === 0) {
+            return;
+          }
+
+          let restoredCount = 0;
           userMessages.forEach(msg => {
             try {
               const $msgElement = retrieveDisplayedMessage(msg.message_id);
@@ -4133,68 +4168,83 @@
                 const originalText = msg.message || '';
                 if (originalText) {
                   $mesText.text(originalText);
+                  restoredCount++;
                 }
               }
             } catch (e) {
-              console.warn(`[ACU] 恢复第 ${msg.message_id} 楼投骰结果失败:`, e);
+              // 单个消息恢复失败，静默处理
             }
           });
-        }
-      } catch (e) {
-        console.warn('[ACU] 恢复投骰结果失败:', e);
-      }
-      return;
-    }
-
-    // 隐藏模式：处理已存在的消息
-    try {
-      const lastMessageId = getLastMessageId();
-      if (lastMessageId < 0) return;
-
-      const userMessages = getChatMessages(`0-${lastMessageId}`, { role: 'user' });
-
-      userMessages.forEach(msg => {
-        try {
-          const $msgElement = retrieveDisplayedMessage(msg.message_id);
-          if (!$msgElement || !$msgElement.length) return;
-
-          const $mesText = $msgElement.find('.mes_text');
-          if (!$mesText || !$mesText.length) return;
-
-          // 获取原始文本内容
-          let textContent = $mesText.text();
-          // 如果已经是占位符，跳过
-          if (textContent.includes('[投骰结果已隐藏]')) {
-            return;
-          }
-
-          let modifiedText = textContent;
-
-          // 先处理对抗检定（优先级更高，格式更长）
-          // 每次使用新的正则实例，避免全局正则的 lastIndex 副作用
-          const contestRegex =
-            /进行了一次【[^】]+ vs [^】]+】的对抗检定。.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】；.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】。最终结果：【[^】]+】/g;
-          if (contestRegex.test(modifiedText)) {
-            modifiedText = modifiedText.replace(contestRegex, '[投骰结果已隐藏]');
-          }
-
-          // 再处理普通检定（使用新的正则实例）
-          const normalRegex = /[\u4e00-\u9fa5a-zA-Z<>]+发起了【[^】]+】检定，掷出\d+，[^【]*【[^】]+】/g;
-          if (normalRegex.test(modifiedText)) {
-            modifiedText = modifiedText.replace(normalRegex, '[投骰结果已隐藏]');
-          }
-
-          // 如果有匹配，更新显示内容（只修改文本，保持原有HTML结构）
-          if (modifiedText !== textContent) {
-            // 使用 text() 方法设置纯文本，避免破坏HTML结构
-            $mesText.text(modifiedText);
+          if (restoredCount > 0) {
+            console.info(`[DICE]已恢复 ${restoredCount} 条消息的投骰结果`);
           }
         } catch (e) {
-          console.warn(`[ACU] 隐藏第 ${msg.message_id} 楼投骰结果失败:`, e);
+          // 首次启动时聊天可能未完全加载，静默处理所有错误
+          // 避免在控制台显示不必要的警告信息
         }
-      });
+        return;
+      }
+
+      // 隐藏模式：处理已存在的消息
+      try {
+        const lastMessageId = getLastMessageId();
+        if (lastMessageId < 0) return;
+
+        const userMessages = getChatMessages(`0-${lastMessageId}`, { role: 'user' });
+
+        userMessages.forEach(msg => {
+          try {
+            const $msgElement = retrieveDisplayedMessage(msg.message_id);
+            if (!$msgElement || !$msgElement.length) return;
+
+            const $mesText = $msgElement.find('.mes_text');
+            if (!$mesText || !$mesText.length) return;
+
+            // 获取原始文本内容
+            let textContent = $mesText.text();
+            // 如果已经是占位符，跳过
+            if (textContent.includes('[投骰结果已隐藏]')) {
+              return;
+            }
+
+            let modifiedText = textContent;
+
+            // 先处理对抗检定（优先级更高，格式更长）
+            // 每次使用新的正则实例，避免全局正则的 lastIndex 副作用
+            const contestRegex =
+              /进行了一次【[^】]+ vs [^】]+】的对抗检定。.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】；.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】。最终结果：【[^】]+】/g;
+            if (contestRegex.test(modifiedText)) {
+              modifiedText = modifiedText.replace(contestRegex, '[投骰结果已隐藏]');
+            }
+
+            // 再处理普通检定（使用新的正则实例）
+            const normalRegex = /[\u4e00-\u9fa5a-zA-Z<>]+发起了【[^】]+】检定，掷出\d+，[^【]*【[^】]+】/g;
+            if (normalRegex.test(modifiedText)) {
+              modifiedText = modifiedText.replace(normalRegex, '[投骰结果已隐藏]');
+            }
+
+            // 如果有匹配，更新显示内容（只修改文本，保持原有HTML结构）
+            if (modifiedText !== textContent) {
+              // 使用 text() 方法设置纯文本，避免破坏HTML结构
+              $mesText.text(modifiedText);
+            }
+          } catch (e) {
+            console.warn(`[DICE]ACU 隐藏第 ${msg.message_id} 楼投骰结果失败:`, e);
+          }
+        });
+      } catch (e) {
+        // [修复] 只有在启用隐藏功能时才显示错误，避免在未启用时显示不必要的警告
+        if (shouldHide) {
+          console.warn('[DICE]ACU 隐藏投骰结果失败:', e);
+        }
+      }
     } catch (e) {
-      console.warn('[ACU] 隐藏投骰结果失败:', e);
+      // [修复] 最外层错误处理，静默处理配置获取失败等错误
+      // 避免在未启用隐藏功能时显示错误
+      const diceCfg = getDiceConfig();
+      if (diceCfg && diceCfg.hideDiceResultFromUser) {
+        console.warn('[DICE]ACU 隐藏投骰结果失败:', e);
+      }
     }
   };
 
@@ -4305,10 +4355,10 @@
           Store.set(STORAGE_KEY_ACTIVE_ATTR_PRESET, finalId);
           // 清除缓存，确保下次获取时是最新的
           _cache = null;
-          console.log('[AttributePresetManager] 切换预设:', finalId);
+          console.log('[DICE]AttributePresetManager 切换预设:', finalId);
           return true;
         } catch (err) {
-          console.error('[AttributePresetManager] 设置预设失败:', err);
+          console.error('[DICE]AttributePresetManager 设置预设失败:', err);
           return false;
         }
       },
@@ -4325,7 +4375,7 @@
         stored.push(newPreset);
         Store.set(STORAGE_KEY_ATTRIBUTE_PRESETS, stored);
         _cache = null;
-        console.log('[AttributePresetManager] 创建预设:', newPreset.name);
+        console.log('[DICE]AttributePresetManager 创建预设:', newPreset.name);
         return newPreset;
       },
 
@@ -4337,7 +4387,7 @@
         stored[index] = { ...stored[index], ...updates };
         Store.set(STORAGE_KEY_ATTRIBUTE_PRESETS, stored);
         _cache = null;
-        console.log('[AttributePresetManager] 更新预设:', id);
+        console.log('[DICE]AttributePresetManager 更新预设:', id);
         return true;
       },
 
@@ -4352,7 +4402,7 @@
         if (Store.get(STORAGE_KEY_ACTIVE_ATTR_PRESET) === id) {
           Store.set(STORAGE_KEY_ACTIVE_ATTR_PRESET, null);
         }
-        console.log('[AttributePresetManager] 删除预设:', id);
+        console.log('[DICE]AttributePresetManager 删除预设:', id);
         return true;
       },
 
@@ -4394,7 +4444,7 @@
 
           return this.createPreset(imported);
         } catch (e) {
-          console.error('[AttributePresetManager] 导入失败:', e);
+          console.error('[DICE]AttributePresetManager 导入失败:', e);
           return null;
         }
       },
@@ -4474,7 +4524,7 @@
 
     // 3. 安全性检查：只允许数字和基本运算符
     if (!/^[\d\s+\-*/().]+$/.test(expr)) {
-      console.warn('[evaluateFormula] 公式包含非法字符:', formula, '→', expr);
+      console.warn('[DICE]evaluateFormula 公式包含非法字符:', formula, '→', expr);
       return 0;
     }
 
@@ -4484,7 +4534,7 @@
       const result = new Function(`return (${expr})`)();
       return Math.round(result); // 四舍五入为整数
     } catch (e) {
-      console.error('[evaluateFormula] 公式计算失败:', formula, '→', expr, e);
+      console.error('[DICE]evaluateFormula 公式计算失败:', formula, '→', expr, e);
       return 0;
     }
   };
@@ -4651,11 +4701,15 @@
     // 根据配置查找表
     findTable(allTables, moduleKey) {
       const config = DASHBOARD_TABLE_CONFIG[moduleKey];
-      if (!config) return null;
+      if (!config) {
+        console.info(`[DICE]仪表盘查找表格: 模块"${moduleKey}"配置不存在`);
+        return null;
+      }
 
       for (const keyword of config.tableKeywords) {
         for (const tableName in allTables) {
           if (tableName.includes(keyword)) {
+            console.info(`[DICE]仪表盘查找表格: 模块"${moduleKey}"找到表格"${tableName}" (关键词: "${keyword}")`);
             return {
               data: allTables[tableName],
               name: tableName,
@@ -4665,6 +4719,7 @@
           }
         }
       }
+      console.info(`[DICE]仪表盘查找表格: 模块"${moduleKey}"未找到匹配表格 (关键词: ${config.tableKeywords.join(', ')})`);
       return null;
     },
 
@@ -4706,14 +4761,17 @@
 
     // 解析表格数据为结构化对象数组
     parseRows(tableResult, moduleKey) {
-      if (!tableResult || !tableResult.data) return [];
+      if (!tableResult || !tableResult.data) {
+        console.info(`[DICE]仪表盘解析数据: 模块"${moduleKey}"无数据，跳过解析`);
+        return [];
+      }
 
       const { data, config } = tableResult;
       const headers = data.headers || [];
       const rows = data.rows || [];
       const colMap = this.getColumnMap(headers, moduleKey);
 
-      return rows.map((row, idx) => {
+      const parsed = rows.map((row, idx) => {
         const obj = { _rowIndex: idx, _raw: row };
         for (const colKey in colMap) {
           const colIdx = colMap[colKey];
@@ -4721,6 +4779,9 @@
         }
         return obj;
       });
+      
+      console.info(`[DICE]仪表盘解析数据: 模块"${moduleKey}"解析完成，共${parsed.length}行`);
+      return parsed;
     },
 
     // 应用过滤器（容错：当目标列不存在时返回全部数据）
@@ -5566,7 +5627,7 @@
     const saved = localStorage.getItem(STORAGE_KEY_SCROLL);
     if (saved) tableScrollStates = JSON.parse(saved);
   } catch (e) {
-    console.warn('[ACU] Error:', e);
+    console.warn('[DICE]ACU Error:', e);
   }
   // [优化] 智能更新控制器：后端数据变动时，自动更新快照
   const UpdateController = {
@@ -5586,18 +5647,29 @@
           const violations = ValidationEngine.checkTableRules(snapshot, newData, rules);
 
           if (violations.length > 0) {
-            console.warn('[ACU] 规则拦截触发，执行回滚:', violations);
+            console.warn('[DICE]ACU 规则拦截触发，执行回滚:', violations);
             UpdateController._isRollingBack = true;
 
             // 获取 API 并回滚
             const api = getCore().getDB();
             if (api?.fillTable) {
-              api.fillTable(snapshot);
-              if (window.toastr) {
-                window.toastr.error(violations[0].message, '已回滚', {
-                  timeOut: 5000,
-                  positionClass: 'toast-bottom-right',
-                });
+              try {
+                api.fillTable(snapshot);
+                if (window.toastr) {
+                  window.toastr.error(violations[0].message, '已回滚', {
+                    timeOut: 5000,
+                    positionClass: 'toast-bottom-right',
+                  });
+                }
+              } catch (fillError) {
+                console.error('[DICE]ACU fillTable 回滚失败:', fillError);
+                // 回滚失败时仍然显示规则拦截提示
+                if (window.toastr) {
+                  window.toastr.error(`规则拦截: ${violations[0].message}（回滚操作失败，请手动刷新）`, '错误', {
+                    timeOut: 7000,
+                    positionClass: 'toast-bottom-right',
+                  });
+                }
               }
             }
 
@@ -5608,7 +5680,7 @@
           }
         }
       } catch (e) {
-        console.error('[ACU] 拦截检查失败:', e);
+        console.error('[DICE]ACU 拦截检查失败:', e);
       }
 
       // 直接触发渲染，让 renderInterface 内部处理数据获取和差异计算
@@ -5634,7 +5706,7 @@
             updateValidationIndicator(newCount);
           }
         } catch (e) {
-          console.error('[ACU] 验证执行失败:', e);
+          console.error('[DICE]ACU 验证执行失败:', e);
         }
       }, 100);
     },
@@ -5671,7 +5743,7 @@
         return window.parent.SillyTavern.getCurrentChatId();
       }
     } catch (e) {
-      console.warn('[ACU] getCurrentContextFingerprint error:', e);
+      console.warn('[DICE]ACU getCurrentContextFingerprint error:', e);
     }
     return 'unknown_context';
   };
@@ -5823,7 +5895,7 @@
       } catch (e) {
         // 捕获存储空间已满错误
         if (e.name === 'QuotaExceededError' || e.message.includes('quota')) {
-          console.warn('[ACU] 存储空间已满，触发静默清理策略...');
+          console.warn('[DICE]ACU 存储空间已满，触发静默清理策略...');
           try {
             // 1. 优先删除最占空间的“数据快照” (不影响功能，只会导致下次刷新暂时没有蓝色高亮)
             localStorage.removeItem(STORAGE_KEY_LAST_SNAPSHOT);
@@ -5832,7 +5904,7 @@
             localStorage.setItem(key, JSON.stringify(val));
           } catch (retryErr) {
             // 如果清理后还是存不下，才弹窗打扰用户
-            console.error('[ACU Store] 清理后依然失败', retryErr);
+            console.error('[DICE]ACU Store 清理后依然失败', retryErr);
             if (window.toastr && !window._acuQuotaAlerted) {
               window.toastr.warning('⚠️ 浏览器存储空间严重不足，配置保存失败');
               window._acuQuotaAlerted = true;
@@ -5840,7 +5912,7 @@
             }
           }
         } else {
-          console.error('[ACU Store]', e);
+          console.error('[DICE]ACU Store', e);
         }
       }
     },
@@ -5909,7 +5981,7 @@
       list.push(tableName);
     }
     saveReverseTables(list);
-    console.log('[ACU] toggleTableReverse:', tableName, 'reversed:', idx < 0);
+    console.log('[DICE]ACU toggleTableReverse:', tableName, 'reversed:', idx < 0);
   };
   // [新增] 根据角色名获取属性列表
   const getAttributesForCharacter = characterName => {
@@ -6137,7 +6209,7 @@
 
       return Array.from(allAttrs);
     } catch (err) {
-      console.error('[ACU] getRandomSkillPool 错误:', err);
+      console.error('[DICE]ACU getRandomSkillPool 错误:', err);
       return RANDOM_SKILL_POOL || [];
     }
   };
@@ -6446,7 +6518,7 @@
   const clearPresetAttributesForCharacter = async charName => {
     const rawData = cachedRawData || getTableData();
     if (!rawData) {
-      console.error('[ACU] clearPresetAttributesForCharacter: 无法获取表格数据');
+      console.error('[DICE]ACU clearPresetAttributesForCharacter: 无法获取表格数据');
       if (window.toastr) window.toastr.error('无法获取表格数据');
       return { success: false };
     }
@@ -6544,13 +6616,13 @@
 
     // 验证是否找到目标
     if (!targetSheet || targetRowIndex < 0) {
-      console.error('[ACU] clearPresetAttributesForCharacter: 找不到角色', charName);
+      console.error('[DICE]ACU clearPresetAttributesForCharacter: 找不到角色', charName);
       if (window.toastr) window.toastr.error(`找不到角色「${charName || '<user>'}」`);
       return { success: false };
     }
 
     if (targetColIndex < 0) {
-      console.error('[ACU] clearPresetAttributesForCharacter: 找不到属性列');
+      console.error('[DICE]ACU clearPresetAttributesForCharacter: 找不到属性列');
       if (window.toastr) window.toastr.error('找不到属性列');
       return { success: false };
     }
@@ -6588,7 +6660,7 @@
   const writeAttributesToCharacter = async (charName, newAttrs, isDND = false) => {
     const rawData = cachedRawData || getTableData();
     if (!rawData) {
-      console.error('[ACU] writeAttributesToCharacter: 无法获取表格数据');
+      console.error('[DICE]ACU writeAttributesToCharacter: 无法获取表格数据');
       if (window.toastr) window.toastr.error('无法获取表格数据');
       return { success: false };
     }
@@ -6687,13 +6759,13 @@
 
     // 验证是否找到目标
     if (!targetSheet || targetRowIndex < 0) {
-      console.error('[ACU] writeAttributesToCharacter: 找不到角色', charName);
+      console.error('[DICE]ACU writeAttributesToCharacter: 找不到角色', charName);
       if (window.toastr) window.toastr.error(`找不到角色「${charName || '<user>'}」`);
       return { success: false };
     }
 
     if (targetColIndex < 0) {
-      console.error('[ACU] writeAttributesToCharacter: 找不到属性列');
+      console.error('[DICE]ACU writeAttributesToCharacter: 找不到属性列');
       if (window.toastr) window.toastr.error('找不到属性列（需要包含"属性"关键词的列）');
       return { success: false };
     }
@@ -7209,6 +7281,7 @@
 
       saveDiceConfig(newCfg);
       // 保存后立即应用隐藏逻辑
+      console.info('[DICE]应用投骰结果隐藏/显示设置...');
       hideDiceResultsInUserMessages();
       closePanel();
     });
@@ -7510,13 +7583,13 @@
         // [修复] 临时禁用更新处理器，防止闪烁
         const originalHandler = UpdateController.handleUpdate;
         UpdateController.handleUpdate = () => {
-          console.log('[ACU] 属性生成中，跳过自动刷新');
+          console.log('[DICE]ACU 属性生成中，跳过自动刷新');
         };
 
         try {
           const charName = panel.find('#dice-initiator-name').val().trim() || '<user>';
 
-          console.log('[ACU] 生成属性 for:', charName);
+          console.log('[DICE]ACU 生成属性 for:', charName);
 
           // 生成属性（使用激活的预设）
           const generated = generateRPGAttributes();
@@ -7536,7 +7609,7 @@
             buildAttrButtons(charName);
           }
         } catch (err) {
-          console.error('[ACU] 生成属性失败:', err);
+          console.error('[DICE]ACU 生成属性失败:', err);
           if (window.toastr) window.toastr.error('生成属性失败');
         } finally {
           // [修复] 恢复更新处理器
@@ -7567,11 +7640,11 @@
         // 临时禁用更新处理器
         const originalHandler = UpdateController.handleUpdate;
         UpdateController.handleUpdate = () => {
-          console.log('[ACU] 清空属性中，跳过自动刷新');
+          console.log('[DICE]ACU 清空属性中，跳过自动刷新');
         };
 
         try {
-          console.log('[ACU] 清空属性 for:', charName);
+          console.log('[DICE]ACU 清空属性 for:', charName);
 
           const result = await clearPresetAttributesForCharacter(charName);
 
@@ -7580,7 +7653,7 @@
             buildAttrButtons(charName);
           }
         } catch (err) {
-          console.error('[ACU] 清空属性失败:', err);
+          console.error('[DICE]ACU 清空属性失败:', err);
           if (window.toastr) window.toastr.error('清空属性失败');
         } finally {
           // 恢复更新处理器
@@ -8552,7 +8625,7 @@
         // [修复] 临时禁用更新处理器，防止闪烁
         const originalHandler = UpdateController.handleUpdate;
         UpdateController.handleUpdate = () => {
-          console.log('[ACU] 对抗属性生成中，跳过自动刷新');
+          console.log('[DICE]ACU 对抗属性生成中，跳过自动刷新');
         };
 
         try {
@@ -8569,7 +8642,7 @@
             return;
           }
 
-          console.log('[ACU] 对抗面板生成属性 for:', charName, 'type:', type);
+          console.log('[DICE]ACU 对抗面板生成属性 for:', charName, 'type:', type);
 
           // 生成属性（使用激活的预设）
           const generated = generateRPGAttributes();
@@ -8590,7 +8663,7 @@
             rebuildAttrBtns(refreshedAttrs, type);
           }
         } catch (err) {
-          console.error('[ACU] 对抗面板生成属性失败:', err);
+          console.error('[DICE]ACU 对抗面板生成属性失败:', err);
           if (window.toastr) window.toastr.error('生成属性失败');
         } finally {
           // [修复] 恢复更新处理器
@@ -8634,11 +8707,11 @@
         // 临时禁用更新处理器
         const originalHandler = UpdateController.handleUpdate;
         UpdateController.handleUpdate = () => {
-          console.log('[ACU] 清空属性中，跳过自动刷新');
+          console.log('[DICE]ACU 清空属性中，跳过自动刷新');
         };
 
         try {
-          console.log('[ACU] 对抗面板清空属性 for:', charName, 'type:', type);
+          console.log('[DICE]ACU 对抗面板清空属性 for:', charName, 'type:', type);
 
           const result = await clearPresetAttributesForCharacter(charName);
 
@@ -8648,7 +8721,7 @@
             rebuildAttrBtns(refreshedAttrs, type);
           }
         } catch (err) {
-          console.error('[ACU] 对抗面板清空属性失败:', err);
+          console.error('[DICE]ACU 对抗面板清空属性失败:', err);
           if (window.toastr) window.toastr.error('清空属性失败');
         } finally {
           // 恢复更新处理器
@@ -9099,6 +9172,7 @@
 
   // 人物关系图可视化
   const showRelationshipGraph = npcTable => {
+    console.info('[DICE]开始抓取人物关系表数据...');
     const { $ } = getCore();
     $('.acu-relation-graph-overlay').remove();
 
@@ -9112,7 +9186,10 @@
     const relationIdx = headers.findIndex(h => h && h.includes('人际关系'));
     const npcTableKey = npcTable.key || '';
 
+    console.info(`[DICE]人物关系表查找: 表格"${npcTableKey || '未知'}"，共${rows.length}行数据`);
+
     if (relationIdx < 0) {
+      console.warn('[DICE]人物关系表查找: 未找到"人际关系"列');
       if (window.toastr) window.toastr.warning('未找到"人际关系"列');
       return;
     }
@@ -9467,6 +9544,7 @@
     });
 
     const nodeArr = Array.from(nodes.values());
+    console.info(`[DICE]人物关系表数据抓取完成，共${nodeArr.length}个节点，${edges.length}条边`);
     const centerX = 400,
       centerY = 300;
 
@@ -9560,9 +9638,8 @@
           layoutData[node.name] = { x: node.x, y: node.y };
         });
         localStorage.setItem(cacheKey, JSON.stringify(layoutData));
-        console.log('[关系图] 布局已保存到缓存');
       } catch (e) {
-        console.warn('[关系图] 保存布局缓存失败:', e);
+        console.warn('[DICE]关系图 保存布局缓存失败:', e);
       }
     };
 
@@ -9595,12 +9672,11 @@
               node.vy = 0;
             }
           });
-          console.log('[关系图] 已从缓存加载布局');
           return true;
         }
         return false;
       } catch (e) {
-        console.warn('[关系图] 加载布局缓存失败:', e);
+        console.warn('[DICE]关系图 加载布局缓存失败:', e);
         return false;
       }
     };
@@ -9610,9 +9686,8 @@
       try {
         const cacheKey = getLayoutCacheKey();
         localStorage.removeItem(cacheKey);
-        console.log('[关系图] 布局缓存已清除');
       } catch (e) {
-        console.warn('[关系图] 清除布局缓存失败:', e);
+        console.warn('[DICE]关系图 清除布局缓存失败:', e);
       }
     };
 
@@ -10500,47 +10575,6 @@
     const $nodeSizeDisplayTrigger = overlay.find('#node-size-display-trigger');
     const $legend = overlay.find('.acu-graph-legend');
 
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        location: 'index.ts:9508',
-        message: '元素选择器检查',
-        data: {
-          nodeSizeSliderLen: $nodeSizeSlider.length,
-          sliderContainerLen: $sliderContainer.length,
-          nodeSizeDisplayTriggerLen: $nodeSizeDisplayTrigger.length,
-          legendLen: $legend.length,
-        },
-        timestamp: Date.now(),
-        sessionId: 'debug-session',
-        hypothesisId: 'B',
-      }),
-    }).catch(() => {});
-    // #endregion
-
-    // #region agent log - 在legend区域添加全局点击监听用于调试
-    $legend.on('click', function (e) {
-      fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          location: 'index.ts:legend-click',
-          message: 'legend区域点击',
-          data: {
-            targetId: (e.target as HTMLElement).id,
-            targetClass: (e.target as HTMLElement).className,
-            targetTagName: (e.target as HTMLElement).tagName,
-          },
-          timestamp: Date.now(),
-          sessionId: 'debug-session',
-          hypothesisId: 'C',
-        }),
-      }).catch(() => {});
-    });
-    // #endregion
-
     let sliderVisible = false;
     let sliderHideTimer: ReturnType<typeof setTimeout> | null = null;
     const SLIDER_AUTO_HIDE_DELAY = 4000; // 4秒无操作自动隐藏
@@ -10561,27 +10595,6 @@
       // 使用getBoundingClientRect获取相对于viewport的位置
       const triggerRect = $nodeSizeDisplayTrigger[0].getBoundingClientRect();
       const wrapperRect = $wrapper[0].getBoundingClientRect();
-
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          location: 'index.ts:showSlider',
-          message: '位置计算',
-          data: {
-            triggerTop: triggerRect.top,
-            triggerBottom: triggerRect.bottom,
-            wrapperTop: wrapperRect.top,
-            wrapperBottom: wrapperRect.bottom,
-            wrapperHeight: wrapperRect.height,
-          },
-          timestamp: Date.now(),
-          sessionId: 'debug-session',
-          hypothesisId: 'D',
-        }),
-      }).catch(() => {});
-      // #endregion
 
       // 修复：滑条应该显示在wrapper底部附近，在trigger上方
       const sliderHeight = 60; // 估算滑条高度
@@ -10622,42 +10635,7 @@
     };
 
     // 点击"节点"文字切换滑条显示/隐藏（使用事件委托确保可靠触发）
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        location: 'index.ts:9571',
-        message: '事件委托绑定执行',
-        data: {
-          overlayExists: overlay.length > 0,
-          triggerExists: overlay.find('#node-size-display-trigger').length > 0,
-        },
-        timestamp: Date.now(),
-        sessionId: 'debug-session',
-        hypothesisId: 'A',
-      }),
-    }).catch(() => {});
-    // #endregion
     overlay.on('click', '#node-size-display-trigger, #node-size-display-trigger *', function (e) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          location: 'index.ts:9572',
-          message: '节点点击事件触发',
-          data: {
-            sliderVisible,
-            targetId: (e.target as HTMLElement).id,
-            targetClass: (e.target as HTMLElement).className,
-          },
-          timestamp: Date.now(),
-          sessionId: 'debug-session',
-          hypothesisId: 'B',
-        }),
-      }).catch(() => {});
-      // #endregion
       e.stopPropagation();
       if (sliderVisible) {
         hideSlider();
@@ -10822,10 +10800,6 @@
       // 重新运行物理模拟
       runForceDirectedLayout();
       render();
-
-      if (window.toastr) {
-        window.toastr.success('布局已重新计算');
-      }
     });
 
     overlay.find('#graph-manage-avatar').click(() => {
@@ -11083,7 +11057,7 @@
           updateImageStyle();
         }
       } catch (err) {
-        console.error('[ACU] 重新上传失败:', err);
+        console.error('[DICE]ACU 重新上传失败:', err);
         if (window.toastr) window.toastr.error('上传失败');
       }
 
@@ -11390,7 +11364,7 @@
             });
           }
         } catch (err) {
-          console.error('[ACU] 上传头像失败:', err);
+          console.error('[DICE]ACU 上传头像失败:', err);
           if (window.toastr) window.toastr.error('上传失败');
         }
 
@@ -11485,7 +11459,7 @@
               onUpdate && onUpdate();
             });
           } catch (err) {
-            console.error('[ACU] 导入解析失败:', err);
+            console.error('[DICE]ACU 导入解析失败:', err);
             if (window.toastr) window.toastr.error('文件解析失败');
           }
         };
@@ -11609,7 +11583,7 @@
         closeDialog();
         onComplete && onComplete();
       } catch (err) {
-        console.error('[ACU] 导入失败:', err);
+        console.error('[DICE]ACU 导入失败:', err);
         if (window.toastr) window.toastr.error('导入失败：' + err.message);
       }
     });
@@ -11702,8 +11676,14 @@
           }
         });
         if (hasChanges) {
-          await saveDataToDatabase(rawData, false, true); // 触发 v8.4 的保存流程
-          renderInterface();
+          try {
+            await saveDataToDatabase(rawData, false, true); // 触发 v8.4 的保存流程
+            renderInterface();
+          } catch (e) {
+            console.error('[DICE]ACU 保存失败:', e);
+            // 保存失败时不关闭对话框，让用户重试
+            return;
+          }
         }
       }
       closeDialog();
@@ -14126,6 +14106,25 @@
             .acu-toggle input:checked + .acu-toggle-slider:before {
                 transform: translateX(20px);
             }
+            /* Debug控制台过滤样式 - 增加优先级防止被酒馆样式覆盖 */
+            .acu-debug-console-dialog .acu-debug-filter,
+            .acu-debug-console-dialog label input.acu-debug-filter {
+                cursor: pointer !important;
+                width: auto !important;
+                height: auto !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                appearance: checkbox !important;
+                -webkit-appearance: checkbox !important;
+                -moz-appearance: checkbox !important;
+            }
+            .acu-debug-console-dialog label {
+                display: flex !important;
+                align-items: center !important;
+                gap: 4px !important;
+                cursor: pointer !important;
+                font-size: 12px !important;
+            }
             .acu-setting-action-btn {
                 width: 100%;
                 padding: 10px 14px;
@@ -15101,11 +15100,29 @@
 
   const getTableData = () => {
     const api = getCore().getDB();
-    return api && api.exportTableAsJson ? api.exportTableAsJson() : null;
+    if (!api || !api.exportTableAsJson) {
+      console.warn('[DICE]数据库 API 不可用，无法获取表格数据');
+      return null;
+    }
+    try {
+      const data = api.exportTableAsJson();
+      if (data) {
+        const sheetCount = Object.keys(data).filter(k => k.startsWith('sheet_')).length;
+        console.info(`[DICE]已加载表格数据，包含 ${sheetCount} 个工作表`);
+      }
+      return data;
+    } catch (e) {
+      console.error('[DICE]获取表格数据失败:', e);
+      return null;
+    }
   };
 
   const saveDataToDatabase = async (tableData, skipRender = false, commitDeletes = false) => {
-    if (isSaving) return; // 简单的防重入
+    if (isSaving) {
+      console.warn('[DICE]保存操作正在进行中，跳过重复请求');
+      return; // 简单的防重入
+    }
+    console.info('[DICE]开始保存数据到数据库...');
     isSaving = true;
     const { $ } = getCore();
     const $saveBtn = $('#acu-btn-save-global');
@@ -15144,27 +15161,78 @@
         savePendingDeletions({});
       }
 
-      // 3. 直接调用 API 保存 (无中间商赚差价)
-      const api = getCore().getDB();
-      if (api && api.importTableAsJson) {
-        await api.importTableAsJson(JSON.stringify(dataToSave));
+      // 3. 验证数据并序列化
+      let jsonString;
+      try {
+        jsonString = JSON.stringify(dataToSave);
+        // 检查数据大小（约 10MB 限制）
+        const sizeInMB = new Blob([jsonString]).size / (1024 * 1024);
+        if (sizeInMB > 10) {
+          throw new Error(`数据太大 (${sizeInMB.toFixed(2)}MB)，超过 10MB 限制`);
+        }
+        console.info(`[DICE]数据序列化完成，大小: ${sizeInMB.toFixed(2)}MB`);
+      } catch (stringifyError) {
+        console.error('[DICE]ACU JSON 序列化失败:', stringifyError);
+        throw new Error(`数据序列化失败: ${stringifyError.message || stringifyError}`);
       }
 
-      // 4. 更新本地状态
+      // 4. 直接调用 API 保存 (无中间商赚差价)
+      const api = getCore().getDB();
+      if (!api || !api.importTableAsJson) {
+        throw new Error('数据库 API 不可用');
+      }
+
+      try {
+        // 调用 importTableAsJson，它内部会调用 saveChat()
+        // 如果 saveChat() 失败，可能会抛出错误或显示 "Settings could not be saved" 提示
+        const result = await api.importTableAsJson(jsonString);
+        // 检查返回值，某些实现可能返回 false 表示失败
+        if (result === false) {
+          throw new Error('数据导入失败（返回 false）');
+        }
+        console.info('[DICE]数据已成功保存到数据库');
+      } catch (apiError) {
+        console.error('[DICE]ACU API 保存失败:', apiError);
+        // 检查是否是 "Settings could not be saved" 相关的错误
+        const errorMsg = apiError.message || String(apiError);
+        if (
+          errorMsg.includes('Settings could not be saved') ||
+          errorMsg.includes('server connection') ||
+          errorMsg.includes('data loss')
+        ) {
+          throw new Error('保存失败：服务器连接问题或数据过大，请检查网络连接或减少数据量');
+        }
+        throw new Error(`保存到数据库失败: ${errorMsg}`);
+      }
+
+      // 5. 更新本地状态
       cachedRawData = dataToSave;
       saveSnapshot(dataToSave);
       hasUnsavedChanges = false;
       currentDiffMap = new Set();
       if (window.acuModifiedSet) window.acuModifiedSet.clear();
+      console.info('[DICE]本地状态已更新，未保存更改已清除');
 
       if (!skipRender) {
         renderInterface();
       }
     } catch (e) {
-      console.error('Save error:', e);
-      if (window.toastr) window.toastr.error('保存出错');
+      const errorMessage = e.message || '保存出错，请检查数据格式和大小';
+      console.error('[DICE]保存数据失败:', {
+        error: e,
+        message: errorMessage,
+        stack: e.stack,
+      });
+      if (window.toastr) {
+        window.toastr.error(errorMessage, '保存失败', { timeOut: 5000 });
+      } else {
+        alert(`保存失败: ${errorMessage}`);
+      }
+      // 重新抛出错误以便上层处理
+      throw e;
     } finally {
       isSaving = false;
+      console.info('[DICE]保存操作完成');
       if (!skipRender && $saveBtn.length) {
         $saveBtn.find('i').removeClass('fa-spinner fa-spin').addClass('fa-save');
         $saveBtn.prop('disabled', false);
@@ -15185,15 +15253,52 @@
         }
       });
 
+      // 验证数据并序列化
+      let jsonString;
+      try {
+        jsonString = JSON.stringify(dataToSave);
+        // 检查数据大小（约 10MB 限制）
+        const sizeInMB = new Blob([jsonString]).size / (1024 * 1024);
+        if (sizeInMB > 10) {
+          throw new Error(`数据太大 (${sizeInMB.toFixed(2)}MB)，超过 10MB 限制`);
+        }
+      } catch (stringifyError) {
+        console.error('[DICE]ACU JSON 序列化失败:', stringifyError);
+        throw new Error(`数据序列化失败: ${stringifyError.message || stringifyError}`);
+      }
+
       const api = getCore().getDB();
-      if (api && api.importTableAsJson) {
-        await api.importTableAsJson(JSON.stringify(dataToSave));
+      if (!api || !api.importTableAsJson) {
+        throw new Error('数据库 API 不可用');
+      }
+
+      try {
+        // 调用 importTableAsJson，它内部会调用 saveChat()
+        const result = await api.importTableAsJson(jsonString);
+        // 检查返回值，某些实现可能返回 false 表示失败
+        if (result === false) {
+          throw new Error('数据导入失败（返回 false）');
+        }
+      } catch (apiError) {
+        console.error('[DICE]ACU API 保存失败:', apiError);
+        // 检查是否是 "Settings could not be saved" 相关的错误
+        const errorMsg = apiError.message || String(apiError);
+        if (
+          errorMsg.includes('Settings could not be saved') ||
+          errorMsg.includes('server connection') ||
+          errorMsg.includes('data loss')
+        ) {
+          throw new Error('保存失败：服务器连接问题或数据过大，请检查网络连接或减少数据量');
+        }
+        throw new Error(`保存到数据库失败: ${errorMsg}`);
       }
 
       cachedRawData = dataToSave;
       // 注意：不调用 saveSnapshot()，不更新 hasUnsavedChanges
     } catch (e) {
-      console.error('[ACU] saveDataOnly error:', e);
+      console.error('[DICE]ACU saveDataOnly error:', e);
+      // 重新抛出错误以便上层处理
+      throw e;
     }
   };
   const processJsonData = json => {
@@ -15274,7 +15379,7 @@
         return String(rowIndex + 1).padStart(digits, '0');
       }
     } catch (e) {
-      console.error('[ACU] 格式推算失败:', e);
+      console.error('[DICE]ACU 格式推算失败:', e);
     }
 
     return null; // 无法推算，显示空输入框
@@ -16381,15 +16486,11 @@
         // 保存数据
         await saveDataToDatabase(rawData, false, false);
 
-        // 显示成功提示
-        if (window.toastr)
-          window.toastr.success(`已将 "${currentInvalidValue}" 写入到 "${rule.config.refTable}.${targetColumn}"`);
-
         // 关闭弹窗并重新渲染界面（会自动重新验证，所有相关错误会消失）
         closeDialog();
         renderInterface();
       } catch (e) {
-        console.error('[ACU] 反向写入失败:', e);
+        console.error('[DICE]ACU 反向写入失败:', e);
         if (window.toastr) window.toastr.error('反向写入失败: ' + (e.message || '未知错误'));
       }
     });
@@ -16446,7 +16547,7 @@
           if (window.toastr) window.toastr.error('无法找到目标单元格');
         }
       } catch (e) {
-        console.error('[ACU] 更新单元格失败:', e);
+        console.error('[DICE]ACU 更新单元格失败:', e);
         if (window.toastr) window.toastr.error('更新失败: ' + (e.message || '未知错误'));
       }
     });
@@ -17168,7 +17269,7 @@
         closeDialog();
         renderInterface();
       } catch (e) {
-        console.error('[ACU] 恢复表失败:', e);
+        console.error('[DICE]ACU 恢复表失败:', e);
         if (window.toastr) window.toastr.error('恢复失败: ' + (e.message || '未知错误'));
       }
     });
@@ -17264,12 +17365,6 @@
           await saveDataToDatabase(rawData, false, false);
           closeDialog();
           renderInterface();
-
-          if (window.toastr) {
-            window.toastr.success(
-              `已修复 ${tableName} ${fixedCount1} 处，${pairedTableName} ${fixedCount2} 处序列递增问题`,
-            );
-          }
         } else {
           // 原有的单表修复逻辑
           // 提取所有编码索引的数字部分
@@ -17317,13 +17412,9 @@
           await saveDataToDatabase(rawData, false, false);
           closeDialog();
           renderInterface();
-
-          if (window.toastr) {
-            window.toastr.success(`已修复 ${fixedCount} 处序列递增问题`);
-          }
         }
       } catch (e) {
-        console.error('[ACU] 修复序列递增失败:', e);
+        console.error('[DICE]ACU 修复序列递增失败:', e);
         if (window.toastr) window.toastr.error('修复失败: ' + (e.message || '未知错误'));
         $btn.prop('disabled', false).html('<i class="fa-solid fa-magic"></i> 自动修复');
       }
@@ -17347,7 +17438,7 @@
         closeDialog();
         renderInterface();
       } catch (e) {
-        console.error('[ACU] 删除行失败:', e);
+        console.error('[DICE]ACU 删除行失败:', e);
         if (window.toastr) window.toastr.error('删除失败: ' + (e.message || '未知错误'));
       }
     });
@@ -17517,8 +17608,6 @@
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-
-      if (window.toastr) window.toastr.success('预设已导出');
     });
 
     // 删除预设
@@ -17529,7 +17618,6 @@
       if (confirm(`确定要删除预设「${preset?.name}」吗？`)) {
         const success = AttributePresetManager.deletePreset(id);
         if (success) {
-          if (window.toastr) window.toastr.success('预设已删除');
           overlay.remove();
           showAttributePresetManager();
         } else {
@@ -17558,14 +17646,13 @@
         try {
           const imported = AttributePresetManager.importPreset(evt.target.result);
           if (imported) {
-            if (window.toastr) window.toastr.success(`预设「${imported.name}」导入成功`);
             overlay.remove();
             showAttributePresetManager();
           } else {
             if (window.toastr) window.toastr.error('导入失败：格式不正确');
           }
         } catch (err) {
-          console.error('[ACU] 导入预设失败:', err);
+          console.error('[DICE]ACU 导入预设失败:', err);
           if (window.toastr) window.toastr.error('导入失败');
         }
       };
@@ -17716,16 +17803,14 @@
         // 保存
         if (isEdit) {
           AttributePresetManager.updatePreset(presetId, preset);
-          if (window.toastr) window.toastr.success('预设已更新');
         } else {
           AttributePresetManager.createPreset(preset);
-          if (window.toastr) window.toastr.success('预设已创建');
         }
 
         overlay.remove();
         showAttributePresetManager();
       } catch (err) {
-        console.error('[ACU] 保存预设失败:', err);
+        console.error('[DICE]ACU 保存预设失败:', err);
         if (window.toastr) window.toastr.error('保存失败：' + (err.message || 'JSON格式错误'));
       }
     });
@@ -17738,6 +17823,297 @@
       }
     });
   };
+
+  // ========================================
+  // Debug控制台窗口
+  // ========================================
+  const showDebugConsoleModal = () => {
+    const { $ } = getCore();
+    $('.acu-edit-overlay').not(':has(.acu-debug-console-dialog)').remove();
+    const config = getConfig();
+    const currentThemeClass = `acu-theme-${config.theme}`;
+    const t = getThemeColors();
+
+    // 获取过滤状态（从localStorage读取）
+    const savedFilters = Store.get('acu_debug_filters', { log: true, info: true, warn: true, error: true });
+    ConsoleCaptureManager.setFilters(savedFilters);
+
+    const renderLogs = () => {
+      const filteredLogs = ConsoleCaptureManager.getFilteredLogs();
+      const $logContainer = dialog.find('.acu-debug-log-container');
+      $logContainer.empty();
+
+      if (filteredLogs.length === 0) {
+        $logContainer.html(
+          '<div style="text-align:center;padding:40px;color:var(--acu-text-sub);"><i class="fa-solid fa-inbox"></i><br/>暂无日志</div>',
+        );
+        return;
+      }
+
+      filteredLogs.forEach(log => {
+        const typeColors = {
+          error: '#e74c3c',
+          warn: '#f39c12',
+          info: '#3498db',
+          log: '#95a5a6',
+        };
+        const typeIcons = {
+          error: 'fa-exclamation-circle',
+          warn: 'fa-exclamation-triangle',
+          info: 'fa-info-circle',
+          log: 'fa-circle',
+        };
+        const color = typeColors[log.type] || typeColors.log;
+        const icon = typeIcons[log.type] || typeIcons.log;
+
+        const logItem = $(`
+          <div class="acu-debug-log-item" data-type="${log.type}" style="padding:8px 12px;border-bottom:1px solid var(--acu-border);font-family:monospace;font-size:12px;line-height:1.5;">
+            <div style="display:flex;align-items:flex-start;gap:8px;">
+              <span style="color:${color};min-width:60px;font-size:11px;">
+                <i class="fa-solid ${icon}"></i> [${log.timeStr}]
+              </span>
+              <span style="color:${color};min-width:50px;font-size:11px;text-transform:uppercase;">[${log.type}]</span>
+              <span style="flex:1;color:var(--acu-text-main);word-break:break-word;white-space:pre-wrap;">${escapeHtml(log.content)}</span>
+            </div>
+            ${log.stack ? `<div style="margin-top:4px;margin-left:128px;color:var(--acu-text-sub);font-size:11px;white-space:pre-wrap;font-family:monospace;">${escapeHtml(log.stack)}</div>` : ''}
+          </div>
+        `);
+        $logContainer.append(logItem);
+      });
+
+      // 自动滚动到底部
+      const $scrollContainer = dialog.find('.acu-debug-log-scroll');
+      $scrollContainer.scrollTop($scrollContainer[0].scrollHeight);
+    };
+
+    const dialog = $(`
+      <div class="acu-edit-overlay">
+        <div class="acu-edit-dialog acu-debug-console-dialog ${currentThemeClass}" style="max-width:90vw;max-height:90vh;width:800px;height:600px;display:flex;flex-direction:column;">
+          <div class="acu-settings-header" style="flex-shrink:0;">
+            <div class="acu-settings-title"><i class="fa-solid fa-bug"></i> Debug控制台</div>
+            <button class="acu-close-btn" id="debug-console-close"><i class="fa-solid fa-times"></i></button>
+          </div>
+
+          <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+            <!-- 工具栏 -->
+            <div style="padding:12px;border-bottom:1px solid var(--acu-border);flex-shrink:0;display:flex;flex-direction:column;gap:8px;">
+              <!-- Console抓取开关 -->
+              <div style="display:flex;align-items:center;gap:8px;padding-bottom:8px;border-bottom:1px solid var(--acu-border);">
+                <span style="font-size:12px;color:var(--acu-text-sub);flex:1;">Console抓取:</span>
+                <label class="acu-toggle">
+                  <input type="checkbox" id="debug-console-capture-toggle" ${ConsoleCaptureManager.enabled ? 'checked' : ''}>
+                  <span class="acu-toggle-slider"></span>
+                </label>
+                <span id="debug-console-capture-status" style="font-size:11px;color:var(--acu-text-sub);">${ConsoleCaptureManager.enabled ? '已启用' : '已关闭'}</span>
+              </div>
+              <!-- 过滤和操作按钮 -->
+              <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+                <div style="display:flex;gap:8px;align-items:center;flex:1;">
+                  <span style="font-size:12px;color:var(--acu-text-sub);">过滤:</span>
+                  <button class="acu-btn ${savedFilters.log ? 'acu-btn-primary' : 'acu-btn-secondary'}" data-filter-type="log" style="padding:4px 10px;font-size:12px;${savedFilters.log ? '' : 'opacity:0.5;'}">
+                    <span style="color:var(--acu-text-main);">Log</span>
+                  </button>
+                  <button class="acu-btn ${savedFilters.info ? 'acu-btn-primary' : 'acu-btn-secondary'}" data-filter-type="info" style="padding:4px 10px;font-size:12px;${savedFilters.info ? '' : 'opacity:0.5;'}">
+                    <span style="color:var(--acu-text-main);">Info</span>
+                  </button>
+                  <button class="acu-btn ${savedFilters.warn ? 'acu-btn-primary' : 'acu-btn-secondary'}" data-filter-type="warn" style="padding:4px 10px;font-size:12px;${savedFilters.warn ? '' : 'opacity:0.5;'}">
+                    <span style="color:var(--acu-text-main);">Warn</span>
+                  </button>
+                  <button class="acu-btn ${savedFilters.error ? 'acu-btn-primary' : 'acu-btn-secondary'}" data-filter-type="error" style="padding:4px 10px;font-size:12px;${savedFilters.error ? '' : 'opacity:0.5;'}">
+                    <span style="color:var(--acu-text-main);">Error</span>
+                  </button>
+                </div>
+                <div style="display:flex;gap:6px;">
+                  <button class="acu-btn acu-btn-secondary" id="debug-console-clear" style="padding:6px 12px;font-size:12px;">
+                    <i class="fa-solid fa-trash"></i> 清空
+                  </button>
+                  <button class="acu-btn acu-btn-secondary" id="debug-console-copy" style="padding:6px 12px;font-size:12px;">
+                    <i class="fa-solid fa-copy"></i> 复制
+                  </button>
+                  <button class="acu-btn acu-btn-primary" id="debug-console-export" style="padding:6px 12px;font-size:12px;">
+                    <i class="fa-solid fa-download"></i> 导出
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 日志显示区域 -->
+            <div class="acu-debug-log-scroll" style="flex:1;overflow-y:auto;overflow-x:hidden;background:var(--acu-card-bg);">
+              <div class="acu-debug-log-container"></div>
+            </div>
+
+            <!-- 底部状态栏 -->
+            <div style="padding:8px 12px;border-top:1px solid var(--acu-border);flex-shrink:0;font-size:11px;color:var(--acu-text-sub);display:flex;justify-content:space-between;">
+              <span>总计: <span id="debug-total-count">0</span> | 显示: <span id="debug-filtered-count">0</span></span>
+              <span>自动滚动: <i class="fa-solid fa-check" style="color:var(--acu-accent);"></i></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    `);
+
+    $('body').append(dialog);
+
+    // 更新计数
+    const updateCounts = () => {
+      const total = ConsoleCaptureManager.logs.length;
+      const filtered = ConsoleCaptureManager.getFilteredLogs().length;
+      dialog.find('#debug-total-count').text(total);
+      dialog.find('#debug-filtered-count').text(filtered);
+    };
+
+    // 初始渲染
+    renderLogs();
+    updateCounts();
+
+    // Console抓取开关
+    dialog.find('#debug-console-capture-toggle').on('change', function () {
+      const checked = $(this).is(':checked');
+      const $status = dialog.find('#debug-console-capture-status');
+      if (checked) {
+        ConsoleCaptureManager.enable();
+        $status.text('已启用');
+        // 添加启动日志
+        console.log('[DICE]Debug控制台抓取模式已开启');
+      } else {
+        ConsoleCaptureManager.disable();
+        $status.text('已关闭');
+      }
+    });
+
+    // 过滤选项变化
+    dialog.find('[data-filter-type]').on('click', function () {
+      const type = $(this).data('filter-type');
+      const isActive = $(this).hasClass('acu-btn-primary');
+      const newState = !isActive;
+
+      // 更新按钮样式
+      if (newState) {
+        $(this).removeClass('acu-btn-secondary').addClass('acu-btn-primary');
+        $(this).css('opacity', '1');
+      } else {
+        $(this).removeClass('acu-btn-primary').addClass('acu-btn-secondary');
+        $(this).css('opacity', '0.5');
+      }
+
+      // 更新过滤器
+      ConsoleCaptureManager.setFilters({ [type]: newState });
+      Store.set('acu_debug_filters', ConsoleCaptureManager.filters);
+      renderLogs();
+      updateCounts();
+    });
+
+    // 清空日志（直接清空，不弹窗）
+    dialog.find('#debug-console-clear').on('click', () => {
+      ConsoleCaptureManager.clear();
+      renderLogs();
+      updateCounts();
+    });
+
+    // 复制日志
+    dialog.find('#debug-console-copy').on('click', async () => {
+      const filteredLogs = ConsoleCaptureManager.getFilteredLogs();
+      if (filteredLogs.length === 0) {
+        if (window.toastr) window.toastr.warning('没有可复制的日志');
+        return;
+      }
+
+      const text = filteredLogs
+        .map(log => {
+          let line = `[${log.timeStr}] [${log.type.toUpperCase()}] ${log.content}`;
+          if (log.stack) {
+            line += '\n' + log.stack;
+          }
+          return line;
+        })
+        .join('\n');
+
+      try {
+        // 优先使用酒馆接口
+        if (window.TavernHelper && window.TavernHelper.triggerSlash) {
+          const safeContent = text.replace(/\"/g, '\\"').replace(/\}/g, '\\}');
+          await window.TavernHelper.triggerSlash(`/clipboard-set "${safeContent}"`);
+          return;
+        }
+        // 使用浏览器原生API
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          // 降级方案：使用execCommand
+          const textArea = document.createElement('textarea');
+          textArea.value = text;
+          textArea.style.position = 'fixed';
+          textArea.style.left = '-9999px';
+          textArea.style.top = '0';
+          textArea.setAttribute('readonly', '');
+          document.body.appendChild(textArea);
+          textArea.select();
+          textArea.setSelectionRange(0, 99999);
+          const successful = document.execCommand('copy');
+          document.body.removeChild(textArea);
+          if (!successful) {
+            throw new Error('execCommand failed');
+          }
+        }
+      } catch (err) {
+        console.error('[DICE]DebugConsole 复制失败:', err);
+        if (window.toastr) window.toastr.error('复制失败');
+      }
+    });
+
+    // 导出日志
+    dialog.find('#debug-console-export').on('click', () => {
+      const filteredLogs = ConsoleCaptureManager.getFilteredLogs();
+      if (filteredLogs.length === 0) {
+        if (window.toastr) window.toastr.warning('没有可导出的日志');
+        return;
+      }
+
+      const text = filteredLogs
+        .map(log => {
+          let line = `[${log.timeStr}] [${log.type.toUpperCase()}] ${log.content}`;
+          if (log.stack) {
+            line += '\n' + log.stack;
+          }
+          return line;
+        })
+        .join('\n\n');
+
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `debug-console-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+
+    // 关闭按钮
+    dialog.find('#debug-console-close, .acu-edit-overlay').on('click', function (e) {
+      if (e.target === this || $(e.target).closest('.acu-close-btn').length) {
+        dialog.remove();
+      }
+    });
+
+    // 定期刷新日志显示（实时模式）
+    // [已删除] 自动滚动功能，避免出错
+    const refreshInterval = setInterval(() => {
+      if (dialog.length && dialog.is(':visible')) {
+        renderLogs();
+        updateCounts();
+      }
+    }, 500);
+
+    // 窗口关闭时清理定时器
+    dialog.on('remove', () => {
+      clearInterval(refreshInterval);
+    });
+  };
+
+  // 暴露到全局，供紧急入口按钮调用
+  window.showDebugConsoleModal = showDebugConsoleModal;
 
   const showSettingsModal = () => {
     const { $ } = getCore();
@@ -17935,24 +18311,6 @@
                         </div>
                     </div>
 
-                    <!-- 投骰高级设置 -->
-                    <div class="acu-settings-group ${isGroupExpanded('attrRules') ? '' : 'collapsed'}" data-group="attrRules">
-                        <div class="acu-settings-group-title">
-                            <i class="fa-solid ${chevron('attrRules')} acu-group-chevron"></i>
-                            <i class="fa-solid fa-dice-d20"></i> 投骰高级设置
-                        </div>
-                        <div class="acu-settings-group-body">
-                            <div class="acu-setting-row">
-                                <div class="acu-setting-info">
-                                    <span class="acu-setting-label">管理属性规则</span>
-                                    <span class="acu-setting-hint">创建、编辑和管理属性规则预设</span>
-                                </div>
-                                <button id="cfg-attr-preset-manage" class="acu-setting-btn" style="padding: 6px 12px; background: ${t.btnBg}; border: 1px solid ${t.border}; border-radius: 4px; color: ${t.textMain}; cursor: pointer; font-size: 12px;">
-                                    <i class="fa-solid fa-cog"></i> 管理
-                                </button>
-                            </div>
-                        </div>
-                    </div>
 
                     <!-- 位置与交互 -->
                     <div class="acu-settings-group ${isGroupExpanded('position') ? '' : 'collapsed'}" data-group="position">
@@ -18107,6 +18465,32 @@
                             <button class="acu-add-rule-btn" id="btn-add-validation-rule">
                                 <i class="fa-solid fa-plus"></i> 添加自定义验证规则
                             </button>
+                        </div>
+                    </div>
+
+                    <!-- 高级设置 -->
+                    <div class="acu-settings-group ${isGroupExpanded('advanced') ? '' : 'collapsed'}" data-group="advanced">
+                        <div class="acu-settings-group-title">
+                            <i class="fa-solid ${chevron('advanced')} acu-group-chevron"></i>
+                            <i class="fa-solid fa-sliders-h"></i> 高级设置
+                        </div>
+                        <div class="acu-settings-group-body">
+                            <div class="acu-setting-row">
+                                <div class="acu-setting-info">
+                                    <span class="acu-setting-label"><i class="fa-solid fa-dice-d20"></i> 管理属性规则</span>
+                                </div>
+                                <button id="cfg-attr-preset-manage" class="acu-setting-btn" style="padding: 6px 12px; background: ${t.btnBg}; border: 1px solid ${t.border}; border-radius: 4px; color: ${t.textMain}; cursor: pointer; font-size: 12px;">
+                                    <i class="fa-solid fa-cog"></i> 管理
+                                </button>
+                            </div>
+                            <div class="acu-setting-row">
+                                <div class="acu-setting-info">
+                                    <span class="acu-setting-label"><i class="fa-solid fa-bug"></i> Debug控制台</span>
+                                </div>
+                                <button id="btn-open-debug-console" class="acu-setting-btn" style="padding: 6px 12px; background: ${t.btnBg}; border: 1px solid ${t.border}; border-radius: 4px; color: ${t.textMain}; cursor: pointer; font-size: 12px;">
+                                    <i class="fa-solid fa-terminal"></i> 打开
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -18621,6 +19005,15 @@
       showAddValidationRuleModal(dialog);
     });
 
+    // === Debug控制台 ===
+    dialog.find('#btn-open-debug-console').on('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      dialog.remove();
+      isSettingsOpen = false;
+      showDebugConsoleModal();
+    });
+
     // === 关闭 ===
     const closeDialog = () => {
       isSettingsOpen = false;
@@ -18633,9 +19026,36 @@
     });
   };
 
+  // [优化] 渲染防抖：避免短时间内多次渲染导致重复日志
+  let renderInterfaceTimer = null;
+  let renderInterfacePending = false;
+  
   const renderInterface = () => {
     // 设置面板打开时跳过重绘，防止事件丢失
-    if (isSettingsOpen) return;
+    if (isSettingsOpen) {
+      if (!renderInterfacePending) {
+        console.info('[DICE]设置面板打开中，跳过界面渲染');
+        renderInterfacePending = true;
+      }
+      return;
+    }
+    
+    // 防抖：如果已有待执行的渲染，取消它
+    if (renderInterfaceTimer) {
+      clearTimeout(renderInterfaceTimer);
+    }
+    
+    // 设置新的防抖定时器（50ms延迟，足够短以保持响应性，足够长以合并多次调用）
+    renderInterfaceTimer = setTimeout(() => {
+      renderInterfaceTimer = null;
+      renderInterfacePending = false;
+      _renderInterfaceImpl();
+    }, 50);
+  };
+  
+  // 实际的渲染实现函数
+  const _renderInterfaceImpl = () => {
+    console.info('[DICE]开始渲染界面...');
     const { $ } = getCore();
 
     // [修复] Observer 延迟创建保险 (带节流优化)
@@ -19099,7 +19519,7 @@
             }
           })
           .catch(err => {
-            console.error('[MvuModule] Error getting data:', err);
+            console.error('[DICE]MvuModule Error getting data:', err);
             // 错误时也刷新面板，显示错误状态
             $panel.html('<div class="acu-mvu-panel">' + MvuModule.renderPanel() + '</div>');
             MvuModule.bindEvents($panel);
@@ -19140,6 +19560,7 @@
         }
       }
     }, 0);
+    console.info('[DICE]界面渲染完成');
   };
 
   // [新增] 独立插入选项到最新气泡
@@ -19226,7 +19647,7 @@
               return;
             }
           } catch (err) {
-            console.warn('[ACU] TavernHelper 发送失败，尝试备用方案', err);
+            console.warn('[DICE]ACU TavernHelper 发送失败，尝试备用方案', err);
           }
         }
 
@@ -19244,9 +19665,9 @@
               await ST.executeSlashCommandsWithOptions('/trigger');
               return;
             }
-            console.warn('[ACU] ST接口 send 失败:', sendResult);
+            console.warn('[DICE]ACU ST接口 send 失败:', sendResult);
           } catch (err) {
-            console.warn('[ACU] ST接口失败，尝试按钮模拟', err);
+            console.warn('[DICE]ACU ST接口失败，尝试按钮模拟', err);
           }
         }
 
@@ -19764,7 +20185,7 @@
           }
           if (window.toastr) window.toastr.warning('无法找到对应的快照数据');
         } catch (err) {
-          console.error('[ACU] 恢复快照值失败:', err);
+          console.error('[DICE]ACU 恢复快照值失败:', err);
           if (window.toastr) window.toastr.error('恢复失败');
         }
       });
@@ -19796,7 +20217,7 @@
           };
           showSmartFixModal(error);
         } catch (err) {
-          console.error('[ACU] 解析规则数据失败:', err);
+          console.error('[DICE]ACU 解析规则数据失败:', err);
           if (window.toastr) window.toastr.error('解析规则数据失败');
         }
       });
@@ -20405,15 +20826,58 @@
 
         if (hasChanges) {
           // 1. 保存到数据库（不更新快照）
-          const api = getCore().getDB();
-          if (api && api.importTableAsJson) {
+          try {
+            const api = getCore().getDB();
+            if (!api || !api.importTableAsJson) {
+              throw new Error('数据库 API 不可用');
+            }
+
             const dataToSave = { mate: rawData.mate || { type: 'chatSheets', version: 1 } };
             Object.keys(rawData).forEach(k => {
               if (k.startsWith('sheet_')) dataToSave[k] = rawData[k];
             });
-            await api.importTableAsJson(JSON.stringify(dataToSave));
+
+            // 验证数据并序列化
+            let jsonString;
+            try {
+              jsonString = JSON.stringify(dataToSave);
+              // 检查数据大小（约 10MB 限制）
+              const sizeInMB = new Blob([jsonString]).size / (1024 * 1024);
+              if (sizeInMB > 10) {
+                throw new Error(`数据太大 (${sizeInMB.toFixed(2)}MB)，超过 10MB 限制`);
+              }
+            } catch (stringifyError) {
+              console.error('[DICE]ACU JSON 序列化失败:', stringifyError);
+              throw new Error(`数据序列化失败: ${stringifyError.message || stringifyError}`);
+            }
+
+            // 调用 importTableAsJson，它内部会调用 saveChat()
+            const result = await api.importTableAsJson(jsonString);
+            // 检查返回值，某些实现可能返回 false 表示失败
+            if (result === false) {
+              throw new Error('数据导入失败（返回 false）');
+            }
+            cachedRawData = rawData;
+          } catch (e) {
+            console.error('[DICE]ACU 保存失败:', e);
+            let errorMessage = e.message || '保存出错，请检查数据格式和大小';
+            // 检查是否是 "Settings could not be saved" 相关的错误
+            const errorMsg = String(e);
+            if (
+              errorMsg.includes('Settings could not be saved') ||
+              errorMsg.includes('server connection') ||
+              errorMsg.includes('data loss')
+            ) {
+              errorMessage = '保存失败：服务器连接问题或数据过大，请检查网络连接或减少数据量';
+            }
+            if (window.toastr) {
+              window.toastr.error(errorMessage, '保存失败', { timeOut: 7000 });
+            } else {
+              alert(`保存失败: ${errorMessage}`);
+            }
+            // 保存失败时不关闭对话框，让用户重试
+            return;
           }
-          cachedRawData = rawData;
 
           // 2. 只更新快照中这一行（关键！）
           const snapshot = loadSnapshot();
@@ -20645,6 +21109,7 @@
     });
   };
   const renderDashboard = allTables => {
+    console.info('[DICE]开始抓取仪表盘数据...');
     const config = getConfig();
 
     // [重构] 使用统一配置中心查找表格
@@ -21084,6 +21549,20 @@
                 </div>
             </div>
     `;
+    
+    // 统计已加载的模块数量
+    const loadedModules = [
+      globalResult ? '全局数据' : null,
+      playerResult ? '主角信息' : null,
+      locationResult ? '地点' : null,
+      npcResult ? 'NPC' : null,
+      questResult ? '任务' : null,
+      bagResult ? '背包' : null,
+      skillResult ? '技能' : null,
+      equipResult ? '装备' : null,
+    ].filter(Boolean);
+    
+    console.info(`[DICE]仪表盘数据抓取完成，共${loadedModules.length}个模块: ${loadedModules.join(', ')}`);
     return html;
   };
 
@@ -21284,27 +21763,6 @@
                 return !invalidPlaceholders.includes(rel.relation.toLowerCase());
               });
 
-              // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  location: 'index.ts:19252',
-                  message: 'Relationship cell detected',
-                  data: {
-                    rawStr,
-                    headerName,
-                    validRelationsCount: validRelations.length,
-                    relations: validRelations.map(r => ({ name: r.name, relation: r.relation })),
-                  },
-                  timestamp: Date.now(),
-                  sessionId: 'debug-session',
-                  runId: 'run1',
-                  hypothesisId: 'A',
-                }),
-              }).catch(() => {});
-              // #endregion
-
               if (validRelations.length > 1) {
                 hideLabel = true;
                 let relHtml = '';
@@ -21312,26 +21770,6 @@
                   const rel = validRelations[i];
                   const borderStyle =
                     i < validRelations.length - 1 ? 'border-bottom:1px dashed rgba(128,128,128,0.2);' : '';
-                  // #region agent log
-                  fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      location: 'index.ts:19261',
-                      message: 'Multiple relations branch',
-                      data: {
-                        relationIndex: i,
-                        totalCount: validRelations.length,
-                        usingSpaceBetween: false,
-                        usingGap: true,
-                      },
-                      timestamp: Date.now(),
-                      sessionId: 'debug-session',
-                      runId: 'post-fix',
-                      hypothesisId: 'A',
-                    }),
-                  }).catch(() => {});
-                  // #endregion
                   relHtml += '<div style="display:flex;align-items:center;gap:8px;padding:3px 0;' + borderStyle + '">';
                   relHtml +=
                     '<span style="color:var(--acu-text-sub);font-size:0.95em;">' + safeStr(rel.name) + '</span>';
@@ -21347,21 +21785,6 @@
               } else if (validRelations.length === 1) {
                 hideLabel = true;
                 const rel = validRelations[0];
-                // #region agent log
-                fetch('http://127.0.0.1:7242/ingest/7c4bc8bf-cf84-42b5-922f-1ccaf176cc30', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    location: 'index.ts:19283',
-                    message: 'Single relation branch',
-                    data: { name: rel.name, relation: rel.relation, usingSpaceBetween: false, usingGap: true },
-                    timestamp: Date.now(),
-                    sessionId: 'debug-session',
-                    runId: 'post-fix',
-                    hypothesisId: 'A',
-                  }),
-                }).catch(() => {});
-                // #endregion
                 contentHtml = '<div style="display:flex;align-items:center;gap:8px;padding:3px 0;">';
                 contentHtml +=
                   '<span style="color:var(--acu-text-sub);font-size:0.95em;">' + safeStr(rel.name) + '</span>';
@@ -21867,7 +22290,7 @@
                   }
                 })
                 .catch(err => {
-                  console.error('[MvuModule] Error getting data:', err);
+                  console.error('[DICE]MvuModule Error getting data:', err);
                   // 错误时也刷新面板，显示错误状态
                   $panel.html('<div class="acu-mvu-panel">' + MvuModule.renderPanel() + '</div>');
                   MvuModule.bindEvents($panel);
@@ -22002,12 +22425,20 @@
           try {
             await api.manualUpdate();
           } catch (err) {
-            console.error('[ACU] 手动更新失败:', err);
-            if (window.toastr) window.toastr.error('手动更新触发失败');
+            console.error('[DICE]ACU 手动更新失败:', err);
+            const errorMessage = err.message || '更新过程中出现错误';
+            if (window.toastr) {
+              window.toastr.error(`更新失败: ${errorMessage}`, '错误', { timeOut: 5000 });
+            } else {
+              alert(`更新失败: ${errorMessage}`);
+            }
           }
         } else {
-          if (window.toastr)
-            window.toastr.warning('⚠ 后端脚本未提供 manualUpdate 接口，请确保同时也更新了最新的后端脚本');
+          if (window.toastr) {
+            window.toastr.warning('⚠ 后端脚本未提供 manualUpdate 接口，请确保同时也更新了最新的后端脚本', '', {
+              timeOut: 5000,
+            });
+          }
         }
       });
     $('body')
@@ -22053,13 +22484,23 @@
         const api = getCore().getDB();
         if (api && typeof api.manualUpdate === 'function') {
           try {
-            console.log('[ACU] 手动填表触发');
+            console.log('[DICE]ACU 手动填表触发');
+            // 包装 manualUpdate 调用，捕获可能的保存错误
             await api.manualUpdate();
           } catch (err) {
-            console.error('[ACU] 手动填表失败:', err);
+            console.error('[DICE]ACU 手动填表失败:', err);
+            const errorMessage = err.message || '填表过程中出现错误';
+            if (window.toastr) {
+              window.toastr.error(`填表失败: ${errorMessage}`, '错误', { timeOut: 5000 });
+            } else {
+              alert(`填表失败: ${errorMessage}`);
+            }
           }
         } else {
-          console.warn('[ACU] manualUpdate API 不可用');
+          console.warn('[DICE]ACU manualUpdate API 不可用');
+          if (window.toastr) {
+            window.toastr.warning('后端脚本未提供 manualUpdate 接口', '', { timeOut: 3000 });
+          }
         }
       });
     $('#acu-btn-save-global')
@@ -23045,7 +23486,7 @@
         // 如果是水平滑动为主（X位移 > Y位移 * 1.5），阻止冒泡
         if (deltaX > deltaY * 1.5 && deltaX > 10) {
           e.stopPropagation();
-          console.log('[ACU] 阻止水平滑动冒泡，防止 ST swipe');
+          console.log('[DICE]ACU 阻止水平滑动冒泡，防止 ST swipe');
         }
       });
     })();
@@ -23062,7 +23503,7 @@
 
     // 检查必要元素是否存在
     if (!$container.length) {
-      console.error('[ACU] 找不到导航栏容器');
+      console.error('[DICE]ACU 找不到导航栏容器');
       isEditingOrder = false;
       return;
     }
@@ -23390,7 +23831,7 @@
     const rowIdx = parseInt($(cell).data('row'), 10);
     const colIdx = parseInt($(cell).data('col'), 10);
     if (isNaN(rowIdx) || isNaN(colIdx)) {
-      console.warn('[ACU] 无效的行/列索引');
+      console.warn('[DICE]ACU 无效的行/列索引');
       backdrop.remove();
       return;
     }
@@ -23547,7 +23988,7 @@
           closeAll();
           return; // 如果成功，直接结束，不走后面的浏览器逻辑
         } catch (err) {
-          console.warn('酒馆接口复制失败，尝试浏览器原生方法', err);
+          console.warn('[DICE]ACU 酒馆接口复制失败，尝试浏览器原生方法', err);
         }
       }
 
@@ -23591,7 +24032,7 @@
             throw new Error('execCommand failed');
           }
         } catch (err) {
-          console.error('复制失败:', err);
+          console.error('[DICE]ACU 复制失败:', err);
           prompt('复制失败，请长按下方文本手动复制:', text);
         }
       };
@@ -24097,23 +24538,44 @@
   const init = () => {
     if (isInitialized) return;
 
+    console.log('[DICE]开始初始化骰子系统...');
+
+    // 恢复 ConsoleCaptureManager 状态（从 localStorage）
+    try {
+      ConsoleCaptureManager.restore();
+      console.info('[DICE]ConsoleCaptureManager 状态已恢复');
+    } catch (e) {
+      console.error('[DICE]恢复 ConsoleCaptureManager 状态失败:', e);
+    }
+
+    // 检查并恢复错误状态（在初始化时）
+    try {
+      ErrorHandler.checkAndRestore();
+      console.info('[DICE]错误状态检查完成');
+    } catch (e) {
+      console.error('[DICE]初始化时检查错误状态失败:', e);
+    }
+
     // 冲突检测：在初始化前检查是否有可视化表格脚本
     if (detectVisualizerConflict()) {
       showConflictDialog();
-      console.error('[骰子系统] 检测到可视化表格脚本冲突，已阻止初始化');
+      console.error('[DICE]骰子系统 检测到可视化表格脚本冲突，已阻止初始化');
       return; // 阻止初始化
     }
 
+    console.info('[DICE]注入 MVU 样式和自定义样式...');
     MvuModule.injectStyles();
 
     // 清理旧的 Observer（防止重复监听）
     if (observer) {
       observer.disconnect();
       observer = null;
+      console.info('[DICE]清理旧的 MutationObserver');
     }
     addStyles();
     // 2. 保留原有的 SillyTavern 事件监听（使用具名函数防止重复注册）
     if (window.SillyTavern && window.SillyTavern.eventSource) {
+      console.info('[DICE]注册 SillyTavern 事件监听器...');
       const events = window.SillyTavern.eventTypes;
       const source = window.SillyTavern.eventSource;
       const triggers = [events.CHAT_CHANGED, events.MESSAGE_SWIPED, events.MESSAGE_DELETED, events.MESSAGE_UPDATED];
@@ -24121,13 +24583,19 @@
       // 确保只创建一次处理函数
       if (!_boundRenderHandler) {
         _boundRenderHandler = () => {
-          if (!isEditingOrder) setTimeout(renderInterface, 500);
+          if (!isEditingOrder) {
+            console.info('[DICE]消息更新事件触发，延迟渲染界面');
+            setTimeout(renderInterface, 500);
+          } else {
+            console.info('[DICE]正在编辑顺序，跳过界面渲染');
+          }
         };
       }
 
       // 确保只创建一次聊天切换处理函数（移到模块级防止重复注册）
       if (!window._acuBoundChatChangeHandler) {
         window._acuBoundChatChangeHandler = () => {
+          console.info('[DICE]聊天切换事件触发，清理缓存并重新渲染');
           cachedRawData = null;
           tablePageStates = {};
           tableSearchStates = {};
@@ -24151,6 +24619,9 @@
           }
         }
       });
+      console.info(`[DICE]已注册 ${triggers.length} 个事件监听器`);
+    } else {
+      console.warn('[DICE]SillyTavern 事件源不可用，跳过事件监听器注册');
     }
 
     // 3. 轮询等待数据库 API 就绪
@@ -24158,10 +24629,13 @@
       const api = getCore().getDB();
       if (api?.exportTableAsJson) {
         isInitialized = true;
+        console.log('[DICE]骰子系统初始化成功');
+        console.info('[DICE]数据库 API 已就绪');
 
         // --- [Fix] 移动到这里：确保 API 就绪且 #chat 存在后再启动监听 (带节流优化) ---
         const $chat = $('#chat');
         if ($chat.length && !observer) {
+          console.info('[DICE]启动聊天区域 MutationObserver');
           let mutationLock = false;
           const handleMutation = () => {
             if (mutationLock) return;
@@ -24187,9 +24661,12 @@
           };
           observer = new MutationObserver(handleMutation);
           observer.observe($chat[0], { childList: true });
+        } else if (!$chat.length) {
+          console.warn('[DICE]聊天区域 (#chat) 未找到，跳过 MutationObserver 设置');
         }
         // --------------------------------------------------
 
+        console.info('[DICE]执行首次界面渲染...');
         renderInterface(); // 首次渲染
         // [新增] 初始化时处理已存在的消息中的投骰结果
         setTimeout(() => {
@@ -24198,6 +24675,7 @@
         // 注册回调
         if (api.registerTableUpdateCallback) {
           api.registerTableUpdateCallback(UpdateController.handleUpdate);
+          console.info('[DICE]已注册表格更新回调');
 
           // 恢复快照功能
           if (api.registerTableFillStartCallback) {
@@ -24205,16 +24683,22 @@
               const current = api.exportTableAsJson();
               if (current) saveSnapshot(current);
             });
+            console.info('[DICE]已注册表格填充开始回调');
           }
+        } else {
+          console.warn('[DICE]数据库 API 不支持回调注册');
         }
       } else {
         // 限制重试次数，防止无限循环 (约 60秒后放弃)
         if (!isInitialized) {
           window._acuInitRetries = (window._acuInitRetries || 0) + 1;
           if (window._acuInitRetries < 60) {
+            if (window._acuInitRetries % 10 === 0) {
+              console.info(`[DICE]等待数据库 API 就绪... (${window._acuInitRetries}/60)`);
+            }
             setTimeout(loop, 1000);
           } else {
-            console.warn('[ACU] 未检测到数据库后端 API，停止轮询。请确保已安装神·数据库脚本。');
+            console.error('[DICE]未检测到数据库后端 API，停止轮询。请确保已安装神·数据库脚本。');
           }
         }
       }
