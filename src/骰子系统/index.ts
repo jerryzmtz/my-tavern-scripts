@@ -68,10 +68,10 @@
         });
 
         if (toDelete.length > 0) {
-          console.log(`[LockManager] 清理了 ${toDelete.length} 个过期的锁定数据`);
+          console.log(`[DICE]LockManager 清理了 ${toDelete.length} 个过期的锁定数据`);
         }
       } catch (e) {
-        console.warn('[LockManager] 清理失败', e);
+        console.warn('[DICE]LockManager 清理失败', e);
       }
     },
 
@@ -106,7 +106,7 @@
         // 每次保存后尝试清理（内部有数量判断，不会频繁执行）
         this._cleanupOldContexts();
       } catch (e) {
-        console.warn('[LockManager] 保存失败', e);
+        console.warn('[DICE]LockManager 保存失败', e);
       }
     },
 
@@ -259,6 +259,136 @@
       this._cache = null;
     },
   };
+  // ========================================
+  // BookmarkManager - 书签管理器（按聊天隔离）
+  // ========================================
+  const BookmarkManager = {
+    STORAGE_KEY_PREFIX: 'acu_bookmarks_v1_',
+    MAX_CONTEXTS: 20, // 最多保留多少个聊天的bookmark数据
+
+    _cache: null,
+    _currentContextId: null,
+
+    // 获取当前上下文专属的存储键
+    _getStorageKey(ctxId) {
+      return this.STORAGE_KEY_PREFIX + (ctxId || getCurrentContextFingerprint());
+    },
+
+    // 清理过旧的bookmark数据，只保留最近使用的 N 个
+    _cleanupOldContexts() {
+      try {
+        const prefix = this.STORAGE_KEY_PREFIX;
+        const allKeys = [];
+
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith(prefix)) {
+            allKeys.push(key);
+          }
+        }
+
+        if (allKeys.length <= this.MAX_CONTEXTS) {
+          // 数据量在限制内，无需清理
+          return;
+        }
+
+        // 按最后访问时间排序（通过内部 _lastAccess 字段）
+        const keyWithTime = allKeys.map(key => {
+          try {
+            const data = JSON.parse(localStorage.getItem(key));
+            return { key, time: data?._lastAccess || 0 };
+          } catch {
+            return { key, time: 0 };
+          }
+        });
+
+        keyWithTime.sort((a, b) => b.time - a.time);
+
+        // 删除超出限制的旧数据
+        const toDelete = keyWithTime.slice(this.MAX_CONTEXTS);
+        toDelete.forEach(item => {
+          localStorage.removeItem(item.key);
+        });
+
+        if (toDelete.length > 0) {
+          console.log(
+            `[DICE]BookmarkManager 清理了 ${toDelete.length} 个过期的bookmark数据（当前保留 ${this.MAX_CONTEXTS} 个聊天的数据，清理前共有 ${allKeys.length} 个）`,
+          );
+        }
+      } catch (e) {
+        console.warn('[DICE]BookmarkManager 清理失败', e);
+      }
+    },
+
+    _load() {
+      const ctxId = getCurrentContextFingerprint();
+
+      // 上下文变化时清空缓存
+      if (this._currentContextId !== ctxId) {
+        this._cache = null;
+        this._currentContextId = ctxId;
+      }
+
+      if (!this._cache) {
+        try {
+          const stored = localStorage.getItem(this._getStorageKey());
+          this._cache = stored ? JSON.parse(stored) : {};
+          // 移除内部元数据字段，不暴露给业务逻辑
+          delete this._cache._lastAccess;
+        } catch (e) {
+          this._cache = {};
+        }
+      }
+      return this._cache;
+    },
+
+    _save() {
+      try {
+        // 写入时附带最后访问时间戳
+        const dataToSave = { ...this._cache, _lastAccess: Date.now() };
+        localStorage.setItem(this._getStorageKey(), JSON.stringify(dataToSave));
+
+        // 每次保存后尝试清理（内部有数量判断，不会频繁执行）
+        this._cleanupOldContexts();
+      } catch (e) {
+        console.warn('[DICE]BookmarkManager 保存失败', e);
+      }
+    },
+
+    isBookmarked(tableName, rowKey) {
+      const data = this._load();
+      return !!(data[tableName] && data[tableName][rowKey]);
+    },
+
+    toggleBookmark(tableName, rowKey) {
+      const data = this._load();
+      if (!data[tableName]) data[tableName] = {};
+
+      if (data[tableName][rowKey]) {
+        // 取消bookmark
+        delete data[tableName][rowKey];
+        if (Object.keys(data[tableName]).length === 0) {
+          delete data[tableName];
+        }
+      } else {
+        // 添加bookmark
+        data[tableName][rowKey] = true;
+      }
+      this._save();
+    },
+
+    getBookmarks(tableName) {
+      const data = this._load();
+      if (!data[tableName]) return [];
+      return Object.keys(data[tableName]);
+    },
+
+    // 清理当前聊天的所有bookmark（调试用）
+    clearCurrentContext() {
+      localStorage.removeItem(this._getStorageKey());
+      this._cache = null;
+    },
+  };
   const escapeHtml = s =>
     String(s ?? '')
       .replace(/&/g, '&amp;')
@@ -336,7 +466,7 @@
       existingDice = contestMatches[contestMatches.length - 1];
       existingDiceOriginal = existingDice;
       workingText = workingText.replace(contestDiceRegex, '\u0000').trim();
-      console.log('[ACU SmartInsert] Found and extracted contest roll:', existingDice);
+      console.log('[DICE]ACU SmartInsert Found and extracted contest roll:', existingDice);
     }
 
     // 2. 再提取普通检定结果
@@ -346,7 +476,7 @@
       existingDice = normalMatches[normalMatches.length - 1];
       existingDiceOriginal = existingDice;
       workingText = workingText.replace(normalDiceRegex, '\u0000').trim();
-      console.log('[ACU SmartInsert] Found and extracted normal roll:', existingDice);
+      console.log('[DICE]ACU SmartInsert Found and extracted normal roll:', existingDice);
     }
 
     // 3. 提取交互选项
@@ -354,7 +484,7 @@
     if (actionMatches && actionMatches.length > 0) {
       existingAction = actionMatches[actionMatches.length - 1];
       workingText = workingText.replace(actionRegex, '\u0001').trim();
-      console.log('[ACU SmartInsert] Found and extracted action:', existingAction);
+      console.log('[DICE]ACU SmartInsert Found and extracted action:', existingAction);
     }
 
     // 4. 移除占位符，剩下的就是用户输入
@@ -467,8 +597,342 @@
   const STORAGE_KEY_DICE_CONFIG = 'acu_dice_config_v1';
   const STORAGE_KEY_ATTRIBUTE_PRESETS = 'acu_attribute_presets_v1';
   const STORAGE_KEY_ACTIVE_ATTR_PRESET = 'acu_active_attr_preset_v1';
+  const PRESET_FORMAT_VERSION = '1.4.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
+  const SCRIPT_VERSION = 'v3.1'; // 脚本版本号
+
+  // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
+  const compareVersion = (v1, v2) => {
+    // 处理数字版本号（向后兼容）
+    const normalizeVersion = v => {
+      if (typeof v === 'number') return `${v}.0.0`;
+      if (typeof v !== 'string') return '0.0.0';
+      return v;
+    };
+    const nv1 = normalizeVersion(v1);
+    const nv2 = normalizeVersion(v2);
+    const parts1 = nv1.split('.').map(Number);
+    const parts2 = nv2.split('.').map(Number);
+    for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+      const p1 = parts1[i] || 0;
+      const p2 = parts2[i] || 0;
+      if (p1 < p2) return -1;
+      if (p1 > p2) return 1;
+    }
+    return 0;
+  };
 
   const STORAGE_KEY_AVATAR_MAP = 'acu_avatar_map_v1';
+
+  // ========================================
+  // ConsoleCaptureManager - Console日志抓取管理器
+  // ========================================
+  const ConsoleCaptureManager = {
+    logs: [],
+    maxLogs: 1000,
+    filters: { log: true, info: true, warn: true, error: true },
+    originalMethods: {},
+    isIntercepted: false,
+    enabled: false, // 默认关闭，需要手动开启或错误时自动开启
+
+    restore() {
+      // 从 localStorage 恢复状态
+      const saved = localStorage.getItem('acu_console_capture_enabled');
+      if (saved === 'true') {
+        this.enable();
+      }
+    },
+
+    enable() {
+      if (this.enabled) return;
+      this.enabled = true;
+      localStorage.setItem('acu_console_capture_enabled', 'true');
+      this.intercept();
+    },
+
+    disable() {
+      if (!this.enabled) return;
+      this.enabled = false;
+      localStorage.setItem('acu_console_capture_enabled', 'false');
+      // 清除错误标志（尊重用户选择）
+      localStorage.removeItem('acu_script_error_detected');
+      // 隐藏紧急入口按钮
+      const emergencyBtn = document.getElementById('acu-emergency-debug-btn');
+      if (emergencyBtn) {
+        emergencyBtn.style.display = 'none';
+      }
+    },
+
+    intercept() {
+      if (this.isIntercepted) return;
+      this.isIntercepted = true;
+
+      ['log', 'info', 'warn', 'error'].forEach(type => {
+        this.originalMethods[type] = console[type];
+        const self = this;
+        console[type] = function (...args) {
+          // 调用原方法
+          self.originalMethods[type].apply(console, args);
+          // 记录日志（仅在启用时）
+          if (self.enabled) {
+            self.capture(type, args);
+          }
+        };
+      });
+    },
+
+    capture(type, args) {
+      if (!this.enabled) return; // 仅在启用时捕获
+      try {
+        const timestamp = new Date();
+        const timeStr = timestamp.toLocaleTimeString('zh-CN', { hour12: false });
+
+        // 将参数转换为字符串
+        const content = args
+          .map(arg => {
+            if (typeof arg === 'object') {
+              try {
+                return JSON.stringify(arg, null, 2);
+              } catch {
+                return String(arg);
+              }
+            }
+            return String(arg);
+          })
+          .join(' ');
+
+        // 获取堆栈信息（仅error）
+        let stack = null;
+        if (type === 'error' && args[0] instanceof Error) {
+          stack = args[0].stack || null;
+        }
+
+        const logEntry = {
+          id: Date.now() + Math.random(),
+          timestamp,
+          timeStr,
+          type,
+          content,
+          stack,
+          rawArgs: args,
+        };
+
+        this.logs.push(logEntry);
+
+        // 限制日志数量
+        if (this.logs.length > this.maxLogs) {
+          this.logs.shift();
+        }
+      } catch (e) {
+        // 捕获失败不影响原console功能
+      }
+    },
+
+    clear() {
+      this.logs = [];
+    },
+
+    getFilteredLogs() {
+      return this.logs.filter(log => this.filters[log.type]);
+    },
+
+    setFilters(filters) {
+      this.filters = { ...this.filters, ...filters };
+    },
+  };
+
+  // 不自动初始化拦截，需要手动开启或错误时自动开启
+  // ConsoleCaptureManager.intercept();
+
+  // ========================================
+  // 全局错误处理机制（高阈值，仅致命错误）
+  // ========================================
+  const ErrorHandler = {
+    errorCount: 0,
+    errorThreshold: 3, // 连续3次致命错误才触发
+    lastErrorTime: 0,
+    errorWindow: 5000, // 5秒内的错误才计入
+    fatalErrorDetected: false,
+
+    // 判断是否为致命错误（高阈值）
+    isFatalError(error, source, lineno, colno, stack) {
+      // 排除第三方库错误
+      const thirdPartyPatterns = [/jquery/i, /lodash/i, /vue/i, /react/i, /pixi/i, /gsap/i, /toastr/i, /node_modules/i];
+
+      const errorInfo = stack || error?.stack || '';
+      const errorSource = source || '';
+
+      // 检查是否来自第三方库
+      for (const pattern of thirdPartyPatterns) {
+        if (pattern.test(errorInfo) || pattern.test(errorSource)) {
+          return false;
+        }
+      }
+
+      // 检查是否来自骰子系统核心代码
+      const corePatterns = [
+        /acu_visualizer/i,
+        /骰子系统/i,
+        /LockManager/i,
+        /Store/i,
+        /ConsoleCaptureManager/i,
+        /renderInterface/i,
+        /init\s*\(/i,
+      ];
+
+      let isCoreError = false;
+      for (const pattern of corePatterns) {
+        if (pattern.test(errorInfo) || pattern.test(errorSource)) {
+          isCoreError = true;
+          break;
+        }
+      }
+
+      // 必须是核心错误才可能是致命错误
+      return isCoreError;
+    },
+
+    // 处理错误
+    handleError(error, source, lineno, colno, stack) {
+      try {
+        // 检查是否为致命错误
+        if (!this.isFatalError(error, source, lineno, colno, stack)) {
+          return; // 非致命错误，忽略
+        }
+
+        const now = Date.now();
+
+        // 如果距离上次错误超过时间窗口，重置计数
+        if (now - this.lastErrorTime > this.errorWindow) {
+          this.errorCount = 0;
+        }
+
+        this.errorCount++;
+        this.lastErrorTime = now;
+
+        // 达到阈值，触发致命错误处理
+        if (this.errorCount >= this.errorThreshold && !this.fatalErrorDetected) {
+          this.fatalErrorDetected = true;
+          this.triggerFatalError();
+        }
+      } catch (e) {
+        // 错误处理本身出错时，避免无限循环
+        console.error('[DICE]ErrorHandler 处理错误时失败:', e);
+      }
+    },
+
+    // 触发致命错误处理
+    triggerFatalError() {
+      try {
+        // 自动开启 console 抓取
+        if (!ConsoleCaptureManager.enabled) {
+          ConsoleCaptureManager.enable();
+        }
+
+        // 设置错误标志
+        localStorage.setItem('acu_script_error_detected', 'true');
+
+        // 显示紧急入口按钮
+        this.showEmergencyButton();
+      } catch (e) {
+        console.error('[DICE]ErrorHandler 触发致命错误处理时失败:', e);
+      }
+    },
+
+    // 显示紧急入口按钮
+    showEmergencyButton() {
+      try {
+        // 检查是否已存在
+        let btn = document.getElementById('acu-emergency-debug-btn');
+        if (btn) {
+          btn.style.display = 'block';
+          return;
+        }
+
+        // 创建紧急入口按钮
+        btn = document.createElement('button');
+        btn.id = 'acu-emergency-debug-btn';
+        btn.innerHTML = '<i class="fa-solid fa-bug"></i> 调试';
+        btn.style.cssText = `
+          position: fixed;
+          bottom: 20px;
+          right: 20px;
+          z-index: 99999;
+          padding: 10px 16px;
+          background: #e74c3c;
+          color: #fff;
+          border: none;
+          border-radius: 6px;
+          font-size: 14px;
+          font-weight: bold;
+          cursor: pointer;
+          box-shadow: 0 4px 12px rgba(231, 76, 60, 0.4);
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          transition: all 0.2s;
+        `;
+
+        btn.onmouseenter = function () {
+          this.style.background = '#c0392b';
+          this.style.transform = 'scale(1.05)';
+        };
+        btn.onmouseleave = function () {
+          this.style.background = '#e74c3c';
+          this.style.transform = 'scale(1)';
+        };
+
+        btn.onclick = function () {
+          try {
+            // 尝试调用全局的 showDebugConsoleModal
+            if (typeof window.showDebugConsoleModal === 'function') {
+              window.showDebugConsoleModal();
+            } else {
+              // 降级方案：提示用户打开浏览器控制台
+              alert('脚本出现错误，请打开浏览器开发者工具（F12）查看控制台');
+            }
+          } catch (e) {
+            console.error('[DICE]紧急入口按钮点击失败:', e);
+            alert('脚本出现错误，请打开浏览器开发者工具（F12）查看控制台');
+          }
+        };
+
+        document.body.appendChild(btn);
+      } catch (e) {
+        console.error('[DICE]显示紧急入口按钮失败:', e);
+      }
+    },
+
+    // 检查并恢复错误状态
+    checkAndRestore() {
+      try {
+        const errorDetected = localStorage.getItem('acu_script_error_detected') === 'true';
+        if (errorDetected) {
+          // 自动开启 console 抓取（仅本次会话）
+          if (!ConsoleCaptureManager.enabled) {
+            ConsoleCaptureManager.enable();
+          }
+          // 显示紧急入口按钮
+          this.showEmergencyButton();
+        }
+      } catch (e) {
+        console.error('[DICE]ErrorHandler 检查错误状态失败:', e);
+      }
+    },
+  };
+
+  // 注册全局错误处理器
+  window.onerror = function (message, source, lineno, colno, error) {
+    ErrorHandler.handleError(error || message, source, lineno, colno, error?.stack);
+    return false; // 不阻止默认错误处理
+  };
+
+  // 注册 Promise 拒绝处理器
+  window.addEventListener('unhandledrejection', function (event) {
+    ErrorHandler.handleError(event.reason, null, null, null, event.reason?.stack);
+  });
+
+  // 在脚本初始化时检查错误状态
+  // 这个会在 init 函数中调用
 
   // ========================================
   // ValidationRuleManager - 数据验证规则系统
@@ -482,43 +946,73 @@
     // 表级规则
     tableReadonly: { name: '表级只读', scope: 'table', icon: 'fa-lock', desc: '禁止修改整个表' },
     rowLimit: { name: '行数限制', scope: 'table', icon: 'fa-arrows-up-down', desc: '限制表的行数范围' },
+    sequence: { name: '序列递增', scope: 'table', icon: 'fa-sort-numeric-up', desc: '检查字段值是否严格递增' },
     // 字段级规则
     required: { name: '必填', scope: 'field', icon: 'fa-asterisk', desc: '字段不能为空' },
     format: { name: '格式验证', scope: 'field', icon: 'fa-font', desc: '正则表达式匹配' },
     enum: { name: '枚举验证', scope: 'field', icon: 'fa-list', desc: '值必须在列表中' },
     numeric: { name: '数值范围', scope: 'field', icon: 'fa-hashtag', desc: '数值必须在范围内' },
     relation: { name: '关联验证', scope: 'field', icon: 'fa-link', desc: '引用其他表的值' },
+    keyValue: { name: '键值对验证', scope: 'field', icon: 'fa-key', desc: '验证键值对格式和数值范围' },
   };
 
   // 内置验证规则定义
   const BUILTIN_VALIDATION_RULES = [
-    // 总结表编码格式
+    // 总结表编码递增验证
     {
-      id: 'summary_code_format',
-      name: '总结表编码格式',
-      description: '编码索引必须为 AM+三位数字格式，如 AM001',
+      id: 'summary_code_sequence',
+      name: '总结表编码递增',
+      description: '编码索引必须从AM001开始严格递增，不可跳号或重复',
       enabled: true,
       builtin: true,
       intercept: false,
       targetTable: '总结表',
       targetColumn: '编码索引',
-      ruleType: 'format',
-      config: { pattern: '^AM\\d{3}$' },
-      errorMessage: '编码索引必须为 AM+三位数字格式（如 AM001）',
+      ruleType: 'sequence',
+      config: { prefix: 'AM', startFrom: 1 },
+      errorMessage: '编码索引必须从AM001开始严格递增，发现跳号或重复',
     },
-    // 总体大纲编码格式
+    // 总体大纲编码递增验证
     {
-      id: 'outline_code_format',
-      name: '总体大纲编码格式',
-      description: '编码索引必须为 AM+三位数字格式，如 AM001',
+      id: 'outline_code_sequence',
+      name: '总体大纲编码递增',
+      description: '编码索引必须从AM001开始严格递增，不可跳号或重复',
       enabled: true,
       builtin: true,
       intercept: false,
       targetTable: '总体大纲',
       targetColumn: '编码索引',
-      ruleType: 'format',
-      config: { pattern: '^AM\\d{3}$' },
-      errorMessage: '编码索引必须为 AM+三位数字格式（如 AM001）',
+      ruleType: 'sequence',
+      config: { prefix: 'AM', startFrom: 1 },
+      errorMessage: '编码索引必须从AM001开始严格递增，发现跳号或重复',
+    },
+    // 总结表编码索引必填验证
+    {
+      id: 'summary_code_required',
+      name: '总结表编码索引必填',
+      description: '编码索引不能为空',
+      enabled: true,
+      builtin: true,
+      intercept: false,
+      targetTable: '总结表',
+      targetColumn: '编码索引',
+      ruleType: 'required',
+      config: {},
+      errorMessage: '编码索引不能为空',
+    },
+    // 总体大纲编码索引必填验证
+    {
+      id: 'outline_code_required',
+      name: '总体大纲编码索引必填',
+      description: '编码索引不能为空',
+      enabled: true,
+      builtin: true,
+      intercept: false,
+      targetTable: '总体大纲',
+      targetColumn: '编码索引',
+      ruleType: 'required',
+      config: {},
+      errorMessage: '编码索引不能为空',
     },
     // 任务表状态枚举
     {
@@ -707,7 +1201,7 @@
       id: 'player_location_relation',
       name: '主角地点关联',
       description: '主角所在地点必须存在于世界地图点表',
-      enabled: true,
+      enabled: false,
       builtin: true,
       intercept: false,
       targetTable: '主角信息',
@@ -721,7 +1215,7 @@
       id: 'npc_location_relation',
       name: 'NPC地点关联',
       description: 'NPC所在地点必须存在于世界地图点表',
-      enabled: true,
+      enabled: false,
       builtin: true,
       intercept: false,
       targetTable: '重要人物表',
@@ -730,21 +1224,247 @@
       config: { refTable: '世界地图点', refColumn: '详细地点' },
       errorMessage: '所在地点必须是世界地图点表中已存在的详细地点',
     },
-    // 地图元素所在地点关联验证（元素的所在地点可以是详细地点或次要地区）
+    // 地图元素所在地点关联验证（只允许详细地点，与表格模板保持一致）
     {
       id: 'element_location_relation',
       name: '元素地点关联',
-      description: '元素所在地点必须存在于世界地图点表的详细地点或次要地区',
-      enabled: true,
+      description: '元素所在地点必须存在于世界地图点表的详细地点',
+      enabled: false,
       builtin: true,
       intercept: false,
       targetTable: '地图元素表',
       targetColumn: '所在地点',
       ruleType: 'relation',
-      config: { refTable: '世界地图点', refColumn: ['详细地点', '次要地区'] },
-      errorMessage: '所在地点必须是世界地图点表中已存在的详细地点或次要地区',
+      config: { refTable: '世界地图点', refColumn: '详细地点' },
+      errorMessage: '所在地点必须是世界地图点表中已存在的详细地点',
+    },
+    // 全局数据表当前详细地点关联验证
+    {
+      id: 'global_detail_location_relation',
+      name: '全局详细地点关联',
+      description: '当前详细地点必须存在于世界地图点表',
+      enabled: true,
+      builtin: true,
+      intercept: false,
+      targetTable: '全局数据表',
+      targetColumn: '当前详细地点',
+      ruleType: 'relation',
+      config: { refTable: '世界地图点', refColumn: '详细地点' },
+      errorMessage: '当前详细地点必须是世界地图点表中已存在的详细地点',
+    },
+    // 主角信息表 - 基本属性（键值对，数值型）
+    {
+      id: 'player_base_attributes_keyvalue',
+      name: '主角基本属性',
+      description: '基本属性必须为键值对格式，数值范围[0,100]',
+      enabled: true,
+      builtin: true,
+      intercept: false,
+      targetTable: '主角信息',
+      targetColumn: '基础属性',
+      ruleType: 'keyValue',
+      config: { valueType: 'numeric', valueMin: 0, valueMax: 100 },
+      errorMessage: '基础属性格式必须为"属性名:数值;属性名:数值"，数值范围[0,100]',
+    },
+    // 主角信息表 - 特有属性（键值对，数值型）
+    {
+      id: 'player_special_attributes_keyvalue',
+      name: '主角特有属性',
+      description: '特有属性必须为键值对格式，数值范围[0,100]',
+      enabled: true,
+      builtin: true,
+      intercept: false,
+      targetTable: '主角信息',
+      targetColumn: '特有属性',
+      ruleType: 'keyValue',
+      config: { valueType: 'numeric', valueMin: 0, valueMax: 100 },
+      errorMessage: '特有属性格式必须为"属性名:数值;属性名:数值"，数值范围[0,100]',
+    },
+    // 主角信息表 - 人际关系（键值对，文本型）
+    {
+      id: 'player_relationships_keyvalue',
+      name: '主角人际关系',
+      description: '人际关系必须为键值对格式',
+      enabled: true,
+      builtin: true,
+      intercept: false,
+      targetTable: '主角信息',
+      targetColumn: '人际关系',
+      ruleType: 'keyValue',
+      config: { valueType: 'text' },
+      errorMessage: '人际关系格式必须为"角色名:关系词;角色名:关系词"',
+    },
+    // 重要人物表 - 基本属性（键值对，数值型）
+    {
+      id: 'npc_base_attributes_keyvalue',
+      name: 'NPC基本属性',
+      description: '基本属性必须为键值对格式，数值范围[0,100]',
+      enabled: true,
+      builtin: true,
+      intercept: false,
+      targetTable: '重要人物表',
+      targetColumn: '基础属性',
+      ruleType: 'keyValue',
+      config: { valueType: 'numeric', valueMin: 0, valueMax: 100 },
+      errorMessage: '基础属性格式必须为"属性名:数值;属性名:数值"，数值范围[0,100]',
+    },
+    // 重要人物表 - 特有属性（键值对，数值型）
+    {
+      id: 'npc_special_attributes_keyvalue',
+      name: 'NPC特有属性',
+      description: '特有属性必须为键值对格式，数值范围[0,100]',
+      enabled: true,
+      builtin: true,
+      intercept: false,
+      targetTable: '重要人物表',
+      targetColumn: '特有属性',
+      ruleType: 'keyValue',
+      config: { valueType: 'numeric', valueMin: 0, valueMax: 100 },
+      errorMessage: '特有属性格式必须为"属性名:数值;属性名:数值"，数值范围[0,100]',
+    },
+    // 重要人物表 - 人际关系（键值对，文本型）
+    {
+      id: 'npc_relationships_keyvalue',
+      name: 'NPC人际关系',
+      description: '人际关系必须为键值对格式',
+      enabled: true,
+      builtin: true,
+      intercept: false,
+      targetTable: '重要人物表',
+      targetColumn: '人际关系',
+      ruleType: 'keyValue',
+      config: { valueType: 'text' },
+      errorMessage: '人际关系格式必须为"角色名:关系词;角色名:关系词"',
+    },
+    // 任务表 - 进度格式验证
+    {
+      id: 'quest_progress_format',
+      name: '任务进度格式',
+      description: '进度必须为数字+%格式，如50%',
+      enabled: true,
+      builtin: true,
+      intercept: false,
+      targetTable: '任务表',
+      targetColumn: '进度',
+      ruleType: 'format',
+      config: { pattern: '^\\d+%$' },
+      errorMessage: '进度必须为数字+%格式（如50%、100%）',
     },
   ];
+
+  // ========================================
+  // BlacklistManager - 黑名单管理器（用于过滤MVU变量和表格列）
+  // ========================================
+  const STORAGE_KEY_BLACKLIST = 'acu_filter_blacklist_v1';
+  const STORAGE_KEY_BLACKLIST_VERSION = 'acu_filter_blacklist_version';
+  const DEFAULT_BLACKLIST = [
+    '时间',
+    '地点',
+    '备忘',
+    '总结',
+    '日期',
+    '选项',
+    '任务',
+    '纪要',
+    '服装',
+    '外貌',
+    '头像',
+    '外貌',
+    '进度',
+    '编码',
+    '上限',
+    '经验值',
+    '消耗',
+    '数量',
+    '等级',
+    '位置',
+    'ID',
+    '编号',
+    '三围',
+    'measurements',
+    'ages',
+    '年龄',
+    'order',
+    '号码',
+    'time',
+    'cost',
+  ];
+
+  const BlacklistManager = {
+    // 获取当前黑名单数组（自动检测并更新版本）
+    getBlacklist() {
+      const stored = Store.get(STORAGE_KEY_BLACKLIST, null);
+      const storedVersion = Store.get(STORAGE_KEY_BLACKLIST_VERSION, null);
+
+      // 如果存储不存在或不是数组，返回默认值
+      if (!stored || !Array.isArray(stored)) {
+        // 初始化时保存默认值和版本号
+        Store.set(STORAGE_KEY_BLACKLIST, [...DEFAULT_BLACKLIST]);
+        Store.set(STORAGE_KEY_BLACKLIST_VERSION, PRESET_FORMAT_VERSION);
+        return [...DEFAULT_BLACKLIST];
+      }
+
+      // 检测版本并自动更新
+      if (!storedVersion || compareVersion(storedVersion, PRESET_FORMAT_VERSION) < 0) {
+        console.log(`[DICE]BlacklistManager 检测到黑名单版本较旧 (${storedVersion || '无版本'})，自动合并新版本`);
+
+        // 合并逻辑：保留用户自定义项，添加新的默认项
+        const userItems = new Set(stored);
+        const defaultItems = new Set(DEFAULT_BLACKLIST);
+        const mergedItems = [...DEFAULT_BLACKLIST]; // 先添加所有默认项
+
+        // 添加用户自定义项（不在默认列表中的项）
+        stored.forEach(item => {
+          if (!defaultItems.has(item)) {
+            mergedItems.push(item);
+          }
+        });
+
+        // 保存更新后的黑名单和版本号
+        Store.set(STORAGE_KEY_BLACKLIST, mergedItems);
+        Store.set(STORAGE_KEY_BLACKLIST_VERSION, PRESET_FORMAT_VERSION);
+        return mergedItems;
+      }
+
+      return stored;
+    },
+
+    // 设置黑名单
+    setBlacklist(list) {
+      if (!Array.isArray(list)) {
+        console.warn('[DICE]BlacklistManager 设置失败：必须是数组');
+        return false;
+      }
+      Store.set(STORAGE_KEY_BLACKLIST, list);
+      Store.set(STORAGE_KEY_BLACKLIST_VERSION, PRESET_FORMAT_VERSION);
+      return true;
+    },
+
+    // 重置为默认值
+    resetToDefault() {
+      Store.set(STORAGE_KEY_BLACKLIST, [...DEFAULT_BLACKLIST]);
+      Store.set(STORAGE_KEY_BLACKLIST_VERSION, PRESET_FORMAT_VERSION);
+      return true;
+    },
+
+    // 检查key是否在黑名单中（智能匹配最下一层）
+    // 对于路径 "场景 > 人物状态 > 圆 > 服装部件"，只匹配最后一级 "服装部件"
+    isBlacklisted(key) {
+      if (!key || typeof key !== 'string') return false;
+      const blacklist = this.getBlacklist();
+      if (blacklist.length === 0) return false;
+
+      // 如果key包含分隔符（如 ">" 或 " > "），提取最后一部分
+      const parts = key
+        .split(/>| > /)
+        .map(s => s.trim())
+        .filter(s => s);
+      const lastPart = parts.length > 0 ? parts[parts.length - 1] : key;
+
+      // 检查最后一级key是否包含黑名单中的任何词
+      return blacklist.some(item => lastPart.includes(item));
+    },
+  };
 
   // ========================================
   // PresetManager - 验证规则预设管理
@@ -755,12 +1475,43 @@
   const PresetManager = {
     _cache: null,
 
-    // 获取所有预设
+    // 获取所有预设（自动检测并更新版本）
     getAllPresets() {
-      if (this._cache) return this._cache;
       const stored = Store.get(STORAGE_KEY_PRESETS, null);
       if (!stored) {
         this._initDefaultPreset();
+        return this._cache;
+      }
+      // 自动检测并更新所有预设的版本（每次调用都检测，不依赖缓存）
+      let needsSave = false;
+      stored.forEach(preset => {
+        if (!preset.version || this._compareVersion(preset.version, PRESET_FORMAT_VERSION) < 0) {
+          console.log(
+            `[DICE]PresetManager 检测到预设 "${preset.name}" 版本较旧 (${preset.version || '无版本'})，自动合并新版本`,
+          );
+          // 自动合并新版本（保留用户自定义，添加新规则）
+          const customRules = preset.rules.filter(r => !r.builtin);
+          const builtinRuleIds = new Set(BUILTIN_VALIDATION_RULES.map(r => r.id || r.targetTable + '_' + r.ruleType));
+          const mergedRules = [...BUILTIN_VALIDATION_RULES.map(r => ({ ...r, builtin: true }))];
+          customRules.forEach(rule => {
+            const key = rule.id || rule.targetTable + '_' + rule.ruleType;
+            if (!builtinRuleIds.has(key)) {
+              mergedRules.push({ ...rule, builtin: false });
+            }
+          });
+          preset.rules = mergedRules;
+          preset.version = PRESET_FORMAT_VERSION;
+          needsSave = true;
+        }
+      });
+      if (needsSave) {
+        this._save(stored);
+        ValidationRuleManager.clearCache();
+        // 清除缓存，确保下次获取时使用更新后的数据
+        this._cache = null;
+      }
+      // 只有在没有更新时才使用缓存
+      if (!needsSave && this._cache) {
         return this._cache;
       }
       this._cache = stored;
@@ -779,7 +1530,7 @@
       if (!this.getAllPresets().find(p => p.id === id)) return false;
       Store.set(STORAGE_KEY_ACTIVE_PRESET, id);
       ValidationRuleManager.clearCache();
-      console.log('[PresetManager] 切换预设:', id);
+      console.log('[DICE]PresetManager 切换预设:', id);
       return true;
     },
 
@@ -791,6 +1542,7 @@
         name: name || '新预设',
         builtin: false,
         rules: [],
+        version: PRESET_FORMAT_VERSION,
         createdAt: new Date().toISOString(),
       };
       presets.push(newPreset);
@@ -808,11 +1560,12 @@
         name: source.name + ' (副本)',
         builtin: false,
         rules: JSON.parse(JSON.stringify(source.rules)),
+        version: source.version || PRESET_FORMAT_VERSION,
         createdAt: new Date().toISOString(),
       };
       presets.push(newPreset);
       this._save(presets);
-      console.log('[PresetManager] 复制预设:', source.name, '->', newPreset.name);
+      console.log('[DICE]PresetManager 复制预设:', source.name, '->', newPreset.name);
       return newPreset;
     },
 
@@ -827,7 +1580,7 @@
         Store.set(STORAGE_KEY_ACTIVE_PRESET, 'default');
         ValidationRuleManager.clearCache();
       }
-      console.log('[PresetManager] 删除预设:', id);
+      console.log('[DICE]PresetManager 删除预设:', id);
       return true;
     },
 
@@ -846,46 +1599,175 @@
     exportPreset(id) {
       const preset = this.getAllPresets().find(p => p.id === id);
       if (!preset) return null;
-      return JSON.stringify({ format: 'acu_preset_v1', preset: { name: preset.name, rules: preset.rules } }, null, 2);
+      const json = JSON.stringify(
+        {
+          format: 'acu_preset_v1',
+          version: PRESET_FORMAT_VERSION,
+          preset: { name: preset.name, rules: preset.rules },
+        },
+        null,
+        2,
+      );
+      return json;
+    },
+
+    // 比较版本号（使用全局函数）
+    _compareVersion(v1, v2) {
+      return compareVersion(v1, v2);
+    },
+
+    // 合并预设与默认值（智能合并：保留用户自定义，添加新规则，更新默认值）
+    mergePresetWithDefaults(presetId) {
+      const presets = this.getAllPresets();
+      const preset = presets.find(p => p.id === presetId);
+      if (!preset) return false;
+
+      // 分离内置规则和用户自定义规则
+      const customRules = preset.rules.filter(r => !r.builtin);
+      const builtinRuleIds = new Set(BUILTIN_VALIDATION_RULES.map(r => r.id || r.targetTable + '_' + r.ruleType));
+
+      // 创建内置规则映射（用于检测用户是否修改过）
+      const builtinRuleMap = new Map();
+      BUILTIN_VALIDATION_RULES.forEach(r => {
+        const key = r.id || r.targetTable + '_' + r.ruleType;
+        builtinRuleMap.set(key, r);
+      });
+
+      // 合并规则：保留用户自定义，添加新规则，更新未修改的默认值
+      const mergedRules = [];
+      const processedCustomIds = new Set();
+
+      // 1. 添加所有内置规则（如果用户未修改，使用新版本；如果修改过，保留用户版本）
+      BUILTIN_VALIDATION_RULES.forEach(newRule => {
+        const key = newRule.id || newRule.targetTable + '_' + newRule.ruleType;
+        const existingRule = preset.rules.find(r => (r.id || r.targetTable + '_' + r.ruleType) === key && r.builtin);
+        if (existingRule) {
+          // 检查用户是否修改过（简单比较：如果规则内容完全相同，认为未修改）
+          const isModified = JSON.stringify(existingRule) !== JSON.stringify(newRule);
+          if (isModified) {
+            // 用户修改过，保留用户版本但标记为内置（以便后续更新）
+            mergedRules.push({ ...existingRule, builtin: true });
+          } else {
+            // 未修改，使用新版本
+            mergedRules.push({ ...newRule, builtin: true });
+          }
+        } else {
+          // 新规则，直接添加
+          mergedRules.push({ ...newRule, builtin: true });
+        }
+        processedCustomIds.add(key);
+      });
+
+      // 2. 添加用户自定义规则（不属于内置规则的）
+      customRules.forEach(rule => {
+        const key = rule.id || rule.targetTable + '_' + rule.ruleType;
+        if (!builtinRuleIds.has(key)) {
+          mergedRules.push({ ...rule, builtin: false });
+        }
+      });
+
+      preset.rules = mergedRules;
+      preset.version = PRESET_FORMAT_VERSION;
+      this._save(presets);
+      ValidationRuleManager.clearCache();
+      console.log('[DICE]PresetManager 合并预设:', preset.name);
+      return true;
     },
 
     // 导入预设
-    importPreset(json) {
+    importPreset(json, autoMerge = false) {
       try {
         const data = JSON.parse(json);
         if (data.format !== 'acu_preset_v1' || !data.preset) return null;
+
+        const importedVersion = data.version || '0.0.0';
+        const needsMerge = this._compareVersion(importedVersion, PRESET_FORMAT_VERSION) < 0;
+
         const presets = this.getAllPresets();
         const newPreset = {
           id: 'imported_' + Date.now(),
           name: data.preset.name || '导入的预设',
           builtin: false,
           rules: data.preset.rules || [],
+          version: importedVersion,
           createdAt: new Date().toISOString(),
         };
-        presets.push(newPreset);
-        this._save(presets);
-        console.log('[PresetManager] 导入预设:', newPreset.name);
-        return newPreset;
+
+        // 如果版本较旧且允许自动合并，则合并
+        if (needsMerge && autoMerge) {
+          presets.push(newPreset);
+          this._save(presets);
+          this.mergePresetWithDefaults(newPreset.id);
+          console.log('[DICE]PresetManager 导入并合并预设:', newPreset.name);
+        } else {
+          presets.push(newPreset);
+          this._save(presets);
+          console.log('[DICE]PresetManager 导入预设:', newPreset.name);
+          if (needsMerge) {
+            console.warn('[DICE]PresetManager 预设版本较旧，建议使用 mergePresetWithDefaults 方法合并新版本的默认值');
+          }
+        }
+
+        return { preset: newPreset, needsMerge: needsMerge && !autoMerge };
       } catch (e) {
-        console.error('[PresetManager] 导入失败:', e);
+        console.error('[DICE]PresetManager 导入失败:', e);
         return null;
+      }
+    },
+
+    // 获取内置规则版本（用于检测更新）
+    _getBuiltinRulesVersion() {
+      try {
+        const rulesStr = JSON.stringify(BUILTIN_VALIDATION_RULES);
+        // 简单的哈希函数
+        let hash = 0;
+        for (let i = 0; i < rulesStr.length; i++) {
+          const char = rulesStr.charCodeAt(i);
+          hash = (hash << 5) - hash + char;
+          hash = hash & hash; // Convert to 32bit integer
+        }
+        return hash.toString(36);
+      } catch (e) {
+        console.error('[DICE]PresetManager 计算版本失败:', e);
+        return '0';
       }
     },
 
     // 初始化默认预设
     _initDefaultPreset() {
+      const currentVersion = this._getBuiltinRulesVersion();
+      const stored = Store.get(STORAGE_KEY_PRESETS, null);
+
+      // 检查是否需要更新默认预设
+      if (stored && Array.isArray(stored)) {
+        const defaultPreset = stored.find(p => p.id === 'default');
+        if (defaultPreset && defaultPreset._builtinVersion !== currentVersion) {
+          console.log('[DICE]PresetManager 检测到内置规则更新，自动更新默认预设');
+          // 保留自定义规则（非内置规则）
+          const customRules = defaultPreset.rules.filter(r => !r.builtin);
+          defaultPreset.rules = [...BUILTIN_VALIDATION_RULES.map(r => ({ ...r })), ...customRules];
+          defaultPreset._builtinVersion = currentVersion;
+          this._cache = stored;
+          this._save(stored);
+          Store.set(STORAGE_KEY_ACTIVE_PRESET, 'default');
+          return;
+        }
+      }
+
       const defaultPreset = {
         id: 'default',
         name: '默认预设',
         builtin: true,
         rules: BUILTIN_VALIDATION_RULES.map(r => ({ ...r })),
+        version: PRESET_FORMAT_VERSION,
+        _builtinVersion: currentVersion,
         createdAt: new Date().toISOString(),
       };
       // 迁移旧版自定义规则
       const oldCustom = Store.get(STORAGE_KEY_VALIDATION_RULES, []);
       if (oldCustom.length > 0) {
         defaultPreset.rules.push(...oldCustom.map(r => ({ ...r, builtin: false })));
-        console.log('[PresetManager] 迁移旧规则:', oldCustom.length, '条');
+        console.log('[DICE]PresetManager 迁移旧规则:', oldCustom.length, '条');
       }
       this._cache = [defaultPreset];
       this._save(this._cache);
@@ -897,10 +1779,12 @@
       const presets = this.getAllPresets();
       const defaultPreset = presets.find(p => p.id === 'default');
       if (defaultPreset) {
-        defaultPreset.rules = BUILTIN_VALIDATION_RULES.map(r => ({ ...r }));
+        // 保留自定义规则（非内置规则）
+        const customRules = defaultPreset.rules.filter(r => !r.builtin);
+        defaultPreset.rules = [...BUILTIN_VALIDATION_RULES.map(r => ({ ...r })), ...customRules];
+        defaultPreset._builtinVersion = this._getBuiltinRulesVersion();
         this._save(presets);
         ValidationRuleManager.clearCache();
-        console.log('[PresetManager] 默认预设已恢复');
         return true;
       }
       return false;
@@ -952,7 +1836,6 @@
       Store.set(STORAGE_KEY_VALIDATION_ENABLED, states);
       this._enabledCache = states;
       this._cache = null; // 清除缓存以便下次重新计算
-      console.log(`[ValidationRuleManager] 规则 ${ruleId} 已${enabled ? '启用' : '禁用'}`);
     },
 
     // 切换规则拦截状态
@@ -965,7 +1848,6 @@
 
       rule.intercept = intercept;
       PresetManager.updatePresetRules(preset.id, preset.rules);
-      console.log(`[ValidationRuleManager] 规则 ${ruleId} 拦截已${intercept ? '启用' : '关闭'}`);
       return true;
     },
 
@@ -977,7 +1859,7 @@
     // 添加自定义规则（到当前激活预设）
     addCustomRule(rule) {
       if (!rule.id || !rule.name || !rule.targetTable) {
-        console.error('[ValidationRuleManager] 规则缺少必要字段');
+        console.error('[DICE]ValidationRuleManager 规则缺少必要字段');
         return false;
       }
 
@@ -986,14 +1868,14 @@
 
       // 检查 ID 是否重复
       if (preset.rules.some(r => r.id === rule.id)) {
-        console.error('[ValidationRuleManager] 规则 ID 已存在:', rule.id);
+        console.error('[DICE]ValidationRuleManager 规则 ID 已存在:', rule.id);
         return false;
       }
 
       const newRule = { ...rule, builtin: false, enabled: true };
       preset.rules.push(newRule);
       PresetManager.updatePresetRules(preset.id, preset.rules);
-      console.log('[ValidationRuleManager] 添加规则:', newRule.name);
+      console.log('[DICE]ValidationRuleManager 添加规则:', newRule.name);
       return true;
     },
 
@@ -1014,7 +1896,7 @@
       Store.set(STORAGE_KEY_VALIDATION_ENABLED, states);
       this._enabledCache = states;
 
-      console.log('[ValidationRuleManager] 删除规则:', ruleId);
+      console.log('[DICE]ValidationRuleManager 删除规则:', ruleId);
       return true;
     },
 
@@ -1054,7 +1936,7 @@
         const regex = new RegExp(pattern);
         return regex.test(String(value));
       } catch (e) {
-        console.error('[ValidationEngine] 正则表达式错误:', pattern, e);
+        console.error('[DICE]ValidationEngine 正则表达式错误:', pattern, e);
         return true; // 正则错误时跳过验证
       }
     },
@@ -1093,7 +1975,7 @@
         numVal = parseFloat(strVal);
       }
 
-      if (isNaN(numVal)) return true; // 非数值跳过
+      if (isNaN(numVal)) return false; // 非数值验证失败
 
       if (min !== undefined && min !== null && numVal < min) return false;
       if (max !== undefined && max !== null && numVal > max) return false;
@@ -1144,6 +2026,60 @@
       return value !== null && value !== undefined && String(value).trim() !== '';
     },
 
+    // 键值对验证
+    validateKeyValue(value, ruleConfig) {
+      if (value === null || value === undefined || value === '') return true; // 空值不验证
+
+      const valueType = ruleConfig?.valueType || 'text';
+      const valueMin = ruleConfig?.valueMin;
+      const valueMax = ruleConfig?.valueMax;
+
+      // 预处理：修正中文标点符号和去除空格
+      let processedValue = String(value);
+
+      // 修正中文标点符号
+      processedValue = processedValue
+        .replace(/：/g, ':') // 中文冒号 → 英文冒号
+        .replace(/；/g, ';') // 中文分号 → 英文分号
+        .replace(/，/g, ';'); // 中文逗号 → 英文分号（键值对分隔符）
+
+      // 去除所有空格
+      processedValue = processedValue.replace(/\s+/g, '');
+
+      // 解析键值对
+      const pairs = processedValue.split(';').filter(p => p.trim());
+
+      if (pairs.length === 0) return false; // 至少需要一个键值对
+
+      // 验证每个键值对
+      for (const pair of pairs) {
+        const colonIndex = pair.indexOf(':');
+        if (colonIndex === -1 || colonIndex === 0 || colonIndex === pair.length - 1) {
+          return false; // 格式错误：缺少冒号或键/值为空
+        }
+
+        const key = pair.substring(0, colonIndex);
+        const val = pair.substring(colonIndex + 1);
+
+        if (!key || !val) return false; // 键或值不能为空
+
+        // 如果是数值型，验证数值范围
+        if (valueType === 'numeric') {
+          // 验证值必须是纯数字（不能包含非数字字符）
+          if (!/^-?\d+(\.\d+)?$/.test(val.trim())) return false; // 不是纯数字格式
+
+          const numVal = parseFloat(val);
+          if (isNaN(numVal)) return false; // 不是有效数字
+
+          if (valueMin !== undefined && valueMin !== null && numVal < valueMin) return false;
+          if (valueMax !== undefined && valueMax !== null && numVal > valueMax) return false;
+        }
+        // 文本型只验证格式，不验证值内容
+      }
+
+      return true;
+    },
+
     // 表级只读验证（比较新旧数据）
     validateTableReadonly(oldContent, newContent) {
       if (!oldContent || !newContent) return true;
@@ -1154,6 +2090,69 @@
     validateRowLimit(rowCount, min, max) {
       if (min !== undefined && min !== null && rowCount < min) return false;
       if (max !== undefined && max !== null && rowCount > max) return false;
+      return true;
+    },
+
+    // 序列递增验证（检查字段值是否严格递增）
+    validateSequence(sheet, columnName, config) {
+      if (!sheet || !sheet.content || sheet.content.length < 2) return true; // 空表或只有表头，通过验证
+      if (!columnName || !config) return true;
+
+      const headers = sheet.content[0] || [];
+      const rows = sheet.content.slice(1) || [];
+      const colIndex = headers.indexOf(columnName);
+      if (colIndex < 0) return true; // 列不存在，跳过验证
+
+      const prefix = config.prefix || '';
+      const startFrom = config.startFrom !== undefined ? config.startFrom : 1;
+
+      // 提取所有编码索引的数字部分
+      const numbers = [];
+      const allRowValues = []; // 记录所有行的原始值用于调试
+      for (let i = 0; i < rows.length; i++) {
+        const value = rows[i]?.[colIndex];
+        allRowValues.push({ rowIndex: i, rawValue: value, type: typeof value });
+        if (value === null || value === undefined || value === '') continue;
+
+        const strValue = String(value).trim();
+        if (!strValue) continue;
+
+        // 匹配前缀+数字格式
+        if (prefix) {
+          const regex = new RegExp(`^${prefix}(\\d+)$`);
+          const match = strValue.match(regex);
+          if (match) {
+            const num = parseInt(match[1], 10);
+            if (!isNaN(num)) numbers.push({ rowIndex: i, value: strValue, num });
+          }
+        } else {
+          // 无前缀，直接解析数字
+          const num = parseInt(strValue, 10);
+          if (!isNaN(num)) numbers.push({ rowIndex: i, value: strValue, num });
+        }
+      }
+
+      if (numbers.length === 0) return true; // 没有有效值，通过验证
+
+      // 按行索引排序（保持原始顺序）
+      numbers.sort((a, b) => a.rowIndex - b.rowIndex);
+
+      // 检查是否有重复值
+      const numSet = new Set(numbers.map(n => n.num));
+      if (numSet.size !== numbers.length) {
+        return false; // 有重复值
+      }
+
+      // 检查是否从startFrom开始严格递增
+      // 要求：第一行必须是startFrom，第二行必须是startFrom+1，以此类推
+      for (let i = 0; i < numbers.length; i++) {
+        const expectedNum = startFrom + i;
+        const actualNum = numbers[i].num;
+        if (actualNum !== expectedNum) {
+          return false; // 发现跳号、重复或不是从startFrom开始
+        }
+      }
+
       return true;
     },
 
@@ -1207,6 +2206,17 @@
                   `表 "${rule.targetTable}" 行数 ${rowCount} 超出限制 (${rule.config?.min || 0}-${rule.config?.max || '∞'})`,
               });
             }
+          } else if (rule.ruleType === 'sequence' && rule.targetColumn) {
+            // 序列递增验证
+            if (!this.validateSequence(newSheet, rule.targetColumn, rule.config || {})) {
+              violations.push({
+                rule,
+                tableName: rule.targetTable,
+                message:
+                  rule.errorMessage ||
+                  `字段 "${rule.targetColumn}" 的编码索引必须从${rule.config?.prefix || ''}${String(rule.config?.startFrom || 1).padStart(3, '0')}开始严格递增，不可跳号或重复`,
+              });
+            }
           }
         }
         // 字段级规则检查
@@ -1252,6 +2262,8 @@
           return this.validateRelation(value, rawData, rule.config?.refTable, rule.config?.refColumn);
         case 'required':
           return this.validateRequired(value);
+        case 'keyValue':
+          return this.validateKeyValue(value, rule.config);
         default:
           return true;
       }
@@ -1260,6 +2272,8 @@
     // 验证单行数据
     validateRow(row, headers, tableName, rowIndex, rules, rawData) {
       const errors = [];
+      // 获取第一列的值（通常是名称列，优先使用第二列，否则使用第一列）
+      const rowTitle = row[1] || row[0] || `行 ${rowIndex + 1}`;
 
       for (const rule of rules) {
         if (rule.targetTable !== tableName) continue;
@@ -1282,6 +2296,7 @@
             rowIndex: rowIndex,
             columnName: rule.targetColumn,
             currentValue: String(value ?? ''),
+            rowTitle: rowTitle, // 添加第一列的值，用于标识错误行
             errorMessage: rule.errorMessage,
             severity: 'error',
           });
@@ -1311,7 +2326,7 @@
 
         if (tableRules.length === 0) continue;
 
-        // 检查表级规则（如行数限制）
+        // 检查表级规则（如行数限制、序列递增）
         for (const rule of tableRules) {
           const typeInfo = RULE_TYPE_INFO[rule.ruleType];
           if (typeInfo?.scope === 'table') {
@@ -1332,6 +2347,26 @@
                     `行数 ${rowCount} 超出限制 (${rule.config?.min || 0}-${rule.config?.max || '∞'})`,
                   severity: 'warning',
                 });
+              }
+            } else if (rule.ruleType === 'sequence' && rule.targetColumn) {
+              // 序列递增验证
+              const isValid = this.validateSequence(sheet, rule.targetColumn, rule.config || {});
+              if (!isValid) {
+                const error = {
+                  ruleId: rule.id,
+                  ruleName: rule.name,
+                  ruleType: rule.ruleType,
+                  rule: rule, // 保存完整规则对象用于智能修改
+                  tableName: tableName,
+                  rowIndex: -1, // 表级错误
+                  columnName: rule.targetColumn,
+                  currentValue: '',
+                  errorMessage:
+                    rule.errorMessage ||
+                    `字段 "${rule.targetColumn}" 的编码索引必须从${rule.config?.prefix || ''}${String(rule.config?.startFrom || 1).padStart(3, '0')}开始严格递增，不可跳号或重复`,
+                  severity: 'error',
+                };
+                allErrors.push(error);
               }
             }
             // tableReadonly 不在这里检查（需要对比快照）
@@ -1418,7 +2453,7 @@
         const request = indexedDB.open(this.DB_NAME, this.DB_VERSION);
 
         request.onerror = () => {
-          console.error('[LocalAvatarDB] 打开数据库失败:', request.error);
+          console.error('[DICE]LocalAvatarDB 打开数据库失败:', request.error);
           reject(request.error);
         };
 
@@ -1464,12 +2499,12 @@
           const request = store.put(data);
           request.onsuccess = () => resolve(true);
           request.onerror = () => {
-            console.error('[LocalAvatarDB] 保存失败:', request.error);
+            console.error('[DICE]LocalAvatarDB 保存失败:', request.error);
             reject(request.error);
           };
         });
       } catch (e) {
-        console.error('[LocalAvatarDB] save error:', e);
+        console.error('[DICE]LocalAvatarDB save error:', e);
         return false;
       }
     },
@@ -1504,7 +2539,7 @@
           request.onerror = () => resolve(null);
         });
       } catch (e) {
-        console.error('[LocalAvatarDB] get error:', e);
+        console.error('[DICE]LocalAvatarDB get error:', e);
         return null;
       }
     },
@@ -1549,7 +2584,7 @@
           request.onerror = () => resolve(false);
         });
       } catch (e) {
-        console.error('[LocalAvatarDB] delete error:', e);
+        console.error('[DICE]LocalAvatarDB delete error:', e);
         return false;
       }
     },
@@ -1614,7 +2649,7 @@
           request.onerror = () => resolve(false);
         });
       } catch (e) {
-        console.error('[LocalAvatarDB] clearAll error:', e);
+        console.error('[DICE]LocalAvatarDB clearAll error:', e);
         return false;
       }
     },
@@ -1647,7 +2682,7 @@
         }
       }
     } catch (e) {
-      console.warn('[ACU] getUserAvatarUrl error:', e);
+      console.warn('[DICE]ACU getUserAvatarUrl error:', e);
     }
     return null;
   };
@@ -1688,7 +2723,7 @@
         }
       }
     } catch (e) {
-      console.warn('[ACU] getPersonaName error:', e);
+      console.warn('[DICE]ACU getPersonaName error:', e);
     }
     return null;
   };
@@ -1746,12 +2781,6 @@
         if (this._cache[key].aliases && this._cache[key].aliases.includes(name)) {
           if (this._cache[key].url) return this._cache[key].url;
         }
-      }
-
-      const playerName = getPlayerName();
-      if (name === '<user>' || name === '主角' || (playerName && name === playerName)) {
-        const stAvatar = getUserAvatarUrl();
-        if (stAvatar) return stAvatar;
       }
 
       return null;
@@ -1969,8 +2998,286 @@
   const MvuModule = (function () {
     'use strict';
 
+    // [新增] MVU 路径解析函数 - 用于投骰快捷选择（移到模块内部避免影响执行顺序）
+    function parseMvuPathForDice(path, value) {
+      try {
+        if (!path || typeof path !== 'string') {
+          return { initiator: null, attrName: null, candidates: [] };
+        }
+
+        // 用 . 分割路径
+        const parts = path.split('.').filter(p => p && p.trim());
+
+        if (parts.length === 0) {
+          return { initiator: null, attrName: null, candidates: [] };
+        }
+
+        // 定义黑名单：绝对不是属性名的词
+        const blacklist = [
+          '角色列表',
+          '系统',
+          '列表',
+          '表',
+          '数据',
+          '信息',
+          '变量',
+          '属性',
+          '状态',
+          'stat_data',
+          'delta_data',
+        ];
+
+        // 过滤黑名单
+        const filteredParts = parts.filter(p => !blacklist.includes(p));
+
+        // 提取可能的发起者（通常是倒数第二或第三层，排除黑名单后）
+        let initiator = null;
+        if (filteredParts.length >= 2) {
+          // 倒数第二层通常是角色名
+          initiator = filteredParts[filteredParts.length - 2];
+        } else if (filteredParts.length === 1) {
+          // 只有一层，可能是角色名
+          initiator = filteredParts[0];
+        }
+
+        // 提取属性名（通常是最后一层）
+        let attrName = null;
+        if (filteredParts.length > 0) {
+          attrName = filteredParts[filteredParts.length - 1];
+        } else if (parts.length > 0) {
+          // 如果所有部分都在黑名单中，至少取最后一部分
+          attrName = parts[parts.length - 1];
+        }
+
+        // 生成候选列表（所有非黑名单的部分）
+        const candidates = filteredParts.length > 0 ? filteredParts : parts.slice(-1);
+
+        return {
+          initiator: initiator || null,
+          attrName: attrName || null,
+          candidates: candidates,
+        };
+      } catch (e) {
+        console.warn('[DICE]parseMvuPathForDice 解析路径时出错', e);
+        return { initiator: null, attrName: null, candidates: [] };
+      }
+    }
+
     // ===== 私有变量 =====
     const MODULE_ID = '__mvu__';
+    let cachedEraData = null; // 缓存 ERA 数据
+
+    // ===== 智能检测变量源 =====
+    function detectMode() {
+      // 如果有缓存数据，检查数据来源标记
+      if (cachedEraData && cachedEraData._source) {
+        return cachedEraData._source;
+      }
+
+      // 优先检测 ERA，因为 ERA 框架较新
+      const eventEmit = window.eventEmit || window.parent?.eventEmit;
+      const eventOn = window.eventOn || window.parent?.eventOn;
+
+      if (typeof eventEmit === 'function' && typeof eventOn === 'function') {
+        console.log('[DICE]MvuModule 智能检测到 ERA 框架');
+        return 'era';
+      }
+
+      // 其次检测 MVU
+      if (typeof window.Mvu !== 'undefined' && typeof window.Mvu.getMvuData === 'function') {
+        console.log('[DICE]MvuModule 智能检测到 MVU 框架');
+        return 'mvu';
+      }
+
+      // 默认 MVU
+      console.log('[DICE]MvuModule 未检测到框架，默认使用 MVU 模式');
+      return 'mvu';
+    }
+
+    // ===== 增强的智能检测（带数据验证）=====
+    async function detectModeWithData() {
+      // 1. 优先尝试 ERA（因为 ERA 是新框架）
+      const eventEmit = window.eventEmit || window.parent?.eventEmit;
+      const eventOn = window.eventOn || window.parent?.eventOn;
+
+      if (typeof eventEmit === 'function' && typeof eventOn === 'function') {
+        try {
+          // 尝试实际获取 ERA 数据（带超时）
+          const eraData = await Promise.race([
+            getEraData(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('ERA timeout')), 2000))
+          ]);
+
+          if (eraData && eraData.stat_data) {
+            console.log('[DICE]检测到 ERA 框架且数据可用');
+            return { mode: 'era', data: eraData };
+          }
+        } catch (e) {
+          console.warn('[DICE]ERA 框架存在但数据不可用:', e.message);
+        }
+      }
+
+      // 2. 尝试 MVU
+      try {
+        await waitGlobalInitialized('Mvu');
+
+        if (typeof window.Mvu !== 'undefined' && typeof window.Mvu.getMvuData === 'function') {
+          const mvuData = window.Mvu.getMvuData({ type: 'message', message_id: 'latest' });
+
+          if (mvuData && mvuData.stat_data) {
+            console.log('[DICE]检测到 MVU 框架且数据可用');
+            return {
+              mode: 'mvu',
+              data: {
+                stat_data: mvuData.stat_data || null,
+                display_data: mvuData.display_data || {},
+                delta_data: mvuData.delta_data || {},
+                schema: mvuData.schema || null,
+                _source: 'mvu', // 标记数据来源
+              }
+            };
+          }
+        }
+      } catch (e) {
+        console.warn('[DICE]MVU 框架检测失败:', e);
+      }
+
+      // 3. 都不可用，返回默认 MVU 模式（向后兼容）
+      console.warn('[DICE]未检测到可用的变量框架，默认使用 MVU 模式');
+      return { mode: 'mvu', data: null };
+    }
+
+    // ===== ERA 数据获取函数 =====
+    // 异步获取ERA变量数据
+    async function getEraData() {
+      return new Promise((resolve) => {
+        const timeoutId = setTimeout(() => {
+          console.warn('[DICE]MvuModule ERA查询超时');
+          resolve(null);
+        }, 5000);
+
+        // 尝试获取 eventEmit 和 eventOn（支持 iframe 环境）
+        const eventEmit = window.eventEmit || window.parent?.eventEmit;
+        const eventOn = window.eventOn || window.parent?.eventOn;
+        const eventOff = window.eventOff || window.parent?.eventOff;
+
+        const onResult = (detail) => {
+          clearTimeout(timeoutId);
+          // 移除事件监听（如果 eventOff 不可用，则忽略）
+          if (typeof eventOff === 'function') {
+            try {
+              eventOff('era:queryResult', onResult);
+            } catch (e) {
+              console.warn('[DICE]MvuModule 移除事件监听失败:', e);
+            }
+          }
+
+          console.log('[DICE]MvuModule 收到ERA查询结果:', JSON.stringify(detail, null, 2));
+          console.log('[DICE]MvuModule detail.result:', JSON.stringify(detail.result, null, 2));
+
+          if (detail.result && detail.result.error) {
+            console.error('[DICE]MvuModule ERA查询失败:', detail.result.error);
+            resolve(null);
+            return;
+          }
+
+          const statData = detail.result?.statWithoutMeta || null;
+          console.log('[DICE]MvuModule 提取的 stat_data:', JSON.stringify(statData, null, 2));
+
+          const result = {
+            stat_data: statData,
+            delta_data: {},
+            schema: null,
+            _source: 'era', // 标记数据来源
+          };
+
+          // 缓存数据
+          cachedEraData = result;
+
+          resolve(result);
+        };
+
+        try {
+          console.log('[DICE]MvuModule 开始获取ERA数据...');
+          console.log('[DICE]MvuModule ERA API 检查:', {
+            eventEmit: typeof eventEmit === 'function',
+            eventOn: typeof eventOn === 'function',
+            eventOff: typeof eventOff === 'function'
+          });
+
+          if (typeof eventOn !== 'function') {
+            console.error('[DICE]MvuModule eventOn 不可用');
+            clearTimeout(timeoutId);
+            resolve(null);
+            return;
+          }
+          if (typeof eventEmit !== 'function') {
+            console.error('[DICE]MvuModule eventEmit 不可用');
+            clearTimeout(timeoutId);
+            resolve(null);
+            return;
+          }
+
+          eventOn('era:queryResult', onResult);
+          eventEmit('era:getCurrentVars');
+        } catch (e) {
+          clearTimeout(timeoutId);
+          console.error('[DICE]MvuModule ERA API调用失败:', e);
+          resolve(null);
+        }
+      });
+    }
+
+    // ERA 变量设置函数
+    async function setEraValue(path, newValue) {
+      return new Promise((resolve) => {
+        const timeoutId = setTimeout(() => {
+          console.warn('[DICE]MvuModule ERA写入超时');
+          resolve(false);
+        }, 5000);
+
+        // 尝试获取 eventEmit 和 eventOn（支持 iframe 环境）
+        const eventEmit = window.eventEmit || window.parent?.eventEmit;
+        const eventOn = window.eventOn || window.parent?.eventOn;
+        const eventOff = window.eventOff || window.parent?.eventOff;
+
+        const onWriteDone = (detail) => {
+          clearTimeout(timeoutId);
+          if (typeof eventOff === 'function') {
+            eventOff('era:writeDone', onWriteDone);
+          }
+          console.log('[DICE]MvuModule ERA写入成功');
+          resolve(true);
+        };
+
+        try {
+          console.log('[DICE]MvuModule 开始设置ERA变量:', path, newValue);
+
+          if (typeof eventOn !== 'function') {
+            console.error('[DICE]MvuModule eventOn 不可用');
+            clearTimeout(timeoutId);
+            resolve(false);
+            return;
+          }
+          if (typeof eventEmit !== 'function') {
+            console.error('[DICE]MvuModule eventEmit 不可用');
+            clearTimeout(timeoutId);
+            resolve(false);
+            return;
+          }
+
+          eventOn('era:writeDone', onWriteDone);
+          eventEmit('era:updateByPath', {
+            path: path,
+            value: newValue
+          });
+        } catch (e) {
+          clearTimeout(timeoutId);
+          console.error('[DICE]MvuModule ERA API调用失败:', e);
+          resolve(false);
+        }
+      });
+    }
 
     // ===== 样式定义 =====
     const STYLES = `
@@ -1979,6 +3286,8 @@
                 height: 100%;
                 display: flex;
                 flex-direction: column;
+                min-height: 300px; /* 确保面板有足够的最小高度，避免显示为白条 */
+                overflow: hidden; /* 不在这里滚动，让父容器处理 */
             }
             .acu-mvu-panel .acu-panel-header {
                 background: var(--acu-table-head);
@@ -2021,17 +3330,128 @@
                 color: var(--acu-accent);
                 border-color: var(--acu-accent);
             }
-
-            /* MVU 内容区 */
-            .mvu-content {
-                flex: 1;
+            .acu-mvu-panel .mvu-header-btn.active {
+                background: var(--acu-accent);
+                color: #fff;
+                border-color: var(--acu-accent);
+            }
+            /* [新增] 数值模式样式 */
+            .mvu-numeric-mode {
+                padding: 0;
+            }
+            .mvu-numeric-level-controls {
+                position: sticky;
+                top: 0;
+                z-index: 10;
+            }
+            /* [新增] 可折叠层级控制样式 */
+            .mvu-level-controls-collapsible {
+                margin-bottom: 8px;
+            }
+            .mvu-level-controls-header {
+                transition: background 0.2s;
+            }
+            .mvu-level-controls-header:hover {
+                background: var(--acu-table-hover) !important;
+            }
+            .mvu-level-controls-body {
                 overflow-y: auto;
                 overflow-x: hidden;
+                transition: max-height 0.3s ease-out, padding-top 0.3s ease-out, padding-bottom 0.3s ease-out, border-bottom 0.3s ease-out;
+                max-height: 300px; /* 限制最大高度，超出时可滚动 */
+                scrollbar-width: thin;
+            }
+            /* 移动端使用更小的最大高度 */
+            @media (max-width: 768px) {
+                .mvu-level-controls-body {
+                    max-height: 200px;
+                }
+            }
+            .mvu-level-controls-body::-webkit-scrollbar {
+                width: 6px;
+            }
+            .mvu-level-controls-body::-webkit-scrollbar-track {
+                background: transparent;
+            }
+            .mvu-level-controls-body::-webkit-scrollbar-thumb {
+                background: var(--acu-border);
+                border-radius: 3px;
+            }
+            .mvu-level-controls-body::-webkit-scrollbar-thumb:hover {
+                background: var(--acu-text-sub);
+            }
+            .mvu-level-controls-collapsible.collapsed .mvu-level-controls-body {
+                max-height: 0 !important;
+                padding-top: 0 !important;
+                padding-bottom: 0 !important;
+                border-bottom: none !important;
+                margin: 0 !important;
+            }
+            .mvu-level-controls-toggle-icon {
+                transition: transform 0.3s ease-out;
+            }
+            .mvu-level-controls-collapsible.collapsed .mvu-level-controls-toggle-icon {
+                transform: rotate(-90deg);
+            }
+            .mvu-numeric-items {
+                max-height: calc(100vh - 200px);
+                overflow-y: auto;
+            }
+            .mvu-numeric-item {
+                transition: background 0.2s;
+            }
+            .mvu-numeric-item:hover {
+                background: var(--acu-table-hover) !important;
+            }
+            .mvu-dice-icon {
+                transition: opacity 0.2s, transform 0.2s;
+            }
+            .mvu-dice-icon:hover {
+                opacity: 1 !important;
+                transform: scale(1.1);
+            }
+            .mvu-level-toggle:hover {
+                opacity: 1 !important;
+            }
+            .mvu-level-toggle[data-visible="true"]:hover {
+                background: var(--acu-accent) !important;
+                color: #fff !important;
+                border-color: var(--acu-accent) !important;
+            }
+            .mvu-level-toggle[data-visible="false"]:hover,
+            .mvu-level-toggle[data-visible=""]:hover {
+                background: var(--acu-table-hover) !important;
+                color: var(--acu-text-sub) !important;
+                border-color: var(--acu-border) !important;
+            }
+
+            /* MVU 内容区 - 始终使用竖向滚动模式 */
+            .mvu-content {
+                display: flex;
+                flex-direction: column;
+                overflow-x: hidden;
+                overflow-y: auto; /* 直接在内容区启用滚动 */
+                flex: 1 1 auto;
+                min-height: 0; /* 关键：允许 flex 子项缩小以启用滚动 */
+                max-height: 100%; /* 限制最大高度为父容器 */
                 padding: 12px;
-                scrollbar-width: none;
+                scrollbar-width: thin;
             }
             .mvu-content::-webkit-scrollbar {
                 display: none;
+            }
+            .mvu-content .mvu-card {
+                flex: 0 0 auto; /* 不拉伸，保持自然高度 */
+                min-width: 100%;
+                max-width: 100%;
+                width: 100%;
+            }
+            /* MVU面板始终支持滚动 */
+            .acu-mvu-panel {
+                overflow-y: auto !important;
+                overflow-x: hidden !important;
+                flex: 1 1 0; /* 关键：使用 flex-basis: 0 让容器可以正确计算滚动 */
+                min-height: 300px; /* 确保面板有足够的最小高度，避免显示为白条 */
             }
 
             /* MVU 卡片 */
@@ -2081,6 +3501,7 @@
             .mvu-card-body {
                 padding: 8px 12px;
                 display: block;
+                overflow: hidden; /* 为 slideUp/slideDown 动画提供支持 */
             }
             .mvu-card.collapsed .mvu-card-body {
                 display: none;
@@ -2097,6 +3518,66 @@
             }
             .mvu-card .mvu-card .mvu-card-body {
                 padding: 6px 10px;
+            }
+
+            /* 嵌套卡片横向布局 - 只对嵌套卡片生效，键值对保持正常块级显示 */
+            .mvu-card-body.horizontal-nested {
+                display: flex;
+                flex-direction: row;
+                flex-wrap: nowrap;
+                gap: 12px;
+                overflow-x: auto;
+                overflow-y: visible;
+                -webkit-overflow-scrolling: touch;
+                padding-bottom: 8px;
+                align-items: flex-start;
+            }
+            /* 如果父卡片有 has-nested-cards 类，使用 wrap 布局，让键值对和嵌套卡片可以换行 */
+            .mvu-card.has-nested-cards .mvu-card-body.horizontal-nested {
+                flex-wrap: wrap;
+            }
+            /* 键值对行保持正常块级显示，占满一行 */
+            .mvu-card-body.horizontal-nested > .mvu-row {
+                display: flex;
+                flex: 0 0 100%;
+                width: 100%;
+                max-width: 100%; /* 确保不超过容器宽度 */
+                box-sizing: border-box;
+            }
+            /* 如果父卡片有 has-nested-cards 类，键值对应该根据内容自适应宽度，但仍然占满一行 */
+            .mvu-card.has-nested-cards .mvu-card-body.horizontal-nested > .mvu-row {
+                flex: 0 0 auto; /* 根据内容自适应宽度 */
+                min-width: 100%; /* 确保占满一行 */
+                width: auto; /* 根据内容自适应宽度 */
+                max-width: 450px; /* 限制键值对的最大宽度，避免占用过多横向空间 */
+                box-sizing: border-box;
+            }
+            @media (min-width: 769px) {
+                .mvu-card.has-nested-cards .mvu-card-body.horizontal-nested > .mvu-row {
+                    max-width: 550px; /* 大屏幕下也限制键值对的最大宽度 */
+                }
+            }
+            /* 只有嵌套卡片才横向排列 - 智能宽度 */
+            .mvu-card-body.horizontal-nested > .mvu-card {
+                flex: 0 0 auto; /* 根据内容自动调整宽度 */
+                min-width: 200px;
+                max-width: 350px;
+                width: auto;
+            }
+            /* 如果嵌套卡片内部也有横向排列的子卡片，移除最大宽度限制，允许根据内容自适应 */
+            .mvu-card-body.horizontal-nested > .mvu-card.has-nested-cards {
+                min-width: 400px; /* 为包含嵌套卡片的嵌套卡片设置更大的最小宽度 */
+                max-width: none; /* 移除最大宽度限制，允许根据内容自适应 */
+            }
+            @media (min-width: 769px) {
+                .mvu-card-body.horizontal-nested > .mvu-card {
+                    min-width: 240px;
+                    max-width: 400px;
+                }
+                .mvu-card-body.horizontal-nested > .mvu-card.has-nested-cards {
+                    min-width: 500px; /* 为包含嵌套卡片的嵌套卡片设置更大的最小宽度 */
+                    max-width: none; /* 移除最大宽度限制，允许根据内容自适应 */
+                }
             }
 
             /* 键值对行 */
@@ -2121,25 +3602,25 @@
             .mvu-value-wrap {
                 flex: 1;
                 display: flex;
-                align-items: flex-start;
+                align-items: center;
                 gap: 6px;
                 min-width: 0;
             }
             .mvu-value {
                 color: var(--acu-text-main);
-                font-size: 13px;
+                font-size: var(--acu-font-size, 13px);
                 cursor: pointer;
                 padding: 1px 6px;
                 border-radius: 4px;
                 transition: background 0.2s;
                 word-break: break-word;
-                flex: 1;
+                flex: 0 1 auto;
             }
             .mvu-value:hover {
                 background: var(--acu-table-hover);
             }
             .mvu-value.mvu-array-value {
-                font-size: 12px;
+                font-size: calc(var(--acu-font-size, 13px) * 0.92);
                 color: var(--acu-text-sub);
             }
             .mvu-change-indicator {
@@ -2164,6 +3645,12 @@
                 text-align: center;
                 padding: 40px 20px;
                 color: var(--acu-text-sub);
+                flex: 1;
+                min-width: 100%;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
             }
             .mvu-empty i {
                 font-size: 32px;
@@ -2302,22 +3789,141 @@
     }
 
     function isAvailable() {
-      return typeof window.Mvu !== 'undefined' && typeof window.Mvu.getMvuData === 'function';
+      const mode = detectMode();
+
+      if (mode === 'era') {
+        // ERA 模式：检查 eventEmit 和 eventOn 是否可用（支持 iframe 环境）
+        const eventEmit = window.eventEmit || window.parent?.eventEmit;
+        const eventOn = window.eventOn || window.parent?.eventOn;
+        const emitAvailable = typeof eventEmit === 'function';
+        const onAvailable = typeof eventOn === 'function';
+        return emitAvailable && onAvailable;
+      } else {
+        // MVU 模式：检查 MVU 框架是否加载
+        const mvuAvailable = typeof window.Mvu !== 'undefined' && typeof window.Mvu.getMvuData === 'function';
+        return mvuAvailable;
+      }
     }
 
     function getData() {
-      if (!isAvailable()) return null;
+      console.warn('[DICE]警告: getData() 是同步函数，可能无法正确获取 MVU 数据。建议使用 getDataWithRetry()');
+
+      // 优先返回缓存（可能来自 ERA 或 MVU）
+      if (cachedEraData) {
+        return cachedEraData;
+      }
+
+      // 尝试同步获取 MVU（可能失败）
       try {
-        const allVars = window.Mvu.getMvuData({ type: 'message', message_id: -1 });
-        if (!allVars) return null;
-        return {
-          stat_data: allVars.stat_data || null,
-          display_data: allVars.display_data || {},
-          delta_data: allVars.delta_data || {},
-          schema: allVars.schema || null,
-        };
+        if (typeof window.Mvu !== 'undefined' && typeof window.Mvu.getMvuData === 'function') {
+          const allVars = window.Mvu.getMvuData({ type: 'message', message_id: 'latest' });
+
+          if (allVars && allVars.stat_data) {
+            const data = {
+              stat_data: allVars.stat_data || null,
+              display_data: allVars.display_data || {},
+              delta_data: allVars.delta_data || {},
+              schema: allVars.schema || null,
+              _source: 'mvu', // 标记数据来源
+            };
+
+            cachedEraData = data; // 更新缓存
+            return data;
+          }
+        }
       } catch (e) {
-        console.warn('[MvuModule] getData error:', e);
+        console.warn('[DICE]同步获取 MVU 数据失败:', e);
+      }
+
+      return null;
+    }
+
+    // ===== MVU 专用重试函数 =====
+    async function getMvuDataWithRetry(maxRetries = 3, retryDelay = 500) {
+      try {
+        await waitGlobalInitialized('Mvu');
+
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            if (typeof window.Mvu === 'undefined' || typeof window.Mvu.getMvuData !== 'function') {
+              throw new Error('MVU API 不可用');
+            }
+
+            const allVars = window.Mvu.getMvuData({ type: 'message', message_id: 'latest' });
+
+            if (allVars && allVars.stat_data) {
+              const data = {
+                stat_data: allVars.stat_data || null,
+                display_data: allVars.display_data || {},
+                delta_data: allVars.delta_data || {},
+                schema: allVars.schema || null,
+                _source: 'mvu', // 标记数据来源
+              };
+
+              // 为 MVU 也添加缓存
+              cachedEraData = data;
+              console.log('[DICE]MVU 数据获取成功');
+              return data;
+            }
+          } catch (e) {
+            console.warn(`[DICE]MVU 数据获取失败 (尝试 ${attempt}/${maxRetries}):`, e);
+          }
+
+          if (attempt < maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, retryDelay));
+          }
+        }
+
+        return null;
+      } catch (e) {
+        console.error('[DICE]MVU 初始化失败:', e);
+        return null;
+      }
+    }
+
+    // 支持重试获取数据的函数
+    async function getDataWithRetry(maxRetries = 3, retryDelay = 500) {
+      try {
+        // 使用增强的检测函数
+        const detection = await detectModeWithData();
+
+        // 如果检测时已经获取到数据，直接返回
+        if (detection.data) {
+          cachedEraData = detection.data; // 更新缓存
+          return detection.data;
+        }
+
+        // 否则根据模式进行重试
+        const mode = detection.mode;
+
+        if (mode === 'era') {
+          // ERA 模式：重试获取
+          for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+              const data = await getEraData();
+              if (data && data.stat_data) {
+                cachedEraData = data;
+                return data;
+              }
+            } catch (e) {
+              console.warn(`[DICE]ERA 数据获取失败 (尝试 ${attempt}/${maxRetries}):`, e);
+            }
+
+            if (attempt < maxRetries) {
+              await new Promise(resolve => setTimeout(resolve, retryDelay));
+            }
+          }
+
+          // ERA 失败，尝试降级到 MVU
+          console.warn('[DICE]ERA 数据获取失败，尝试降级到 MVU');
+          return await getMvuDataWithRetry(maxRetries, retryDelay);
+
+        } else {
+          // MVU 模式
+          return await getMvuDataWithRetry(maxRetries, retryDelay);
+        }
+      } catch (e) {
+        console.error('[DICE]数据获取失败:', e);
         return null;
       }
     }
@@ -2381,6 +3987,87 @@
 
     // ===== 渲染函数 =====
 
+    // 智能提取数值部分的显示值
+    // 处理三种情况：纯数值、数值+描述、数值+范围+描述
+    function extractNumericDisplayValue(value, isArray = false) {
+      // 处理 null/undefined
+      if (value === null || value === undefined) {
+        return '';
+      }
+
+      // 数组类型：保持原有逻辑
+      if (isArray || Array.isArray(value)) {
+        if (isVWD(value)) {
+          return String(value[0]);
+        } else if (isSimpleArray(value)) {
+          return value.map(v => String(v ?? '')).join(', ');
+        } else {
+          // 复杂数组，返回原始表示
+          return String(value);
+        }
+      }
+
+      // 转换为字符串处理
+      const str = String(value).trim();
+
+      // 1. 纯数值：匹配纯数字格式（如 "85", "-20", "100%"）
+      if (/^-?\d+(\.\d+)?%?$/.test(str)) {
+        return str;
+      }
+
+      // 2. 数值+范围+描述：匹配 "数值,[范围] 描述" 格式
+      // 例如："0,[-20, 120] 对User的好感度。通过积极互动提升..."
+      const rangeMatch = str.match(/^(-?\d+(?:\.\d+)?%?)(,\s*\[[^\]]+\])?\s+/);
+      if (rangeMatch) {
+        // 如果匹配到范围部分，返回数值和范围
+        if (rangeMatch[2]) {
+          return rangeMatch[1] + rangeMatch[2].trim();
+        }
+        // 如果没有范围，只返回数值部分
+        return rangeMatch[1];
+      }
+
+      // 2.5. 数值/数值,描述：匹配 "数值/数值,描述" 格式
+      // 例如："100/100,当前/最大生命值，格式为'当前/最大'。归零时你将陷入濒死或死亡状态。"
+      const slashNumericMatch = str.match(/^(-?\d+(?:\.\d+)?%?\/-?\d+(?:\.\d+)?%?),/);
+      if (slashNumericMatch) {
+        return slashNumericMatch[1];
+      }
+
+      // 3. 数值,描述：匹配 "数值,描述" 格式（逗号后直接跟描述，没有空格和方括号）
+      // 例如："150000,记录当前持有的资金，单位为蓝星币..."
+      const commaDescMatch = str.match(/^(-?\d+(?:\.\d+)?%?),/);
+      if (commaDescMatch) {
+        return commaDescMatch[1];
+      }
+
+      // 4. 数值+描述：匹配 "数值 描述" 格式（数值后跟非数字字符）
+      // 例如："85 对高坂月的好感度"
+      const numericDescMatch = str.match(/^(-?\d+(?:\.\d+)?%?)\s+[^\d]/);
+      if (numericDescMatch) {
+        return numericDescMatch[1];
+      }
+
+      // 5. 其他情况：返回原始值
+      return str;
+    }
+
+    // 从显示值中提取第一个数值（用于投骰）
+    // 例如："85" -> 85, "85,[0,100]" -> 85, "0,[-20, 120]" -> 0
+    function extractFirstNumericValue(displayValue) {
+      if (!displayValue) return 0;
+      const str = String(displayValue).trim();
+
+      // 提取第一个数字（支持负数、小数、百分比）
+      const match = str.match(/^(-?\d+(?:\.\d+)?)/);
+      if (match) {
+        const num = parseFloat(match[1]);
+        return isNaN(num) ? 0 : num;
+      }
+
+      return 0;
+    }
+
     // 渲染单个键值对行
     function renderRow(key, value, path, deltaData) {
       const changeIndicator = getChangeIndicator(path, deltaData);
@@ -2395,7 +4082,39 @@
         displayValue = value.map(v => String(v ?? '')).join(', ');
         valueClass += ' mvu-array-value';
       } else {
-        displayValue = String(value ?? '');
+        // 使用智能提取函数，只显示数值部分
+        displayValue = extractNumericDisplayValue(value ?? '', false);
+      }
+
+      // [新增] 判断是否为数字或包含数字，如果是则添加骰子图标
+      let diceIconHtml = '';
+      try {
+        // 先使用 extractNumericDisplayValue 提取显示值，然后提取第一个数值
+        // 这样可以正确处理 "85,[0,100]" 这样的格式，提取 85 而不是 100
+        if (typeof isNumericCell === 'function' && isNumericCell(displayValue)) {
+          // 从显示值中提取第一个数值（用于投骰）
+          const numericValue = extractFirstNumericValue(displayValue);
+          if (numericValue > 0) {
+            // 提取属性名：优先使用 key，如果 key 包含路径信息则提取最后一部分
+            let attrName = key;
+            if (key.includes('.')) {
+              const parts = key.split('.');
+              attrName = parts[parts.length - 1];
+            }
+            // 如果路径也包含信息，尝试从路径提取属性名
+            if (path && path.includes('.')) {
+              const pathParts = path.split('.');
+              const lastPart = pathParts[pathParts.length - 1];
+              // 如果路径最后一部分看起来像属性名（不是纯数字），使用它
+              if (lastPart && !/^\d+$/.test(lastPart) && lastPart !== key) {
+                attrName = lastPart;
+              }
+            }
+            diceIconHtml = `<i class="fa-solid fa-dice-d20 mvu-dice-icon" data-path="${escapeHtml(path)}" data-attr-name="${escapeHtml(attrName)}" data-attr-value="${numericValue}" style="cursor:pointer;color:var(--acu-accent);opacity:0.6;font-size:calc(var(--acu-font-size, 13px) * 0.85);flex-shrink:0;" title="快捷投骰"></i>`;
+          }
+        }
+      } catch (e) {
+        console.warn('[DICE]MvuModule renderRow: 判断数字时出错', e);
       }
 
       return `
@@ -2403,6 +4122,7 @@
                     <div class="mvu-key">${escapeHtml(key)}</div>
                     <div class="mvu-value-wrap">
                         <span class="${valueClass}" data-path="${escapeHtml(path)}">${escapeHtml(displayValue)}</span>
+                        ${diceIconHtml}
                         ${changeIndicator ? `<span class="mvu-change-indicator">${changeIndicator}</span>` : ''}
                     </div>
                 </div>
@@ -2410,11 +4130,14 @@
     }
 
     // 渲染卡片（递归）
-    function renderCard(key, value, path, deltaData, depth, defaultExpanded) {
+    function renderCard(key, value, path, deltaData, depth, defaultExpanded, isHorizontal) {
       const childCount = countChildren(value);
       const collapsedClass = defaultExpanded ? '' : 'collapsed';
 
       let bodyHtml = '';
+      let hasNestedCards = false; // 标记是否有嵌套卡片
+      let nestedCardCount = 0; // 统计嵌套卡片数量（用于计算宽度）
+      let rowCount = 0; // 统计键值对数量
 
       if (Array.isArray(value) && !isVWD(value) && !isSimpleArray(value)) {
         // 复杂数组：每个元素作为子卡片或行
@@ -2422,8 +4145,11 @@
           const itemPath = `${path}[${index}]`;
 
           if (item && typeof item === 'object' && !isVWD(item) && !isSimpleArray(item)) {
-            bodyHtml += renderCard(`[${index}]`, item, itemPath, deltaData, depth + 1, false);
+            hasNestedCards = true;
+            nestedCardCount++;
+            bodyHtml += renderCard(`[${index}]`, item, itemPath, deltaData, depth + 1, false, isHorizontal);
           } else {
+            rowCount++;
             bodyHtml += renderRow(`[${index}]`, item, itemPath, deltaData);
           }
         });
@@ -2436,9 +4162,12 @@
 
           if (childValue && typeof childValue === 'object' && !isVWD(childValue) && !isSimpleArray(childValue)) {
             // 嵌套对象/数组 → 子卡片
-            bodyHtml += renderCard(childKey, childValue, childPath, deltaData, depth + 1, false);
+            hasNestedCards = true;
+            nestedCardCount++;
+            bodyHtml += renderCard(childKey, childValue, childPath, deltaData, depth + 1, false, isHorizontal);
           } else {
             // 原始值或简单数组 → 行
+            rowCount++;
             bodyHtml += renderRow(childKey, childValue, childPath, deltaData);
           }
         }
@@ -2446,8 +4175,48 @@
 
       const countText = Array.isArray(value) ? `[${childCount}]` : `(${childCount})`;
 
+      // 如果是横向模式且有嵌套卡片，为 card-body 添加 horizontal-nested 类
+      const bodyClass = isHorizontal && hasNestedCards ? 'mvu-card-body horizontal-nested' : 'mvu-card-body';
+
+      // 检查嵌套卡片是否需要更大的宽度（递归检查）
+      let nestedCardsNeedWidth = false;
+      if (isHorizontal && hasNestedCards && depth === 0) {
+        // 对于顶层卡片，检查嵌套卡片内部是否有多个子卡片（需要横向排列）
+        if (Array.isArray(value) && !isVWD(value) && !isSimpleArray(value)) {
+          // 数组：检查每个嵌套项
+          value.forEach(item => {
+            if (item && typeof item === 'object' && !isVWD(item) && !isSimpleArray(item)) {
+              const itemChildCount = countChildren(item);
+              if (itemChildCount >= 2) nestedCardsNeedWidth = true;
+            }
+          });
+        } else if (value && typeof value === 'object' && !isVWD(value)) {
+          // 对象：检查每个嵌套键值
+          const entries = Object.entries(value).filter(([k]) => !k.startsWith('$'));
+          for (const [childKey, childValue] of entries) {
+            if (childValue && typeof childValue === 'object' && !isVWD(childValue) && !isSimpleArray(childValue)) {
+              const childChildCount = countChildren(childValue);
+              if (childChildCount >= 2) nestedCardsNeedWidth = true;
+            }
+          }
+        }
+      }
+
+      // 在横向模式下，只有当卡片内部主要是嵌套卡片（键值对很少或没有）时，才添加 has-nested-cards 类
+      // 这样可以避免键值对占用过多横向空间
+      // 对于顶层卡片（depth === 0）：
+      //   - 如果嵌套卡片数量 >= 2 且键值对数量 <= 1，添加 has-nested-cards
+      //   - 或者，如果嵌套卡片本身需要更大的宽度（内部有多个子卡片），也添加 has-nested-cards
+      // 对于嵌套卡片（depth > 0），只有当只有嵌套卡片（rowCount === 0）且嵌套卡片数量 >= 2 时，才添加 has-nested-cards
+      const shouldAddHasNestedClass =
+        isHorizontal &&
+        hasNestedCards &&
+        ((depth === 0 && ((nestedCardCount >= 2 && rowCount <= 1) || nestedCardsNeedWidth)) || // 顶层卡片：嵌套卡片数量 >= 2 且键值对 <= 1，或者嵌套卡片需要更大宽度
+          (depth > 0 && rowCount === 0 && nestedCardCount >= 2)); // 嵌套卡片：没有键值对且嵌套卡片数量 >= 2
+      const hasNestedClass = shouldAddHasNestedClass ? ' has-nested-cards' : '';
+
       return `
-                <div class="mvu-card ${collapsedClass}" data-path="${escapeHtml(path)}" data-depth="${depth}">
+                <div class="mvu-card${hasNestedClass} ${collapsedClass}" data-path="${escapeHtml(path)}" data-depth="${depth}">
                     <div class="mvu-card-header">
                         <div class="mvu-card-title">
                             <span>${escapeHtml(key)}</span>
@@ -2455,11 +4224,260 @@
                         </div>
                         <span class="mvu-card-toggle">▼</span>
                     </div>
-                    <div class="mvu-card-body">
+                    <div class="${bodyClass}">
                         ${bodyHtml}
                     </div>
                 </div>
             `;
+    }
+
+    // [新增] 渲染数值过滤模式
+    function renderNumericMode(mvuData) {
+      if (!mvuData || !mvuData.stat_data) {
+        return '<div class="mvu-empty"><i class="fa-solid fa-inbox"></i><p>当前没有变量数据</p></div>';
+      }
+
+      // [新增] 读取层级显示偏好
+      let visibleLevels = {};
+      try {
+        const saved = localStorage.getItem('acu_mvu_numeric_mode_visible_levels');
+        if (saved) {
+          visibleLevels = JSON.parse(saved);
+        }
+      } catch (e) {
+        console.warn('[DICE]MvuModule 读取层级显示偏好失败', e);
+      }
+
+      // 收集所有数值项
+      const numericItems = [];
+
+      // 递归遍历收集数值项
+      function collectNumericItems(obj, path, levelNames) {
+        if (!obj || typeof obj !== 'object') return;
+
+        if (Array.isArray(obj)) {
+          if (isVWD(obj) || isSimpleArray(obj)) {
+            // 简单数组，检查每个元素
+            obj.forEach((item, index) => {
+              const itemPath = path ? `${path}[${index}]` : `[${index}]`;
+              const itemValue = String(item ?? '').trim();
+              if (typeof isNumericCell === 'function' && isNumericCell(itemValue)) {
+                // 先提取显示值，然后提取第一个数值（用于投骰）
+                const displayValue = extractNumericDisplayValue(itemValue, false);
+                const numValue = extractFirstNumericValue(displayValue);
+                if (numValue > 0) {
+                  numericItems.push({
+                    path: itemPath,
+                    key: `[${index}]`,
+                    value: itemValue,
+                    numericValue: numValue,
+                    levelNames: [...levelNames],
+                  });
+                }
+              }
+            });
+          } else {
+            // 复杂数组，递归处理
+            obj.forEach((item, index) => {
+              const itemPath = path ? `${path}[${index}]` : `[${index}]`;
+              const newLevelNames = [...levelNames, `[${index}]`];
+              collectNumericItems(item, itemPath, newLevelNames);
+            });
+          }
+        } else {
+          // 对象，遍历键值
+          const entries = Object.entries(obj).filter(([k]) => !k.startsWith('$'));
+          for (const [key, value] of entries) {
+            const childPath = path ? `${path}.${key}` : key;
+            const newLevelNames = [...levelNames, key];
+
+            if (value && typeof value === 'object' && !isVWD(value) && !isSimpleArray(value)) {
+              // 嵌套对象，递归处理
+              collectNumericItems(value, childPath, newLevelNames);
+            } else {
+              // 原始值，检查是否为数字
+              const itemValue = String(value ?? '').trim();
+              if (typeof isNumericCell === 'function' && isNumericCell(itemValue)) {
+                // 先提取显示值，然后提取第一个数值（用于投骰）
+                const displayValue = extractNumericDisplayValue(itemValue, false);
+                const numValue = extractFirstNumericValue(displayValue);
+                if (numValue > 0) {
+                  numericItems.push({
+                    path: childPath,
+                    key: key,
+                    value: itemValue,
+                    numericValue: numValue,
+                    levelNames: newLevelNames,
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // 收集所有数值项
+      const topKeys = Object.keys(mvuData.stat_data).filter(k => !k.startsWith('$'));
+      for (const key of topKeys) {
+        const value = mvuData.stat_data[key];
+        collectNumericItems(value, key, [key]);
+      }
+
+      // [新增] 黑名单过滤：只匹配嵌套的最下一层
+      const filteredNumericItems = numericItems.filter(item => {
+        // 获取最后一级的key（最下一层）
+        // 优先从levelNames中获取最后一级非数组索引的名称
+        let lastLevelKey = item.key;
+        const nonArrayLevels = item.levelNames.filter(level => level && !level.startsWith('['));
+        if (nonArrayLevels.length > 0) {
+          lastLevelKey = nonArrayLevels[nonArrayLevels.length - 1];
+        } else if (item.path && item.path.includes('.')) {
+          // 如果没有levelNames，从path中提取
+          const parts = item.path.split('.');
+          lastLevelKey = parts[parts.length - 1];
+        }
+        // 使用 BlacklistManager 进行智能匹配
+        return !BlacklistManager.isBlacklisted(lastLevelKey);
+      });
+
+      if (filteredNumericItems.length === 0) {
+        return '<div class="mvu-empty"><i class="fa-solid fa-filter"></i><p>当前没有数值项</p></div>';
+      }
+
+      // 收集所有唯一的层级名称（使用过滤后的列表）
+      // 【修复 2】排除最下层的属性名，只收集层级名
+      const allLevelNames = new Set();
+      filteredNumericItems.forEach(item => {
+        // 排除最下层的属性名，只收集层级名
+        const hierarchyLevels = item.levelNames.length > 1
+          ? item.levelNames.slice(0, -1)  // 排除最后一个
+          : [];
+
+        hierarchyLevels.forEach(level => {
+          if (level && !level.startsWith('[')) {
+            // 排除数组索引
+            allLevelNames.add(level);
+          }
+        });
+      });
+
+      const levelNamesArray = Array.from(allLevelNames).sort();
+
+      // 生成层级 toggle 控制区域（可折叠）
+      let levelTogglesHtml = '';
+      if (levelNamesArray.length > 0) {
+        const theme = getThemeColors();
+        const buttonTextColor = theme.buttonTextOnAccent || theme.textMain || '#6B4A5A';
+
+        // 生成层级按钮内容
+        let levelButtonsHtml = '';
+        levelNamesArray.forEach(levelName => {
+          const isVisible = visibleLevels[levelName] !== false; // 默认显示
+          const activeStyle = isVisible
+            ? `background:var(--acu-accent);color:${buttonTextColor};border-color:var(--acu-accent);opacity:1;`
+            : 'background:transparent;color:var(--acu-text-sub);border-color:var(--acu-border);opacity:0.5;';
+          levelButtonsHtml += `<button class="mvu-level-toggle" data-level="${escapeHtml(levelName)}" data-visible="${isVisible}" style="display:flex;align-items:center;gap:4px;font-size:calc(var(--acu-font-size, 13px) * 0.85);cursor:pointer;padding:2px 6px;border-radius:4px;border:1px solid;${activeStyle}transition:all 0.2s;" title="${isVisible ? '隐藏' : '显示'}层级: ${escapeHtml(levelName)}"><span>${escapeHtml(levelName)}</span></button>`;
+        });
+
+        // 包装为可折叠结构，默认折叠
+        levelTogglesHtml = `
+          <div class="mvu-level-controls-collapsible collapsed">
+            <div class="mvu-level-controls-header" style="padding:6px 8px;background:var(--acu-table-head);border-bottom:1px solid var(--acu-border);cursor:pointer;display:flex;align-items:center;justify-content:space-between;user-select:none;">
+              <span style="font-size:calc(var(--acu-font-size, 13px) * 0.85);color:var(--acu-text-sub);">显示层级</span>
+              <i class="fa-solid fa-chevron-down mvu-level-controls-toggle-icon" style="font-size:10px;color:var(--acu-text-sub);transition:transform 0.2s;"></i>
+            </div>
+            <div class="mvu-level-controls-body" style="padding:8px;background:var(--acu-table-head);border-bottom:1px solid var(--acu-border);display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
+              ${levelButtonsHtml}
+            </div>
+          </div>
+        `;
+      }
+
+      // 生成数值项列表（使用过滤后的列表）
+      let itemsHtml = '';
+      filteredNumericItems.forEach(item => {
+        // 计算非数组层级（用于 data-levels 属性）
+        const nonArrayLevels = item.levelNames.filter(level => !level.startsWith('['));
+
+        // 根据层级显示偏好过滤显示的层级名称
+        const visibleLevels = item.levelNames.filter(level => {
+          if (level.startsWith('[')) return false; // 排除数组索引
+          try {
+            const saved = localStorage.getItem('acu_mvu_numeric_mode_visible_levels');
+            if (saved) {
+              const prefs = JSON.parse(saved);
+              return prefs[level] !== false; // 默认显示
+            }
+          } catch (e) {
+            // 忽略错误，默认显示
+          }
+          return true;
+        });
+
+        // 【修复 1】排除最下层名称，避免与属性名重复
+        // 如果 visibleLevels 有多个元素，移除最后一个
+        const pathLevels = visibleLevels.length > 1
+          ? visibleLevels.slice(0, -1)
+          : [];
+
+        // 检查该项的所有层级是否都可见（用于初始显示状态）
+        // 注意：这里使用 nonArrayLevels 的前 N-1 个层级（排除最下层）
+        const hierarchyLevels = nonArrayLevels.length > 1
+          ? nonArrayLevels.slice(0, -1)
+          : [];
+
+        const allLevelsVisible = hierarchyLevels.every(level => {
+          try {
+            const saved = localStorage.getItem('acu_mvu_numeric_mode_visible_levels');
+            if (saved) {
+              const prefs = JSON.parse(saved);
+              return prefs[level] !== false; // 默认显示
+            }
+          } catch (e) {
+            // 忽略错误，默认显示
+          }
+          return true;
+        });
+
+        // 生成路径显示（使用排除最下层后的层级）
+        const pathDisplay = pathLevels.length > 0 ? pathLevels.join(' > ') : '';
+        const attrName = item.key;
+
+        // 提取属性名（从路径最后一部分）
+        let finalAttrName = attrName;
+        if (item.path && item.path.includes('.')) {
+          const parts = item.path.split('.');
+          finalAttrName = parts[parts.length - 1];
+        }
+
+        // 生成骰子图标
+        const diceIconHtml = `<i class="fa-solid fa-dice-d20 mvu-dice-icon" data-path="${escapeHtml(item.path)}" data-attr-name="${escapeHtml(finalAttrName)}" data-attr-value="${item.numericValue}" style="cursor:pointer;color:var(--acu-accent);opacity:0.6;font-size:calc(var(--acu-font-size, 13px) * 0.85);flex-shrink:0;" title="快捷投骰"></i>`;
+
+        // 使用智能提取函数，只显示数值部分
+        let displayValue = extractNumericDisplayValue(item.value, false);
+        // 在数值模式下，去掉范围部分（如去掉 ",[0, 100]"）
+        displayValue = displayValue.replace(/,\s*\[[^\]]+\]/g, '');
+
+        // 生成初始显示状态和 data-levels 属性
+        // 注意：data-levels 存储的是层级名（排除最下层属性名）
+        const displayStyle = allLevelsVisible ? '' : 'display:none;';
+        const levelsJson = JSON.stringify(hierarchyLevels);
+
+        itemsHtml += `
+          <div class="mvu-numeric-item" data-levels='${escapeHtml(levelsJson)}' style="${displayStyle}display:flex;align-items:center;padding:6px 8px;margin-bottom:4px;background:var(--acu-table-hover);border-radius:4px;border-left:3px solid var(--acu-accent);">
+            <div style="flex:1;min-width:0;">
+              <div class="mvu-path-display" style="font-size:calc(var(--acu-font-size, 13px) * 0.77);color:var(--acu-text-sub);margin-bottom:2px;">${escapeHtml(pathDisplay)}</div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span style="font-size:calc(var(--acu-font-size, 13px) * 0.92);color:var(--acu-text-main);font-weight:bold;">${escapeHtml(finalAttrName)}</span>
+                <span class="mvu-value" data-path="${escapeHtml(item.path)}" style="font-size:var(--acu-font-size, 13px);color:var(--acu-accent);font-weight:bold;cursor:pointer;" title="点击编辑">${escapeHtml(displayValue)}</span>
+                ${diceIconHtml}
+              </div>
+            </div>
+          </div>
+        `;
+      });
+
+      return levelTogglesHtml + '<div class="mvu-numeric-items" style="padding:0 8px;">' + itemsHtml + '</div>';
     }
 
     // ===== 公开 API =====
@@ -2468,12 +4486,77 @@
 
       isAvailable: isAvailable,
       getData: getData,
+      getDataWithRetry: getDataWithRetry,
+
+      // 诊断工具：检查变量框架状态
+      diagnoseVariableFramework: async function() {
+        const result = {
+          timestamp: new Date().toISOString(),
+          era: {
+            available: false,
+            eventEmit: typeof (window.eventEmit || window.parent?.eventEmit) === 'function',
+            eventOn: typeof (window.eventOn || window.parent?.eventOn) === 'function',
+            dataAvailable: false,
+            error: null,
+          },
+          mvu: {
+            available: false,
+            apiExists: typeof window.Mvu !== 'undefined',
+            getDataExists: typeof window.Mvu?.getMvuData === 'function',
+            dataAvailable: false,
+            error: null,
+          },
+          cache: {
+            hasCache: !!cachedEraData,
+            cacheKeys: cachedEraData ? Object.keys(cachedEraData) : [],
+          },
+          recommendation: '',
+        };
+
+        // 测试 ERA
+        if (result.era.eventEmit && result.era.eventOn) {
+          try {
+            const eraData = await Promise.race([
+              getEraData(),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2000))
+            ]);
+            result.era.available = true;
+            result.era.dataAvailable = !!(eraData && eraData.stat_data);
+          } catch (e) {
+            result.era.error = e.message;
+          }
+        }
+
+        // 测试 MVU
+        if (result.mvu.apiExists && result.mvu.getDataExists) {
+          try {
+            await waitGlobalInitialized('Mvu');
+            const mvuData = window.Mvu.getMvuData({ type: 'message', message_id: 'latest' });
+            result.mvu.available = true;
+            result.mvu.dataAvailable = !!(mvuData && mvuData.stat_data);
+          } catch (e) {
+            result.mvu.error = e.message;
+          }
+        }
+
+        // 生成建议
+        if (result.era.dataAvailable) {
+          result.recommendation = 'ERA 框架可用且数据正常';
+        } else if (result.mvu.dataAvailable) {
+          result.recommendation = 'MVU 框架可用且数据正常';
+        } else if (result.era.available || result.mvu.available) {
+          result.recommendation = '框架已安装但数据不可用，请检查角色卡是否正确初始化变量';
+        } else {
+          result.recommendation = '未检测到任何变量框架，请确认已安装 MVU 或 ERA 插件';
+        }
+
+        return result;
+      },
 
       injectStyles: function () {
         // 获取主页面的 document（兼容 iframe 环境）
         const targetDoc = window.parent?.document || document;
         if (targetDoc.getElementById('mvu-module-styles')) return;
-        console.log('[MvuModule] Injecting styles to parent document');
         const styleEl = targetDoc.createElement('style');
         styleEl.id = 'mvu-module-styles';
         styleEl.textContent = STYLES;
@@ -2481,7 +4564,7 @@
       },
 
       renderNavButton: function (isActive) {
-        if (!isAvailable()) return '';
+        // 总是显示按钮，不检查 isAvailable()，让用户可以随时尝试查看变量
         const activeClass = isActive ? 'active' : '';
         return `<button class="acu-nav-btn acu-mvu-btn $${activeClass}" id="acu-btn-mvu" data-table="$${MODULE_ID}" style="order:-1;">
                     <i class="fa-solid fa-code-branch"></i><span>变量</span>
@@ -2489,36 +4572,125 @@
       },
 
       renderPanel: function () {
-        console.log('[MvuModule] renderPanel called');
+        // 简化逻辑：总是显示面板，不依赖复杂的加载状态判断
+        // 直接尝试获取数据，如果失败或为空，显示相应的提示信息，但始终显示刷新按钮
+
         const mvuData = getData();
 
-        if (!mvuData || !mvuData.stat_data) {
-          console.log('[MvuModule] No data available');
+        // 智能检测当前模式（MVU 或 ERA）
+        const varMode = detectMode();
+        const isEraMode = varMode === 'era';
+
+        // [新增] 读取数值模式状态
+        let isNumericMode = false;
+        try {
+          const saved = localStorage.getItem('acu_mvu_numeric_mode');
+          isNumericMode = saved === 'true';
+        } catch (e) {
+          console.warn('[DICE]MvuModule 读取数值模式状态失败', e);
+        }
+
+        // MVU面板始终使用竖向滚动模式，不受全局布局配置影响
+        const layoutMode = 'vertical-layout';
+
+        // 生成面板标题
+        const panelTitle = isEraMode ? 'ERA 变量' : 'MVU 变量';
+
+        // 如果无法获取数据（MVU 框架未加载或数据为 null）
+        if (!mvuData) {
           return `
                         <div class="acu-panel-header">
                             <div class="acu-panel-title">
-                                <i class="fa-solid fa-code-branch"></i>
-                                <span>MVU 变量</span>
+                                <div class="acu-title-main"><i class="fa-solid fa-code-branch"></i> <span class="acu-title-text">${panelTitle}</span></div>
+                                <div class="acu-title-sub">(0项)</div>
                             </div>
                             <div class="acu-header-actions">
+                                <div class="acu-height-control">
+                                    <i class="fa-solid fa-arrows-up-down acu-height-drag-handle" data-table="${MvuModule.MODULE_ID}" title="↕️ 拖动调整面板高度 | 双击恢复默认"></i>
+                                </div>
+                                <button class="mvu-header-btn mvu-btn-refresh" title="刷新（自动重试获取变量）">
+                                    <i class="fa-solid fa-sync-alt"></i>
+                                </button>
                                 <button class="acu-close-btn" title="关闭">
                                     <i class="fa-solid fa-times"></i>
                                 </button>
                             </div>
                         </div>
-                        <div class="mvu-content">
+                        <div class="mvu-content ${layoutMode}">
                             <div class="mvu-empty">
                                 <i class="fa-solid fa-exclamation-circle"></i>
-                                <p>未检测到 MVU 变量数据</p>
-                                <p class="mvu-empty-hint">请确保角色卡已配置 [InitVar] 并进行过对话</p>
+                                <p>无法获取 ${isEraMode ? 'ERA' : 'MVU'} 数据</p>
+                                <p class="mvu-empty-hint">请确保角色卡已配置 ${isEraMode ? 'ERA 框架' : 'MVU 框架'}，或点击刷新按钮自动重试获取变量</p>
                             </div>
                         </div>
                     `;
         }
 
-        // 构建顶层卡片
+        // 如果 stat_data 为空或 null，显示空状态（但数据对象存在）
+        if (
+          !mvuData.stat_data ||
+          (typeof mvuData.stat_data === 'object' && Object.keys(mvuData.stat_data).length === 0)
+        ) {
+          return `
+                        <div class="acu-panel-header">
+                            <div class="acu-panel-title">
+                                <div class="acu-title-main"><i class="fa-solid fa-code-branch"></i> <span class="acu-title-text">${panelTitle}</span></div>
+                                <div class="acu-title-sub">(0项)</div>
+                            </div>
+                            <div class="acu-header-actions">
+                                <div class="acu-height-control">
+                                    <i class="fa-solid fa-arrows-up-down acu-height-drag-handle" data-table="${MvuModule.MODULE_ID}" title="↕️ 拖动调整面板高度 | 双击恢复默认"></i>
+                                </div>
+                                <button class="mvu-header-btn mvu-btn-refresh" title="刷新（自动重试获取变量）">
+                                    <i class="fa-solid fa-sync-alt"></i>
+                                </button>
+                                <button class="acu-close-btn" title="关闭">
+                                    <i class="fa-solid fa-times"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="mvu-content ${layoutMode}">
+                            <div class="mvu-empty">
+                                <i class="fa-solid fa-inbox"></i>
+                                <p>当前没有变量数据</p>
+                                <p class="mvu-empty-hint">变量数据将在 AI 回复后自动初始化，或点击刷新按钮自动重试获取变量</p>
+                            </div>
+                        </div>
+                    `;
+        }
+
+        // [新增] 如果启用数值模式，使用专门的渲染函数
+        if (isNumericMode) {
+          const numericHtml = renderNumericMode(mvuData);
+          return `
+                    <div class="acu-panel-header">
+                        <div class="acu-panel-title">
+                            <div class="acu-title-main"><i class="fa-solid fa-code-branch"></i> <span class="acu-title-text">${panelTitle}</span> <span style="font-size:calc(var(--acu-font-size,13px) * 0.85);color:var(--acu-text-sub);margin-left:6px;">(数值模式)</span></div>
+                            <div class="acu-title-sub">(数值过滤)</div>
+                        </div>
+                        <div class="acu-header-actions">
+                            <div class="acu-height-control">
+                                <i class="fa-solid fa-arrows-up-down acu-height-drag-handle" data-table="${MvuModule.MODULE_ID}" title="↕️ 拖动调整面板高度 | 双击恢复默认"></i>
+                            </div>
+                            <button class="mvu-header-btn mvu-btn-numeric-mode active" title="切换到普通模式">
+                                <i class="fa-solid fa-list"></i>
+                            </button>
+                            <button class="mvu-header-btn mvu-btn-refresh" title="刷新（自动重试获取变量）">
+                                <i class="fa-solid fa-sync-alt"></i>
+                            </button>
+                            <button class="acu-close-btn" title="关闭">
+                                <i class="fa-solid fa-times"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="mvu-content ${layoutMode} mvu-numeric-mode">
+                        ${numericHtml}
+                    </div>
+                `;
+        }
+
+        // 有数据，正常显示
         const topKeys = Object.keys(mvuData.stat_data).filter(k => !k.startsWith('$'));
-        console.log('[MvuModule] Top level keys:', topKeys);
 
         let cardsHtml = '';
         for (const key of topKeys) {
@@ -2527,7 +4699,8 @@
 
           if (value && typeof value === 'object' && !isVWD(value) && !isSimpleArray(value)) {
             // 对象/复杂数组 → 卡片（顶层默认展开）
-            cardsHtml += renderCard(key, value, key, mvuData.delta_data, 0, true);
+            // MVU面板始终使用竖向滚动，所以 isHorizontal 始终为 false
+            cardsHtml += renderCard(key, value, key, mvuData.delta_data, 0, true, false);
           } else {
             // 原始值或简单数组 → 单独一个迷你卡片
             cardsHtml += `
@@ -2543,15 +4716,17 @@
         return `
                     <div class="acu-panel-header">
                         <div class="acu-panel-title">
-                            <i class="fa-solid fa-code-branch"></i>
-                            <span>MVU 变量</span>
-                            <span class="mvu-card-count" style="margin-left:4px;">(${topKeys.length})</span>
+                            <div class="acu-title-main"><i class="fa-solid fa-code-branch"></i> <span class="acu-title-text">${panelTitle}</span></div>
+                            <div class="acu-title-sub">(${topKeys.length}项)</div>
                         </div>
                         <div class="acu-header-actions">
                             <div class="acu-height-control">
                                 <i class="fa-solid fa-arrows-up-down acu-height-drag-handle" data-table="${MvuModule.MODULE_ID}" title="↕️ 拖动调整面板高度 | 双击恢复默认"></i>
                             </div>
-                            <button class="mvu-header-btn mvu-btn-refresh" title="刷新">
+                            <button class="mvu-header-btn mvu-btn-numeric-mode" title="切换到数值模式（仅显示数值项）">
+                                <i class="fa-solid fa-filter"></i>
+                            </button>
+                            <button class="mvu-header-btn mvu-btn-refresh" title="刷新（自动重试获取变量）">
                                 <i class="fa-solid fa-sync-alt"></i>
                             </button>
                             <button class="acu-close-btn" title="关闭">
@@ -2559,7 +4734,7 @@
                             </button>
                         </div>
                     </div>
-                    <div class="mvu-content">
+                    <div class="mvu-content ${layoutMode}">
                         ${cardsHtml}
                     </div>
                 `;
@@ -2569,35 +4744,146 @@
         // 使用主页面的 jQuery
         const $ = window.parent?.jQuery || window.jQuery;
         if (!$ || !$container || !$container.length) {
-          console.warn('[MvuModule] bindEvents: jQuery or container not available');
+          console.warn('[DICE]MvuModule bindEvents: jQuery or container not available');
           return;
         }
-
-        console.log('[MvuModule] bindEvents called, container:', $container.attr('id') || $container.attr('class'));
 
         // 使用主页面的 jQuery 重新获取容器
         const $panel = $('#acu-data-area');
         if (!$panel.length) {
-          console.warn('[MvuModule] bindEvents: #acu-data-area not found');
+          console.warn('[DICE]MvuModule bindEvents: #acu-data-area not found');
           return;
         }
 
         // 解绑旧事件
         $panel.off('.mvu');
 
-        // 卡片折叠/展开
+        // 卡片折叠/展开（改进版，添加平滑动画）
         $panel.on('click.mvu', '.mvu-card-header', function (e) {
           e.stopPropagation();
           const $card = $(this).closest('.mvu-card');
-          $card.toggleClass('collapsed');
-          console.log('[MvuModule] Toggle card:', $card.data('path'), 'collapsed:', $card.hasClass('collapsed'));
+          const $body = $card.find('> .mvu-card-body').first();
+
+          // 防止动画过程中重复点击
+          if ($body.is(':animated') || $body.hasClass('animating')) return;
+
+          if ($card.hasClass('collapsed')) {
+            // 展开：先用 hide() 确保元素隐藏，移除 collapsed 类后再播放动画
+            $body.hide();
+            $card.removeClass('collapsed');
+            $body.addClass('animating').slideDown(180, function () {
+              $(this).removeClass('animating');
+            });
+          } else {
+            // 收起
+            $body.addClass('animating').slideUp(180, function () {
+              $card.addClass('collapsed');
+              $(this).removeClass('animating');
+            });
+          }
         });
 
         // 刷新按钮
         $panel.on('click.mvu', '.mvu-btn-refresh', function (e) {
           e.stopPropagation();
-          console.log('[MvuModule] Refresh clicked');
           MvuModule.refresh($panel);
+        });
+
+        // [新增] 数值模式切换按钮
+        $panel.on('click.mvu', '.mvu-btn-numeric-mode', function (e) {
+          e.stopPropagation();
+          try {
+            const isCurrentlyNumeric = $(this).hasClass('active');
+            const newMode = !isCurrentlyNumeric;
+            localStorage.setItem('acu_mvu_numeric_mode', String(newMode));
+            // 刷新面板
+            if (typeof saveActiveTabState === 'function') {
+              const currentTab = getActiveTabState();
+              saveActiveTabState(currentTab);
+            }
+            if (typeof renderInterface === 'function') {
+              renderInterface();
+            }
+          } catch (e) {
+            console.warn('[DICE]MvuModule 切换数值模式失败', e);
+            if (window.toastr) window.toastr.error('切换模式失败');
+          }
+        });
+
+        // [新增] 层级控制折叠/展开
+        $panel.on('click.mvu', '.mvu-level-controls-header', function (e) {
+          e.stopPropagation();
+          const $header = $(this);
+          const $collapsible = $header.closest('.mvu-level-controls-collapsible');
+
+          // 切换 collapsed 类，CSS 会自动处理动画
+          $collapsible.toggleClass('collapsed');
+        });
+
+        // [新增] 层级显示 toggle
+        $panel.on('click.mvu', '.mvu-level-toggle', function (e) {
+          e.stopPropagation();
+          const $button = $(this);
+          const levelName = $button.data('level');
+          const currentVisible = $button.data('visible') === 'true' || $button.data('visible') === true;
+          const isVisible = !currentVisible;
+
+          try {
+            const saved = localStorage.getItem('acu_mvu_numeric_mode_visible_levels');
+            const visibleLevels = saved ? JSON.parse(saved) : {};
+            visibleLevels[levelName] = isVisible;
+            localStorage.setItem('acu_mvu_numeric_mode_visible_levels', JSON.stringify(visibleLevels));
+
+            // 更新按钮样式和状态
+            const theme = getThemeColors();
+            const buttonTextColor = theme.buttonTextOnAccent || theme.textMain || '#6B4A5A';
+            $button.data('visible', isVisible);
+            if (isVisible) {
+              $button.css({
+                background: 'var(--acu-accent)',
+                color: buttonTextColor,
+                borderColor: 'var(--acu-accent)',
+                opacity: '1',
+              });
+              $button.attr('title', `隐藏层级: ${levelName}`);
+            } else {
+              $button.css({
+                background: 'transparent',
+                color: 'var(--acu-text-sub)',
+                borderColor: 'var(--acu-border)',
+                opacity: '0.5',
+              });
+              $button.attr('title', `显示层级: ${levelName}`);
+            }
+
+            // 【修复 3】局部更新路径显示，而不是全量重渲染
+            $('.mvu-numeric-item').each(function() {
+              const $item = $(this);
+              try {
+                const levels = JSON.parse($item.attr('data-levels') || '[]');
+                if (levels.includes(levelName)) {
+                  // 重新计算路径显示
+                  const visibleLevels = levels.filter(level => {
+                    const saved = localStorage.getItem('acu_mvu_numeric_mode_visible_levels');
+                    const prefs = saved ? JSON.parse(saved) : {};
+                    return prefs[level] !== false;
+                  });
+
+                  // 排除最下层，避免重复（这里 levels 已经是排除了最下层的）
+                  const pathLevels = visibleLevels;
+
+                  const newPathDisplay = pathLevels.length > 0 ? pathLevels.join(' > ') : '';
+
+                  // 更新路径显示文本
+                  $item.find('.mvu-path-display').text(newPathDisplay);
+                }
+              } catch (e) {
+                console.warn('[DICE]MvuModule 更新路径显示失败', e);
+              }
+            });
+          } catch (e) {
+            console.warn('[DICE]MvuModule 更新层级显示偏好失败', e);
+          }
         });
 
         // 点击值编辑
@@ -2606,14 +4892,13 @@
           const $value = $(this);
           const path = $value.data('path');
           if (!path) {
-            console.warn('[MvuModule] No path on value element');
+            console.warn('[DICE]MvuModule No path on value element');
             return;
           }
           const currentValue = $value
             .text()
             .replace(/\s*\$\s*$/, '')
             .trim(); // 移除末尾的 $
-          console.log('[MvuModule] Edit value:', path, currentValue);
 
           MvuModule.showEditDialog(path, currentValue, async function (newValue) {
             if (newValue !== null && newValue !== currentValue) {
@@ -2630,12 +4915,260 @@
           });
         });
 
-        console.log(
-          '[MvuModule] Events bindbindEvents complete. Cards:',
-          $panel.find('.mvu-card').length,
-          'Values:',
-          $panel.find('.mvu-value').length,
-        );
+        // [新增] 点击骰子图标快捷投骰
+        $panel.on('click.mvu', '.mvu-dice-icon', function (e) {
+          e.stopPropagation();
+          e.preventDefault();
+          const $icon = $(this);
+          const path = $icon.data('path');
+          const attrName = $icon.data('attr-name') || '属性';
+          const attrValue = parseInt($icon.data('attr-value'), 10) || 50;
+
+          // 验证路径有效性
+          if (!path) {
+            console.warn('[DICE]MvuModule 骰子图标缺少路径信息');
+            return;
+          }
+
+          // 检查 MVU 框架是否可用
+          if (typeof window.Mvu === 'undefined' || typeof window.Mvu.getMvuData !== 'function') {
+            console.warn('[DICE]MvuModule MVU 框架未加载，降级为普通投骰');
+            // 降级为普通投骰，不解析路径
+            if (typeof showDicePanel === 'function') {
+              showDicePanel({
+                targetValue: attrValue,
+                targetName: attrName,
+                initiatorName: '<user>',
+                fromMvu: false,
+              });
+            }
+            return;
+          }
+
+          // 尝试从路径解析发起者和属性名
+          let parsedInfo = null;
+          try {
+            parsedInfo = parseMvuPathForDice(path, attrValue);
+          } catch (e) {
+            console.warn('[DICE]MvuModule 解析路径时出错', e);
+          }
+
+          // 调用投骰面板
+          if (typeof showDicePanel === 'function') {
+            showDicePanel({
+              targetValue: attrValue,
+              targetName: attrName,
+              initiatorName: parsedInfo?.initiator || '<user>',
+              fromMvu: true,
+              mvuPath: path,
+              mvuParsedInfo: parsedInfo,
+            });
+          }
+        });
+
+        // 阻止水平滑动冒泡，防止触发 ST 的 swipe regenerate
+        (function () {
+          // 使用主页面的 document（iframe 环境）
+          const targetDoc = window.parent?.document || document;
+          const $doc = $(targetDoc);
+
+          // 先解绑旧事件，避免重复绑定
+          $doc.off('touchstart.mvuSwipeFix touchmove.mvuSwipeFix touchend.mvuSwipeFix', '#acu-data-area');
+
+          let touchStartX = 0;
+          let touchStartY = 0;
+          let isHorizontalSwipe = false;
+
+          // 在 #acu-data-area 上处理，但检查是否是 MVU 面板
+          $doc.on('touchstart.mvuSwipeFix', '#acu-data-area', function (e) {
+            const $target = $(e.target);
+            const isInMvuPanel = $target.closest('.acu-mvu-panel').length > 0;
+
+            // 检查是否在 MVU 面板内
+            if (!isInMvuPanel) return;
+
+            if (e.originalEvent.touches.length === 1) {
+              touchStartX = e.originalEvent.touches[0].clientX;
+              touchStartY = e.originalEvent.touches[0].clientY;
+              isHorizontalSwipe = false;
+            }
+          });
+
+          $doc.on('touchmove.mvuSwipeFix', '#acu-data-area', function (e) {
+            const $target = $(e.target);
+            const isInMvuPanel = $target.closest('.acu-mvu-panel').length > 0;
+
+            // 检查是否在 MVU 面板内
+            if (!isInMvuPanel) {
+              return;
+            }
+
+            if (e.originalEvent.touches.length !== 1) return;
+
+            const touch = e.originalEvent.touches[0];
+            const deltaX = Math.abs(touch.clientX - touchStartX);
+            const deltaY = Math.abs(touch.clientY - touchStartY);
+
+            // 如果是水平滑动为主（X位移 > Y位移 * 1.5），阻止冒泡和默认行为
+            // 修改判断逻辑：当deltaY很小时，降低deltaX阈值；否则使用原来的判断
+            const isHorizontal =
+              deltaY < 5
+                ? deltaX > 5 && deltaX > deltaY * 2 // deltaY很小时，只要deltaX > 5且明显大于deltaY就认为是水平滑动
+                : deltaX > deltaY * 1.5 && deltaX > 10; // 正常情况使用原判断
+
+            if (isHorizontal) {
+              isHorizontalSwipe = true;
+              e.stopImmediatePropagation();
+              e.stopPropagation();
+            }
+          });
+
+          $doc.on('touchend.mvuSwipeFix', '#acu-data-area', function (e) {
+            const $target = $(e.target);
+            const isInMvuPanel = $target.closest('.acu-mvu-panel').length > 0;
+
+            // 检查是否在 MVU 面板内
+            if (!isInMvuPanel) {
+              isHorizontalSwipe = false;
+              touchStartX = 0;
+              touchStartY = 0;
+              return;
+            }
+
+            // 如果是水平滑动，阻止冒泡和默认行为
+            if (isHorizontalSwipe) {
+              e.stopImmediatePropagation();
+              e.stopPropagation();
+              isHorizontalSwipe = false;
+            }
+            touchStartX = 0;
+            touchStartY = 0;
+          });
+
+          // 尝试在捕获阶段也监听
+          const captureHandlerTouchStart = function (e) {
+            const $target = $(e.target);
+            const isInMvuPanel = $target.closest('.acu-mvu-panel').length > 0;
+            if (isInMvuPanel && e.touches && e.touches.length === 1) {
+              touchStartX = e.touches[0].clientX;
+              touchStartY = e.touches[0].clientY;
+            }
+          };
+          const captureHandlerTouchMove = function (e) {
+            const $target = $(e.target);
+            const isInMvuPanel = $target.closest('.acu-mvu-panel').length > 0;
+            if (isInMvuPanel && e.touches && e.touches.length === 1 && touchStartX && touchStartY) {
+              const touch = e.touches[0];
+              const deltaX = Math.abs(touch.clientX - touchStartX);
+              const deltaY = Math.abs(touch.clientY - touchStartY);
+              // 使用与冒泡阶段相同的判断逻辑
+              const isHorizontal =
+                deltaY < 5 ? deltaX > 5 && deltaX > deltaY * 2 : deltaX > deltaY * 1.5 && deltaX > 10;
+              if (isHorizontal) {
+                e.stopImmediatePropagation();
+                e.stopPropagation();
+                e.preventDefault();
+              }
+            }
+          };
+          const captureHandlerTouchEnd = function (e) {
+            const $target = $(e.target);
+            const isInMvuPanel = $target.closest('.acu-mvu-panel').length > 0;
+            if (isInMvuPanel && isHorizontalSwipe) {
+              e.stopImmediatePropagation();
+              e.stopPropagation();
+              e.preventDefault();
+            }
+          };
+          // 在捕获阶段也监听
+          targetDoc.addEventListener('touchstart', captureHandlerTouchStart, true);
+          targetDoc.addEventListener('touchmove', captureHandlerTouchMove, true);
+          targetDoc.addEventListener('touchend', captureHandlerTouchEnd, true);
+        })();
+
+        // 关闭按钮
+        $panel.on('click.mvu', '.acu-close-btn', function (e) {
+          e.stopPropagation();
+          const $input = $panel.find('.acu-search-input');
+
+          // 如果搜索框有内容，清空搜索框
+          if ($input.length && $input.val()) {
+            $input.val('').trigger('input').focus();
+            return;
+          }
+
+          // 变量面板状态：关闭变量面板，重新渲染到默认状态
+          if (typeof saveActiveTabState === 'function') {
+            saveActiveTabState(null);
+          }
+          if (typeof renderInterface === 'function') {
+            renderInterface();
+          }
+        });
+
+        // 高度拖拽
+        $panel.on('pointerdown.mvu', '.acu-height-drag-handle', function (e) {
+          if (e.button !== 0) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const handle = this;
+          handle.setPointerCapture(e.pointerId);
+          $(handle).addClass('active');
+          const startHeight = $panel.height();
+          const startY = e.clientY;
+          const tableName = $(handle).data('table');
+
+          // 定义 MIN_PANEL_HEIGHT 和 MAX_PANEL_HEIGHT（如果未定义）
+          const MIN_PANEL_HEIGHT = typeof window.MIN_PANEL_HEIGHT !== 'undefined' ? window.MIN_PANEL_HEIGHT : 200;
+          const MAX_PANEL_HEIGHT = typeof window.MAX_PANEL_HEIGHT !== 'undefined' ? window.MAX_PANEL_HEIGHT : 800;
+
+          handle.onpointermove = function (moveE) {
+            const dy = moveE.clientY - startY;
+            let newHeight = startHeight - dy; // 向上拖动增加高度
+            if (newHeight < MIN_PANEL_HEIGHT) newHeight = MIN_PANEL_HEIGHT;
+            if (newHeight > MAX_PANEL_HEIGHT) newHeight = MAX_PANEL_HEIGHT;
+            $panel.css('height', newHeight + 'px');
+          };
+          handle.onpointerup = function (upE) {
+            $(handle).removeClass('active');
+            handle.releasePointerCapture(upE.pointerId);
+            handle.onpointermove = null;
+            handle.onpointerup = null;
+            if (tableName && typeof getTableHeights === 'function' && typeof saveTableHeights === 'function') {
+              const heights = getTableHeights();
+              heights[tableName] = parseInt($panel.css('height'));
+              saveTableHeights(heights);
+              $panel.addClass('acu-manual-mode');
+            }
+          };
+        });
+
+        // 双击重置高度
+        $panel.on('dblclick.mvu', '.acu-height-drag-handle', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          const tableName = $(this).data('table');
+          if (tableName && typeof getTableHeights === 'function' && typeof saveTableHeights === 'function') {
+            const heights = getTableHeights();
+            delete heights[tableName];
+            saveTableHeights(heights);
+            $panel.css('height', '').removeClass('acu-manual-mode');
+          }
+        });
+
+        // 双击头部任意位置也可重置高度
+        $panel.on('dblclick.mvu', '.acu-panel-header', function (e) {
+          if ($(e.target).closest('.acu-search-input, .acu-close-btn, .mvu-header-btn').length) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const tableName = MvuModule.MODULE_ID;
+          if (tableName && typeof getTableHeights === 'function' && typeof saveTableHeights === 'function') {
+            const heights = getTableHeights();
+            delete heights[tableName];
+            saveTableHeights(heights);
+            $panel.css('height', '').removeClass('acu-manual-mode');
+          }
+        });
       },
 
       showEditDialog: function (path, currentValue, onSave) {
@@ -2720,8 +5253,9 @@
       setValue: async function (path, newValue) {
         if (!isAvailable()) return false;
 
+        const mode = detectMode();
+
         try {
-          // 尝试解析为数字或布尔值
           let parsedValue = newValue;
           if (newValue === 'true') parsedValue = true;
           else if (newValue === 'false') parsedValue = false;
@@ -2729,29 +5263,30 @@
             parsedValue = Number(newValue);
           }
 
-          console.log('[MvuModule] setValue:', path, '→', parsedValue);
-
-          const mvuData = window.Mvu.getMvuData({ type: 'message', message_id: -1 });
-          if (!mvuData) {
-            console.error('[MvuModule] 无法获取 MVU 数据');
-            return false;
-          }
-
-          const success = await window.Mvu.setMvuVariable(mvuData, path, parsedValue, {
-            reason: '手动编辑',
-            is_recursive: false,
-          });
-
-          if (success) {
-            await window.Mvu.replaceMvuData(mvuData, { type: 'message', message_id: -1 });
-            console.log('[MvuModule] 变量已更新成功');
+          if (mode === 'era') {
+            return await setEraValue(path, parsedValue);
           } else {
-            console.warn('[MvuModule] setMvuVariable 返回 false');
-          }
+            const mvuData = window.Mvu.getMvuData({ type: 'message', message_id: 'latest' });
+            if (!mvuData) {
+              console.error('[DICE]MvuModule 无法获取 MVU 数据');
+              return false;
+            }
 
-          return success;
+            const success = await window.Mvu.setMvuVariable(mvuData, path, parsedValue, {
+              reason: '手动编辑',
+              is_recursive: false,
+            });
+
+            if (success) {
+              await window.Mvu.replaceMvuData(mvuData, { type: 'message', message_id: 'latest' });
+            } else {
+              console.warn('[DICE]MvuModule setMvuVariable 返回 false');
+            }
+
+            return success;
+          }
         } catch (e) {
-          console.error('[MvuModule] setValue error:', e);
+          console.error('[DICE]MvuModule setValue error:', e);
           return false;
         }
       },
@@ -2760,26 +5295,67 @@
         return tableName === MODULE_ID;
       },
 
+      // 清除 ERA 缓存（当 ERA 变量更新时调用）
+      clearCache: function () {
+        cachedEraData = null;
+        console.log('[DICE]MvuModule 已清除 ERA 缓存');
+      },
+
+      // 检测当前使用的变量框架模式
+      detectMode: function () {
+        return detectMode();
+      },
+
       refresh: function ($container) {
+        // 清除缓存，强制重新获取数据
+        this.clearCache();
+
         if (!$container || !$container.length) {
           const $panel = $('#acu-data-area');
           if (!$panel.length) return;
           $container = $panel;
         }
-        console.log('[MvuModule] refresh called');
-        // 获取最新变量数据（getData 内部会调用 window.Mvu.getMvuData 获取最新数据）
-        const mvuData = getData();
-        if (!mvuData || !mvuData.stat_data) {
-          console.log('[MvuModule] No data available after refresh');
+        // 显示加载状态（带刷新动画）
+        const $refreshBtn = $container.find('.mvu-btn-refresh');
+        if ($refreshBtn.length) {
+          $refreshBtn.find('i').addClass('fa-spin');
         }
-        // 重新渲染面板内容
-        const panelHtml = this.renderPanel();
-        const $panel = $('#acu-data-area');
-        if ($panel.length) {
-          $panel.html('<div class="acu-mvu-panel">' + panelHtml + '</div>');
-          // 重新绑定变量面板特有的事件
-          this.bindEvents($panel);
-        }
+
+        // 使用重试机制获取最新变量数据（增加重试次数和延迟，让用户可以反复尝试）
+        // 最多重试 10 次，每次延迟 1 秒，总共最多等待 10 秒
+        this.getDataWithRetry(10, 1000)
+          .then(mvuData => {
+            // 移除加载动画
+            if ($refreshBtn.length) {
+              $refreshBtn.find('i').removeClass('fa-spin');
+            }
+
+            // 无论成功失败，都重新渲染面板（简化后的 renderPanel 会处理所有状态）
+            $container.html('<div class="acu-mvu-panel">' + this.renderPanel() + '</div>');
+            this.bindEvents($container);
+
+            // 使用 toastr 提示失败结果
+            const toastr = window.parent?.toastr || window.toastr;
+            if (toastr && !mvuData) {
+              toastr.warning('无法获取变量数据，请稍后重试或确保角色卡已配置 MVU 框架');
+            }
+          })
+          .catch(err => {
+            console.error('[DICE]MvuModule Error refreshing data:', err);
+
+            // 移除加载动画
+            if ($refreshBtn.length) {
+              $refreshBtn.find('i').removeClass('fa-spin');
+            }
+
+            // 显示错误状态（简化后的 renderPanel 会处理）
+            $container.html('<div class="acu-mvu-panel">' + this.renderPanel() + '</div>');
+            this.bindEvents($container);
+
+            // 使用 toastr 提示失败
+            const toastr = window.parent?.toastr || window.toastr;
+            if (toastr) toastr.error('获取变量数据时出错');
+          });
       },
     };
   })();
@@ -2802,64 +5378,116 @@
   };
 
   const getDiceConfig = () => Store.get(STORAGE_KEY_DICE_CONFIG, DEFAULT_DICE_CONFIG);
-  const saveDiceConfig = cfg => Store.set(STORAGE_KEY_DICE_CONFIG, { ...getDiceConfig(), ...cfg });
+  const saveDiceConfig = cfg => {
+    const oldCfg = getDiceConfig();
+    const newCfg = { ...oldCfg, ...cfg };
+    Store.set(STORAGE_KEY_DICE_CONFIG, newCfg);
+    // 记录配置变更
+    const changedKeys = Object.keys(cfg).filter(k => oldCfg[k] !== newCfg[k]);
+    if (changedKeys.length > 0) {
+      console.info(`[DICE]投骰配置已更新: ${changedKeys.join(', ')}`);
+    }
+  };
 
   // [新增] 隐藏用户消息中的投骰结果（也处理输入栏）
   const hideDiceResultsInUserMessages = () => {
-    const diceCfg = getDiceConfig();
-    const shouldHide = diceCfg.hideDiceResultFromUser;
-
-    // 普通检定正则：格式: "角色名发起了【属性名】检定，掷出XX，判定式，【结果】"
-    const normalDiceRegex = /[\u4e00-\u9fa5a-zA-Z<>]+发起了【[^】]+】检定，掷出\d+，[^【]*【[^】]+】/g;
-
-    // 对抗检定正则：格式: "进行了一次【... vs ...】的对抗检定。... (目标...) 掷出 ...，判定为【...】；... (目标...) 掷出 ...，判定为【...】。最终结果：【...】"
-    const contestDiceRegex =
-      /进行了一次【[^】]+ vs [^】]+】的对抗检定。.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】；.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】。最终结果：【[^】]+】/g;
-
-    // [新增] 处理输入栏
     try {
-      const $ta = $('#send_textarea');
-      if ($ta.length) {
-        let textareaVal = $ta.val() || '';
-        let modifiedText = textareaVal;
+      const diceCfg = getDiceConfig();
+      const shouldHide = diceCfg.hideDiceResultFromUser;
 
-        if (shouldHide) {
-          // 隐藏模式：替换为占位符
-          const contestRegex =
-            /进行了一次【[^】]+ vs [^】]+】的对抗检定。.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】；.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】。最终结果：【[^】]+】/g;
-          const normalRegex = /[\u4e00-\u9fa5a-zA-Z<>]+发起了【[^】]+】检定，掷出\d+，[^【]*【[^】]+】/g;
-
-          if (contestRegex.test(modifiedText)) {
-            modifiedText = modifiedText.replace(contestRegex, '[投骰结果已隐藏]');
+      // [修复] 如果未启用隐藏功能，且没有需要恢复的内容，直接返回，避免不必要的错误
+      if (!shouldHide) {
+        // 只处理输入栏的恢复逻辑，如果输入栏没有占位符，直接返回
+        try {
+          const $ta = $('#send_textarea');
+          if ($ta.length) {
+            const textareaVal = $ta.val() || '';
+            const originalText = $ta.data('acu-original-dice-text');
+            // 如果输入栏没有占位符，且没有保存的原始文本，直接返回
+            if (!textareaVal.includes('[投骰结果已隐藏]') && !originalText) {
+              return;
+            }
+          } else {
+            // 如果输入栏不存在，直接返回
+            return;
           }
-          if (normalRegex.test(modifiedText)) {
-            modifiedText = modifiedText.replace(normalRegex, '[投骰结果已隐藏]');
-          }
-        } else {
-          // 显示模式：如果有保存的原始文本，恢复它
-          const originalText = $ta.data('acu-original-dice-text');
-          if (originalText && textareaVal.includes('[投骰结果已隐藏]')) {
-            // 替换占位符为原始文本
-            modifiedText = textareaVal.replace(/\[投骰结果已隐藏\]/g, originalText);
-            $ta.removeData('acu-original-dice-text');
-          }
-        }
-
-        if (modifiedText !== textareaVal) {
-          $ta.val(modifiedText).trigger('input').trigger('change');
+        } catch (e) {
+          // 输入栏处理失败，静默返回
+          return;
         }
       }
-    } catch (e) {
-      console.warn('[ACU] 处理输入栏投骰结果失败:', e);
-    }
 
-    // 处理已存在的消息
-    if (!shouldHide) {
-      // 如果禁用隐藏，需要恢复原始文本（从消息数据重新获取）
+      console.info(`[DICE]处理投骰结果显示: ${shouldHide ? '隐藏' : '显示'}`);
+
+      // 普通检定正则：格式: "角色名发起了【属性名】检定，掷出XX，判定式，【结果】"
+      const normalDiceRegex = /[\u4e00-\u9fa5a-zA-Z<>]+发起了【[^】]+】检定，掷出\d+，[^【]*【[^】]+】/g;
+
+      // 对抗检定正则：格式: "进行了一次【... vs ...】的对抗检定。... (目标...) 掷出 ...，判定为【...】；... (目标...) 掷出 ...，判定为【...】。最终结果：【...】"
+      const contestDiceRegex =
+        /进行了一次【[^】]+ vs [^】]+】的对抗检定。.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】；.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】。最终结果：【[^】]+】/g;
+
+      // [新增] 处理输入栏
       try {
-        const lastMessageId = getLastMessageId();
-        if (lastMessageId >= 0) {
+        const $ta = $('#send_textarea');
+        if ($ta.length) {
+          let textareaVal = $ta.val() || '';
+          let modifiedText = textareaVal;
+
+          if (shouldHide) {
+            // 隐藏模式：替换为占位符
+            const contestRegex =
+              /进行了一次【[^】]+ vs [^】]+】的对抗检定。.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】；.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】。最终结果：【[^】]+】/g;
+            const normalRegex = /[\u4e00-\u9fa5a-zA-Z<>]+发起了【[^】]+】检定，掷出\d+，[^【]*【[^】]+】/g;
+
+            if (contestRegex.test(modifiedText)) {
+              modifiedText = modifiedText.replace(contestRegex, '[投骰结果已隐藏]');
+            }
+            if (normalRegex.test(modifiedText)) {
+              modifiedText = modifiedText.replace(normalRegex, '[投骰结果已隐藏]');
+            }
+          } else {
+            // 显示模式：如果有保存的原始文本，恢复它
+            const originalText = $ta.data('acu-original-dice-text');
+            if (originalText && textareaVal.includes('[投骰结果已隐藏]')) {
+              // 替换占位符为原始文本
+              modifiedText = textareaVal.replace(/\[投骰结果已隐藏\]/g, originalText);
+              $ta.removeData('acu-original-dice-text');
+            }
+          }
+
+          if (modifiedText !== textareaVal) {
+            $ta.val(modifiedText).trigger('input').trigger('change');
+          }
+        }
+      } catch (e) {
+        console.warn('[DICE]ACU 处理输入栏投骰结果失败:', e);
+      }
+
+      // 处理已存在的消息
+      if (!shouldHide) {
+        // 如果禁用隐藏，需要恢复原始文本（从消息数据重新获取）
+        // 先检查聊天是否已加载，避免在首次启动时显示不必要的错误
+        let lastMessageId;
+        try {
+          lastMessageId = getLastMessageId();
+        } catch (e) {
+          // 如果获取 lastMessageId 失败，说明聊天未加载，静默返回
+          return;
+        }
+
+        // 如果聊天未加载或没有消息，直接返回，不显示错误
+        if (lastMessageId < 0) {
+          return;
+        }
+
+        try {
           const userMessages = getChatMessages(`0-${lastMessageId}`, { role: 'user' });
+          // 如果没有用户消息，直接返回
+          if (!userMessages || userMessages.length === 0) {
+            return;
+          }
+
+          let restoredCount = 0;
           userMessages.forEach(msg => {
             try {
               const $msgElement = retrieveDisplayedMessage(msg.message_id);
@@ -2875,68 +5503,83 @@
                 const originalText = msg.message || '';
                 if (originalText) {
                   $mesText.text(originalText);
+                  restoredCount++;
                 }
               }
             } catch (e) {
-              console.warn(`[ACU] 恢复第 ${msg.message_id} 楼投骰结果失败:`, e);
+              // 单个消息恢复失败，静默处理
             }
           });
-        }
-      } catch (e) {
-        console.warn('[ACU] 恢复投骰结果失败:', e);
-      }
-      return;
-    }
-
-    // 隐藏模式：处理已存在的消息
-    try {
-      const lastMessageId = getLastMessageId();
-      if (lastMessageId < 0) return;
-
-      const userMessages = getChatMessages(`0-${lastMessageId}`, { role: 'user' });
-
-      userMessages.forEach(msg => {
-        try {
-          const $msgElement = retrieveDisplayedMessage(msg.message_id);
-          if (!$msgElement || !$msgElement.length) return;
-
-          const $mesText = $msgElement.find('.mes_text');
-          if (!$mesText || !$mesText.length) return;
-
-          // 获取原始文本内容
-          let textContent = $mesText.text();
-          // 如果已经是占位符，跳过
-          if (textContent.includes('[投骰结果已隐藏]')) {
-            return;
-          }
-
-          let modifiedText = textContent;
-
-          // 先处理对抗检定（优先级更高，格式更长）
-          // 每次使用新的正则实例，避免全局正则的 lastIndex 副作用
-          const contestRegex =
-            /进行了一次【[^】]+ vs [^】]+】的对抗检定。.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】；.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】。最终结果：【[^】]+】/g;
-          if (contestRegex.test(modifiedText)) {
-            modifiedText = modifiedText.replace(contestRegex, '[投骰结果已隐藏]');
-          }
-
-          // 再处理普通检定（使用新的正则实例）
-          const normalRegex = /[\u4e00-\u9fa5a-zA-Z<>]+发起了【[^】]+】检定，掷出\d+，[^【]*【[^】]+】/g;
-          if (normalRegex.test(modifiedText)) {
-            modifiedText = modifiedText.replace(normalRegex, '[投骰结果已隐藏]');
-          }
-
-          // 如果有匹配，更新显示内容（只修改文本，保持原有HTML结构）
-          if (modifiedText !== textContent) {
-            // 使用 text() 方法设置纯文本，避免破坏HTML结构
-            $mesText.text(modifiedText);
+          if (restoredCount > 0) {
+            console.info(`[DICE]已恢复 ${restoredCount} 条消息的投骰结果`);
           }
         } catch (e) {
-          console.warn(`[ACU] 隐藏第 ${msg.message_id} 楼投骰结果失败:`, e);
+          // 首次启动时聊天可能未完全加载，静默处理所有错误
+          // 避免在控制台显示不必要的警告信息
         }
-      });
+        return;
+      }
+
+      // 隐藏模式：处理已存在的消息
+      try {
+        const lastMessageId = getLastMessageId();
+        if (lastMessageId < 0) return;
+
+        const userMessages = getChatMessages(`0-${lastMessageId}`, { role: 'user' });
+
+        userMessages.forEach(msg => {
+          try {
+            const $msgElement = retrieveDisplayedMessage(msg.message_id);
+            if (!$msgElement || !$msgElement.length) return;
+
+            const $mesText = $msgElement.find('.mes_text');
+            if (!$mesText || !$mesText.length) return;
+
+            // 获取原始文本内容
+            let textContent = $mesText.text();
+            // 如果已经是占位符，跳过
+            if (textContent.includes('[投骰结果已隐藏]')) {
+              return;
+            }
+
+            let modifiedText = textContent;
+
+            // 先处理对抗检定（优先级更高，格式更长）
+            // 每次使用新的正则实例，避免全局正则的 lastIndex 副作用
+            const contestRegex =
+              /进行了一次【[^】]+ vs [^】]+】的对抗检定。.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】；.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】。最终结果：【[^】]+】/g;
+            if (contestRegex.test(modifiedText)) {
+              modifiedText = modifiedText.replace(contestRegex, '[投骰结果已隐藏]');
+            }
+
+            // 再处理普通检定（使用新的正则实例）
+            const normalRegex = /[\u4e00-\u9fa5a-zA-Z<>]+发起了【[^】]+】检定，掷出\d+，[^【]*【[^】]+】/g;
+            if (normalRegex.test(modifiedText)) {
+              modifiedText = modifiedText.replace(normalRegex, '[投骰结果已隐藏]');
+            }
+
+            // 如果有匹配，更新显示内容（只修改文本，保持原有HTML结构）
+            if (modifiedText !== textContent) {
+              // 使用 text() 方法设置纯文本，避免破坏HTML结构
+              $mesText.text(modifiedText);
+            }
+          } catch (e) {
+            console.warn(`[DICE]ACU 隐藏第 ${msg.message_id} 楼投骰结果失败:`, e);
+          }
+        });
+      } catch (e) {
+        // [修复] 只有在启用隐藏功能时才显示错误，避免在未启用时显示不必要的警告
+        if (shouldHide) {
+          console.warn('[DICE]ACU 隐藏投骰结果失败:', e);
+        }
+      }
     } catch (e) {
-      console.warn('[ACU] 隐藏投骰结果失败:', e);
+      // [修复] 最外层错误处理，静默处理配置获取失败等错误
+      // 避免在未启用隐藏功能时显示错误
+      const diceCfg = getDiceConfig();
+      if (diceCfg && diceCfg.hideDiceResultFromUser) {
+        console.warn('[DICE]ACU 隐藏投骰结果失败:', e);
+      }
     }
   };
 
@@ -2948,7 +5591,7 @@
   const BUILTIN_ATTRIBUTE_PRESETS = [
     {
       format: 'acu_attr_preset_v1',
-      version: 1,
+      version: PRESET_FORMAT_VERSION,
       id: 'coc7',
       name: '简化COC规则',
       builtin: true,
@@ -2990,7 +5633,7 @@
     },
     {
       format: 'acu_attr_preset_v1',
-      version: 1,
+      version: PRESET_FORMAT_VERSION,
       id: 'dnd5e',
       name: '简化DND规则',
       builtin: true,
@@ -3024,10 +5667,30 @@
     let _cache = null;
 
     return {
-      // 获取所有预设（内置 + 自定义）
+      // 获取所有预设（内置 + 自定义，自动检测并更新版本）
       getAllPresets() {
-        if (_cache) return _cache;
         const stored = Store.get(STORAGE_KEY_ATTRIBUTE_PRESETS, []);
+        // 自动检测并更新所有自定义预设的版本（每次调用都检测，不依赖缓存）
+        let needsSave = false;
+        stored.forEach(preset => {
+          const presetVersion = preset.version || '0.0.0';
+          if (compareVersion(presetVersion, PRESET_FORMAT_VERSION) < 0) {
+            console.log(
+              `[DICE]AttributePresetManager 检测到预设 "${preset.name}" 版本较旧 (${presetVersion})，自动更新到 ${PRESET_FORMAT_VERSION}`,
+            );
+            preset.version = PRESET_FORMAT_VERSION;
+            needsSave = true;
+          }
+        });
+        if (needsSave) {
+          Store.set(STORAGE_KEY_ATTRIBUTE_PRESETS, stored);
+          // 清除缓存，确保下次获取时使用更新后的数据
+          _cache = null;
+        }
+        // 只有在没有更新时才使用缓存
+        if (!needsSave && _cache) {
+          return _cache;
+        }
         _cache = [...BUILTIN_ATTRIBUTE_PRESETS, ...stored];
         return _cache;
       },
@@ -3047,10 +5710,10 @@
           Store.set(STORAGE_KEY_ACTIVE_ATTR_PRESET, finalId);
           // 清除缓存，确保下次获取时是最新的
           _cache = null;
-          console.log('[AttributePresetManager] 切换预设:', finalId);
+          console.log('[DICE]AttributePresetManager 切换预设:', finalId);
           return true;
         } catch (err) {
-          console.error('[AttributePresetManager] 设置预设失败:', err);
+          console.error('[DICE]AttributePresetManager 设置预设失败:', err);
           return false;
         }
       },
@@ -3062,12 +5725,13 @@
           ...preset,
           id: preset.id || 'custom_' + Date.now(),
           builtin: false,
+          version: preset.version || PRESET_FORMAT_VERSION,
           createdAt: new Date().toISOString(),
         };
         stored.push(newPreset);
         Store.set(STORAGE_KEY_ATTRIBUTE_PRESETS, stored);
         _cache = null;
-        console.log('[AttributePresetManager] 创建预设:', newPreset.name);
+        console.log('[DICE]AttributePresetManager 创建预设:', newPreset.name);
         return newPreset;
       },
 
@@ -3079,7 +5743,7 @@
         stored[index] = { ...stored[index], ...updates };
         Store.set(STORAGE_KEY_ATTRIBUTE_PRESETS, stored);
         _cache = null;
-        console.log('[AttributePresetManager] 更新预设:', id);
+        console.log('[DICE]AttributePresetManager 更新预设:', id);
         return true;
       },
 
@@ -3094,7 +5758,7 @@
         if (Store.get(STORAGE_KEY_ACTIVE_ATTR_PRESET) === id) {
           Store.set(STORAGE_KEY_ACTIVE_ATTR_PRESET, null);
         }
-        console.log('[AttributePresetManager] 删除预设:', id);
+        console.log('[DICE]AttributePresetManager 删除预设:', id);
         return true;
       },
 
@@ -3104,7 +5768,7 @@
         if (!preset) return null;
         const exported = {
           format: 'acu_attr_preset_v1',
-          version: 1,
+          version: PRESET_FORMAT_VERSION,
           ...preset,
         };
         delete exported.builtin; // 导出时移除内置标记
@@ -3112,7 +5776,7 @@
       },
 
       // 从 JSON 导入预设
-      importPreset(jsonStr) {
+      importPreset(jsonStr, autoUpdate = false) {
         try {
           const data = JSON.parse(jsonStr);
 
@@ -3126,17 +5790,27 @@
             throw new Error('预设数据不完整');
           }
 
+          const importedVersion = data.version || '0.0.0';
+          const needsUpdate = compareVersion(importedVersion, PRESET_FORMAT_VERSION) < 0;
+
           // 生成新ID避免冲突
           const imported = {
             ...data,
             id: 'imported_' + Date.now(),
             builtin: false,
+            version: autoUpdate && needsUpdate ? PRESET_FORMAT_VERSION : importedVersion,
             createdAt: new Date().toISOString(),
           };
 
-          return this.createPreset(imported);
+          const result = this.createPreset(imported);
+          if (result && needsUpdate && !autoUpdate) {
+            console.warn(
+              `[DICE]AttributePresetManager 导入的预设 "${result.name}" 版本较旧 (${importedVersion})，建议更新到 ${PRESET_FORMAT_VERSION}`,
+            );
+          }
+          return result;
         } catch (e) {
-          console.error('[AttributePresetManager] 导入失败:', e);
+          console.error('[DICE]AttributePresetManager 导入失败:', e);
           return null;
         }
       },
@@ -3216,7 +5890,7 @@
 
     // 3. 安全性检查：只允许数字和基本运算符
     if (!/^[\d\s+\-*/().]+$/.test(expr)) {
-      console.warn('[evaluateFormula] 公式包含非法字符:', formula, '→', expr);
+      console.warn('[DICE]evaluateFormula 公式包含非法字符:', formula, '→', expr);
       return 0;
     }
 
@@ -3226,7 +5900,7 @@
       const result = new Function(`return (${expr})`)();
       return Math.round(result); // 四舍五入为整数
     } catch (e) {
-      console.error('[evaluateFormula] 公式计算失败:', formula, '→', expr, e);
+      console.error('[DICE]evaluateFormula 公式计算失败:', formula, '→', expr, e);
       return 0;
     }
   };
@@ -3393,11 +6067,15 @@
     // 根据配置查找表
     findTable(allTables, moduleKey) {
       const config = DASHBOARD_TABLE_CONFIG[moduleKey];
-      if (!config) return null;
+      if (!config) {
+        console.info(`[DICE]仪表盘查找表格: 模块"${moduleKey}"配置不存在`);
+        return null;
+      }
 
       for (const keyword of config.tableKeywords) {
         for (const tableName in allTables) {
           if (tableName.includes(keyword)) {
+            console.info(`[DICE]仪表盘查找表格: 模块"${moduleKey}"找到表格"${tableName}" (关键词: "${keyword}")`);
             return {
               data: allTables[tableName],
               name: tableName,
@@ -3407,6 +6085,9 @@
           }
         }
       }
+      console.info(
+        `[DICE]仪表盘查找表格: 模块"${moduleKey}"未找到匹配表格 (关键词: ${config.tableKeywords.join(', ')})`,
+      );
       return null;
     },
 
@@ -3448,14 +6129,17 @@
 
     // 解析表格数据为结构化对象数组
     parseRows(tableResult, moduleKey) {
-      if (!tableResult || !tableResult.data) return [];
+      if (!tableResult || !tableResult.data) {
+        console.info(`[DICE]仪表盘解析数据: 模块"${moduleKey}"无数据，跳过解析`);
+        return [];
+      }
 
       const { data, config } = tableResult;
       const headers = data.headers || [];
       const rows = data.rows || [];
       const colMap = this.getColumnMap(headers, moduleKey);
 
-      return rows.map((row, idx) => {
+      const parsed = rows.map((row, idx) => {
         const obj = { _rowIndex: idx, _raw: row };
         for (const colKey in colMap) {
           const colIdx = colMap[colKey];
@@ -3463,6 +6147,9 @@
         }
         return obj;
       });
+
+      console.info(`[DICE]仪表盘解析数据: 模块"${moduleKey}"解析完成，共${parsed.length}行`);
+      return parsed;
     },
 
     // 应用过滤器（容错：当目标列不存在时返回全部数据）
@@ -3635,6 +6322,7 @@
       errorBg: 'rgba(231, 76, 60, 0.15)',
       errorBorder: 'rgba(231, 76, 60, 0.5)',
       warningIcon: '#e67e22',
+      buttonTextOnAccent: '#fff',
     },
     dark: {
       bgPanel: 'rgba(30, 30, 30, 0.98)',
@@ -3676,6 +6364,7 @@
       errorBg: 'rgba(255, 107, 107, 0.2)',
       errorBorder: 'rgba(255, 107, 107, 0.5)',
       warningIcon: '#ffa726',
+      buttonTextOnAccent: '#fff',
     },
     modern: {
       bgPanel: '#f8f9fa',
@@ -3717,6 +6406,7 @@
       errorBg: 'rgba(220, 53, 69, 0.15)',
       errorBorder: 'rgba(220, 53, 69, 0.5)',
       warningIcon: '#fd7e14',
+      buttonTextOnAccent: '#fff',
     },
     forest: {
       bgPanel: '#e8f5e9',
@@ -3758,6 +6448,7 @@
       errorBg: 'rgba(198, 40, 40, 0.15)',
       errorBorder: 'rgba(198, 40, 40, 0.5)',
       warningIcon: '#e67e22',
+      buttonTextOnAccent: '#fff',
     },
     ocean: {
       bgPanel: '#e3f2fd',
@@ -3799,6 +6490,7 @@
       errorBg: 'rgba(211, 47, 47, 0.15)',
       errorBorder: 'rgba(211, 47, 47, 0.5)',
       warningIcon: '#f57c00',
+      buttonTextOnAccent: '#fff',
     },
     cyber: {
       bgPanel: '#0a0a0a',
@@ -3845,6 +6537,7 @@
       errorBg: 'rgba(255, 0, 102, 0.2)',
       errorBorder: 'rgba(255, 0, 102, 0.5)',
       warningIcon: '#ffaa00',
+      buttonTextOnAccent: '#000',
     },
     nightowl: {
       bgPanel: '#011627',
@@ -3891,6 +6584,7 @@
       errorBg: 'rgba(255, 107, 107, 0.2)',
       errorBorder: 'rgba(255, 107, 107, 0.5)',
       warningIcon: '#ffa726',
+      buttonTextOnAccent: '#000',
     },
     sakura: {
       bgPanel: '#F9F0EF',
@@ -3920,8 +6614,8 @@
       extremeSuccessText: '#9B8A8A',
       extremeSuccessBg: 'rgba(155, 138, 138, 0.12)',
       // UI通用颜色
-      overlayBg: 'rgba(107, 85, 82, 0.6)',
-      overlayBgLight: 'rgba(107, 85, 82, 0.5)',
+      overlayBg: 'rgba(0,0,0,0.6)',
+      overlayBgLight: 'rgba(0,0,0,0.5)',
       shadowBg: 'rgba(107, 85, 82, 0.3)',
       lightBg: 'rgba(192, 141, 141, 0.08)',
       veryLightBg: 'rgba(192, 141, 141, 0.02)',
@@ -3937,6 +6631,7 @@
       errorBg: 'rgba(155, 122, 122, 0.12)',
       errorBorder: 'rgba(155, 122, 122, 0.4)',
       warningIcon: '#A68A7A',
+      buttonTextOnAccent: '#fff',
     },
     minepink: {
       bgPanel: '#1a1a1a',
@@ -3983,6 +6678,7 @@
       errorBg: 'rgba(255, 107, 107, 0.2)',
       errorBorder: 'rgba(255, 107, 107, 0.5)',
       warningIcon: '#ffa726',
+      buttonTextOnAccent: '#000',
     },
     purple: {
       bgPanel: '#f3e5f5',
@@ -4029,52 +6725,7 @@
       errorBg: 'rgba(211, 47, 47, 0.15)',
       errorBorder: 'rgba(211, 47, 47, 0.5)',
       warningIcon: '#f57c00',
-    },
-    cherrypink: {
-      bgPanel: '#FFE4E6',
-      border: '#FFC0CB',
-      textMain: '#8B4A5C',
-      textSub: '#C97A8F',
-      btnBg: '#FFC0CB',
-      btnHover: '#FFB0C0',
-      accent: '#FF91A4',
-      tableHead: '#FFE8EA',
-      successText: '#B85C7A',
-      successBg: 'rgba(255, 145, 164, 0.15)',
-      inputBg: '#FFF0F2',
-      inputText: '#8B4A5C',
-      placeholderText: '#C97A8F',
-      btnActiveBg: '#FF91A4',
-      btnActiveText: '#FFFFFF',
-      // 检定结果相关
-      failureText: '#D85C7A',
-      failureBg: 'rgba(216, 92, 122, 0.15)',
-      warningText: '#E68A9F',
-      warningBg: 'rgba(230, 138, 159, 0.15)',
-      critSuccessText: '#B85C7A',
-      critSuccessBg: 'rgba(184, 92, 122, 0.15)',
-      critFailureText: '#C85C7A',
-      critFailureBg: 'rgba(200, 92, 122, 0.15)',
-      extremeSuccessText: '#C97A8F',
-      extremeSuccessBg: 'rgba(201, 122, 143, 0.15)',
-      // UI通用颜色
-      overlayBg: 'rgba(139, 74, 92, 0.6)',
-      overlayBgLight: 'rgba(139, 74, 92, 0.5)',
-      shadowBg: 'rgba(139, 74, 92, 0.3)',
-      lightBg: 'rgba(255, 145, 164, 0.1)',
-      veryLightBg: 'rgba(255, 145, 164, 0.03)',
-      buttonText: '#FFFFFF',
-      grayBg: 'rgba(255, 145, 164, 0.1)',
-      // 按钮专用颜色（更暗，提高可读性）
-      buttonBg: 'rgba(255, 145, 164, 0.65)',
-      buttonBgActive: 'rgba(255, 145, 164, 0.75)',
-      presetButtonBg: 'rgba(255, 145, 164, 0.35)',
-      presetButtonBgActive: 'rgba(255, 145, 164, 0.55)',
-      // 警告/错误相关
-      errorText: '#D85C7A',
-      errorBg: 'rgba(216, 92, 122, 0.15)',
-      errorBorder: 'rgba(216, 92, 122, 0.45)',
-      warningIcon: '#E68A9F',
+      buttonTextOnAccent: '#fff',
     },
     wechat: {
       bgPanel: '#F7F7F7',
@@ -4121,6 +6772,195 @@
       errorBg: 'rgba(229, 62, 62, 0.12)',
       errorBorder: 'rgba(229, 62, 62, 0.5)',
       warningIcon: '#FF9500',
+      buttonTextOnAccent: '#fff',
+    },
+    educational: {
+      bgPanel: '#000000',
+      border: '#1B1B1B',
+      textMain: '#FFFFFF',
+      textSub: '#CCCCCC',
+      btnBg: '#1B1B1B',
+      btnHover: '#2B2B2B',
+      accent: '#FF9900',
+      tableHead: '#1B1B1B',
+      successText: '#FF9900',
+      successBg: 'rgba(255, 153, 0, 0.15)',
+      inputBg: '#1B1B1B',
+      inputText: '#FFFFFF',
+      placeholderText: '#666666',
+      btnActiveBg: '#FF9900',
+      btnActiveText: '#000000',
+      // 检定结果相关
+      failureText: '#FF6B6B',
+      failureBg: 'rgba(255, 107, 107, 0.2)',
+      warningText: '#FFAA00',
+      warningBg: 'rgba(255, 170, 0, 0.2)',
+      critSuccessText: '#FF9900',
+      critSuccessBg: 'rgba(255, 153, 0, 0.2)',
+      critFailureText: '#FF4444',
+      critFailureBg: 'rgba(255, 68, 68, 0.2)',
+      extremeSuccessText: '#FFB84D',
+      extremeSuccessBg: 'rgba(255, 184, 77, 0.2)',
+      // UI通用颜色
+      overlayBg: 'rgba(0,0,0,0.8)',
+      overlayBgLight: 'rgba(0,0,0,0.7)',
+      shadowBg: 'rgba(0,0,0,0.6)',
+      lightBg: 'rgba(255, 153, 0, 0.1)',
+      veryLightBg: 'rgba(255, 153, 0, 0.02)',
+      buttonText: '#FFFFFF',
+      grayBg: 'rgba(255, 255, 255, 0.1)',
+      // 按钮专用颜色（更暗，提高可读性）
+      buttonBg: 'rgba(255, 153, 0, 0.7)',
+      buttonBgActive: 'rgba(255, 153, 0, 0.85)',
+      presetButtonBg: 'rgba(255, 153, 0, 0.3)',
+      presetButtonBgActive: 'rgba(255, 153, 0, 0.6)',
+      // 警告/错误相关
+      errorText: '#FF6B6B',
+      errorBg: 'rgba(255, 107, 107, 0.2)',
+      errorBorder: 'rgba(255, 107, 107, 0.5)',
+      warningIcon: '#FFAA00',
+      buttonTextOnAccent: '#000000',
+    },
+    galgame: {
+      bgPanel: '#FFF0F5',
+      border: '#F0D4E4',
+      textMain: '#6B4A5A',
+      textSub: '#B08A9A',
+      btnBg: '#FFE4E9',
+      btnHover: '#FFD4E4',
+      accent: '#E8B4D9',
+      tableHead: '#FFF5F9',
+      successText: '#D4A5C8',
+      successBg: 'rgba(212, 165, 200, 0.15)',
+      inputBg: '#FFF8FA',
+      inputText: '#6B4A5A',
+      placeholderText: '#C8A5B0',
+      btnActiveBg: '#E8B4D9',
+      btnActiveText: '#6B4A5A',
+      // 检定结果相关
+      failureText: '#C88A9A',
+      failureBg: 'rgba(200, 138, 154, 0.15)',
+      warningText: '#D4A5A5',
+      warningBg: 'rgba(212, 165, 165, 0.15)',
+      critSuccessText: '#E8B4D9',
+      critSuccessBg: 'rgba(232, 180, 217, 0.2)',
+      critFailureText: '#C88A9A',
+      critFailureBg: 'rgba(200, 138, 154, 0.2)',
+      extremeSuccessText: '#D4A5C8',
+      extremeSuccessBg: 'rgba(212, 165, 200, 0.2)',
+      // UI通用颜色
+      overlayBg: 'rgba(0,0,0,0.6)',
+      overlayBgLight: 'rgba(0,0,0,0.5)',
+      shadowBg: 'rgba(232, 180, 217, 0.25)',
+      lightBg: 'rgba(232, 180, 217, 0.08)',
+      veryLightBg: 'rgba(232, 180, 217, 0.02)',
+      buttonText: '#6B4A5A',
+      grayBg: 'rgba(232, 180, 217, 0.1)',
+      // 按钮专用颜色（更柔和，提高可读性）
+      buttonBg: 'rgba(232, 180, 217, 0.6)',
+      buttonBgActive: 'rgba(232, 180, 217, 0.75)',
+      presetButtonBg: 'rgba(232, 180, 217, 0.3)',
+      presetButtonBgActive: 'rgba(232, 180, 217, 0.6)',
+      // 警告/错误相关
+      errorText: '#C88A9A',
+      errorBg: 'rgba(200, 138, 154, 0.15)',
+      errorBorder: 'rgba(200, 138, 154, 0.4)',
+      warningIcon: '#D4A5A5',
+      buttonTextOnAccent: '#6B4A5A',
+    },
+    vaporwave: {
+      bgPanel: '#191970',
+      border: 'rgba(0, 255, 255, 0.3)',
+      textMain: '#00FFFF',
+      textSub: '#FF00FF',
+      btnBg: 'rgba(25, 25, 112, 0.8)',
+      btnHover: 'rgba(0, 255, 255, 0.2)',
+      accent: '#00FFFF',
+      tableHead: 'rgba(25, 25, 112, 0.9)',
+      successText: '#00FFFF',
+      successBg: 'rgba(0, 255, 255, 0.15)',
+      inputBg: 'rgba(25, 25, 112, 0.6)',
+      inputText: '#00FFFF',
+      placeholderText: '#FF00FF',
+      btnActiveBg: '#FF00FF',
+      btnActiveText: '#F0F8FF',
+      // 检定结果相关
+      failureText: '#FF00FF',
+      failureBg: 'rgba(255, 0, 255, 0.2)',
+      warningText: '#FF00FF',
+      warningBg: 'rgba(255, 0, 255, 0.15)',
+      critSuccessText: '#00FFFF',
+      critSuccessBg: 'rgba(0, 255, 255, 0.2)',
+      critFailureText: '#FF00FF',
+      critFailureBg: 'rgba(255, 0, 255, 0.25)',
+      extremeSuccessText: '#00FFFF',
+      extremeSuccessBg: 'rgba(0, 255, 255, 0.2)',
+      // UI通用颜色
+      overlayBg: 'rgba(25, 25, 112, 0.85)',
+      overlayBgLight: 'rgba(25, 25, 112, 0.75)',
+      shadowBg: 'rgba(0, 255, 255, 0.3)',
+      lightBg: 'rgba(0, 255, 255, 0.05)',
+      veryLightBg: 'rgba(0, 255, 255, 0.02)',
+      buttonText: '#F0F8FF',
+      grayBg: 'rgba(0, 255, 255, 0.1)',
+      // 按钮专用颜色（更暗，提高可读性）
+      buttonBg: 'rgba(0, 255, 255, 0.6)',
+      buttonBgActive: 'rgba(255, 0, 255, 0.7)',
+      presetButtonBg: 'rgba(0, 255, 255, 0.3)',
+      presetButtonBgActive: 'rgba(0, 255, 255, 0.6)',
+      // 警告/错误相关
+      errorText: '#FF00FF',
+      errorBg: 'rgba(255, 0, 255, 0.2)',
+      errorBorder: 'rgba(255, 0, 255, 0.5)',
+      warningIcon: '#FF00FF',
+      buttonTextOnAccent: '#191970',
+    },
+    classicpackaging: {
+      bgPanel: '#000000',
+      border: '#FFFF00',
+      textMain: '#FFFF00',
+      textSub: '#CCCC00',
+      btnBg: '#FF0000',
+      btnHover: '#CC0000',
+      accent: '#FF0000',
+      tableHead: '#1a1a1a',
+      successText: '#0000FF',
+      successBg: 'rgba(0, 0, 255, 0.2)',
+      inputBg: '#1a1a1a',
+      inputText: '#FFFF00',
+      placeholderText: '#666600',
+      btnActiveBg: '#0000FF',
+      btnActiveText: '#FFFF00',
+      // 检定结果相关
+      failureText: '#FF0000',
+      failureBg: 'rgba(255, 0, 0, 0.2)',
+      warningText: '#FF0000',
+      warningBg: 'rgba(255, 0, 0, 0.15)',
+      critSuccessText: '#0000FF',
+      critSuccessBg: 'rgba(0, 0, 255, 0.2)',
+      critFailureText: '#FF0000',
+      critFailureBg: 'rgba(255, 0, 0, 0.25)',
+      extremeSuccessText: '#0000FF',
+      extremeSuccessBg: 'rgba(0, 0, 255, 0.2)',
+      // UI通用颜色
+      overlayBg: 'rgba(0, 0, 0, 0.9)',
+      overlayBgLight: 'rgba(0, 0, 0, 0.8)',
+      shadowBg: 'rgba(0, 0, 0, 0.6)',
+      lightBg: 'rgba(255, 255, 0, 0.1)',
+      veryLightBg: 'rgba(255, 255, 0, 0.02)',
+      buttonText: '#FFFF00',
+      grayBg: 'rgba(255, 255, 0, 0.1)',
+      // 按钮专用颜色（更暗，提高可读性）
+      buttonBg: '#FF0000',
+      buttonBgActive: '#CC0000',
+      presetButtonBg: 'rgba(255, 0, 0, 0.7)',
+      presetButtonBgActive: '#FF0000',
+      // 警告/错误相关
+      errorText: '#FF0000',
+      errorBg: 'rgba(255, 0, 0, 0.2)',
+      errorBorder: 'rgba(255, 0, 0, 0.8)',
+      warningIcon: '#FF0000',
+      buttonTextOnAccent: '#FFFF00',
     },
   };
   const getThemeColors = () => {
@@ -4131,6 +6971,20 @@
       theme.buttonBgActive = theme.accent;
       theme.presetButtonBg = theme.btnBg;
       theme.presetButtonBgActive = theme.accent;
+    }
+    // 为没有定义按钮文字颜色的主题提供默认值
+    if (!theme.buttonTextOnAccent) {
+      // 浅色主题使用深色文字，深色主题使用浅色文字
+      // 根据背景色判断：浅色背景用深色文字，深色背景用浅色文字
+      const isLightTheme =
+        theme.bgPanel &&
+        (theme.bgPanel.startsWith('#F') ||
+          theme.bgPanel.startsWith('#f') ||
+          theme.bgPanel.startsWith('#e') ||
+          theme.bgPanel.startsWith('#E') ||
+          theme.bgPanel.includes('255') ||
+          theme.bgPanel.includes('fff'));
+      theme.buttonTextOnAccent = isLightTheme ? theme.textMain || '#333' : '#fff';
     }
     return theme;
   };
@@ -4354,7 +7208,7 @@
     const saved = localStorage.getItem(STORAGE_KEY_SCROLL);
     if (saved) tableScrollStates = JSON.parse(saved);
   } catch (e) {
-    console.warn('[ACU] Error:', e);
+    console.warn('[DICE]ACU Error:', e);
   }
   // [优化] 智能更新控制器：后端数据变动时，自动更新快照
   const UpdateController = {
@@ -4374,18 +7228,29 @@
           const violations = ValidationEngine.checkTableRules(snapshot, newData, rules);
 
           if (violations.length > 0) {
-            console.warn('[ACU] 规则拦截触发，执行回滚:', violations);
+            console.warn('[DICE]ACU 规则拦截触发，执行回滚:', violations);
             UpdateController._isRollingBack = true;
 
             // 获取 API 并回滚
             const api = getCore().getDB();
             if (api?.fillTable) {
-              api.fillTable(snapshot);
-              if (window.toastr) {
-                window.toastr.error(violations[0].message, '已回滚', {
-                  timeOut: 5000,
-                  positionClass: 'toast-bottom-right',
-                });
+              try {
+                api.fillTable(snapshot);
+                if (window.toastr) {
+                  window.toastr.error(violations[0].message, '已回滚', {
+                    timeOut: 5000,
+                    positionClass: 'toast-bottom-right',
+                  });
+                }
+              } catch (fillError) {
+                console.error('[DICE]ACU fillTable 回滚失败:', fillError);
+                // 回滚失败时仍然显示规则拦截提示
+                if (window.toastr) {
+                  window.toastr.error(`规则拦截: ${violations[0].message}（回滚操作失败，请手动刷新）`, '错误', {
+                    timeOut: 7000,
+                    positionClass: 'toast-bottom-right',
+                  });
+                }
               }
             }
 
@@ -4396,7 +7261,7 @@
           }
         }
       } catch (e) {
-        console.error('[ACU] 拦截检查失败:', e);
+        console.error('[DICE]ACU 拦截检查失败:', e);
       }
 
       // 直接触发渲染，让 renderInterface 内部处理数据获取和差异计算
@@ -4422,7 +7287,7 @@
             updateValidationIndicator(newCount);
           }
         } catch (e) {
-          console.error('[ACU] 验证执行失败:', e);
+          console.error('[DICE]ACU 验证执行失败:', e);
         }
       }, 100);
     },
@@ -4459,7 +7324,7 @@
         return window.parent.SillyTavern.getCurrentChatId();
       }
     } catch (e) {
-      console.warn('[ACU] getCurrentContextFingerprint error:', e);
+      console.warn('[DICE]ACU getCurrentContextFingerprint error:', e);
     }
     return 'unknown_context';
   };
@@ -4506,10 +7371,13 @@
     { id: 'cyber', name: '赛博霓虹 (Cyber)', icon: 'fa-bolt' },
     { id: 'nightowl', name: '深蓝磨砂 (Night Owl)', icon: 'fa-feather' },
     { id: 'sakura', name: '暖粉手账 (Warm Pink)', icon: 'fa-heart' },
-    { id: 'minepink', name: '地雷量产 (Mine Pink)', icon: 'fa-skull' },
+    { id: 'minepink', name: '量产地雷 (Mine Pink)', icon: 'fa-skull' },
+    { id: 'galgame', name: '粉梦物语 (Galgame Pink)', icon: 'fa-heart' },
     { id: 'purple', name: '紫罗兰梦 (Purple)', icon: 'fa-gem' },
-    { id: 'cherrypink', name: '樱花粉彩 (Cherry Pink)', icon: 'fa-cherry' },
     { id: 'wechat', name: '绿色泡泡 (Green Bubble)', icon: 'fa-weixin' },
+    { id: 'educational', name: '学习资料 (Educational)', icon: 'fa-book' },
+    { id: 'vaporwave', name: '霓虹怀旧 (Vaporwave)', icon: 'fa-palette' },
+    { id: 'classicpackaging', name: '经典包装 (Classic Packaging)', icon: 'fa-box' },
   ];
 
   // [优化] 缓存 core 对象 (修复竞态条件 + 增强 ST 穿透查找)
@@ -4612,7 +7480,7 @@
       } catch (e) {
         // 捕获存储空间已满错误
         if (e.name === 'QuotaExceededError' || e.message.includes('quota')) {
-          console.warn('[ACU] 存储空间已满，触发静默清理策略...');
+          console.warn('[DICE]ACU 存储空间已满，触发静默清理策略...');
           try {
             // 1. 优先删除最占空间的“数据快照” (不影响功能，只会导致下次刷新暂时没有蓝色高亮)
             localStorage.removeItem(STORAGE_KEY_LAST_SNAPSHOT);
@@ -4621,7 +7489,7 @@
             localStorage.setItem(key, JSON.stringify(val));
           } catch (retryErr) {
             // 如果清理后还是存不下，才弹窗打扰用户
-            console.error('[ACU Store] 清理后依然失败', retryErr);
+            console.error('[DICE]ACU Store 清理后依然失败', retryErr);
             if (window.toastr && !window._acuQuotaAlerted) {
               window.toastr.warning('⚠️ 浏览器存储空间严重不足，配置保存失败');
               window._acuQuotaAlerted = true;
@@ -4629,7 +7497,7 @@
             }
           }
         } else {
-          console.error('[ACU Store]', e);
+          console.error('[DICE]ACU Store', e);
         }
       }
     },
@@ -4698,7 +7566,7 @@
       list.push(tableName);
     }
     saveReverseTables(list);
-    console.log('[ACU] toggleTableReverse:', tableName, 'reversed:', idx < 0);
+    console.log('[DICE]ACU toggleTableReverse:', tableName, 'reversed:', idx < 0);
   };
   // [新增] 根据角色名获取属性列表
   const getAttributesForCharacter = characterName => {
@@ -4926,7 +7794,7 @@
 
       return Array.from(allAttrs);
     } catch (err) {
-      console.error('[ACU] getRandomSkillPool 错误:', err);
+      console.error('[DICE]ACU getRandomSkillPool 错误:', err);
       return RANDOM_SKILL_POOL || [];
     }
   };
@@ -5235,7 +8103,7 @@
   const clearPresetAttributesForCharacter = async charName => {
     const rawData = cachedRawData || getTableData();
     if (!rawData) {
-      console.error('[ACU] clearPresetAttributesForCharacter: 无法获取表格数据');
+      console.error('[DICE]ACU clearPresetAttributesForCharacter: 无法获取表格数据');
       if (window.toastr) window.toastr.error('无法获取表格数据');
       return { success: false };
     }
@@ -5333,13 +8201,13 @@
 
     // 验证是否找到目标
     if (!targetSheet || targetRowIndex < 0) {
-      console.error('[ACU] clearPresetAttributesForCharacter: 找不到角色', charName);
+      console.error('[DICE]ACU clearPresetAttributesForCharacter: 找不到角色', charName);
       if (window.toastr) window.toastr.error(`找不到角色「${charName || '<user>'}」`);
       return { success: false };
     }
 
     if (targetColIndex < 0) {
-      console.error('[ACU] clearPresetAttributesForCharacter: 找不到属性列');
+      console.error('[DICE]ACU clearPresetAttributesForCharacter: 找不到属性列');
       if (window.toastr) window.toastr.error('找不到属性列');
       return { success: false };
     }
@@ -5377,7 +8245,7 @@
   const writeAttributesToCharacter = async (charName, newAttrs, isDND = false) => {
     const rawData = cachedRawData || getTableData();
     if (!rawData) {
-      console.error('[ACU] writeAttributesToCharacter: 无法获取表格数据');
+      console.error('[DICE]ACU writeAttributesToCharacter: 无法获取表格数据');
       if (window.toastr) window.toastr.error('无法获取表格数据');
       return { success: false };
     }
@@ -5476,13 +8344,13 @@
 
     // 验证是否找到目标
     if (!targetSheet || targetRowIndex < 0) {
-      console.error('[ACU] writeAttributesToCharacter: 找不到角色', charName);
+      console.error('[DICE]ACU writeAttributesToCharacter: 找不到角色', charName);
       if (window.toastr) window.toastr.error(`找不到角色「${charName || '<user>'}」`);
       return { success: false };
     }
 
     if (targetColIndex < 0) {
-      console.error('[ACU] writeAttributesToCharacter: 找不到属性列');
+      console.error('[DICE]ACU writeAttributesToCharacter: 找不到属性列');
       if (window.toastr) window.toastr.error('找不到属性列（需要包含"属性"关键词的列）');
       return { success: false };
     }
@@ -5998,6 +8866,7 @@
 
       saveDiceConfig(newCfg);
       // 保存后立即应用隐藏逻辑
+      console.info('[DICE]应用投骰结果隐藏/显示设置...');
       hideDiceResultsInUserMessages();
       closePanel();
     });
@@ -6070,11 +8939,15 @@
       successCriteria = 'lte', // [新增] 默认成功标准：小于等于（COC规则）
       onResult = null,
       initiatorName = '', // [修复] 接收发起者名字
+      fromMvu = false, // [新增] 是否从MVU面板调用
+      mvuPath = null, // [新增] MVU变量路径
+      mvuParsedInfo = null, // [新增] 解析后的路径信息
     } = options;
 
     const t = getThemeColors();
     const isCyberTheme = getConfig().theme === 'cyber';
     const inputTextColor = isCyberTheme ? '#ff00ff' : t.inputText;
+    const buttonTextOnAccent = t.buttonTextOnAccent || t.textMain || '#6B4A5A';
     // 统一的输入框样式字符串
     const inputStyle = `width:100%;padding:5px;background:${t.inputBg} !important;border:1px solid ${t.border};border-radius:4px;color:${inputTextColor} !important;font-size:12px;text-align:center;box-sizing:border-box;`;
 
@@ -6125,9 +8998,9 @@
                 </div>
                 <div style="padding: 15px; max-height: 70vh; overflow-y: auto;">
                     <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; align-items: center;" class="acu-dice-presets">
-                        <button class="acu-dice-preset ${diceType === '1d20' ? 'active' : ''}" data-dice="1d20" data-criteria="gte" style="padding: 4px 10px; background: ${diceType === '1d20' ? t.presetButtonBgActive || t.accent : t.presetButtonBg || t.btnBg}; border: 1px solid ${t.border}; border-radius: 4px; color: ${diceType === '1d20' ? '#fff' : t.textMain}; font-size: 11px; cursor: pointer;">1d20</button>
-                        <button class="acu-dice-preset ${diceType === '1d100' ? 'active' : ''}" data-dice="1d100" data-criteria="lte" style="padding: 4px 10px; background: ${diceType === '1d100' ? t.presetButtonBgActive || t.accent : t.presetButtonBg || t.btnBg}; border: 1px solid ${t.border}; border-radius: 4px; color: ${diceType === '1d100' ? '#fff' : t.textMain}; font-size: 11px; cursor: pointer;">1d100</button>
-                        <button class="acu-dice-preset acu-dice-custom-btn" data-dice="custom" style="padding: 4px 10px; background: ${!['1d20', '1d100'].includes(diceType) ? t.presetButtonBgActive || t.accent : t.presetButtonBg || t.btnBg}; border: 1px solid ${t.border}; border-radius: 4px; color: ${!['1d20', '1d100'].includes(diceType) ? '#fff' : t.textMain}; font-size: 11px; cursor: pointer;">自定义</button>
+                        <button class="acu-dice-preset ${diceType === '1d20' ? 'active' : ''}" data-dice="1d20" data-criteria="gte" style="padding: 4px 10px; background: ${diceType === '1d20' ? t.presetButtonBgActive || t.accent : t.presetButtonBg || t.btnBg}; border: 1px solid ${t.border}; border-radius: 4px; color: ${diceType === '1d20' ? buttonTextOnAccent : t.textMain}; font-size: 11px; cursor: pointer;">1d20</button>
+                        <button class="acu-dice-preset ${diceType === '1d100' ? 'active' : ''}" data-dice="1d100" data-criteria="lte" style="padding: 4px 10px; background: ${diceType === '1d100' ? t.presetButtonBgActive || t.accent : t.presetButtonBg || t.btnBg}; border: 1px solid ${t.border}; border-radius: 4px; color: ${diceType === '1d100' ? buttonTextOnAccent : t.textMain}; font-size: 11px; cursor: pointer;">1d100</button>
+                        <button class="acu-dice-preset acu-dice-custom-btn" data-dice="custom" style="padding: 4px 10px; background: ${!['1d20', '1d100'].includes(diceType) ? t.presetButtonBgActive || t.accent : t.presetButtonBg || t.btnBg}; border: 1px solid ${t.border}; border-radius: 4px; color: ${!['1d20', '1d100'].includes(diceType) ? buttonTextOnAccent : t.textMain}; font-size: 11px; cursor: pointer;">自定义</button>
                         <input type="text" id="dice-custom-input" placeholder="如2d6" value="${!['1d20', '1d100'].includes(diceType) ? diceType : ''}" style="width:60px;">
                     </div>
 
@@ -6169,7 +9042,7 @@
                     <!-- 第3行：成功标准 + 难度等级 + 修正值 -->
                     <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 6px;" id="dice-row-3">
                         <div>
-                            <div style="font-size: 10px; color: ${t.textSub}; margin-bottom: 2px; min-height: 18px; display: flex; align-items: center;">成功标准</div>
+                            <div style="font-size: 10px; color: ${t.textSub}; margin-bottom: 2px; min-height: 18px; display: flex; align-items: center; justify-content: center;">成功标准</div>
                             <select id="dice-success-criteria" class="acu-dice-select">
                                 ${successCriteriaOptions
                                   .map(
@@ -6180,7 +9053,7 @@
                             </select>
                         </div>
                         <div id="dice-difficulty-wrapper">
-                            <div style="font-size: 10px; color: ${t.textSub}; margin-bottom: 2px; min-height: 18px; display: flex; align-items: center;">难度等级</div>
+                            <div style="font-size: 10px; color: ${t.textSub}; margin-bottom: 2px; min-height: 18px; display: flex; align-items: center; justify-content: center;">难度等级</div>
                             <select id="dice-difficulty" class="acu-dice-select">
                                 <option value="normal" selected>普通</option>
                                 <option value="hard">困难</option>
@@ -6215,11 +9088,32 @@
     const buildCharButtons = () => {
       const $container = panel.find('#dice-char-buttons');
       let html = '';
+
+      // [新增] 如果从MVU面板调用，添加从路径解析的发起者备选
+      if (fromMvu && mvuParsedInfo && mvuParsedInfo.initiator) {
+        const initiator = mvuParsedInfo.initiator;
+        const shortName = initiator.length > 4 ? initiator.substring(0, 4) + '..' : initiator;
+        const buttonTextOnAccent = t.buttonTextOnAccent || t.textMain || '#6B4A5A';
+        html += `<button class="acu-dice-char-btn acu-dice-char-btn-mvu" data-char="${escapeHtml(initiator)}" style="padding:3px 8px;background:${t.accent};border:1px solid ${t.accent};border-radius:4px;color:${buttonTextOnAccent};font-size:11px;cursor:pointer;white-space:nowrap;font-weight:bold;" title="从变量路径提取: ${escapeHtml(initiator)}">${escapeHtml(shortName)}</button>`;
+      }
+
+      // 添加常规角色列表
       diceCharacterList.forEach(name => {
         const displayName = name === '<user>' ? getDisplayPlayerName() : replaceUserPlaceholders(name);
         const shortName = displayName.length > 4 ? displayName.substring(0, 4) + '..' : displayName;
         html += `<button class="acu-dice-char-btn" data-char="${escapeHtml(name)}" style="padding:3px 8px;background:${t.btnBg};border:1px solid ${t.border};border-radius:4px;color:${t.textMain};font-size:11px;cursor:pointer;white-space:nowrap;" title="${escapeHtml(displayName)}">${escapeHtml(shortName)}</button>`;
       });
+
+      // [新增] 如果从MVU面板调用，添加其他候选（如果有）
+      if (fromMvu && mvuParsedInfo && mvuParsedInfo.candidates && mvuParsedInfo.candidates.length > 0) {
+        mvuParsedInfo.candidates.forEach(candidate => {
+          // 跳过已经添加的发起者
+          if (mvuParsedInfo.initiator && candidate === mvuParsedInfo.initiator) return;
+          const shortName = candidate.length > 4 ? candidate.substring(0, 4) + '..' : candidate;
+          html += `<button class="acu-dice-char-btn acu-dice-char-btn-mvu-candidate" data-char="${escapeHtml(candidate)}" style="padding:3px 8px;background:${t.inputBg};border:1px dashed ${t.accent};border-radius:4px;color:${t.accent};font-size:11px;cursor:pointer;white-space:nowrap;" title="从变量路径提取: ${escapeHtml(candidate)}">${escapeHtml(shortName)}</button>`;
+        });
+      }
+
       $container.html(html || `<div style="font-size:11px;color:${t.textSub};">无角色数据</div>`);
       // 绑定点击事件
       $container.find('.acu-dice-char-btn').click(function () {
@@ -6244,6 +9138,20 @@
       $parentSection.show();
 
       let html = '';
+
+      // [新增] 如果从MVU面板调用，添加从路径解析的属性名备选
+      if (fromMvu && mvuParsedInfo && mvuParsedInfo.attrName) {
+        const attrName = mvuParsedInfo.attrName;
+        // 尝试从当前角色获取该属性的值
+        const attrValue = getAttributeValue(charName, attrName) || targetValue || '';
+        const buttonTextOnAccent = t.buttonTextOnAccent || t.textMain || '#6B4A5A';
+        if (attrValue) {
+          html += `<button class="acu-dice-attr-btn acu-dice-attr-btn-mvu" data-name="${escapeHtml(attrName)}" data-value="${attrValue}" style="padding:3px 8px;background:${t.accent};border:1px solid ${t.accent};border-radius:4px;color:${buttonTextOnAccent};font-size:11px;cursor:pointer;font-weight:bold;" title="从变量路径提取: ${escapeHtml(attrName)}">${escapeHtml(attrName)}:${attrValue}</button>`;
+        } else {
+          // 即使没有值也显示，用户可以手动填入
+          html += `<button class="acu-dice-attr-btn acu-dice-attr-btn-mvu" data-name="${escapeHtml(attrName)}" data-value="" style="padding:3px 8px;background:${t.accent};border:1px solid ${t.accent};border-radius:4px;color:${buttonTextOnAccent};font-size:11px;cursor:pointer;font-weight:bold;" title="从变量路径提取: ${escapeHtml(attrName)}">${escapeHtml(attrName)}</button>`;
+        }
+      }
 
       // 现有属性按钮
       attrs.forEach(attr => {
@@ -6299,13 +9207,13 @@
         // [修复] 临时禁用更新处理器，防止闪烁
         const originalHandler = UpdateController.handleUpdate;
         UpdateController.handleUpdate = () => {
-          console.log('[ACU] 属性生成中，跳过自动刷新');
+          console.log('[DICE]ACU 属性生成中，跳过自动刷新');
         };
 
         try {
           const charName = panel.find('#dice-initiator-name').val().trim() || '<user>';
 
-          console.log('[ACU] 生成属性 for:', charName);
+          console.log('[DICE]ACU 生成属性 for:', charName);
 
           // 生成属性（使用激活的预设）
           const generated = generateRPGAttributes();
@@ -6325,7 +9233,7 @@
             buildAttrButtons(charName);
           }
         } catch (err) {
-          console.error('[ACU] 生成属性失败:', err);
+          console.error('[DICE]ACU 生成属性失败:', err);
           if (window.toastr) window.toastr.error('生成属性失败');
         } finally {
           // [修复] 恢复更新处理器
@@ -6356,11 +9264,11 @@
         // 临时禁用更新处理器
         const originalHandler = UpdateController.handleUpdate;
         UpdateController.handleUpdate = () => {
-          console.log('[ACU] 清空属性中，跳过自动刷新');
+          console.log('[DICE]ACU 清空属性中，跳过自动刷新');
         };
 
         try {
-          console.log('[ACU] 清空属性 for:', charName);
+          console.log('[DICE]ACU 清空属性 for:', charName);
 
           const result = await clearPresetAttributesForCharacter(charName);
 
@@ -6369,7 +9277,7 @@
             buildAttrButtons(charName);
           }
         } catch (err) {
-          console.error('[ACU] 清空属性失败:', err);
+          console.error('[DICE]ACU 清空属性失败:', err);
           if (window.toastr) window.toastr.error('清空属性失败');
         } finally {
           // 恢复更新处理器
@@ -7295,7 +10203,7 @@
         t.accent +
         ';border-radius:3px;color:' +
         t.accent +
-        ';font-size:10px;cursor:pointer;display:inline-flex;align-items:center;gap:3px;" title="生成属性"><i class="fa-solid fa-dice" style="font-size:9px;"></i>生成</button>';
+        ';font-size:10px;cursor:pointer;display:inline-flex;align-items:center;gap:3px;" title="生成属性"><i class="fa-solid fa-dice"></i></button>';
 
       // 清空属性按钮
       html +=
@@ -7341,7 +10249,7 @@
         // [修复] 临时禁用更新处理器，防止闪烁
         const originalHandler = UpdateController.handleUpdate;
         UpdateController.handleUpdate = () => {
-          console.log('[ACU] 对抗属性生成中，跳过自动刷新');
+          console.log('[DICE]ACU 对抗属性生成中，跳过自动刷新');
         };
 
         try {
@@ -7358,7 +10266,7 @@
             return;
           }
 
-          console.log('[ACU] 对抗面板生成属性 for:', charName, 'type:', type);
+          console.log('[DICE]ACU 对抗面板生成属性 for:', charName, 'type:', type);
 
           // 生成属性（使用激活的预设）
           const generated = generateRPGAttributes();
@@ -7379,7 +10287,7 @@
             rebuildAttrBtns(refreshedAttrs, type);
           }
         } catch (err) {
-          console.error('[ACU] 对抗面板生成属性失败:', err);
+          console.error('[DICE]ACU 对抗面板生成属性失败:', err);
           if (window.toastr) window.toastr.error('生成属性失败');
         } finally {
           // [修复] 恢复更新处理器
@@ -7423,11 +10331,11 @@
         // 临时禁用更新处理器
         const originalHandler = UpdateController.handleUpdate;
         UpdateController.handleUpdate = () => {
-          console.log('[ACU] 清空属性中，跳过自动刷新');
+          console.log('[DICE]ACU 清空属性中，跳过自动刷新');
         };
 
         try {
-          console.log('[ACU] 对抗面板清空属性 for:', charName, 'type:', type);
+          console.log('[DICE]ACU 对抗面板清空属性 for:', charName, 'type:', type);
 
           const result = await clearPresetAttributesForCharacter(charName);
 
@@ -7437,7 +10345,7 @@
             rebuildAttrBtns(refreshedAttrs, type);
           }
         } catch (err) {
-          console.error('[ACU] 对抗面板清空属性失败:', err);
+          console.error('[DICE]ACU 对抗面板清空属性失败:', err);
           if (window.toastr) window.toastr.error('清空属性失败');
         } finally {
           // 恢复更新处理器
@@ -7888,6 +10796,7 @@
 
   // 人物关系图可视化
   const showRelationshipGraph = npcTable => {
+    console.info('[DICE]开始抓取人物关系表数据...');
     const { $ } = getCore();
     $('.acu-relation-graph-overlay').remove();
 
@@ -7901,7 +10810,10 @@
     const relationIdx = headers.findIndex(h => h && h.includes('人际关系'));
     const npcTableKey = npcTable.key || '';
 
+    console.info(`[DICE]人物关系表查找: 表格"${npcTableKey || '未知'}"，共${rows.length}行数据`);
+
     if (relationIdx < 0) {
+      console.warn('[DICE]人物关系表查找: 未找到"人际关系"列');
       if (window.toastr) window.toastr.warning('未找到"人际关系"列');
       return;
     }
@@ -7909,7 +10821,41 @@
     const nodes = new Map();
     const edges = [];
 
-    const resolveName = name => AvatarManager.getPrimaryName(name);
+    // 统一解析用户占位符为{{user}}主键（仅用于渲染，不自动管理别名）
+    const resolveUserPlaceholder = name => {
+      if (!name) return name;
+      const playerName = getPlayerName();
+      const personaName = getPersonaName();
+
+      // 明确的用户占位符变体
+      const explicitUserVariants = ['<user>', '{{user}}'];
+      const isExplicitUserVariant = explicitUserVariants.some(
+        v => name === v || name.toLowerCase() === v.toLowerCase(),
+      );
+
+      // 如果当前persona名匹配，也视为用户占位符
+      const isPersonaName = personaName && name === personaName;
+
+      // 检查是否是主角表名称（模糊匹配：表名包含"主角"）
+      const isPlayerName = (() => {
+        if (!playerName) return false;
+        // 精确匹配
+        if (name === playerName) return true;
+        // 或者通过别名系统检查
+        const primaryName = AvatarManager.getPrimaryName(name);
+        return primaryName === playerName;
+      })();
+
+      // 统一映射到{{user}}主键（仅用于渲染）
+      if (isExplicitUserVariant || isPersonaName || isPlayerName) {
+        return '{{user}}';
+      }
+
+      // 其他情况使用别名系统解析
+      return AvatarManager.getPrimaryName(name);
+    };
+
+    const resolveName = name => resolveUserPlaceholder(name);
 
     const rawData = cachedRawData || getTableData();
     let playerName = '主角';
@@ -8222,6 +11168,7 @@
     });
 
     const nodeArr = Array.from(nodes.values());
+    console.info(`[DICE]人物关系表数据抓取完成，共${nodeArr.length}个节点，${edges.length}条边`);
     const centerX = 400,
       centerY = 300;
 
@@ -8240,13 +11187,17 @@
     const playerBaseRadius = isMobileView ? 28 : 35;
     const radiusPerConnection = isMobileView ? 2.5 : 3.5;
 
+    // 新增：节点大小和过滤状态（必须在 getNodeRadius 之前声明）
+    let nodeSizeMultiplier = 1.0; // 节点大小倍数，默认1.0
+    let filterInScene = false; // 是否只显示主角+在场角色
+    let filterDirectOnly = false; // 是否只显示与主角直接相关的
+
     const getNodeRadius = (nodeName, isPlayer) => {
-      if (isPlayer) {
-        const count = connectionCount.get(nodeName) || 0;
-        return Math.min(maxRadius, playerBaseRadius + Math.sqrt(count) * radiusPerConnection);
-      }
+      const base = isPlayer ? playerBaseRadius : baseRadius;
       const count = connectionCount.get(nodeName) || 0;
-      return Math.min(maxRadius, baseRadius + Math.sqrt(count) * radiusPerConnection);
+      const calculated = Math.min(maxRadius, base + Math.sqrt(count) * radiusPerConnection);
+      // 应用全局大小倍数
+      return calculated * nodeSizeMultiplier;
     };
 
     // 将半径信息存入节点
@@ -8254,19 +11205,236 @@
       node.radius = getNodeRadius(node.name, node.isPlayer);
     });
 
-    // 根据最大节点尺寸调整布局半径
-    const maxNodeRadius = Math.max(...nodeArr.map(n => n.radius));
-    const radius = Math.min(280, Math.max(180, nodeArr.length * 30 + maxNodeRadius));
-    nodeArr.forEach((node, i) => {
-      if (node.isPlayer) {
-        node.x = centerX;
-        node.y = centerY;
-      } else {
-        const angle = (2 * Math.PI * i) / nodeArr.length;
-        node.x = centerX + radius * Math.cos(angle);
-        node.y = centerY + radius * Math.sin(angle);
+    // 过滤节点逻辑（支持两个筛选条件的交集）
+    const getFilteredNodes = () => {
+      // 两个都关闭时显示全部
+      if (!filterInScene && !filterDirectOnly) return nodeArr;
+
+      // 计算主角直接相关的节点集合（如果需要）
+      let directNodes: Set<string> | null = null;
+      if (filterDirectOnly) {
+        directNodes = new Set([resolvedPlayerName]);
+        edges.forEach(edge => {
+          if (edge.source === resolvedPlayerName) directNodes!.add(edge.target);
+          if (edge.target === resolvedPlayerName) directNodes!.add(edge.source);
+        });
       }
-    });
+
+      return nodeArr.filter(n => {
+        // 检查在场条件
+        const passInScene = !filterInScene || n.isInScene || n.isPlayer;
+        // 检查主角相关条件
+        const passDirectOnly = !filterDirectOnly || directNodes!.has(n.name);
+        // 两个条件取交集
+        return passInScene && passDirectOnly;
+      });
+    };
+
+    // [Modified] 力导向布局实现
+    // ---------------------------------------------------------
+    // 物理参数常量 (已调整以增加间距)
+    const kRepulsion = 20000; // 斥力常数 (库仑定律) - 大幅增大以推开节点
+    const kSpring = 0.02; // 弹力常数 (胡克定律) - 减小以避免拉得太紧
+    const kGravity = 0.01; // 中心引力 - 减小以允许图表扩展遍布画面
+    const idealLen = 250; // 理想边长 - 增大以拉开连线距离
+    const iterations = 300; // 预计算迭代次数
+    const timeStep = 0.5; // 模拟时间步长
+    const damping = 0.8; // 速度阻尼 (摩擦力)
+
+    // 布局缓存管理
+    const LAYOUT_CACHE_KEY = 'acu-relation-graph-layout-cache';
+
+    // 生成布局缓存键（基于节点名单）
+    const getLayoutCacheKey = () => {
+      const nodeNames = nodeArr
+        .map(n => n.name)
+        .sort()
+        .join('|');
+      return `${LAYOUT_CACHE_KEY}-${nodeNames}`;
+    };
+
+    // 保存布局到缓存
+    const saveLayoutCache = () => {
+      try {
+        const cacheKey = getLayoutCacheKey();
+        const layoutData = {};
+        nodeArr.forEach(node => {
+          layoutData[node.name] = { x: node.x, y: node.y };
+        });
+        localStorage.setItem(cacheKey, JSON.stringify(layoutData));
+      } catch (e) {
+        console.warn('[DICE]关系图 保存布局缓存失败:', e);
+      }
+    };
+
+    // 从缓存加载布局
+    const loadLayoutCache = () => {
+      try {
+        const cacheKey = getLayoutCacheKey();
+        const cached = localStorage.getItem(cacheKey);
+        if (!cached) return false;
+
+        const layoutData = JSON.parse(cached);
+        let allNodesFound = true;
+
+        // 验证缓存中是否包含所有节点
+        for (const node of nodeArr) {
+          if (!layoutData[node.name]) {
+            allNodesFound = false;
+            break;
+          }
+        }
+
+        if (allNodesFound) {
+          // 应用缓存的位置
+          nodeArr.forEach(node => {
+            const cached = layoutData[node.name];
+            if (cached) {
+              node.x = cached.x;
+              node.y = cached.y;
+              node.vx = 0;
+              node.vy = 0;
+            }
+          });
+          return true;
+        }
+        return false;
+      } catch (e) {
+        console.warn('[DICE]关系图 加载布局缓存失败:', e);
+        return false;
+      }
+    };
+
+    // 清除布局缓存
+    const clearLayoutCache = () => {
+      try {
+        const cacheKey = getLayoutCacheKey();
+        localStorage.removeItem(cacheKey);
+      } catch (e) {
+        console.warn('[DICE]关系图 清除布局缓存失败:', e);
+      }
+    };
+
+    // 力导向布局物理模拟函数
+    const runForceDirectedLayout = () => {
+      // 初始化位置：在中心附近随机散布，开始模拟
+      nodeArr.forEach(node => {
+        if (node.isPlayer) {
+          node.x = centerX;
+          node.y = centerY;
+          node.vx = 0;
+          node.vy = 0;
+        } else {
+          // 在中心 100px 范围内随机散布
+          const angle = Math.random() * 2 * Math.PI;
+          const dist = 50 + Math.random() * 100;
+          node.x = centerX + Math.cos(angle) * dist;
+          node.y = centerY + Math.sin(angle) * dist;
+          node.vx = 0;
+          node.vy = 0;
+        }
+      });
+
+      // 建立映射以便 O(1) 查找节点
+      const nodeMap = new Map();
+      nodeArr.forEach(n => nodeMap.set(n.name, n));
+
+      // 预计算模拟 (迭代运行物理引擎)
+      for (let iter = 0; iter < iterations; iter++) {
+        // 1. 斥力 (节点 vs 节点)
+        for (let i = 0; i < nodeArr.length; i++) {
+          const u = nodeArr[i];
+          for (let j = i + 1; j < nodeArr.length; j++) {
+            const v = nodeArr[j];
+            const dx = v.x - u.x;
+            const dy = v.y - u.y;
+            let distSq = dx * dx + dy * dy;
+            if (distSq < 1) distSq = 1; // 防止除以零
+
+            const dist = Math.sqrt(distSq);
+            const force = kRepulsion / distSq;
+
+            const fx = (dx / dist) * force;
+            const fy = (dy / dist) * force;
+
+            if (!u.isPlayer) {
+              u.vx -= fx;
+              u.vy -= fy;
+            }
+            if (!v.isPlayer) {
+              v.vx += fx;
+              v.vy += fy;
+            }
+          }
+        }
+
+        // 2. 引力 (边连接)
+        edges.forEach(edge => {
+          const u = nodeMap.get(edge.source);
+          const v = nodeMap.get(edge.target);
+          if (!u || !v) return;
+
+          const dx = v.x - u.x;
+          const dy = v.y - u.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+
+          // 弹簧力: F = k * (当前距离 - 理想距离)
+          const force = (dist - idealLen) * kSpring;
+
+          const fx = (dx / dist) * force;
+          const fy = (dy / dist) * force;
+
+          if (!u.isPlayer) {
+            u.vx += fx;
+            u.vy += fy;
+          }
+          if (!v.isPlayer) {
+            v.vx -= fx;
+            v.vy -= fy;
+          }
+        });
+
+        // 3. 中心重力 (轻微拉向中心)
+        nodeArr.forEach(node => {
+          if (node.isPlayer) return;
+          const dx = centerX - node.x;
+          const dy = centerY - node.y;
+          node.vx += dx * kGravity;
+          node.vy += dy * kGravity;
+        });
+
+        // 4. 更新位置
+        // 限制最大速度以防爆炸
+        const maxSpeed = 50 * (1 - iter / iterations); // 随迭代冷却最大速度
+
+        nodeArr.forEach(node => {
+          if (node.isPlayer) return; // 玩家节点固定不动 (作为锚点)
+
+          // 阻尼
+          node.vx *= damping;
+          node.vy *= damping;
+
+          // 限制速度
+          const vMag = Math.sqrt(node.vx * node.vx + node.vy * node.vy);
+          if (vMag > maxSpeed) {
+            node.vx = (node.vx / vMag) * maxSpeed;
+            node.vy = (node.vy / vMag) * maxSpeed;
+          }
+
+          node.x += node.vx * timeStep;
+          node.y += node.vy * timeStep;
+        });
+      }
+
+      // 物理模拟完成后保存布局
+      saveLayoutCache();
+    };
+
+    // 运行初始布局（优先使用缓存）
+    if (!loadLayoutCache()) {
+      // 缓存不存在或不匹配，运行物理模拟
+      runForceDirectedLayout();
+    }
 
     // 视图状态
     let scale = 1;
@@ -8279,10 +11447,13 @@
             <div class="acu-relation-graph-overlay acu-theme-${config.theme}">
                 <div class="acu-relation-graph-container">
                     <div class="acu-panel-header">
-                        <div class="acu-graph-title"><i class="fa-solid fa-project-diagram"></i> 人物关系图</div>
+                        <div class="acu-graph-title">
+                            <i class="fa-solid fa-project-diagram"></i>
+                            <button class="acu-graph-btn acu-filter-toggle" id="filter-in-scene" title="只显示主角和在场角色" style="margin-left:8px;padding:4px 6px;font-size:12px;"><i class="fa-solid fa-map-marker-alt"></i></button>
+                            <button class="acu-graph-btn acu-filter-toggle" id="filter-direct-only" title="只显示与主角直接相关" style="padding:4px 6px;font-size:12px;"><i class="fa-solid fa-link"></i></button>
+                        </div>
                         <div class="acu-graph-actions">
-                            <button class="acu-graph-btn" id="graph-zoom-in" title="放大"><i class="fa-solid fa-plus"></i></button>
-                            <button class="acu-graph-btn" id="graph-zoom-out" title="缩小"><i class="fa-solid fa-minus"></i></button>
+                            <button class="acu-graph-btn" id="graph-relayout" title="重新布局（清除缓存并重新计算节点位置）"><i class="fa-solid fa-sync"></i></button>
                             <button class="acu-graph-btn" id="graph-manage-avatar" title="管理头像"><i class="fa-solid fa-user-circle"></i></button>
                             <button class="acu-graph-btn acu-graph-close" title="关闭"><i class="fa-solid fa-times"></i></button>
                         </div>
@@ -8308,10 +11479,46 @@
                                 <g class="acu-graph-nodes"></g>
                             </g>
                         </svg>
+                        <div class="acu-node-size-slider-container" style="
+                            position: absolute;
+                            display: none;
+                            width: 200px;
+                            padding: 10px;
+                            background: ${t.bgPanel};
+                            border: 1px solid ${t.border};
+                            border-radius: 8px;
+                            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                            z-index: 10;
+                        ">
+                            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                                <span style="font-size:11px;color:${t.textSub};white-space:nowrap;">节点大小</span>
+                                <span id="slider-size-display" style="font-size:11px;color:${t.accent};font-weight:bold;min-width:35px;text-align:right;">${Math.round(nodeSizeMultiplier * 100)}%</span>
+                            </div>
+                            <input type="range" id="node-size-slider" min="0.5" max="2.0" step="0.1" value="${nodeSizeMultiplier}" style="
+                                width: 100%;
+                                height: 8px;
+                                border-radius: 4px;
+                                background: ${t.btnBg};
+                                outline: none;
+                                cursor: pointer;
+                                -webkit-appearance: none;
+                            " />
+                        </div>
                     </div>
                     <div class="acu-graph-legend">
-                        <button class="acu-graph-btn" id="graph-zoom-reset" title="重置视图" style="width:auto;height:auto;padding:4px 10px;font-size:11px;display:flex;align-items:center;gap:4px;"><i class="fa-solid fa-compress-arrows-alt"></i><span>重置</span></button>
-                        <span class="acu-zoom-display">${Math.round(scale * 100)}%</span>
+                        <button class="acu-graph-btn" id="graph-zoom-reset" title="重置视图和节点大小" style="width:auto;height:auto;padding:4px 10px;font-size:11px;display:flex;align-items:center;gap:4px;"><i class="fa-solid fa-compress-arrows-alt"></i><span>重置</span></button>
+                        <div class="acu-node-size-stepper-wrapper" style="display:flex;align-items:center;justify-content:center;gap:6px;">
+                            <span style="font-size:11px;color:var(--acu-text-sub);white-space:nowrap;">节点:</span>
+                            <div class="acu-stepper" data-id="graph-node-size" data-min="50" data-max="200" data-step="10" style="display:flex;align-items:center;">
+                                <button class="acu-stepper-btn acu-stepper-dec"><i class="fa-solid fa-minus"></i></button>
+                                <span class="acu-stepper-value" id="node-size-display" style="display:flex;align-items:center;justify-content:center;">${Math.round(nodeSizeMultiplier * 100)}%</span>
+                                <button class="acu-stepper-btn acu-stepper-inc"><i class="fa-solid fa-plus"></i></button>
+                            </div>
+                        </div>
+                        <span class="acu-zoom-display" style="display:flex;align-items:center;gap:4px;color:var(--acu-text-sub);font-size:11px;">
+                            <span>视图:</span>
+                            <span>${Math.round(scale * 100)}%</span>
+                        </span>
                     </div>
                 </div>
             </div>
@@ -8323,12 +11530,19 @@
     const $transform = overlay.find('.acu-graph-transform');
     const $edgesGroup = overlay.find('.acu-graph-edges');
     const $nodesGroup = overlay.find('.acu-graph-nodes');
-    const $zoomDisplay = overlay.find('.acu-zoom-display');
+    const $zoomDisplay = overlay.find('.acu-zoom-display span:last-child');
+    const $nodeSizeDisplay = overlay.find('#node-size-display');
     const $wrapper = overlay.find('.acu-graph-canvas-wrapper');
 
     const updateTransform = () => {
       $transform.attr('transform', `translate(${panX}, ${panY}) scale(${scale})`);
       $zoomDisplay.text(`${Math.round(scale * 100)}%`);
+    };
+
+    const updateNodeSizeDisplay = () => {
+      if ($nodeSizeDisplay.length) {
+        $nodeSizeDisplay.text(`${Math.round(nodeSizeMultiplier * 100)}%`);
+      }
     };
 
     const zoomTo = (newScale, centerX = 400, centerY = 300) => {
@@ -8341,8 +11555,17 @@
     };
 
     const render = async () => {
+      // 获取过滤后的节点
+      const filteredNodes = getFilteredNodes();
+      const filteredNodeNames = new Set(filteredNodes.map(n => n.name));
+
+      // 过滤边：只保留连接两个可见节点的边
+      const filteredEdges = edges.filter(
+        edge => filteredNodeNames.has(edge.source) && filteredNodeNames.has(edge.target),
+      );
+
       let edgesHtml = '';
-      edges.forEach((edge, edgeIdx) => {
+      filteredEdges.forEach((edge, edgeIdx) => {
         const source = nodes.get(edge.source);
         const target = nodes.get(edge.target);
         if (!source || !target) return;
@@ -8595,15 +11818,15 @@
       });
       $edgesGroup.html(edgesHtml);
 
-      // [修复] 异步获取头像后再渲染节点
+      // [修复] 异步获取头像后再渲染节点（使用过滤后的节点）
       let nodesHtml = '';
-      for (const node of nodeArr) {
+      for (const node of filteredNodes) {
         // 使用异步方法获取头像（优先本地 > URL > ST头像）
         const nodeAvatar = await AvatarManager.getAsync(node.name);
         const isPlayer = node.isPlayer;
 
-        // 在场标记：左上角小圆点（放大尺寸，确保可见）
-        const indicatorRadius = Math.max(8, node.radius * 0.28);
+        // 在场标记：左上角小圆点（随节点大小缩放）
+        const indicatorRadius = node.radius * 0.28;
         const indicatorOffset = node.radius * 0.65;
         const inSceneIndicator = node.isInScene
           ? `<circle class="acu-node-inscene-indicator" cx="${-indicatorOffset}" cy="${-indicatorOffset}" r="${indicatorRadius}" style="fill:var(--acu-accent);stroke:var(--acu-bg-panel);stroke-width:2;" />`
@@ -8612,7 +11835,7 @@
         const nodeDisplayName = replaceUserPlaceholders(node.name);
         nodesHtml += `
                 <g class="acu-graph-node acu-dash-preview-trigger" data-name="${escapeHtml(node.name)}" data-table-key="${node.tableKey || ''}" data-row-index="${node.rowIndex !== undefined ? node.rowIndex : ''}" transform="translate(${node.x}, ${node.y})">
-                    <circle class="acu-node-bg ${isPlayer ? 'player' : ''}" r="${node.radius}" />
+                    <circle class="acu-node-bg" r="${node.radius}" />
                     ${
                       nodeAvatar
                         ? (() => {
@@ -8642,10 +11865,6 @@
       $nodesGroup.html(nodesHtml);
     };
 
-    render().then(() => {
-      updateTransform();
-    });
-
     // [新增] 悬浮高亮交互函数
     const highlightNode = nodeName => {
       $svg.addClass('highlighting');
@@ -8660,6 +11879,7 @@
       // 找出所有与该节点相连的边和对端节点
       const connectedNodes = new Set([nodeName]);
 
+      // 使用所有边（不仅仅是过滤后的），以便高亮显示所有相关连接
       edges.forEach(edge => {
         if (edge.source === nodeName || edge.target === nodeName) {
           const otherNode = edge.source === nodeName ? edge.target : edge.source;
@@ -8847,6 +12067,11 @@
       });
     }
 
+    // 初始渲染
+    render().then(() => {
+      updateTransform();
+    });
+
     // 画布平移和缩放 - 使用 Pointer Events API
     let isPanning = false;
     let panStartX = 0,
@@ -8864,6 +12089,8 @@
       if (e.button !== 0) return;
       // [修复] 如果点击的是节点，不启动画布拖拽
       if ($(e.target).closest('.acu-graph-node').length) return;
+      // [修复] 如果点击的是滑条容器，不启动画布拖拽
+      if ($(e.target).closest('.acu-node-size-slider-container').length) return;
       e.preventDefault();
       wrapperEl.setPointerCapture(e.pointerId);
       activePointerId = e.pointerId;
@@ -8957,13 +12184,166 @@
       wrapperEl.onpointerup = null;
       wrapperEl.onpointercancel = null;
       wrapperEl.onwheel = null;
+      // 清理滑条相关事件和定时器
+      if (sliderHideTimer) {
+        clearTimeout(sliderHideTimer);
+        sliderHideTimer = null;
+      }
+      $(document).off('click.slider-hide');
     };
 
-    // 按钮
-    overlay.find('#graph-zoom-in').click(() => zoomTo(scale + 0.25));
-    overlay.find('#graph-zoom-out').click(() => zoomTo(scale - 0.25));
+    // 节点大小滑条控制
+    const $nodeSizeSlider = overlay.find('#node-size-slider');
+    const $sliderSizeDisplay = overlay.find('#slider-size-display');
+    const $sliderContainer = overlay.find('.acu-node-size-slider-container');
+    const $nodeSizeDisplayTrigger = overlay.find('#node-size-display-trigger');
+    const $legend = overlay.find('.acu-graph-legend');
 
-    // 重置视图（缩放、位置 + 节点布局）
+    let sliderVisible = false;
+    let sliderHideTimer: ReturnType<typeof setTimeout> | null = null;
+    const SLIDER_AUTO_HIDE_DELAY = 4000; // 4秒无操作自动隐藏
+
+    // 显示滑条
+    const showSlider = () => {
+      if (sliderVisible) return;
+
+      // 清除之前的隐藏定时器
+      if (sliderHideTimer) {
+        clearTimeout(sliderHideTimer);
+        sliderHideTimer = null;
+      }
+
+      sliderVisible = true;
+
+      // 计算位置：在"节点"文字上方（因为滑条容器在wrapper内，而trigger在legend中，legend在wrapper下方）
+      // 使用getBoundingClientRect获取相对于viewport的位置
+      const triggerRect = $nodeSizeDisplayTrigger[0].getBoundingClientRect();
+      const wrapperRect = $wrapper[0].getBoundingClientRect();
+
+      // 修复：滑条应该显示在wrapper底部附近，在trigger上方
+      const sliderHeight = 60; // 估算滑条高度
+      const top = wrapperRect.height - sliderHeight - 10; // 在wrapper底部上方
+      const left = triggerRect.left - wrapperRect.left;
+
+      $sliderContainer.css({
+        display: 'block',
+        top: `${top}px`,
+        left: `${left}px`,
+      });
+
+      // 设置自动隐藏定时器
+      resetSliderHideTimer();
+    };
+
+    // 隐藏滑条
+    const hideSlider = () => {
+      if (!sliderVisible) return;
+
+      if (sliderHideTimer) {
+        clearTimeout(sliderHideTimer);
+        sliderHideTimer = null;
+      }
+
+      sliderVisible = false;
+      $sliderContainer.hide();
+    };
+
+    // 重置自动隐藏定时器
+    const resetSliderHideTimer = () => {
+      if (sliderHideTimer) {
+        clearTimeout(sliderHideTimer);
+      }
+      sliderHideTimer = setTimeout(() => {
+        hideSlider();
+      }, SLIDER_AUTO_HIDE_DELAY);
+    };
+
+    // 点击"节点"文字切换滑条显示/隐藏（使用事件委托确保可靠触发）
+    overlay.on('click', '#node-size-display-trigger, #node-size-display-trigger *', function (e) {
+      e.stopPropagation();
+      if (sliderVisible) {
+        hideSlider();
+      } else {
+        showSlider();
+      }
+    });
+
+    // 滑条操作时重置自动隐藏定时器
+    $nodeSizeSlider.on('input mousedown touchstart', function (e) {
+      e.stopPropagation();
+      if (sliderVisible) {
+        resetSliderHideTimer();
+      }
+    });
+
+    // 滑条容器内操作时阻止事件冒泡
+    $sliderContainer.on('pointerdown mousedown touchstart', function (e) {
+      e.stopPropagation();
+    });
+
+    // 点击滑条外部区域时隐藏滑条
+    $(document).on('click.slider-hide', function (e) {
+      if (
+        sliderVisible &&
+        !$sliderContainer.is(e.target) &&
+        $sliderContainer.has(e.target).length === 0 &&
+        !$nodeSizeDisplayTrigger.is(e.target) &&
+        $nodeSizeDisplayTrigger.has(e.target).length === 0
+      ) {
+        hideSlider();
+      }
+    });
+
+    $nodeSizeSlider.on('input', function () {
+      nodeSizeMultiplier = parseFloat($(this).val());
+      $sliderSizeDisplay.text(Math.round(nodeSizeMultiplier * 100) + '%');
+      updateNodeSizeDisplay();
+
+      // 重新计算节点半径并渲染
+      nodeArr.forEach(node => {
+        node.radius = getNodeRadius(node.name, node.isPlayer);
+      });
+      render();
+
+      // 重置自动隐藏定时器
+      resetSliderHideTimer();
+    });
+
+    // 过滤 toggle 按钮
+    const $filterInSceneBtn = overlay.find('#filter-in-scene');
+    const $filterDirectOnlyBtn = overlay.find('#filter-direct-only');
+
+    const updateFilterToggleStyles = () => {
+      $filterInSceneBtn.css({
+        background: filterInScene ? t.accent : t.btnBg,
+        color: filterInScene ? t.btnActiveText : t.textMain,
+        borderColor: filterInScene ? t.accent : t.border,
+      });
+      $filterDirectOnlyBtn.css({
+        background: filterDirectOnly ? t.accent : t.btnBg,
+        color: filterDirectOnly ? t.btnActiveText : t.textMain,
+        borderColor: filterDirectOnly ? t.accent : t.border,
+      });
+    };
+
+    // 初始化按钮样式
+    updateFilterToggleStyles();
+
+    $filterInSceneBtn.click(function (e) {
+      e.stopPropagation();
+      filterInScene = !filterInScene;
+      updateFilterToggleStyles();
+      render();
+    });
+
+    $filterDirectOnlyBtn.click(function (e) {
+      e.stopPropagation();
+      filterDirectOnly = !filterDirectOnly;
+      updateFilterToggleStyles();
+      render();
+    });
+
+    // 重置视图（缩放、位置 + 节点布局 + 节点大小）
     overlay.find('#graph-zoom-reset').click(() => {
       // 重置缩放和平移
       scale = 1;
@@ -8971,22 +12351,90 @@
       panY = 0;
       updateTransform();
 
-      // 同时重置节点布局
-      nodeArr.forEach((node, i) => {
-        if (node.isPlayer) {
-          node.x = centerX;
-          node.y = centerY;
-        } else {
-          const angle = (2 * Math.PI * i) / nodeArr.length;
-          node.x = centerX + radius * Math.cos(angle);
-          node.y = centerY + radius * Math.sin(angle);
-        }
+      // 重置节点大小
+      nodeSizeMultiplier = 1.0;
+      $nodeSizeSlider.val(1.0);
+      $sliderSizeDisplay.text('100%');
+      updateNodeSizeDisplay();
+
+      // 重置stepper显示值
+      const $nodeSizeStepper = overlay.find('.acu-stepper[data-id="graph-node-size"]');
+      if ($nodeSizeStepper.length) {
+        $nodeSizeStepper.find('.acu-stepper-value').text('100%');
+      }
+
+      // 重新计算节点半径
+      nodeArr.forEach(node => {
+        node.radius = getNodeRadius(node.name, node.isPlayer);
       });
+
+      // 重新加载布局（优先使用缓存）
+      if (!loadLayoutCache()) {
+        // 缓存不存在或不匹配，运行物理模拟
+        runForceDirectedLayout();
+      }
+      render();
+    });
+
+    // Stepper 步进器事件处理 - 节点大小控制
+    const $nodeSizeStepper = overlay.find('.acu-stepper[data-id="graph-node-size"]');
+    if ($nodeSizeStepper.length) {
+      const min = parseInt($nodeSizeStepper.data('min')); // 50
+      const max = parseInt($nodeSizeStepper.data('max')); // 200
+      const step = parseInt($nodeSizeStepper.data('step')); // 10
+      const $value = $nodeSizeStepper.find('.acu-stepper-value');
+
+      const updateNodeSizeValue = (newPercent: number) => {
+        newPercent = Math.max(min, Math.min(max, newPercent));
+        nodeSizeMultiplier = newPercent / 100; // 转换为倍数 (0.5-2.0)
+        $value.text(`${newPercent}%`);
+        updateNodeSizeDisplay();
+
+        // 重新计算节点半径并渲染
+        nodeArr.forEach(node => {
+          node.radius = getNodeRadius(node.name, node.isPlayer);
+        });
+        render();
+      };
+
+      const getCurrentPercent = () => {
+        const text = $value.text().replace(/[^\d]/g, '');
+        return parseInt(text) || 100;
+      };
+
+      $nodeSizeStepper.find('.acu-stepper-dec').on('click', function () {
+        updateNodeSizeValue(getCurrentPercent() - step);
+      });
+
+      $nodeSizeStepper.find('.acu-stepper-inc').on('click', function () {
+        updateNodeSizeValue(getCurrentPercent() + step);
+      });
+    }
+
+    // 重新布局按钮
+    overlay.find('#graph-relayout').click(() => {
+      // 清除缓存
+      clearLayoutCache();
+
+      // 重新计算节点半径
+      nodeArr.forEach(node => {
+        node.radius = getNodeRadius(node.name, node.isPlayer);
+      });
+
+      // 重新运行物理模拟
+      runForceDirectedLayout();
       render();
     });
 
     overlay.find('#graph-manage-avatar').click(() => {
-      showAvatarManager(nodeArr, () => render());
+      // 使用过滤后的节点数组，但头像管理应该显示所有节点
+      showAvatarManager(nodeArr, () => {
+        // 重新计算节点半径（因为大小可能改变了）
+        nodeArr.forEach(node => {
+          node.radius = getNodeRadius(node.name, node.isPlayer);
+        });
+        render();
+      });
     });
 
     const closeGraph = () => {
@@ -9233,7 +12681,7 @@
           updateImageStyle();
         }
       } catch (err) {
-        console.error('[ACU] 重新上传失败:', err);
+        console.error('[DICE]ACU 重新上传失败:', err);
         if (window.toastr) window.toastr.error('上传失败');
       }
 
@@ -9264,11 +12712,107 @@
     const t = getThemeColors();
     const avatars = AvatarManager.getAll();
 
+    // 统一解析用户占位符为{{user}}主键（用于头像管理界面）
+    const resolveUserPlaceholderForAvatar = name => {
+      if (!name) return name;
+      const playerName = getPlayerName();
+      const personaName = getPersonaName();
+
+      // 明确的用户占位符变体
+      const explicitUserVariants = ['<user>', '{{user}}'];
+      const isExplicitUserVariant = explicitUserVariants.some(
+        v => name === v || name.toLowerCase() === v.toLowerCase(),
+      );
+
+      // 如果当前persona名匹配，也视为用户占位符
+      const isPersonaName = personaName && name === personaName;
+
+      // 检查是否是主角表名称（模糊匹配：表名包含"主角"）
+      const isPlayerName = (() => {
+        if (!playerName) return false;
+        // 精确匹配
+        if (name === playerName) return true;
+        // 或者通过别名系统检查
+        const primaryName = AvatarManager.getPrimaryName(name);
+        return primaryName === playerName;
+      })();
+
+      // 统一映射到{{user}}主键
+      if (isExplicitUserVariant || isPersonaName || isPlayerName) {
+        return '{{user}}';
+      }
+
+      // 其他情况使用别名系统解析
+      return AvatarManager.getPrimaryName(name);
+    };
+
     // 异步构建列表
     const buildList = async () => {
       let listHtml = '';
 
-      for (const node of nodeArr) {
+      // 分离{{user}}节点和其他节点
+      const userNode = nodeArr.find(n => {
+        const resolved = resolveUserPlaceholderForAvatar(n.name);
+        return resolved === '{{user}}';
+      });
+      const otherNodes = nodeArr.filter(n => {
+        const resolved = resolveUserPlaceholderForAvatar(n.name);
+        return resolved !== '{{user}}';
+      });
+
+      // 先渲染{{user}}（如果存在）
+      if (userNode) {
+        // 创建{{user}}节点的副本，使用'{{user}}'作为名称
+        const userNodeForDisplay = {
+          ...userNode,
+          name: '{{user}}', // 统一使用{{user}}作为显示名称
+        };
+
+        const data = avatars[userNodeForDisplay.name] || {};
+        let currentUrl = data.url || '';
+
+        // 检查是否有本地图片
+        const hasLocal = await AvatarManager.hasLocalAvatar(userNodeForDisplay.name);
+        let displayUrl = '';
+        let sourceLabel = '';
+
+        if (hasLocal) {
+          displayUrl = await LocalAvatarDB.get(userNodeForDisplay.name);
+          sourceLabel = '<span class="acu-avatar-source acu-source-local">本地</span>';
+        } else if (currentUrl) {
+          displayUrl = currentUrl;
+          sourceLabel = '<span class="acu-avatar-source acu-source-url">URL</span>';
+        }
+
+        const aliases = (data.aliases || []).join(', ');
+        const hasAvatar = !!displayUrl;
+
+        listHtml += `
+                    <div class="acu-avatar-item" data-name="${escapeHtml(userNodeForDisplay.name)}" data-has-local="${hasLocal}" data-display-url="${escapeHtml(displayUrl)}">
+                        <div class="acu-avatar-preview-wrap">
+                            <div class="acu-avatar-preview ${hasAvatar ? 'has-image' : ''}" style="${hasAvatar ? `background-image: url('${displayUrl}'); background-position: ${data.offsetX ?? 50}% ${data.offsetY ?? 50}%; background-size: ${data.scale ?? 150}%;` : ''}">
+                                ${!hasAvatar ? `<span>${escapeHtml(userNodeForDisplay.name.charAt(0))}</span><i class="fa-solid fa-camera acu-avatar-camera-hint"></i>` : ''}
+                            </div>
+                            ${sourceLabel}
+                        </div>
+                        <div class="acu-avatar-info">
+                            <div class="acu-avatar-name-row">
+                                <div class="acu-avatar-name">${escapeHtml(userNodeForDisplay.name)}</div>
+                                <div class="acu-avatar-actions">
+                                    <button class="acu-avatar-save-btn" title="保存"><i class="fa-solid fa-check"></i></button>
+                                    <button class="acu-avatar-clear-btn" title="清除"><i class="fa-solid fa-trash"></i></button>
+                                </div>
+                            </div>
+                            <input type="text" class="acu-avatar-url" placeholder="粘贴URL..." value="${escapeHtml(currentUrl)}" />
+                            <input type="text" class="acu-avatar-aliases" placeholder="别名（逗号分隔）..." value="${escapeHtml(aliases)}" title="例如: 睦, 睦头" />
+                            <input type="file" accept="image/*" class="acu-avatar-file-input" style="display:none;" />
+                        </div>
+                    </div>
+                `;
+      }
+
+      // 再渲染其他节点
+      for (const node of otherNodes) {
         const data = avatars[node.name] || {};
         let currentUrl = data.url || '';
 
@@ -9283,13 +12827,6 @@
         } else if (currentUrl) {
           displayUrl = currentUrl;
           sourceLabel = '<span class="acu-avatar-source acu-source-url">URL</span>';
-        } else {
-          const playerName = getPlayerName();
-          const isPlayer = node.name === '<user>' || node.name === '主角' || (playerName && node.name === playerName);
-          if (isPlayer) {
-            displayUrl = getUserAvatarUrl() || '';
-            if (displayUrl) sourceLabel = '<span class="acu-avatar-source acu-source-auto">酒馆</span>';
-          }
         }
 
         const aliases = (data.aliases || []).join(', ');
@@ -9451,7 +12988,7 @@
             });
           }
         } catch (err) {
-          console.error('[ACU] 上传头像失败:', err);
+          console.error('[DICE]ACU 上传头像失败:', err);
           if (window.toastr) window.toastr.error('上传失败');
         }
 
@@ -9546,7 +13083,7 @@
               onUpdate && onUpdate();
             });
           } catch (err) {
-            console.error('[ACU] 导入解析失败:', err);
+            console.error('[DICE]ACU 导入解析失败:', err);
             if (window.toastr) window.toastr.error('文件解析失败');
           }
         };
@@ -9670,7 +13207,7 @@
         closeDialog();
         onComplete && onComplete();
       } catch (err) {
-        console.error('[ACU] 导入失败:', err);
+        console.error('[DICE]ACU 导入失败:', err);
         if (window.toastr) window.toastr.error('导入失败：' + err.message);
       }
     });
@@ -9763,8 +13300,14 @@
           }
         });
         if (hasChanges) {
-          await saveDataToDatabase(rawData, false, true); // 触发 v8.4 的保存流程
-          renderInterface();
+          try {
+            await saveDataToDatabase(rawData, false, true); // 触发 v8.4 的保存流程
+            renderInterface();
+          } catch (e) {
+            console.error('[DICE]ACU 保存失败:', e);
+            // 保存失败时不关闭对话框，让用户重试
+            return;
+          }
         }
       }
       closeDialog();
@@ -10014,6 +13557,7 @@
         box-sizing: border-box;
         cursor: pointer;
         -webkit-appearance: none;
+        text-align: center;
         appearance: none;
     }
     .acu-dice-select:focus {
@@ -10229,15 +13773,46 @@
     .acu-theme-sakura { --acu-bg-nav: #F9F0EF; --acu-bg-panel: #F9F0EF; --acu-border: #EBDCD9; --acu-text-main: #6B5552; --acu-text-sub: #C08D8D; --acu-btn-bg: #EBDCD9; --acu-btn-hover: #D8C7C4; --acu-btn-active-bg: #C08D8D; --acu-btn-active-text: #F9F0EF; --acu-accent: #C08D8D; --acu-table-head: #F9F0EF; --acu-table-hover: #F5EAE8; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #F9F0EF; --acu-menu-bg: #fff; --acu-menu-text: #6B5552; --acu-success-text: #6B5552; --acu-success-bg: rgba(192, 141, 141, 0.12); --acu-scrollbar-track: #F9F0EF; --acu-scrollbar-thumb: #EBDCD9; --acu-hl-manual: #A68A7A; --acu-hl-manual-bg: rgba(166, 138, 122, 0.12); --acu-hl-diff: #9B7A7A; --acu-hl-diff-bg: rgba(155, 122, 122, 0.2); --acu-error-text: #9B7A7A; --acu-error-bg: rgba(155, 122, 122, 0.12); --acu-error-border: rgba(155, 122, 122, 0.4); --acu-warning-icon: #A68A7A; --acu-failure-text: #9B7A7A; --acu-failure-bg: rgba(155, 122, 122, 0.12); --acu-warning-text: #A68A7A; --acu-warning-bg: rgba(166, 138, 122, 0.12); --acu-crit-success-text: #8B7A7A; --acu-crit-success-bg: rgba(139, 122, 122, 0.12); --acu-crit-failure-text: #8B6F6F; --acu-crit-failure-bg: rgba(139, 111, 111, 0.12); --acu-extreme-success-text: #9B8A8A; --acu-extreme-success-bg: rgba(155, 138, 138, 0.12); --acu-overlay-bg: rgba(107, 85, 82, 0.6); --acu-overlay-bg-light: rgba(107, 85, 82, 0.5); --acu-shadow-bg: rgba(107, 85, 82, 0.3); --acu-light-bg: rgba(192, 141, 141, 0.08); --acu-very-light-bg: rgba(192, 141, 141, 0.02); --acu-button-text: #6B5552; --acu-gray-bg: rgba(192, 141, 141, 0.08); }
     .acu-theme-minepink { --acu-bg-nav: #1a1a1a; --acu-bg-panel: #1a1a1a; --acu-border: #333333; --acu-text-main: #ffb3d9; --acu-text-sub: #ff80c1; --acu-btn-bg: #2a2a2a; --acu-btn-hover: #3a3a3a; --acu-btn-active-bg: #ff80c1; --acu-btn-active-text: #1a1a1a; --acu-accent: #ff80c1; --acu-table-head: #252525; --acu-table-hover: #2a2a2a; --acu-shadow: rgba(0,0,0,0.6); --acu-card-bg: #222222; --acu-badge-bg: #2a2a2a; --acu-menu-bg: #1a1a1a; --acu-menu-text: #ffb3d9; --acu-success-text: #ff80c1; --acu-success-bg: rgba(255, 128, 193, 0.2); --acu-scrollbar-track: #1a1a1a; --acu-scrollbar-thumb: #333333; --acu-hl-manual: #ffa726; --acu-hl-manual-bg: rgba(255, 167, 38, 0.2); --acu-hl-diff: #ff80c1; --acu-hl-diff-bg: rgba(255, 128, 193, 0.2); --acu-error-text: #ff6b6b; --acu-error-bg: rgba(255, 107, 107, 0.2); --acu-error-border: rgba(255, 107, 107, 0.5); --acu-warning-icon: #ffa726; --acu-failure-text: #ff6b6b; --acu-failure-bg: rgba(255, 107, 107, 0.2); --acu-warning-text: #ffa726; --acu-warning-bg: rgba(255, 167, 38, 0.2); --acu-crit-success-text: #ff80c1; --acu-crit-success-bg: rgba(255, 128, 193, 0.2); --acu-crit-failure-text: #ff4444; --acu-crit-failure-bg: rgba(255, 68, 68, 0.2); --acu-extreme-success-text: #ffb3d9; --acu-extreme-success-bg: rgba(255, 179, 217, 0.2); --acu-overlay-bg: rgba(0,0,0,0.8); --acu-overlay-bg-light: rgba(0,0,0,0.7); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(255, 128, 193, 0.1); --acu-very-light-bg: rgba(255, 128, 193, 0.02); --acu-button-text: #1a1a1a; --acu-gray-bg: rgba(255, 128, 193, 0.1); }
     .acu-theme-purple { --acu-bg-nav: #f3e5f5; --acu-bg-panel: #f3e5f5; --acu-border: #ce93d8; --acu-text-main: #6a1b9a; --acu-text-sub: #9c27b0; --acu-btn-bg: #e1bee7; --acu-btn-hover: #ce93d8; --acu-btn-active-bg: #9c27b0; --acu-btn-active-text: #fff; --acu-accent: #9c27b0; --acu-table-head: #f8e1f5; --acu-table-hover: #fce4ec; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #f8e1f5; --acu-menu-bg: #fff; --acu-menu-text: #6a1b9a; --acu-success-text: #6a1b9a; --acu-success-bg: rgba(106, 27, 154, 0.15); --acu-scrollbar-track: #f3e5f5; --acu-scrollbar-thumb: #ce93d8; --acu-hl-manual: #f57c00; --acu-hl-manual-bg: rgba(245, 124, 0, 0.15); --acu-hl-diff: #6a1b9a; --acu-hl-diff-bg: rgba(106, 27, 154, 0.2); --acu-error-text: #d32f2f; --acu-error-bg: rgba(211, 47, 47, 0.15); --acu-error-border: rgba(211, 47, 47, 0.5); --acu-warning-icon: #f57c00; --acu-failure-text: #d32f2f; --acu-failure-bg: rgba(211, 47, 47, 0.15); --acu-warning-text: #f57c00; --acu-warning-bg: rgba(245, 124, 0, 0.15); --acu-crit-success-text: #7b1fa2; --acu-crit-success-bg: rgba(123, 31, 162, 0.15); --acu-crit-failure-text: #b71c1c; --acu-crit-failure-bg: rgba(183, 28, 28, 0.15); --acu-extreme-success-text: #6a1b9a; --acu-extreme-success-bg: rgba(106, 27, 154, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(156, 39, 176, 0.1); --acu-very-light-bg: rgba(156, 39, 176, 0.02); --acu-button-text: #6a1b9a; --acu-gray-bg: rgba(156, 39, 176, 0.1); }
-    .acu-theme-cherrypink { --acu-bg-nav: #FFE4E6; --acu-bg-panel: #FFE4E6; --acu-border: #FFC0CB; --acu-text-main: #8B4A5C; --acu-text-sub: #C97A8F; --acu-btn-bg: #FFC0CB; --acu-btn-hover: #FFB0C0; --acu-btn-active-bg: #FF91A4; --acu-btn-active-text: #FFFFFF; --acu-accent: #FF91A4; --acu-table-head: #FFE8EA; --acu-table-hover: #FFF0F2; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #FFE8EA; --acu-menu-bg: #fff; --acu-menu-text: #8B4A5C; --acu-success-text: #B85C7A; --acu-success-bg: rgba(255, 145, 164, 0.15); --acu-scrollbar-track: #FFE4E6; --acu-scrollbar-thumb: #FFC0CB; --acu-hl-manual: #E68A9F; --acu-hl-manual-bg: rgba(230, 138, 159, 0.15); --acu-hl-diff: #C97A8F; --acu-hl-diff-bg: rgba(201, 122, 143, 0.2); --acu-error-text: #D85C7A; --acu-error-bg: rgba(216, 92, 122, 0.15); --acu-error-border: rgba(216, 92, 122, 0.45); --acu-warning-icon: #E68A9F; --acu-failure-text: #D85C7A; --acu-failure-bg: rgba(216, 92, 122, 0.15); --acu-warning-text: #E68A9F; --acu-warning-bg: rgba(230, 138, 159, 0.15); --acu-crit-success-text: #B85C7A; --acu-crit-success-bg: rgba(184, 92, 122, 0.15); --acu-crit-failure-text: #C85C7A; --acu-crit-failure-bg: rgba(200, 92, 122, 0.15); --acu-extreme-success-text: #C97A8F; --acu-extreme-success-bg: rgba(201, 122, 143, 0.15); --acu-overlay-bg: rgba(139, 74, 92, 0.6); --acu-overlay-bg-light: rgba(139, 74, 92, 0.5); --acu-shadow-bg: rgba(139, 74, 92, 0.3); --acu-light-bg: rgba(255, 145, 164, 0.1); --acu-very-light-bg: rgba(255, 145, 164, 0.03); --acu-button-text: #8B4A5C; --acu-gray-bg: rgba(255, 145, 164, 0.1); }
     .acu-theme-wechat { --acu-bg-nav: #F7F7F7; --acu-bg-panel: #F7F7F7; --acu-border: #E5E5E5; --acu-text-main: #333333; --acu-text-sub: #666666; --acu-btn-bg: #E5E5E5; --acu-btn-hover: #D5D5D5; --acu-btn-active-bg: #09B83E; --acu-btn-active-text: #FFFFFF; --acu-accent: #09B83E; --acu-table-head: #F0F0F0; --acu-table-hover: #EBEBEB; --acu-shadow: rgba(0,0,0,0.1); --acu-card-bg: #ffffff; --acu-badge-bg: #F0F0F0; --acu-menu-bg: #fff; --acu-menu-text: #333333; --acu-success-text: #09B83E; --acu-success-bg: rgba(9, 184, 62, 0.12); --acu-scrollbar-track: #F7F7F7; --acu-scrollbar-thumb: #E5E5E5; --acu-hl-manual: #FF9500; --acu-hl-manual-bg: rgba(255, 149, 0, 0.12); --acu-hl-diff: #09B83E; --acu-hl-diff-bg: rgba(9, 184, 62, 0.2); --acu-error-text: #E53E3E; --acu-error-bg: rgba(229, 62, 62, 0.12); --acu-error-border: rgba(229, 62, 62, 0.5); --acu-warning-icon: #FF9500; --acu-failure-text: #E53E3E; --acu-failure-bg: rgba(229, 62, 62, 0.12); --acu-warning-text: #FF9500; --acu-warning-bg: rgba(255, 149, 0, 0.12); --acu-crit-success-text: #07A832; --acu-crit-success-bg: rgba(7, 168, 50, 0.15); --acu-crit-failure-text: #C53030; --acu-crit-failure-bg: rgba(197, 48, 48, 0.15); --acu-extreme-success-text: #09B83E; --acu-extreme-success-bg: rgba(9, 184, 62, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.2); --acu-light-bg: rgba(9, 184, 62, 0.08); --acu-very-light-bg: rgba(9, 184, 62, 0.02); --acu-button-text: #333333; --acu-gray-bg: rgba(9, 184, 62, 0.08); }
-    /* 浅色强调色主题的按钮文字修正 */
-    .acu-theme-cyber .acu-btn-confirm,
-    .acu-theme-cyber .acu-changes-count,
-    .acu-theme-nightowl .acu-btn-confirm,
-    .acu-theme-nightowl .acu-changes-count {
-        color: #111 !important;
+    .acu-theme-educational { --acu-bg-nav: #000000; --acu-bg-panel: #000000; --acu-border: #1B1B1B; --acu-text-main: #FFFFFF; --acu-text-sub: #CCCCCC; --acu-btn-bg: #1B1B1B; --acu-btn-hover: #2B2B2B; --acu-btn-active-bg: #FF9900; --acu-btn-active-text: #000000; --acu-accent: #FF9900; --acu-table-head: #1B1B1B; --acu-table-hover: #2B2B2B; --acu-shadow: rgba(0,0,0,0.6); --acu-card-bg: #1B1B1B; --acu-badge-bg: #1B1B1B; --acu-menu-bg: #000000; --acu-menu-text: #FFFFFF; --acu-success-text: #FF9900; --acu-success-bg: rgba(255, 153, 0, 0.15); --acu-scrollbar-track: #000000; --acu-scrollbar-thumb: #1B1B1B; --acu-input-bg: #1B1B1B; --acu-hl-manual: #FF9900; --acu-hl-manual-bg: rgba(255, 153, 0, 0.15); --acu-hl-diff: #FFB84D; --acu-hl-diff-bg: rgba(255, 184, 77, 0.2); --acu-error-text: #FF6B6B; --acu-error-bg: rgba(255, 107, 107, 0.2); --acu-error-border: rgba(255, 107, 107, 0.5); --acu-warning-icon: #FFAA00; --acu-failure-text: #FF6B6B; --acu-failure-bg: rgba(255, 107, 107, 0.2); --acu-warning-text: #FFAA00; --acu-warning-bg: rgba(255, 170, 0, 0.2); --acu-crit-success-text: #FF9900; --acu-crit-success-bg: rgba(255, 153, 0, 0.2); --acu-crit-failure-text: #FF4444; --acu-crit-failure-bg: rgba(255, 68, 68, 0.2); --acu-extreme-success-text: #FFB84D; --acu-extreme-success-bg: rgba(255, 184, 77, 0.2); --acu-overlay-bg: rgba(0,0,0,0.8); --acu-overlay-bg-light: rgba(0,0,0,0.7); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(255, 153, 0, 0.1); --acu-very-light-bg: rgba(255, 153, 0, 0.02); --acu-button-text: #FFFFFF; --acu-gray-bg: rgba(255, 255, 255, 0.1); }
+    .acu-theme-vaporwave { --acu-bg-nav: #191970; --acu-bg-panel: #191970; --acu-border: rgba(0, 255, 255, 0.3); --acu-text-main: #00FFFF; --acu-text-sub: #FF00FF; --acu-btn-bg: rgba(25, 25, 112, 0.8); --acu-btn-hover: rgba(0, 255, 255, 0.2); --acu-btn-active-bg: #FF00FF; --acu-btn-active-text: #F0F8FF; --acu-accent: #00FFFF; --acu-table-head: rgba(25, 25, 112, 0.9); --acu-table-hover: rgba(0, 255, 255, 0.1); --acu-shadow: 0 0 15px rgba(0, 255, 255, 0.3); --acu-card-bg: rgba(25, 25, 112, 0.95); --acu-badge-bg: rgba(25, 25, 112, 0.8); --acu-menu-bg: #191970; --acu-menu-text: #00FFFF; --acu-success-text: #00FFFF; --acu-success-bg: rgba(0, 255, 255, 0.15); --acu-scrollbar-track: #191970; --acu-scrollbar-thumb: rgba(0, 255, 255, 0.3); --acu-input-bg: rgba(25, 25, 112, 0.6); --acu-hl-manual: #00FFFF; --acu-hl-manual-bg: rgba(0, 255, 255, 0.2); --acu-hl-diff: #FF00FF; --acu-hl-diff-bg: rgba(255, 0, 255, 0.2); --acu-error-text: #FF00FF; --acu-error-bg: rgba(255, 0, 255, 0.2); --acu-error-border: rgba(255, 0, 255, 0.5); --acu-warning-icon: #FF00FF; --acu-failure-text: #FF00FF; --acu-failure-bg: rgba(255, 0, 255, 0.2); --acu-warning-text: #FF00FF; --acu-warning-bg: rgba(255, 0, 255, 0.15); --acu-crit-success-text: #00FFFF; --acu-crit-success-bg: rgba(0, 255, 255, 0.2); --acu-crit-failure-text: #FF00FF; --acu-crit-failure-bg: rgba(255, 0, 255, 0.25); --acu-extreme-success-text: #00FFFF; --acu-extreme-success-bg: rgba(0, 255, 255, 0.2); --acu-overlay-bg: rgba(25, 25, 112, 0.85); --acu-overlay-bg-light: rgba(25, 25, 112, 0.75); --acu-shadow-bg: rgba(0, 255, 255, 0.3); --acu-light-bg: rgba(0, 255, 255, 0.05); --acu-very-light-bg: rgba(0, 255, 255, 0.02); --acu-button-text: #F0F8FF; --acu-gray-bg: rgba(0, 255, 255, 0.1); }
+    .acu-theme-vaporwave .acu-nav-btn { border-color: rgba(0, 255, 255, 0.3); }
+    .acu-theme-vaporwave .acu-data-card { border-color: rgba(0, 255, 255, 0.3); }
+    .acu-theme-vaporwave .acu-dice-panel input::placeholder,
+    .acu-theme-vaporwave .acu-contest-panel input::placeholder {
+        color: #FF00FF !important;
+        opacity: 0.7;
     }
+    .acu-theme-vaporwave .acu-dice-panel input[type="text"],
+    .acu-theme-vaporwave .acu-dice-panel input[type="number"],
+    .acu-theme-vaporwave .acu-dice-panel input:not([type]),
+    .acu-theme-vaporwave .acu-contest-panel input[type="text"],
+    .acu-theme-vaporwave .acu-contest-panel input[type="number"],
+    .acu-theme-vaporwave .acu-contest-panel input:not([type]) {
+        color: #00FFFF !important;
+    }
+    .acu-theme-classicpackaging { --acu-bg-nav: #000000; --acu-bg-panel: #000000; --acu-border: #FFFF00; --acu-text-main: #FFFF00; --acu-text-sub: #CCCC00; --acu-btn-bg: #FF0000; --acu-btn-hover: #CC0000; --acu-btn-active-bg: #0000FF; --acu-btn-active-text: #FFFF00; --acu-accent: #FF0000; --acu-table-head: #1a1a1a; --acu-table-hover: #2a2a2a; --acu-shadow: rgba(255,255,0,0.3); --acu-card-bg: #1a1a1a; --acu-badge-bg: #FF0000; --acu-menu-bg: #000000; --acu-menu-text: #FFFF00; --acu-success-text: #0000FF; --acu-success-bg: rgba(0, 0, 255, 0.2); --acu-scrollbar-track: #000000; --acu-scrollbar-thumb: #FFFF00; --acu-input-bg: #1a1a1a; --acu-hl-manual: #FF0000; --acu-hl-manual-bg: rgba(255, 0, 0, 0.2); --acu-hl-diff: #0000FF; --acu-hl-diff-bg: rgba(0, 0, 255, 0.2); --acu-error-text: #FF0000; --acu-error-bg: rgba(255, 0, 0, 0.2); --acu-error-border: rgba(255, 0, 0, 0.8); --acu-warning-icon: #FF0000; --acu-failure-text: #FF0000; --acu-failure-bg: rgba(255, 0, 0, 0.2); --acu-warning-text: #FF0000; --acu-warning-bg: rgba(255, 0, 0, 0.15); --acu-crit-success-text: #0000FF; --acu-crit-success-bg: rgba(0, 0, 255, 0.2); --acu-crit-failure-text: #FF0000; --acu-crit-failure-bg: rgba(255, 0, 0, 0.25); --acu-extreme-success-text: #0000FF; --acu-extreme-success-bg: rgba(0, 0, 255, 0.2); --acu-overlay-bg: rgba(0,0,0,0.9); --acu-overlay-bg-light: rgba(0,0,0,0.8); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(255,255,0,0.1); --acu-very-light-bg: rgba(255,255,0,0.02); --acu-button-text: #FFFF00; --acu-gray-bg: rgba(255,255,0,0.1); }
+    .acu-theme-classicpackaging .acu-nav-btn { border-color: #FFFF00; border-width: 2px; font-weight: bold; }
+    .acu-theme-classicpackaging .acu-data-card { border-color: #FFFF00; border-width: 2px; }
+    .acu-theme-classicpackaging .acu-dice-panel input::placeholder,
+    .acu-theme-classicpackaging .acu-contest-panel input::placeholder {
+        color: #666600 !important;
+        opacity: 0.7;
+    }
+    .acu-theme-classicpackaging .acu-dice-panel input[type="text"],
+    .acu-theme-classicpackaging .acu-dice-panel input[type="number"],
+    .acu-theme-classicpackaging .acu-dice-panel input:not([type]),
+    .acu-theme-classicpackaging .acu-contest-panel input[type="text"],
+    .acu-theme-classicpackaging .acu-contest-panel input[type="number"],
+    .acu-theme-classicpackaging .acu-contest-panel input:not([type]) {
+        color: #FFFF00 !important;
+        font-weight: bold;
+    }
+    .acu-theme-galgame { --acu-bg-nav: #FFF0F5; --acu-bg-panel: #FFF0F5; --acu-border: #F0D4E4; --acu-text-main: #6B4A5A; --acu-text-sub: #B08A9A; --acu-btn-bg: #FFE4E9; --acu-btn-hover: #FFD4E4; --acu-btn-active-bg: #E8B4D9; --acu-btn-active-text: #6B4A5A; --acu-accent: #E8B4D9; --acu-table-head: #FFF5F9; --acu-table-hover: #FFF0F8; --acu-shadow: rgba(232, 180, 217, 0.25); --acu-card-bg: #ffffff; --acu-badge-bg: #FFF5F9; --acu-menu-bg: #fff; --acu-menu-text: #6B4A5A; --acu-success-text: #D4A5C8; --acu-success-bg: rgba(212, 165, 200, 0.15); --acu-scrollbar-track: #FFF0F5; --acu-scrollbar-thumb: #F0D4E4; --acu-input-bg: #FFF8FA; --acu-hl-manual: #D4A5A5; --acu-hl-manual-bg: rgba(212, 165, 165, 0.15); --acu-hl-diff: #E8B4D9; --acu-hl-diff-bg: rgba(232, 180, 217, 0.2); --acu-error-text: #C88A9A; --acu-error-bg: rgba(200, 138, 154, 0.15); --acu-error-border: rgba(200, 138, 154, 0.4); --acu-warning-icon: #D4A5A5; --acu-failure-text: #C88A9A; --acu-failure-bg: rgba(200, 138, 154, 0.15); --acu-warning-text: #D4A5A5; --acu-warning-bg: rgba(212, 165, 165, 0.15); --acu-crit-success-text: #E8B4D9; --acu-crit-success-bg: rgba(232, 180, 217, 0.2); --acu-crit-failure-text: #C88A9A; --acu-crit-failure-bg: rgba(200, 138, 154, 0.2); --acu-extreme-success-text: #D4A5C8; --acu-extreme-success-bg: rgba(212, 165, 200, 0.2); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(232, 180, 217, 0.25); --acu-light-bg: rgba(232, 180, 217, 0.08); --acu-very-light-bg: rgba(232, 180, 217, 0.02); --acu-button-text: #6B4A5A; --acu-button-text-on-accent: #6B4A5A; --acu-gray-bg: rgba(232, 180, 217, 0.1); }
+    .acu-theme-galgame .acu-nav-btn { border-radius: 8px; transition: all 0.3s ease; }
+    .acu-theme-galgame .acu-data-card { border-radius: 12px; box-shadow: 0 4px 12px rgba(232, 180, 217, 0.15); transition: all 0.3s ease; }
+    .acu-theme-galgame .acu-data-card:hover { box-shadow: 0 6px 20px rgba(232, 180, 217, 0.25); transform: translateY(-2px); }
+    .acu-theme-galgame .acu-nav-btn:hover { box-shadow: 0 2px 8px rgba(232, 180, 217, 0.2); }
     /* Night Owl主题：数据验证和表格管理框框使用更暗的边框 */
     .acu-theme-nightowl .acu-table-manager-item,
     .acu-theme-nightowl .acu-validation-rule-item {
@@ -10391,10 +13966,13 @@
             .acu-highlight-manual { color: var(--acu-hl-manual) !important; background-color: var(--acu-hl-manual-bg) !important; border-radius: 4px; padding: 0 4px; font-weight: bold; animation: pulse-highlight 2s infinite; display: inline-block; }
             .acu-highlight-diff { color: var(--acu-hl-diff) !important; background-color: var(--acu-hl-diff-bg) !important; border-radius: 4px; padding: 0 4px; font-weight: bold; animation: pulse-highlight 2s infinite; display: inline-block; }
             .acu-editable-title.acu-highlight-manual, .acu-editable-title.acu-highlight-diff { width: auto; display: inline-block; }
-            .acu-card-header { flex: 0 0 auto; padding: 8px 10px; background: var(--acu-table-head); border-bottom: 1px dashed var(--acu-border); font-weight: bold; color: var(--acu-text-main); font-size: 14px; display: flex; flex-direction: row !important; align-items: center !important; justify-content: flex-start !important; gap: 8px; min-height: 40px; height: auto !important; }
+            .acu-card-header { flex: 0 0 auto; padding: 8px 10px; background: var(--acu-table-head); border-bottom: 1px dashed var(--acu-border); font-weight: bold; color: var(--acu-text-main); font-size: 14px; display: flex; flex-direction: row !important; align-items: center !important; justify-content: flex-start !important; gap: 8px; min-height: 40px; height: auto !important; position: relative; }
             .acu-editable-title { flex: 1; width: auto !important; cursor: pointer; border-bottom: 1px dashed transparent; transition: all 0.2s; white-space: pre-wrap !important; overflow: visible !important; word-break: break-word !important; text-align: center; line-height: 1.3; margin: 0; }
             .acu-editable-title:hover { border-bottom-color: var(--acu-accent); color: var(--acu-accent); }
             .acu-card-index { position: static !important; transform: none !important; margin: 0; flex-shrink: 0; font-size: 11px; color: var(--acu-text-sub); font-weight: normal; background: var(--acu-badge-bg); padding: 2px 6px; border-radius: 4px; }
+            .acu-bookmark-icon { position: absolute; top: 8px; right: 8px; color: var(--acu-accent); cursor: pointer; font-size: 16px; opacity: 0.3; transition: opacity 0.2s, color 0.2s, transform 0.2s; z-index: 10; }
+            .acu-bookmark-icon:hover { opacity: 0.6; transform: scale(1.1); }
+            .acu-bookmark-icon.bookmarked { color: var(--acu-accent); opacity: 1; }
             .acu-card-body { padding: 6px 12px; display: flex; flex-direction: column; gap: 0; font-size: var(--acu-font-size, 13px); flex: 1; }
             .acu-card-row { display: block; padding: 6px 0; border-bottom: 1px dashed var(--acu-border); cursor: pointer; overflow: hidden; }
             .acu-card-row:last-child { border-bottom: none; }
@@ -10418,7 +13996,7 @@
             .acu-panel-footer { flex: 0 0 auto; padding: 8px; border-top: 1px dashed var(--acu-border); background: var(--acu-table-head); display: flex; justify-content: center; align-items: center; gap: 5px; flex-wrap: wrap; }
             .acu-page-btn { padding: 4px 10px; min-width: 32px; height: 28px; border-radius: 4px; border: 1px solid var(--acu-border); background: var(--acu-btn-bg); color: var(--acu-text-main); cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
             .acu-page-btn:hover:not(.disabled):not(.active) { background: var(--acu-btn-hover); transform: translateY(-1px); }
-            .acu-page-btn.active { background: var(--acu-accent); color: #fff; border-color: var(--acu-accent); font-weight: bold; }
+            .acu-page-btn.active { background: var(--acu-accent); color: var(--acu-button-text-on-accent, #fff); border-color: var(--acu-accent); font-weight: bold; }
             .acu-page-btn.disabled { opacity: 0.5; cursor: not-allowed; }
             .acu-page-info { font-size: 12px; color: var(--acu-text-sub); margin: 0 10px; }
             /* --- [新增] 行动选项面板样式 --- */
@@ -10541,14 +14119,14 @@
             .acu-dialog-btn { background: none; border: none; cursor: pointer; font-size: 14px; font-weight: bold; display: flex; align-items: center; gap: 6px; color: var(--acu-text-sub); transition: color 0.2s; }
             .acu-dialog-btn:hover { color: var(--acu-text-main); } .acu-btn-confirm { color: var(--acu-success-text); } .acu-btn-confirm:hover { opacity: 0.8; }
             /* --- [UI Optimization] PC-First Edit Mode Styles --- */
-            .acu-order-controls { grid-column: 1 / -1; order: -2; display: none; width: 100%; text-align: left; background: var(--acu-accent); color: #fff; padding: 6px 12px; margin: 0 0 8px 0; border-radius: 4px; font-weight: bold; font-size: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+            .acu-order-controls { grid-column: 1 / -1; order: -2; display: none; width: 100%; text-align: left; background: var(--acu-accent); color: var(--acu-button-text-on-accent, var(--acu-text-main)); padding: 6px 12px; margin: 0 0 8px 0; border-radius: 4px; font-weight: bold; font-size: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
             .acu-order-controls.visible { display: flex; align-items: center; justify-content: space-between; }
 
             .acu-nav-container.editing-order { border: 2px solid var(--acu-accent); background: var(--acu-bg-panel); }
             .acu-nav-container.editing-order .acu-nav-btn, .acu-nav-container.editing-order .acu-action-btn { opacity: 1 !important; cursor: grab !important; border: 1px solid var(--acu-border); box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
             .acu-nav-container.editing-order .acu-nav-btn:hover, .acu-nav-container.editing-order .acu-action-btn:hover { border-color: var(--acu-accent); transform: translateY(-1px); }
 
-            .acu-swap-selected { background-color: var(--acu-accent) !important; color: #fff !important; border-color: var(--acu-accent); box-shadow: 0 0 0 2px rgba(255,255,255,0.5), 0 4px 12px rgba(0,0,0,0.2); transform: scale(1.05); z-index: 10; }
+            .acu-swap-selected { background-color: var(--acu-accent) !important; color: var(--acu-button-text-on-accent, var(--acu-text-main)) !important; border-color: var(--acu-accent); box-shadow: 0 0 0 2px rgba(255,255,255,0.5), 0 4px 12px rgba(0,0,0,0.2); transform: scale(1.05); z-index: 10; }
             .acu-drag-over { border: 2px dashed var(--acu-accent); opacity: 0.5; transform: scale(0.95); background: rgba(var(--acu-accent-rgb), 0.1); }
 
             /* --- [PC Style] Unused Pool Optimization (工具架样式) --- */
@@ -11292,6 +14870,50 @@
                 min-width: 45px;
                 text-align: center;
             }
+            .acu-node-size-slider-container input[type="range"] {
+                -webkit-appearance: none;
+                appearance: none;
+                height: 10px;
+                border-radius: 5px;
+                background: var(--acu-btn-bg);
+                outline: none;
+                cursor: pointer;
+            }
+            .acu-node-size-slider-container input[type="range"]::-webkit-slider-thumb {
+                -webkit-appearance: none;
+                appearance: none;
+                width: 20px;
+                height: 20px;
+                border-radius: 50%;
+                background: var(--acu-accent);
+                cursor: pointer;
+                border: 2px solid var(--acu-bg-panel);
+                box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+                transition: all 0.2s;
+            }
+            .acu-node-size-slider-container input[type="range"]::-webkit-slider-thumb:hover {
+                transform: scale(1.1);
+                box-shadow: 0 3px 6px rgba(0,0,0,0.4);
+            }
+            .acu-node-size-slider-container input[type="range"]::-moz-range-thumb {
+                width: 20px;
+                height: 20px;
+                border-radius: 50%;
+                background: var(--acu-accent);
+                cursor: pointer;
+                border: 2px solid var(--acu-bg-panel);
+                box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+                transition: all 0.2s;
+            }
+            .acu-node-size-slider-container input[type="range"]::-moz-range-thumb:hover {
+                transform: scale(1.1);
+                box-shadow: 0 3px 6px rgba(0,0,0,0.4);
+            }
+            .acu-node-size-slider-container input[type="range"]::-moz-range-track {
+                height: 10px;
+                border-radius: 5px;
+                background: var(--acu-btn-bg);
+            }
             @media (max-width: 768px) {
                 .acu-relation-graph-container {
                     width: 100%;
@@ -11841,6 +15463,40 @@
                 align-items: center;
                 gap: 8px;
             }
+            .acu-settings-text {
+                position: relative;
+                display: inline-flex;
+                align-items: center;
+                padding-right: 32px;
+            }
+            .acu-version-badge {
+                position: absolute;
+                bottom: 0;
+                right: 0;
+                font-size: 10px;
+                color: var(--acu-text-sub);
+                font-weight: normal;
+                line-height: 1;
+                white-space: nowrap;
+            }
+            .acu-help-btn {
+                background: none !important;
+                border: none !important;
+                box-shadow: none !important;
+                outline: none !important;
+                color: var(--acu-text-sub);
+                cursor: pointer;
+                font-size: 16px;
+                padding: 4px;
+                margin: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: color 0.2s;
+            }
+            .acu-help-btn:hover {
+                color: var(--acu-text-main);
+            }
             .acu-settings-body {
                 flex: 1;
                 min-height: 0;
@@ -12140,6 +15796,25 @@
             }
             .acu-toggle input:checked + .acu-toggle-slider:before {
                 transform: translateX(20px);
+            }
+            /* Debug控制台过滤样式 - 增加优先级防止被酒馆样式覆盖 */
+            .acu-debug-console-dialog .acu-debug-filter,
+            .acu-debug-console-dialog label input.acu-debug-filter {
+                cursor: pointer !important;
+                width: auto !important;
+                height: auto !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                appearance: checkbox !important;
+                -webkit-appearance: checkbox !important;
+                -moz-appearance: checkbox !important;
+            }
+            .acu-debug-console-dialog label {
+                display: flex !important;
+                align-items: center !important;
+                gap: 4px !important;
+                cursor: pointer !important;
+                font-size: 12px !important;
             }
             .acu-setting-action-btn {
                 width: 100%;
@@ -12444,7 +16119,7 @@
             .acu-table-item-icon {
                 width: 20px;
                 text-align: center;
-                color: var(--acu-text-sub);
+                color: var(--acu-accent);
                 font-size: 12px;
             }
             .acu-table-item-name {
@@ -12668,16 +16343,40 @@
                 outline: none !important;
                 border-color: var(--acu-accent) !important;
             }
+            .acu-validation-modal-body .acu-panel-input::placeholder,
+            .acu-validation-modal input[type="text"]::placeholder,
+            .acu-validation-modal input[type="number"]::placeholder {
+                color: var(--acu-text-sub) !important;
+                opacity: 0.7 !important;
+            }
+            .acu-validation-modal select option {
+                background: var(--acu-bg-panel) !important;
+                color: var(--acu-text-main) !important;
+            }
+            .acu-validation-modal select option[value=""] {
+                color: var(--acu-text-sub) !important;
+                opacity: 0.7 !important;
+            }
             .acu-rule-config-section {
                 padding: 8px 0;
             }
             .acu-validation-modal-footer {
                 display: flex;
-                justify-content: flex-end;
-                gap: 10px;
-                padding: 12px 16px;
+                justify-content: center;
+                gap: 12px;
+                padding: 16px;
                 border-top: 1px solid var(--acu-border);
                 background: var(--acu-table-head);
+            }
+            .acu-validation-modal-footer .acu-btn {
+                flex: 1;
+                padding: 10px 12px !important;
+                font-size: 13px !important;
+                font-weight: 500 !important;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 6px;
             }
             /* 智能修改弹窗样式 */
             .acu-smart-fix-meta {
@@ -12907,9 +16606,9 @@
                 align-items: center !important;
                 gap: 6px !important;
                 padding: 6px 12px !important;
-                background: var(--acu-success-bg) !important;
-                color: var(--acu-success-text) !important;
-                border: 1px solid var(--acu-success-text) !important;
+                background: var(--acu-accent) !important;
+                color: var(--acu-btn-active-text) !important;
+                border: 1px solid var(--acu-accent) !important;
                 border-radius: 4px !important;
                 font-size: 12px !important;
                 font-weight: 500 !important;
@@ -12917,8 +16616,9 @@
                 transition: all 0.2s !important;
             }
             .acu-smart-fix-quick-btn:hover {
-                background: var(--acu-success-text) !important;
-                color: white !important;
+                background: var(--acu-btn-active-bg) !important;
+                color: var(--acu-btn-active-text) !important;
+                border-color: var(--acu-btn-active-bg) !important;
             }
             .acu-smart-fix-table-summary {
                 padding: 12px !important;
@@ -13091,11 +16791,29 @@
 
   const getTableData = () => {
     const api = getCore().getDB();
-    return api && api.exportTableAsJson ? api.exportTableAsJson() : null;
+    if (!api || !api.exportTableAsJson) {
+      console.warn('[DICE]数据库 API 不可用，无法获取表格数据');
+      return null;
+    }
+    try {
+      const data = api.exportTableAsJson();
+      if (data) {
+        const sheetCount = Object.keys(data).filter(k => k.startsWith('sheet_')).length;
+        console.info(`[DICE]已加载表格数据，包含 ${sheetCount} 个工作表`);
+      }
+      return data;
+    } catch (e) {
+      console.error('[DICE]获取表格数据失败:', e);
+      return null;
+    }
   };
 
   const saveDataToDatabase = async (tableData, skipRender = false, commitDeletes = false) => {
-    if (isSaving) return; // 简单的防重入
+    if (isSaving) {
+      console.warn('[DICE]保存操作正在进行中，跳过重复请求');
+      return; // 简单的防重入
+    }
+    console.info('[DICE]开始保存数据到数据库...');
     isSaving = true;
     const { $ } = getCore();
     const $saveBtn = $('#acu-btn-save-global');
@@ -13134,27 +16852,78 @@
         savePendingDeletions({});
       }
 
-      // 3. 直接调用 API 保存 (无中间商赚差价)
-      const api = getCore().getDB();
-      if (api && api.importTableAsJson) {
-        await api.importTableAsJson(JSON.stringify(dataToSave));
+      // 3. 验证数据并序列化
+      let jsonString;
+      try {
+        jsonString = JSON.stringify(dataToSave);
+        // 检查数据大小（约 10MB 限制）
+        const sizeInMB = new Blob([jsonString]).size / (1024 * 1024);
+        if (sizeInMB > 10) {
+          throw new Error(`数据太大 (${sizeInMB.toFixed(2)}MB)，超过 10MB 限制`);
+        }
+        console.info(`[DICE]数据序列化完成，大小: ${sizeInMB.toFixed(2)}MB`);
+      } catch (stringifyError) {
+        console.error('[DICE]ACU JSON 序列化失败:', stringifyError);
+        throw new Error(`数据序列化失败: ${stringifyError.message || stringifyError}`);
       }
 
-      // 4. 更新本地状态
+      // 4. 直接调用 API 保存 (无中间商赚差价)
+      const api = getCore().getDB();
+      if (!api || !api.importTableAsJson) {
+        throw new Error('数据库 API 不可用');
+      }
+
+      try {
+        // 调用 importTableAsJson，它内部会调用 saveChat()
+        // 如果 saveChat() 失败，可能会抛出错误或显示 "Settings could not be saved" 提示
+        const result = await api.importTableAsJson(jsonString);
+        // 检查返回值，某些实现可能返回 false 表示失败
+        if (result === false) {
+          throw new Error('数据导入失败（返回 false）');
+        }
+        console.info('[DICE]数据已成功保存到数据库');
+      } catch (apiError) {
+        console.error('[DICE]ACU API 保存失败:', apiError);
+        // 检查是否是 "Settings could not be saved" 相关的错误
+        const errorMsg = apiError.message || String(apiError);
+        if (
+          errorMsg.includes('Settings could not be saved') ||
+          errorMsg.includes('server connection') ||
+          errorMsg.includes('data loss')
+        ) {
+          throw new Error('保存失败：服务器连接问题或数据过大，请检查网络连接或减少数据量');
+        }
+        throw new Error(`保存到数据库失败: ${errorMsg}`);
+      }
+
+      // 5. 更新本地状态
       cachedRawData = dataToSave;
       saveSnapshot(dataToSave);
       hasUnsavedChanges = false;
       currentDiffMap = new Set();
       if (window.acuModifiedSet) window.acuModifiedSet.clear();
+      console.info('[DICE]本地状态已更新，未保存更改已清除');
 
       if (!skipRender) {
         renderInterface();
       }
     } catch (e) {
-      console.error('Save error:', e);
-      if (window.toastr) window.toastr.error('保存出错');
+      const errorMessage = e.message || '保存出错，请检查数据格式和大小';
+      console.error('[DICE]保存数据失败:', {
+        error: e,
+        message: errorMessage,
+        stack: e.stack,
+      });
+      if (window.toastr) {
+        window.toastr.error(errorMessage, '保存失败', { timeOut: 5000 });
+      } else {
+        alert(`保存失败: ${errorMessage}`);
+      }
+      // 重新抛出错误以便上层处理
+      throw e;
     } finally {
       isSaving = false;
+      console.info('[DICE]保存操作完成');
       if (!skipRender && $saveBtn.length) {
         $saveBtn.find('i').removeClass('fa-spinner fa-spin').addClass('fa-save');
         $saveBtn.prop('disabled', false);
@@ -13175,15 +16944,52 @@
         }
       });
 
+      // 验证数据并序列化
+      let jsonString;
+      try {
+        jsonString = JSON.stringify(dataToSave);
+        // 检查数据大小（约 10MB 限制）
+        const sizeInMB = new Blob([jsonString]).size / (1024 * 1024);
+        if (sizeInMB > 10) {
+          throw new Error(`数据太大 (${sizeInMB.toFixed(2)}MB)，超过 10MB 限制`);
+        }
+      } catch (stringifyError) {
+        console.error('[DICE]ACU JSON 序列化失败:', stringifyError);
+        throw new Error(`数据序列化失败: ${stringifyError.message || stringifyError}`);
+      }
+
       const api = getCore().getDB();
-      if (api && api.importTableAsJson) {
-        await api.importTableAsJson(JSON.stringify(dataToSave));
+      if (!api || !api.importTableAsJson) {
+        throw new Error('数据库 API 不可用');
+      }
+
+      try {
+        // 调用 importTableAsJson，它内部会调用 saveChat()
+        const result = await api.importTableAsJson(jsonString);
+        // 检查返回值，某些实现可能返回 false 表示失败
+        if (result === false) {
+          throw new Error('数据导入失败（返回 false）');
+        }
+      } catch (apiError) {
+        console.error('[DICE]ACU API 保存失败:', apiError);
+        // 检查是否是 "Settings could not be saved" 相关的错误
+        const errorMsg = apiError.message || String(apiError);
+        if (
+          errorMsg.includes('Settings could not be saved') ||
+          errorMsg.includes('server connection') ||
+          errorMsg.includes('data loss')
+        ) {
+          throw new Error('保存失败：服务器连接问题或数据过大，请检查网络连接或减少数据量');
+        }
+        throw new Error(`保存到数据库失败: ${errorMsg}`);
       }
 
       cachedRawData = dataToSave;
       // 注意：不调用 saveSnapshot()，不更新 hasUnsavedChanges
     } catch (e) {
-      console.error('[ACU] saveDataOnly error:', e);
+      console.error('[DICE]ACU saveDataOnly error:', e);
+      // 重新抛出错误以便上层处理
+      throw e;
     }
   };
   const processJsonData = json => {
@@ -13211,7 +17017,7 @@
   // ========================================
 
   // 格式验证智能推算
-  function suggestFormatValue(pattern, rowIndex, existingValues = []) {
+  function suggestFormatValue(pattern, rowIndex, existingValues = [], tableContent = null) {
     if (!pattern || rowIndex === undefined || rowIndex < 0) return null;
 
     try {
@@ -13224,8 +17030,37 @@
       if (prefixMatch) {
         const prefix = prefixMatch[1]; // "AM"
         const digits = parseInt(prefixMatch[2], 10); // 3
-        const nextNum = String(rowIndex + 1).padStart(digits, '0'); // rowIndex是0-based，+1后补零
-        return prefix + nextNum; // "AM001"
+
+        // 【改进】对于总结表和总体大纲，基于现有值计算下一个编码
+        if (tableContent && (tableContent.name === '总结表' || tableContent.name === '总体大纲')) {
+          const headers = tableContent.content?.[0] || [];
+          const rows = tableContent.content?.slice(1) || [];
+          const codeIndex = headers.indexOf('编码索引');
+
+          if (codeIndex >= 0) {
+            // 提取所有现有编码索引的数字部分
+            const existingNumbers = [];
+            rows.forEach(row => {
+              const codeValue = row?.[codeIndex];
+              if (codeValue && typeof codeValue === 'string') {
+                const match = codeValue.match(new RegExp(`^${prefix}(\\d+)$`));
+                if (match) {
+                  const num = parseInt(match[1], 10);
+                  if (!isNaN(num)) existingNumbers.push(num);
+                }
+              }
+            });
+
+            // 计算下一个数字
+            const maxNum = existingNumbers.length > 0 ? Math.max(...existingNumbers) : 0;
+            const nextNum = String(maxNum + 1).padStart(digits, '0');
+            return prefix + nextNum;
+          }
+        }
+
+        // 原有逻辑：基于行索引（作为后备方案）
+        const nextNum = String(rowIndex + 1).padStart(digits, '0');
+        return prefix + nextNum;
       }
 
       // 尝试识别其他常见模式，如 \d{3} 单独出现（仅数字）
@@ -13235,7 +17070,7 @@
         return String(rowIndex + 1).padStart(digits, '0');
       }
     } catch (e) {
-      console.error('[ACU] 格式推算失败:', e);
+      console.error('[DICE]ACU 格式推算失败:', e);
     }
 
     return null; // 无法推算，显示空输入框
@@ -13272,6 +17107,41 @@
     }
 
     return Array.from(options).sort();
+  }
+
+  // 检查值是否已存在于关联表的任何列中（用于判断是否需要反向写入）
+  function isValueInRelationTable(value, refTable, refColumns, rawData) {
+    if (!value || !refTable || !refColumns || !rawData) return false;
+    if (String(value).trim() === '') return false;
+
+    const columns = Array.isArray(refColumns) ? refColumns : [refColumns];
+    const strVal = String(value).trim();
+
+    // 查找引用表
+    for (const sheetId in rawData) {
+      if (rawData[sheetId]?.name === refTable) {
+        const headers = rawData[sheetId].content?.[0] || [];
+        const rows = rawData[sheetId].content?.slice(1) || [];
+
+        // 遍历所有指定的列
+        for (const col of columns) {
+          const colIdx = headers.indexOf(col);
+          if (colIdx === -1) continue;
+
+          // 检查值是否存在于该列
+          for (let i = 0; i < rows.length; i++) {
+            const cellValue = rows[i]?.[colIdx];
+            if (cellValue !== null && cellValue !== undefined && String(cellValue).trim() === strVal) {
+              return true; // 找到匹配值
+            }
+          }
+        }
+
+        break; // 找到表后跳出
+      }
+    }
+
+    return false; // 值不存在于任何列中
   }
 
   // 获取同列其他行的示例值（用于 required 规则）
@@ -13355,6 +17225,7 @@
                 <optgroup label="── 表级规则 ──">
                   <option value="tableReadonly">表级只读（禁止修改）</option>
                   <option value="rowLimit">行数限制</option>
+                  <option value="sequence">序列递增</option>
                 </optgroup>
                 <optgroup label="── 字段级规则 ──">
                   <option value="required">必填</option>
@@ -13362,13 +17233,14 @@
                   <option value="enum">枚举验证（可选值）</option>
                   <option value="numeric">数值范围</option>
                   <option value="relation">关联验证（引用其他表）</option>
+                  <option value="keyValue">键值对验证</option>
                 </optgroup>
               </select>
             </div>
             <!-- 表级只读无需配置 -->
             <div class="acu-rule-config-section" id="config-tableReadonly">
               <div style="font-size:11px;color:var(--acu-text-sub);padding:8px;background:var(--acu-card-bg);border-radius:4px;">
-                <i class="fa-solid fa-info-circle"></i> 启用后，该表将不允许任何修改（需开启更新拦截）
+                <i class="fa-solid fa-info-circle"></i> 启用后，该表将不允许任何修改
               </div>
             </div>
             <!-- 行数限制配置 -->
@@ -13378,6 +17250,28 @@
                 <input type="number" id="cfg-row-min" class="acu-panel-input" placeholder="0" style="width:80px;">
                 <div class="acu-setting-info" style="margin-left:16px;"><span class="acu-setting-label">最多行数</span></div>
                 <input type="number" id="cfg-row-max" class="acu-panel-input" placeholder="不限" style="width:80px;">
+              </div>
+            </div>
+            <!-- 序列递增配置 -->
+            <div class="acu-rule-config-section" id="config-sequence" style="display:none;">
+              <div class="acu-setting-row">
+                <div class="acu-setting-info"><span class="acu-setting-label">编码前缀</span></div>
+                <input type="text" id="cfg-sequence-prefix" class="acu-panel-input" placeholder="如：AM" style="width:120px;">
+              </div>
+              <div class="acu-setting-row">
+                <div class="acu-setting-info"><span class="acu-setting-label">起始数字</span></div>
+                <input type="number" id="cfg-sequence-start" class="acu-panel-input" placeholder="1" value="1" style="width:120px;">
+              </div>
+              <div class="acu-setting-row">
+                <div class="acu-setting-info"><span class="acu-setting-label">配对表（可选）</span></div>
+                <select id="cfg-sequence-paired-table" class="acu-setting-select" style="flex:1;">
+                  <option value="">无（单表修复）</option>
+                  ${tableNames.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('')}
+                </select>
+              </div>
+              <div style="font-size:11px;color:var(--acu-text-sub);padding:8px;background:var(--acu-card-bg);border-radius:4px;margin-top:8px;">
+                <i class="fa-solid fa-info-circle"></i> 检查指定列的值是否从"前缀+起始数字"开始严格递增（如AM001, AM002, AM003...），不可跳号或重复。需要指定目标列。<br>
+                <i class="fa-solid fa-link" style="margin-top:4px;display:block;"></i> 如果设置了配对表，修复时会同时修复两个表的编码，确保相同编码值修复后仍然相同。
               </div>
             </div>
             <!-- 必填无需配置 -->
@@ -13428,6 +17322,25 @@
                 <i class="fa-solid fa-info-circle"></i> 可选择多列，任一列匹配即通过验证（OR 逻辑）。使用 Ctrl/Cmd 键可选择多个列。
               </div>
             </div>
+            <!-- 键值对验证配置 -->
+            <div class="acu-rule-config-section" id="config-keyValue" style="display:none;">
+              <div class="acu-setting-row">
+                <div class="acu-setting-info"><span class="acu-setting-label">值类型</span></div>
+                <select id="cfg-keyvalue-type" class="acu-setting-select">
+                  <option value="text">文本型（只验证格式）</option>
+                  <option value="numeric">数值型（验证格式和数值范围）</option>
+                </select>
+              </div>
+              <div class="acu-setting-row" id="row-keyvalue-range" style="display:none;">
+                <div class="acu-setting-info"><span class="acu-setting-label">最小值</span></div>
+                <input type="number" id="cfg-keyvalue-min" class="acu-panel-input" placeholder="0" style="width:80px;">
+                <div class="acu-setting-info" style="margin-left:16px;"><span class="acu-setting-label">最大值</span></div>
+                <input type="number" id="cfg-keyvalue-max" class="acu-panel-input" placeholder="100" style="width:80px;">
+              </div>
+              <div style="font-size:11px;color:var(--acu-text-sub);padding:8px;background:var(--acu-card-bg);border-radius:4px;margin-top:8px;">
+                <i class="fa-solid fa-info-circle"></i> 格式：键:值;键:值（使用英文标点，自动去除空格）。数值型会验证每个值的范围。
+              </div>
+            </div>
             <div class="acu-setting-row">
               <div class="acu-setting-info"><span class="acu-setting-label">错误提示</span></div>
               <input type="text" id="rule-error-msg" class="acu-panel-input" placeholder="验证失败时显示的提示信息" style="flex:1;">
@@ -13443,13 +17356,53 @@
 
     $('body').append(dialog);
 
-    // 表格选择变化时更新列选项
+    // 统一设置select的颜色（当选中空值时显示为灰色）
+    const updateSelectColor = $select => {
+      const val = $select.val();
+      if (!val || val === '') {
+        $select.css('color', 'var(--acu-text-sub)');
+        $select.css('opacity', '0.7');
+      } else {
+        $select.css('color', 'var(--acu-text-main)');
+        $select.css('opacity', '1');
+      }
+    };
+
+    // 初始化所有select的颜色
+    dialog.find('select').each(function () {
+      updateSelectColor($(this));
+      $(this).on('change', function () {
+        updateSelectColor($(this));
+      });
+    });
+
+    // 表格选择变化时更新列选项和配对表选项
     dialog.find('#rule-table').on('change', function () {
       const tableName = $(this).val();
       const $colSelect = dialog.find('#rule-column');
+      const $pairedTableSelect = dialog.find('#cfg-sequence-paired-table');
+      updateSelectColor($(this));
+
+      // 更新配对表选项（排除当前选择的表）
+      if ($pairedTableSelect.length > 0) {
+        const currentPairedValue = $pairedTableSelect.val();
+        $pairedTableSelect.empty();
+        $pairedTableSelect.append('<option value="">无（单表修复）</option>');
+        tableNames
+          .filter(name => name !== tableName)
+          .forEach(name => {
+            $pairedTableSelect.append(`<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`);
+          });
+        // 如果之前选择的值仍然有效，恢复它
+        if (currentPairedValue && currentPairedValue !== tableName) {
+          $pairedTableSelect.val(currentPairedValue);
+        }
+        updateSelectColor($pairedTableSelect);
+      }
 
       if (!tableName || !tables[tableName]) {
         $colSelect.html('<option value="">请先选择表格...</option>').prop('disabled', true);
+        updateSelectColor($colSelect);
         return;
       }
 
@@ -13460,15 +17413,18 @@
         .join('');
 
       $colSelect.html('<option value="">请选择...</option>' + options).prop('disabled', false);
+      updateSelectColor($colSelect);
     });
 
     // 关联表格选择变化时更新关联列选项
     dialog.find('#cfg-ref-table').on('change', function () {
       const refTableName = $(this).val();
       const $refColSelect = dialog.find('#cfg-ref-column');
+      updateSelectColor($(this));
 
       if (!refTableName || !tables[refTableName]) {
         $refColSelect.html('<option value="">请先选择关联表格...</option>').prop('disabled', true);
+        updateSelectColor($refColSelect);
         return;
       }
 
@@ -13479,6 +17435,7 @@
         .join('');
 
       $refColSelect.html(options).prop('disabled', false);
+      updateSelectColor($refColSelect);
     });
 
     // 规则类型变化时切换配置区域和目标列显示
@@ -13486,13 +17443,14 @@
       const type = $(this).val();
       const typeInfo = RULE_TYPE_INFO[type];
       const isTableRule = typeInfo?.scope === 'table';
+      updateSelectColor($(this));
 
       // 切换配置区域
       dialog.find('.acu-rule-config-section').hide();
       dialog.find('#config-' + type).show();
 
-      // 表级规则隐藏目标列选择
-      if (isTableRule) {
+      // 表级规则隐藏目标列选择（但sequence规则需要目标列）
+      if (isTableRule && type !== 'sequence') {
         dialog.find('#row-column').hide();
         dialog.find('#rule-column').val('').prop('disabled', true);
       } else {
@@ -13501,6 +17459,16 @@
         if (dialog.find('#rule-table').val()) {
           dialog.find('#rule-column').prop('disabled', false);
         }
+      }
+    });
+
+    // 键值对类型变化时显示/隐藏数值范围输入框
+    dialog.find('#cfg-keyvalue-type').on('change', function () {
+      const valueType = $(this).val();
+      if (valueType === 'numeric') {
+        dialog.find('#row-keyvalue-range').show();
+      } else {
+        dialog.find('#row-keyvalue-range').hide();
       }
     });
 
@@ -13530,8 +17498,8 @@
         if (window.toastr) window.toastr.warning('请选择目标表格');
         return;
       }
-      // 字段级规则必须选择目标列
-      if (!isTableRule && !targetColumn) {
+      // 字段级规则和sequence规则必须选择目标列
+      if ((!isTableRule || ruleType === 'sequence') && !targetColumn) {
         if (window.toastr) window.toastr.warning('请选择目标列');
         return;
       }
@@ -13594,6 +17562,29 @@
         ruleConfig.refTable = refTable;
         // 如果只有一列，保存为字符串；如果多列，保存为数组
         ruleConfig.refColumn = selectedColumns.length === 1 ? selectedColumns[0] : selectedColumns;
+      } else if (ruleType === 'keyValue') {
+        const valueType = dialog.find('#cfg-keyvalue-type').val();
+        ruleConfig.valueType = valueType || 'text';
+
+        if (valueType === 'numeric') {
+          const min = dialog.find('#cfg-keyvalue-min').val();
+          const max = dialog.find('#cfg-keyvalue-max').val();
+          if (min !== '') ruleConfig.valueMin = parseFloat(min);
+          if (max !== '') ruleConfig.valueMax = parseFloat(max);
+        }
+      } else if (ruleType === 'sequence') {
+        const prefix = dialog.find('#cfg-sequence-prefix').val()?.trim() || '';
+        const startFrom = dialog.find('#cfg-sequence-start').val();
+        const pairedTable = dialog.find('#cfg-sequence-paired-table').val()?.trim() || null;
+        ruleConfig.prefix = prefix;
+        ruleConfig.startFrom = startFrom !== '' ? parseInt(startFrom, 10) : 1;
+        if (isNaN(ruleConfig.startFrom)) {
+          if (window.toastr) window.toastr.warning('起始数字必须是有效数字');
+          return;
+        }
+        if (pairedTable) {
+          ruleConfig.pairedTable = pairedTable;
+        }
       }
 
       // 生成规则 ID
@@ -13605,7 +17596,7 @@
         name: name,
         description: '',
         targetTable: targetTable,
-        targetColumn: isTableRule ? '' : targetColumn, // 表级规则不需要 targetColumn
+        targetColumn: isTableRule && ruleType !== 'sequence' ? '' : targetColumn, // 表级规则不需要 targetColumn，但sequence规则需要
         ruleType: ruleType,
         config: ruleConfig,
         errorMessage: errorMessage || typeInfo?.desc || '数据验证失败',
@@ -13624,7 +17615,7 @@
             </div>
             <div class="acu-rule-info">
               <div class="acu-rule-name">${escapeHtml(name)}</div>
-              <div class="acu-rule-target">${escapeHtml(targetTable)}${isTableRule ? ' (整表)' : '.' + escapeHtml(targetColumn)}</div>
+              <div class="acu-rule-target">${escapeHtml(targetTable)}${isTableRule && ruleType !== 'sequence' ? ' (整表)' : '.' + escapeHtml(targetColumn)}</div>
             </div>
             <div class="acu-rule-intercept" data-rule-id="${escapeHtml(ruleId)}" title="点击启用拦截（违反时回滚）"><i class="fa-solid fa-shield-halved"></i></div>
             <div class="acu-rule-toggle active" title="点击切换启用/禁用">
@@ -13661,6 +17652,19 @@
     // 获取原始数据和快照
     const rawData = cachedRawData || getTableData();
     const snapshot = loadSnapshot();
+
+    // 如果错误对象中没有 rowTitle，尝试从原始数据中获取
+    if (!error.rowTitle && error.rowIndex >= 0 && rawData && error.tableName) {
+      for (const sheetId in rawData) {
+        if (rawData[sheetId]?.name === error.tableName) {
+          const row = rawData[sheetId].content?.[error.rowIndex + 1];
+          if (row) {
+            error.rowTitle = row[1] || row[0] || `行 ${error.rowIndex + 1}`;
+          }
+          break;
+        }
+      }
+    }
 
     // 获取快照值（用于字段级规则）
     let snapshotValue = '';
@@ -13705,6 +17709,9 @@
       inputHtml = `<textarea id="smart-fix-value" class="acu-edit-textarea" spellcheck="false"
         style="width:100%;min-height:60px;max-height:200px;resize:none;">${escapeHtml(error.currentValue || '')}</textarea>`;
     } else if (ruleType === 'format' && rule.config?.pattern) {
+      inputHtml = `<textarea id="smart-fix-value" class="acu-edit-textarea" spellcheck="false"
+        style="width:100%;min-height:60px;max-height:200px;resize:none;">${escapeHtml(error.currentValue || '')}</textarea>`;
+    } else if (ruleType === 'keyValue') {
       inputHtml = `<textarea id="smart-fix-value" class="acu-edit-textarea" spellcheck="false"
         style="width:100%;min-height:60px;max-height:200px;resize:none;">${escapeHtml(error.currentValue || '')}</textarea>`;
     } else {
@@ -13763,7 +17770,17 @@
       `;
     } else if (ruleType === 'format' && rule.config?.pattern) {
       // 格式验证：显示格式说明和推荐值
-      const suggestedValue = suggestFormatValue(rule.config.pattern, error.rowIndex);
+      // 获取表数据用于智能推算
+      let tableContent = null;
+      if (rawData && error.tableName) {
+        for (const sheetId in rawData) {
+          if (rawData[sheetId]?.name === error.tableName) {
+            tableContent = rawData[sheetId];
+            break;
+          }
+        }
+      }
+      const suggestedValue = suggestFormatValue(rule.config.pattern, error.rowIndex, [], tableContent);
       smartSuggestHtml = `
         <div class="acu-smart-fix-suggest">
           <div class="acu-smart-fix-suggest-label">
@@ -13815,27 +17832,207 @@
     } else if (ruleType === 'relation' && rule.config?.refTable && rule.config?.refColumn) {
       // 关联验证：显示可用值列表（带搜索）
       const options = getRelationOptions(rule.config.refTable, rule.config.refColumn, rawData);
+      const refColumns = Array.isArray(rule.config.refColumn) ? rule.config.refColumn : [rule.config.refColumn];
+      const hasMultipleColumns = refColumns.length > 1;
+      const currentInvalidValue = String(error.currentValue || '').trim();
+      const valueExists = isValueInRelationTable(
+        currentInvalidValue,
+        rule.config.refTable,
+        rule.config.refColumn,
+        rawData,
+      );
+
+      // 构建可用值列表HTML
+      let optionsHtml = '';
       if (options.length > 0) {
-        smartSuggestHtml = `
-          <div class="acu-smart-fix-suggest">
-            <div class="acu-smart-fix-suggest-label">
-              <i class="fa-solid fa-link"></i> 关联表 "${escapeHtml(rule.config.refTable)}" 可用值 (${options.length}项):
-            </div>
-            <div class="acu-smart-fix-suggest-options acu-smart-fix-suggest-options-scroll" id="smart-fix-options-container">
-              ${options
-                .map(
-                  val => `
-                <span class="acu-smart-fix-option ${error.currentValue === val ? 'acu-smart-fix-option-current' : ''}"
-                      data-value="${escapeHtml(val)}" title="${error.currentValue === val ? '当前值（无效）' : '点击选择'}">
-                  ${escapeHtml(val)}
-                </span>
-              `,
-                )
-                .join('')}
-            </div>
+        optionsHtml = `
+          <div class="acu-smart-fix-suggest-label">
+            <i class="fa-solid fa-link"></i> 关联表 "${escapeHtml(rule.config.refTable)}" 可用值 (${options.length}项):
+          </div>
+          <div class="acu-smart-fix-suggest-options acu-smart-fix-suggest-options-scroll" id="smart-fix-options-container">
+            ${options
+              .map(
+                val => `
+              <span class="acu-smart-fix-option ${error.currentValue === val ? 'acu-smart-fix-option-current' : ''}"
+                    data-value="${escapeHtml(val)}" title="${error.currentValue === val ? '当前值（无效）' : '点击选择'}">
+                ${escapeHtml(val)}
+              </span>
+            `,
+              )
+              .join('')}
           </div>
         `;
       }
+
+      // 反向写入选项：仅在值不存在于关联表中时显示
+      let reverseWriteHtml = '';
+      if (currentInvalidValue && !valueExists) {
+        if (hasMultipleColumns) {
+          // 多个列：显示选择器
+          reverseWriteHtml = `
+            <div class="acu-smart-fix-reverse-write" style="margin-top:15px;padding-top:15px;border-top:1px solid var(--acu-border);">
+              <div class="acu-smart-fix-suggest-label">
+                <i class="fa-solid fa-arrow-left"></i> 反向写入到关联表:
+              </div>
+              <div style="margin-top:8px;">
+                <select id="smart-fix-reverse-column" class="acu-edit-select" style="width:100%;margin-bottom:8px;">
+                  ${refColumns.map(col => `<option value="${escapeHtml(col)}">${escapeHtml(col)}</option>`).join('')}
+                </select>
+                <button class="acu-smart-fix-quick-btn" id="smart-fix-reverse-write-btn" style="width:100%;">
+                  <i class="fa-solid fa-plus"></i> 将 "${escapeHtml(currentInvalidValue.length > 30 ? currentInvalidValue.substring(0, 30) + '...' : currentInvalidValue)}" 写入到 "${escapeHtml(rule.config.refTable)}"
+                </button>
+              </div>
+            </div>
+          `;
+        } else {
+          // 单个列：直接显示按钮
+          reverseWriteHtml = `
+            <div class="acu-smart-fix-reverse-write" style="margin-top:15px;padding-top:15px;border-top:1px solid var(--acu-border);">
+              <div class="acu-smart-fix-suggest-label">
+                <i class="fa-solid fa-arrow-left"></i> 反向写入到关联表:
+              </div>
+              <div style="margin-top:8px;">
+                <button class="acu-smart-fix-quick-btn" id="smart-fix-reverse-write-btn" data-column="${escapeHtml(refColumns[0])}" style="width:100%;">
+                  <i class="fa-solid fa-plus"></i> 将 "${escapeHtml(currentInvalidValue.length > 30 ? currentInvalidValue.substring(0, 30) + '...' : currentInvalidValue)}" 写入到 "${escapeHtml(rule.config.refTable)}.${escapeHtml(refColumns[0])}"
+                </button>
+              </div>
+            </div>
+          `;
+        }
+      }
+
+      if (optionsHtml || reverseWriteHtml) {
+        smartSuggestHtml = `
+          <div class="acu-smart-fix-suggest">
+            ${optionsHtml}
+            ${reverseWriteHtml}
+          </div>
+        `;
+      }
+    } else if (ruleType === 'keyValue') {
+      // 键值对验证：显示格式说明和问题列表
+      const valueType = rule.config?.valueType || 'text';
+      const valueMin = rule.config?.valueMin;
+      const valueMax = rule.config?.valueMax;
+
+      // 预处理当前值
+      let processedValue = String(error.currentValue || '');
+      processedValue = processedValue.replace(/：/g, ':').replace(/；/g, ';').replace(/，/g, ';').replace(/\s+/g, '');
+
+      // 解析键值对并检测问题
+      const pairs = processedValue.split(';').filter(p => p.trim());
+      const issues = [];
+      const fixedPairs = [];
+
+      for (const pair of pairs) {
+        const colonIndex = pair.indexOf(':');
+        if (colonIndex === -1 || colonIndex === 0 || colonIndex === pair.length - 1) {
+          issues.push({ pair, error: '格式错误：缺少冒号或键/值为空' });
+          continue;
+        }
+
+        const key = pair.substring(0, colonIndex);
+        const val = pair.substring(colonIndex + 1);
+
+        if (!key || !val) {
+          issues.push({ pair, error: '键或值不能为空' });
+          continue;
+        }
+
+        let fixedVal = val;
+        let hasIssue = false;
+
+        if (valueType === 'numeric') {
+          const numVal = parseFloat(val);
+          if (isNaN(numVal)) {
+            issues.push({ pair, error: `"${val}" 不是有效数字` });
+            hasIssue = true;
+          } else {
+            if (valueMin !== undefined && valueMin !== null && numVal < valueMin) {
+              fixedVal = String(valueMin);
+              issues.push({ pair, error: `数值 ${numVal} 小于最小值 ${valueMin}` });
+              hasIssue = true;
+            } else if (valueMax !== undefined && valueMax !== null && numVal > valueMax) {
+              fixedVal = String(valueMax);
+              issues.push({ pair, error: `数值 ${numVal} 大于最大值 ${valueMax}` });
+              hasIssue = true;
+            }
+          }
+        }
+
+        fixedPairs.push({ key, val: fixedVal, originalVal: val, hasIssue });
+      }
+
+      // 生成修正后的完整字符串
+      const fixedValue = fixedPairs.map(p => `${p.key}:${p.val}`).join(';');
+      const hasIssues = issues.length > 0 || fixedPairs.some(p => p.hasIssue);
+
+      let issuesHtml = '';
+      if (hasIssues) {
+        issuesHtml = `
+          <div class="acu-smart-fix-suggest-label" style="margin-bottom:8px;">
+            <i class="fa-solid fa-exclamation-triangle"></i> 问题列表:
+          </div>
+          <div style="margin-bottom:8px;">
+            ${issues
+              .map(
+                issue => `
+              <div style="font-size:11px;color:var(--acu-text-sub);padding:4px 8px;background:var(--acu-card-bg);border-radius:4px;margin-bottom:4px;">
+                <span style="color:var(--acu-hl-manual);">❌</span> ${escapeHtml(issue.pair)} - ${escapeHtml(issue.error)}
+              </div>
+            `,
+              )
+              .join('')}
+            ${fixedPairs
+              .filter(p => p.hasIssue)
+              .map(
+                p => `
+              <div style="font-size:11px;color:var(--acu-text-sub);padding:4px 8px;background:var(--acu-card-bg);border-radius:4px;margin-bottom:4px;">
+                <span style="color:var(--acu-hl-manual);">⚠️</span> ${escapeHtml(p.key)}:${escapeHtml(p.originalVal)} → ${escapeHtml(p.val)}
+              </div>
+            `,
+              )
+              .join('')}
+          </div>
+        `;
+      }
+
+      smartSuggestHtml = `
+        <div class="acu-smart-fix-suggest">
+          <div class="acu-smart-fix-suggest-label">
+            <i class="fa-solid fa-key"></i> 格式要求: 键:值;键:值（使用英文标点，自动去除空格）
+          </div>
+          ${
+            valueType === 'numeric'
+              ? `
+            <div class="acu-smart-fix-suggest-label" style="margin-top:8px;">
+              <i class="fa-solid fa-hashtag"></i> 数值范围: ${valueMin !== undefined ? valueMin : '-∞'} ~ ${valueMax !== undefined ? valueMax : '+∞'}
+            </div>
+          `
+              : ''
+          }
+          ${issuesHtml}
+          ${
+            hasIssues
+              ? `
+            <div style="margin-top:8px;">
+              <span class="acu-smart-fix-quick-btn" data-value="${escapeHtml(fixedValue)}">
+                <i class="fa-solid fa-magic"></i> 一键修正所有问题
+              </span>
+            </div>
+            <div style="margin-top:8px;padding:8px;background:var(--acu-card-bg);border-radius:4px;font-size:11px;color:var(--acu-text-sub);">
+              <div style="margin-bottom:4px;"><strong>修正后预览:</strong></div>
+              <code style="color:var(--acu-success-text);">${escapeHtml(fixedValue)}</code>
+            </div>
+          `
+              : `
+            <div style="margin-top:8px;padding:8px;background:var(--acu-success-bg);border-radius:4px;font-size:11px;color:var(--acu-success-text);">
+              <i class="fa-solid fa-check-circle"></i> 格式正确
+            </div>
+          `
+          }
+        </div>
+      `;
     }
 
     // 弹窗HTML
@@ -13870,6 +18067,13 @@
 
             <!-- 当前值（可编辑） -->
             <div class="acu-diff-section acu-diff-new-section">
+              ${
+                error.rowTitle && error.rowIndex >= 0
+                  ? `<div style="font-size:12px;color:var(--acu-text-sub);margin-bottom:8px;padding:4px 8px;background:var(--acu-bg-sub);border-radius:4px;">
+                <i class="fa-solid fa-tag" style="margin-right:4px;"></i>${escapeHtml(error.rowTitle)}
+              </div>`
+                  : ''
+              }
               <div class="acu-diff-label">
                 <i class="fa-solid fa-pen"></i> 当前值（可编辑）
               </div>
@@ -13900,9 +18104,86 @@
 
     // 点击建议选项或快速修正按钮，填充到输入框
     dialog.on('click', '.acu-smart-fix-option, .acu-smart-fix-quick-btn', function () {
+      // 排除反向写入按钮
+      if ($(this).attr('id') === 'smart-fix-reverse-write-btn') return;
       if ($(this).hasClass('acu-smart-fix-option-current')) return;
       const optionValue = $(this).data('value') || $(this).text().trim();
       dialog.find('#smart-fix-value').val(optionValue).trigger('input');
+    });
+
+    // 反向写入到关联表
+    dialog.on('click', '#smart-fix-reverse-write-btn', async function () {
+      const currentInvalidValue = String(error.currentValue || '').trim();
+      if (!currentInvalidValue) {
+        if (window.toastr) window.toastr.warning('无法写入空值');
+        return;
+      }
+
+      // 确定要写入的列
+      let targetColumn;
+      if (ruleType === 'relation' && rule.config?.refColumn) {
+        const refColumns = Array.isArray(rule.config.refColumn) ? rule.config.refColumn : [rule.config.refColumn];
+        if (refColumns.length > 1) {
+          // 多个列：从选择器获取
+          targetColumn = dialog.find('#smart-fix-reverse-column').val();
+        } else {
+          // 单个列：从按钮的data属性或直接使用
+          targetColumn = $(this).data('column') || refColumns[0];
+        }
+      } else {
+        if (window.toastr) window.toastr.error('无法确定目标列');
+        return;
+      }
+
+      if (!targetColumn || !rule.config?.refTable) {
+        if (window.toastr) window.toastr.error('无法确定目标表或列');
+        return;
+      }
+
+      try {
+        const rawData = cachedRawData || getTableData();
+        let refSheet = null;
+        let refSheetId = null;
+
+        // 查找关联表
+        for (const sheetId in rawData) {
+          if (rawData[sheetId]?.name === rule.config.refTable) {
+            refSheet = rawData[sheetId];
+            refSheetId = sheetId;
+            break;
+          }
+        }
+
+        if (!refSheet || !refSheet.content) {
+          if (window.toastr) window.toastr.error(`找不到关联表 "${rule.config.refTable}"`);
+          return;
+        }
+
+        const headers = refSheet.content[0] || [];
+        const targetColIdx = headers.indexOf(targetColumn);
+
+        if (targetColIdx === -1) {
+          if (window.toastr) window.toastr.error(`关联表中不存在列 "${targetColumn}"`);
+          return;
+        }
+
+        // 创建新行：长度与表头一致，填充空字符串
+        const newRow = new Array(headers.length).fill('');
+        newRow[targetColIdx] = currentInvalidValue;
+
+        // 添加到表末尾
+        refSheet.content.push(newRow);
+
+        // 保存数据
+        await saveDataToDatabase(rawData, false, false);
+
+        // 关闭弹窗并重新渲染界面（会自动重新验证，所有相关错误会消失）
+        closeDialog();
+        renderInterface();
+      } catch (e) {
+        console.error('[DICE]ACU 反向写入失败:', e);
+        if (window.toastr) window.toastr.error('反向写入失败: ' + (e.message || '未知错误'));
+      }
     });
 
     // 恢复快照值
@@ -13957,13 +18238,319 @@
           if (window.toastr) window.toastr.error('无法找到目标单元格');
         }
       } catch (e) {
-        console.error('[ACU] 更新单元格失败:', e);
+        console.error('[DICE]ACU 更新单元格失败:', e);
         if (window.toastr) window.toastr.error('更新失败: ' + (e.message || '未知错误'));
       }
     });
   };
 
   // ========================================
+  // ========================================
+  // 配对表编码修复辅助函数
+  // ========================================
+
+  // 从表中提取所有编码值
+  function extractCodesFromTable(sheet, columnName, prefix) {
+    if (!sheet || !sheet.content || sheet.content.length < 2) {
+      return { codes: new Map(), allCodes: new Set(), codeToRows: new Map() };
+    }
+
+    const headers = sheet.content[0] || [];
+    const rows = sheet.content.slice(1) || [];
+    const colIndex = headers.indexOf(columnName);
+
+    if (colIndex < 0) {
+      return { codes: new Map(), allCodes: new Set(), codeToRows: new Map() };
+    }
+
+    const codes = new Map(); // Map<编码值, 行索引数组>
+    const allCodes = new Set(); // Set<编码值>
+    const codeToRows = new Map(); // Map<编码值, 行索引数组>
+
+    for (let i = 0; i < rows.length; i++) {
+      const value = rows[i]?.[colIndex];
+      if (value === null || value === undefined || value === '') continue;
+
+      const strValue = String(value).trim();
+      if (!strValue) continue;
+
+      // 验证编码格式
+      let isValid = false;
+      if (prefix) {
+        const match = strValue.match(new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+)$`));
+        if (match) {
+          isValid = true;
+        }
+      } else {
+        const num = parseInt(strValue, 10);
+        if (!isNaN(num)) {
+          isValid = true;
+        }
+      }
+
+      if (isValid) {
+        allCodes.add(strValue);
+        if (!codeToRows.has(strValue)) {
+          codeToRows.set(strValue, []);
+        }
+        codeToRows.get(strValue).push(i);
+      }
+    }
+
+    return { codes, allCodes, codeToRows };
+  }
+
+  // 构建编码映射：旧编码 → 新编码
+  function buildCodeMapping(codes1, codes2, prefix, startFrom) {
+    // 合并两个表的所有唯一编码值
+    const allUniqueCodes = new Set([...codes1, ...codes2]);
+
+    // 提取数字部分并排序
+    const codeNumbers = [];
+    for (const code of allUniqueCodes) {
+      let num = null;
+      if (prefix) {
+        const match = code.match(new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+)$`));
+        if (match) {
+          num = parseInt(match[1], 10);
+        }
+      } else {
+        num = parseInt(code, 10);
+      }
+
+      if (!isNaN(num)) {
+        codeNumbers.push({ code, num });
+      }
+    }
+
+    // 按数字部分排序
+    codeNumbers.sort((a, b) => a.num - b.num);
+
+    // 建立映射：旧编码 → 新编码
+    const mapping = new Map();
+    for (let i = 0; i < codeNumbers.length; i++) {
+      const oldCode = codeNumbers[i].code;
+      const newNum = startFrom + i;
+      const newCode = prefix + String(newNum).padStart(3, '0');
+      mapping.set(oldCode, newCode);
+    }
+
+    return mapping;
+  }
+
+  // 对齐和修复配对表
+  // 核心逻辑：
+  // 1. 编码为空的行保持原位置不动（这些是错误数据，由必填规则检测）
+  // 2. 有效编码行更新编码值，修复跳号
+  // 3. 缺失的编码插入空白行，保证两表有编码的行数一致
+  function alignAndFixPairedTables(
+    table1Sheet,
+    table1SheetId,
+    table2Sheet,
+    table2SheetId,
+    columnName,
+    mapping,
+    prefix,
+    startFrom,
+    rawData,
+  ) {
+    if (!table1Sheet || !table2Sheet) return { fixedCount1: 0, fixedCount2: 0 };
+
+    const headers1 = table1Sheet.content[0] || [];
+    const rows1 = table1Sheet.content.slice(1) || [];
+    const colIndex1 = headers1.indexOf(columnName);
+
+    const headers2 = table2Sheet.content[0] || [];
+    const rows2 = table2Sheet.content.slice(1) || [];
+    const colIndex2 = headers2.indexOf(columnName);
+
+    if (colIndex1 < 0 || colIndex2 < 0) return { fixedCount1: 0, fixedCount2: 0 };
+
+    let fixedCount1 = 0;
+    let fixedCount2 = 0;
+
+    // 构建反向映射：新编码 -> 旧编码
+    const reverseMapping = new Map();
+    for (const [oldCode, newCode] of mapping.entries()) {
+      reverseMapping.set(newCode, oldCode);
+    }
+
+    // 按新编码的数字部分排序
+    const sortedNewCodes = Array.from(mapping.values()).sort((a, b) => {
+      const numA = parseInt(a.replace(prefix, ''), 10);
+      const numB = parseInt(b.replace(prefix, ''), 10);
+      return numA - numB;
+    });
+
+    // 分析表结构：识别有效编码行和空白编码行，记录空白行在哪两个编码之间
+    const analyzeTable = (rows, colIndex) => {
+      const codeRows = []; // {rowIndex, oldCode, row}
+      const emptyRows = []; // {rowIndex, row, prevOldCode, nextOldCode}
+
+      for (let i = 0; i < rows.length; i++) {
+        const value = rows[i]?.[colIndex];
+        const strValue = value === null || value === undefined ? '' : String(value).trim();
+
+        // 检查是否是有效编码
+        let isValid = false;
+        if (strValue && prefix) {
+          const match = strValue.match(new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+)$`));
+          if (match) isValid = true;
+        } else if (strValue) {
+          const num = parseInt(strValue, 10);
+          if (!isNaN(num)) isValid = true;
+        }
+
+        if (isValid) {
+          codeRows.push({ rowIndex: i, oldCode: strValue, row: rows[i] });
+        } else {
+          emptyRows.push({ rowIndex: i, row: rows[i], prevOldCode: null, nextOldCode: null });
+        }
+      }
+
+      // 为每个空白行确定它在哪两个编码之间
+      for (const emptyRow of emptyRows) {
+        let prevCode = null;
+        let nextCode = null;
+
+        for (const codeRow of codeRows) {
+          if (codeRow.rowIndex < emptyRow.rowIndex) {
+            prevCode = codeRow.oldCode;
+          }
+          if (codeRow.rowIndex > emptyRow.rowIndex && nextCode === null) {
+            nextCode = codeRow.oldCode;
+            break;
+          }
+        }
+
+        emptyRow.prevOldCode = prevCode;
+        emptyRow.nextOldCode = nextCode;
+      }
+
+      return { codeRows, emptyRows };
+    };
+
+    const analysis1 = analyzeTable(rows1, colIndex1);
+    const analysis2 = analyzeTable(rows2, colIndex2);
+
+    // 构建新的行序列
+    const buildNewRows = (analysis, headers, colIndex, allOldCodes) => {
+      const newRows = [];
+      const codeRowMap = new Map(); // oldCode -> row data
+
+      // 构建旧编码到行数据的映射
+      for (const cr of analysis.codeRows) {
+        codeRowMap.set(cr.oldCode, cr.row);
+      }
+
+      // 按新编码顺序构建有效编码行
+      for (const newCode of sortedNewCodes) {
+        const oldCode = reverseMapping.get(newCode);
+
+        if (codeRowMap.has(oldCode)) {
+          // 有对应的旧数据，更新编码
+          const oldRow = codeRowMap.get(oldCode);
+          const newRow = oldRow.map(cell => cell);
+          newRow[colIndex] = newCode;
+          newRows.push({ newCode, row: newRow, isCodeRow: true });
+        } else {
+          // 缺失的编码，创建空白行（只有编码，其他列为空）
+          const newRow = new Array(headers.length).fill(null);
+          newRow[colIndex] = newCode;
+          newRows.push({ newCode, row: newRow, isCodeRow: true, isInserted: true });
+        }
+      }
+
+      // 把空白编码行插入到它们原来的相对位置
+      // 相对位置由 prevOldCode 和 nextOldCode 确定
+      const result = [];
+      let codeRowIndex = 0;
+
+      // 先处理在所有编码之前的空白行
+      for (const emptyRow of analysis.emptyRows) {
+        if (emptyRow.prevOldCode === null && emptyRow.nextOldCode !== null) {
+          // 在第一个编码之前
+          const nextNewCode = mapping.get(emptyRow.nextOldCode);
+          // 在对应的新编码之前插入
+          while (codeRowIndex < newRows.length && newRows[codeRowIndex].newCode !== nextNewCode) {
+            result.push(newRows[codeRowIndex].row);
+            codeRowIndex++;
+          }
+          result.push(emptyRow.row);
+        } else if (emptyRow.prevOldCode === null && emptyRow.nextOldCode === null) {
+          // 表中只有空白行，没有有效编码
+          result.push(emptyRow.row);
+        }
+      }
+
+      // 处理有效编码行和在编码之间的空白行
+      for (; codeRowIndex < newRows.length; codeRowIndex++) {
+        result.push(newRows[codeRowIndex].row);
+        const currentNewCode = newRows[codeRowIndex].newCode;
+        const currentOldCode = reverseMapping.get(currentNewCode);
+
+        // 检查是否有空白行应该在这个编码之后
+        for (const emptyRow of analysis.emptyRows) {
+          if (emptyRow.prevOldCode === currentOldCode) {
+            result.push(emptyRow.row);
+          }
+        }
+      }
+
+      // 处理在所有编码之后的空白行（prevOldCode 是最后一个编码，nextOldCode 为 null）
+      for (const emptyRow of analysis.emptyRows) {
+        if (emptyRow.prevOldCode !== null && emptyRow.nextOldCode === null) {
+          // 已经在上面的循环中处理了
+        }
+      }
+
+      return result;
+    };
+
+    // 构建两个表的新行
+    const newRows1 = buildNewRows(analysis1, headers1, colIndex1, new Set(analysis1.codeRows.map(r => r.oldCode)));
+    const newRows2 = buildNewRows(analysis2, headers2, colIndex2, new Set(analysis2.codeRows.map(r => r.oldCode)));
+
+    // 计算修复数量
+    const countCodeChanges = (oldAnalysis, newRows, colIndex) => {
+      let count = 0;
+      // 统计编码变化的数量
+      const oldCodes = new Set(oldAnalysis.codeRows.map(r => r.oldCode));
+      const newCodes = new Set();
+
+      for (const row of newRows) {
+        const code = row[colIndex];
+        if (code) newCodes.add(code);
+      }
+
+      // 计算更新的编码数量和新插入的行数量
+      for (const [oldCode, newCode] of mapping.entries()) {
+        if (oldCodes.has(oldCode) && oldCode !== newCode) {
+          count++; // 编码被更新
+        }
+      }
+
+      // 计算新插入的行数量
+      for (const newCode of sortedNewCodes) {
+        const oldCode = reverseMapping.get(newCode);
+        if (!oldCodes.has(oldCode)) {
+          count++; // 新插入的行
+        }
+      }
+
+      return count;
+    };
+
+    fixedCount1 = countCodeChanges(analysis1, newRows1, colIndex1);
+    fixedCount2 = countCodeChanges(analysis2, newRows2, colIndex2);
+
+    // 更新表内容
+    table1Sheet.content = [headers1, ...newRows1];
+    table2Sheet.content = [headers2, ...newRows2];
+
+    return { fixedCount1, fixedCount2 };
+  }
+
   // 表级规则智能修改弹窗
   // ========================================
   const showTableRuleFixModal = (error, rule, ruleType, rawData, snapshot, currentThemeClass) => {
@@ -14121,6 +18708,213 @@
       } else {
         actionBtns = `<button class="acu-dialog-btn" id="smart-fix-cancel"><i class="fa-solid fa-times"></i> 关闭</button>`;
       }
+    } else if (ruleType === 'sequence' && rule.targetColumn) {
+      // 序列递增规则：检测跳号、重复，提供自动修复
+      const prefix = rule.config?.prefix || '';
+      const startFrom = rule.config?.startFrom !== undefined ? rule.config?.startFrom : 1;
+      let targetSheet = null;
+      let issues = [];
+      let fixSuggestions = [];
+
+      // 找到目标表
+      for (const sheetId in rawData) {
+        if (rawData[sheetId]?.name === error.tableName) {
+          targetSheet = rawData[sheetId];
+          break;
+        }
+      }
+
+      if (targetSheet && targetSheet.content && targetSheet.content.length > 1) {
+        const headers = targetSheet.content[0] || [];
+        const rows = targetSheet.content.slice(1) || [];
+        const colIndex = headers.indexOf(rule.targetColumn);
+
+        if (colIndex >= 0) {
+          // 提取所有编码索引的数字部分
+          const numbers = [];
+          for (let i = 0; i < rows.length; i++) {
+            const value = rows[i]?.[colIndex];
+            if (value === null || value === undefined || value === '') continue;
+
+            const strValue = String(value).trim();
+            if (!strValue) continue;
+
+            let num = null;
+            if (prefix) {
+              const match = strValue.match(new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+)$`));
+              if (match) {
+                num = parseInt(match[1], 10);
+              }
+            } else {
+              num = parseInt(strValue, 10);
+            }
+
+            if (!isNaN(num)) {
+              numbers.push({ rowIndex: i, value: strValue, num, originalRowIndex: i + 2 }); // +2 因为表头+1索引
+            }
+          }
+
+          // 按行索引排序
+          numbers.sort((a, b) => a.rowIndex - b.rowIndex);
+
+          // 检测问题
+          const numCountMap = new Map(); // 记录每个数字出现的次数和位置
+          const duplicates = [];
+          const gaps = [];
+          const outOfOrder = [];
+
+          // 第一遍：统计每个数字出现的次数
+          for (let i = 0; i < numbers.length; i++) {
+            const actualNum = numbers[i].num;
+            if (!numCountMap.has(actualNum)) {
+              numCountMap.set(actualNum, []);
+            }
+            numCountMap.get(actualNum).push(i);
+          }
+
+          // 第二遍：检测问题
+          for (let i = 0; i < numbers.length; i++) {
+            const expectedNum = startFrom + i;
+            const actualNum = numbers[i].num;
+            const rowNum = numbers[i].originalRowIndex;
+
+            // 检测重复（如果这个数字出现了多次）
+            const occurrences = numCountMap.get(actualNum) || [];
+            if (occurrences.length > 1) {
+              // 只有第一次出现时才添加到重复列表（避免重复报告）
+              if (occurrences[0] === i) {
+                duplicates.push({
+                  rowNum,
+                  value: numbers[i].value,
+                  num: actualNum,
+                  expectedNum,
+                  count: occurrences.length,
+                });
+              }
+            }
+
+            // 检测跳号或顺序错误
+            if (actualNum !== expectedNum) {
+              if (actualNum < expectedNum) {
+                // 数字小于期望值（可能是重复或顺序错误）
+                outOfOrder.push({ rowNum, value: numbers[i].value, num: actualNum, expectedNum });
+              } else {
+                // 数字大于期望值（跳号）
+                gaps.push({ rowNum, value: numbers[i].value, num: actualNum, expectedNum });
+              }
+            }
+          }
+
+          // 生成修复建议
+          for (let i = 0; i < numbers.length; i++) {
+            const expectedNum = startFrom + i;
+            const actualNum = numbers[i].num;
+            const rowNum = numbers[i].originalRowIndex;
+            const currentValue = numbers[i].value;
+            const fixedValue = prefix + String(expectedNum).padStart(3, '0');
+
+            if (actualNum !== expectedNum || duplicates.some(d => d.num === actualNum && d.rowNum === rowNum)) {
+              fixSuggestions.push({
+                rowNum,
+                currentValue,
+                fixedValue,
+                reason: actualNum < expectedNum ? '重复或顺序错误' : actualNum > expectedNum ? '跳号' : '重复',
+              });
+            }
+          }
+
+          // 合并所有问题（去重，因为重复和顺序错误可能有重叠）
+          const issueSet = new Set();
+          duplicates.forEach(d => {
+            issueSet.add(`第${d.rowNum}行: "${d.value}" 重复 (出现${d.count}次)`);
+          });
+          gaps.forEach(g => {
+            issueSet.add(
+              `第${g.rowNum}行: "${g.value}" 应为 "${prefix}${String(g.expectedNum).padStart(3, '0')}" (跳号)`,
+            );
+          });
+          outOfOrder.forEach(o => {
+            issueSet.add(
+              `第${o.rowNum}行: "${o.value}" 应为 "${prefix}${String(o.expectedNum).padStart(3, '0')}" (顺序错误)`,
+            );
+          });
+          issues = Array.from(issueSet);
+        }
+      }
+
+      contentHtml = `
+        <div class="acu-smart-fix-rule-info">
+          <div class="acu-smart-fix-rule-header">
+            <i class="fa-solid fa-sort-numeric-up"></i>
+            <span>序列递增验证</span>
+          </div>
+          <div class="acu-smart-fix-rule-desc">${escapeHtml(error.errorMessage || rule.errorMessage || '')}</div>
+        </div>
+        <div class="acu-smart-fix-table-summary">
+          <div class="acu-smart-fix-stat">
+            <i class="fa-solid fa-exclamation-triangle"></i>
+            检测到 <strong>${issues.length}</strong> 个问题
+          </div>
+          ${
+            issues.length > 0
+              ? `
+            <div class="acu-smart-fix-change-list" style="max-height:200px;overflow-y:auto;margin-top:8px;">
+              ${issues
+                .slice(0, 20)
+                .map(issue => `<div class="acu-smart-fix-change-item">${escapeHtml(issue)}</div>`)
+                .join('')}
+              ${issues.length > 20 ? `<div class="acu-smart-fix-change-item">... 还有 ${issues.length - 20} 个问题</div>` : ''}
+            </div>
+          `
+              : ''
+          }
+          ${
+            fixSuggestions.length > 0
+              ? `
+            <div class="acu-smart-fix-suggest" style="margin-top:12px;">
+              <div class="acu-smart-fix-suggest-label">
+                <i class="fa-solid fa-lightbulb"></i> 修复建议:
+              </div>
+              <div class="acu-smart-fix-change-list" style="max-height:200px;overflow-y:auto;margin-top:8px;">
+                ${fixSuggestions
+                  .slice(0, 20)
+                  .map(
+                    fix => `
+                  <div class="acu-smart-fix-change-item">
+                    <span style="color:var(--acu-text-sub);">第${fix.rowNum}行:</span>
+                    <span style="color:var(--acu-hl-manual);">${escapeHtml(fix.currentValue)}</span>
+                    <span style="color:var(--acu-text-sub);"> → </span>
+                    <span style="color:var(--acu-hl-auto);">${escapeHtml(fix.fixedValue)}</span>
+                    <span style="color:var(--acu-text-sub);font-size:11px;"> (${escapeHtml(fix.reason)})</span>
+                  </div>
+                `,
+                  )
+                  .join('')}
+                ${fixSuggestions.length > 20 ? `<div class="acu-smart-fix-change-item">... 还有 ${fixSuggestions.length - 20} 处需要修复</div>` : ''}
+              </div>
+            </div>
+          `
+              : ''
+          }
+        </div>
+      `;
+
+      if (fixSuggestions.length > 0) {
+        // 检测是否有配对表
+        const pairedTable =
+          rule.config?.pairedTable ||
+          (error.tableName === '总结表' ? '总体大纲' : error.tableName === '总体大纲' ? '总结表' : null);
+        const pairedTableAttr = pairedTable ? `data-paired-table="${escapeHtml(pairedTable)}"` : '';
+
+        actionBtns = `
+          <button class="acu-dialog-btn" id="smart-fix-cancel"><i class="fa-solid fa-times"></i> 取消</button>
+          <button class="acu-dialog-btn acu-btn-confirm" id="smart-fix-fix-sequence" data-table="${escapeHtml(error.tableName)}" data-column="${escapeHtml(rule.targetColumn)}" data-prefix="${escapeHtml(prefix)}" data-start="${startFrom}" ${pairedTableAttr}>
+            <i class="fa-solid fa-magic"></i> 自动修复 ${fixSuggestions.length} 处
+          </button>
+        `;
+      } else {
+        actionBtns = `<button class="acu-dialog-btn" id="smart-fix-cancel"><i class="fa-solid fa-times"></i> 关闭</button>`;
+      }
     }
 
     const dialog = $(`
@@ -14166,8 +18960,154 @@
         closeDialog();
         renderInterface();
       } catch (e) {
-        console.error('[ACU] 恢复表失败:', e);
+        console.error('[DICE]ACU 恢复表失败:', e);
         if (window.toastr) window.toastr.error('恢复失败: ' + (e.message || '未知错误'));
+      }
+    });
+
+    // 自动修复序列递增
+    dialog.on('click', '#smart-fix-fix-sequence', async function () {
+      const $btn = $(this);
+      const tableName = $btn.data('table');
+      const columnName = $btn.data('column');
+      const prefix = $btn.data('prefix') || '';
+      const startFrom = parseInt($btn.data('start') || '1', 10);
+      const pairedTableName = $btn.data('paired-table') || null;
+
+      try {
+        $btn.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i> 修复中...');
+
+        // 找到目标表
+        let targetSheet = null;
+        let targetSheetId = null;
+        for (const sheetId in rawData) {
+          if (rawData[sheetId]?.name === tableName) {
+            targetSheet = rawData[sheetId];
+            targetSheetId = sheetId;
+            break;
+          }
+        }
+
+        if (!targetSheet || !targetSheet.content || targetSheet.content.length < 2) {
+          if (window.toastr) window.toastr.warning('未找到目标表');
+          $btn.prop('disabled', false).html('<i class="fa-solid fa-magic"></i> 自动修复');
+          return;
+        }
+
+        const headers = targetSheet.content[0] || [];
+        const rows = targetSheet.content.slice(1) || [];
+        const colIndex = headers.indexOf(columnName);
+
+        if (colIndex < 0) {
+          if (window.toastr) window.toastr.warning('未找到目标列');
+          $btn.prop('disabled', false).html('<i class="fa-solid fa-magic"></i> 自动修复');
+          return;
+        }
+
+        // 如果有配对表，使用配对修复逻辑
+        if (pairedTableName) {
+          // 找到配对表
+          let pairedSheet = null;
+          let pairedSheetId = null;
+          for (const sheetId in rawData) {
+            if (rawData[sheetId]?.name === pairedTableName) {
+              pairedSheet = rawData[sheetId];
+              pairedSheetId = sheetId;
+              break;
+            }
+          }
+
+          if (!pairedSheet || !pairedSheet.content || pairedSheet.content.length < 1) {
+            if (window.toastr) window.toastr.warning(`未找到配对表: ${pairedTableName}`);
+            $btn.prop('disabled', false).html('<i class="fa-solid fa-magic"></i> 自动修复');
+            return;
+          }
+
+          const pairedHeaders = pairedSheet.content[0] || [];
+          const pairedColIndex = pairedHeaders.indexOf(columnName);
+
+          if (pairedColIndex < 0) {
+            if (window.toastr) window.toastr.warning(`配对表中未找到目标列: ${columnName}`);
+            $btn.prop('disabled', false).html('<i class="fa-solid fa-magic"></i> 自动修复');
+            return;
+          }
+
+          // 提取两个表的编码
+          const extract1 = extractCodesFromTable(targetSheet, columnName, prefix);
+          const extract2 = extractCodesFromTable(pairedSheet, columnName, prefix);
+
+          // 构建编码映射
+          const mapping = buildCodeMapping(extract1.allCodes, extract2.allCodes, prefix, startFrom);
+
+          // 对齐和修复
+          const { fixedCount1, fixedCount2 } = alignAndFixPairedTables(
+            targetSheet,
+            targetSheetId,
+            pairedSheet,
+            pairedSheetId,
+            columnName,
+            mapping,
+            prefix,
+            startFrom,
+            rawData,
+          );
+
+          // 保存数据
+          await saveDataToDatabase(rawData, false, false);
+          closeDialog();
+          renderInterface();
+        } else {
+          // 原有的单表修复逻辑
+          // 提取所有编码索引的数字部分
+          const numbers = [];
+          for (let i = 0; i < rows.length; i++) {
+            const value = rows[i]?.[colIndex];
+            if (value === null || value === undefined || value === '') continue;
+
+            const strValue = String(value).trim();
+            if (!strValue) continue;
+
+            let num = null;
+            if (prefix) {
+              const match = strValue.match(new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+)$`));
+              if (match) {
+                num = parseInt(match[1], 10);
+              }
+            } else {
+              num = parseInt(strValue, 10);
+            }
+
+            if (!isNaN(num)) {
+              numbers.push({ rowIndex: i, value: strValue, num });
+            }
+          }
+
+          // 按行索引排序
+          numbers.sort((a, b) => a.rowIndex - b.rowIndex);
+
+          // 修复编号
+          let fixedCount = 0;
+          for (let i = 0; i < numbers.length; i++) {
+            const expectedNum = startFrom + i;
+            const actualNum = numbers[i].num;
+            const rowIndex = numbers[i].rowIndex;
+
+            if (actualNum !== expectedNum) {
+              const fixedValue = prefix + String(expectedNum).padStart(3, '0');
+              rows[rowIndex][colIndex] = fixedValue;
+              fixedCount++;
+            }
+          }
+
+          // 保存数据
+          await saveDataToDatabase(rawData, false, false);
+          closeDialog();
+          renderInterface();
+        }
+      } catch (e) {
+        console.error('[DICE]ACU 修复序列递增失败:', e);
+        if (window.toastr) window.toastr.error('修复失败: ' + (e.message || '未知错误'));
+        $btn.prop('disabled', false).html('<i class="fa-solid fa-magic"></i> 自动修复');
       }
     });
 
@@ -14189,7 +19129,7 @@
         closeDialog();
         renderInterface();
       } catch (e) {
-        console.error('[ACU] 删除行失败:', e);
+        console.error('[DICE]ACU 删除行失败:', e);
         if (window.toastr) window.toastr.error('删除失败: ' + (e.message || '未知错误'));
       }
     });
@@ -14198,6 +19138,173 @@
   // ========================================
   // 属性预设管理面板
   // ========================================
+
+  // 黑名单管理模态框
+  const showBlacklistManagerModal = () => {
+    const { $ } = getCore();
+    const config = getConfig();
+    const theme = getThemeColors();
+    const t = theme;
+
+    $('.acu-blacklist-manager-overlay').remove();
+
+    const blacklist = BlacklistManager.getBlacklist();
+
+    const modalHtml = `
+      <div class="acu-blacklist-manager-overlay">
+        <div class="acu-edit-dialog acu-theme-${config.theme}" style="max-width: 600px; width: 90%;">
+          <div class="acu-edit-title" style="position: relative;">
+            <i class="fa-solid fa-filter"></i> 过滤黑名单管理
+            <button class="acu-close-btn" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); background: none; border: none; color: ${t.textMain}; cursor: pointer; font-size: 18px; z-index: 10;">
+              <i class="fa-solid fa-times"></i>
+            </button>
+          </div>
+          <div class="acu-settings-content" style="flex: 1; overflow-y: auto; padding: 20px;">
+            <div style="margin-bottom: 15px;">
+              <div style="margin-bottom: 8px; font-size: 12px; color: ${t.textSub};">
+                黑名单中的关键词对应的最下层变量名或列名将不会显示快捷骰子图标
+              </div>
+              <textarea id="blacklist-textarea" style="width: 100%; min-height: 120px; max-height: 300px; padding: 10px !important; border: 1px solid ${t.border} !important; border-radius: 4px !important; background: ${t.inputBg} !important; color: ${t.textMain} !important; font-size: 13px !important; box-sizing: border-box !important; resize: vertical; font-family: monospace; line-height: 1.5;" placeholder="输入关键词，用逗号分隔（支持中英文逗号）"></textarea>
+              <div style="display: flex; gap: 8px; margin-top: 8px; flex-wrap: nowrap;">
+                <input type="text" id="blacklist-input" placeholder="输入关键词..." style="flex: 1; min-width: 0; padding: 8px !important; border: 1px solid ${t.border} !important; border-radius: 4px !important; background: ${t.inputBg} !important; color: ${t.textMain} !important; font-size: 13px !important; box-sizing: border-box !important;">
+                <button id="blacklist-add-btn" style="padding: 8px 16px; background: ${t.accent}; color: ${t.buttonTextOnAccent || t.textMain || '#6B4A5A'}; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; white-space: nowrap; flex-shrink: 0;">
+                  <i class="fa-solid fa-plus"></i> 添加
+                </button>
+              </div>
+            </div>
+            <div style="display: flex; gap: 8px; margin-top: 15px;">
+              <button id="blacklist-reset-btn" style="flex: 1; padding: 10px; background: ${t.btnBg}; color: ${t.textMain}; border: 1px solid ${t.border}; border-radius: 4px; cursor: pointer; font-size: 13px;">
+                <i class="fa-solid fa-undo"></i> 重置为默认
+              </button>
+              <button id="blacklist-close-btn" style="flex: 1; padding: 10px; background: ${t.accent}; color: ${t.buttonTextOnAccent || t.textMain || '#6B4A5A'}; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
+                <i class="fa-solid fa-check"></i> 完成
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const $modal = $(modalHtml);
+    $('body').append($modal);
+
+    // 设置模态框样式
+    $modal.css({
+      position: 'fixed',
+      top: '0',
+      left: '0',
+      right: '0',
+      bottom: '0',
+      width: '100vw',
+      height: '100vh',
+      background: 'rgba(0,0,0,0.6)',
+      'z-index': '2147483655',
+      display: 'flex',
+      'align-items': 'center',
+      'justify-content': 'center',
+      padding: '20px',
+      'box-sizing': 'border-box',
+    });
+
+    // 更新textarea内容
+    const updateTextarea = () => {
+      const blacklist = BlacklistManager.getBlacklist();
+      const $textarea = $modal.find('#blacklist-textarea');
+      $textarea.val(blacklist.join('，'));
+    };
+
+    // 从textarea同步到BlacklistManager
+    const syncFromTextarea = () => {
+      const $textarea = $modal.find('#blacklist-textarea');
+      const text = $textarea.val().trim();
+      if (!text) {
+        BlacklistManager.setBlacklist([]);
+        return;
+      }
+      // 支持中英文逗号分隔
+      const items = text
+        .split(/[，,]/)
+        .map(s => s.trim())
+        .filter(s => s.length > 0);
+      // 去重
+      const uniqueItems = [...new Set(items)];
+      BlacklistManager.setBlacklist(uniqueItems);
+      // 更新textarea（去除重复后）
+      if (uniqueItems.length !== items.length) {
+        updateTextarea();
+      }
+    };
+
+    // 初始化textarea
+    updateTextarea();
+
+    // textarea内容变化时同步
+    $modal.find('#blacklist-textarea').on('input', function () {
+      syncFromTextarea();
+    });
+
+    // 添加按钮：支持批量添加（逗号分隔）
+    $modal.find('#blacklist-add-btn').click(function () {
+      const input = $modal.find('#blacklist-input');
+      const value = input.val().trim();
+      if (!value) return;
+
+      // 支持中英文逗号分隔批量添加
+      const newItems = value
+        .split(/[，,]/)
+        .map(s => s.trim())
+        .filter(s => s.length > 0);
+
+      if (newItems.length === 0) return;
+
+      const blacklist = BlacklistManager.getBlacklist();
+      const existingSet = new Set(blacklist);
+      const addedItems = [];
+
+      newItems.forEach(item => {
+        if (!existingSet.has(item)) {
+          blacklist.push(item);
+          existingSet.add(item);
+          addedItems.push(item);
+        }
+      });
+
+      if (addedItems.length === 0) {
+        if (window.toastr) window.toastr.warning('所有项已存在');
+        return;
+      }
+
+      BlacklistManager.setBlacklist(blacklist);
+      input.val('');
+      updateTextarea();
+      if (window.toastr) window.toastr.success(`已添加 ${addedItems.length} 项`);
+    });
+
+    $modal.find('#blacklist-input').on('keypress', function (e) {
+      if (e.which === 13) {
+        $modal.find('#blacklist-add-btn').click();
+      }
+    });
+
+    $modal.find('#blacklist-reset-btn').click(function () {
+      if (confirm('确定要重置黑名单为默认值吗？')) {
+        BlacklistManager.resetToDefault();
+        updateTextarea();
+        if (window.toastr) window.toastr.success('已重置为默认值');
+      }
+    });
+
+    const closeModal = () => {
+      $modal.remove();
+      // 重新渲染界面以应用黑名单变化
+      renderInterface();
+    };
+
+    $modal.find('#blacklist-close-btn, .acu-close-btn').click(closeModal);
+    $modal.on('click', function (e) {
+      if ($(e.target).hasClass('acu-blacklist-manager-overlay')) closeModal();
+    });
+  };
 
   const showAttributePresetManager = () => {
     const { $ } = getCore();
@@ -14359,8 +19466,6 @@
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-
-      if (window.toastr) window.toastr.success('预设已导出');
     });
 
     // 删除预设
@@ -14371,7 +19476,6 @@
       if (confirm(`确定要删除预设「${preset?.name}」吗？`)) {
         const success = AttributePresetManager.deletePreset(id);
         if (success) {
-          if (window.toastr) window.toastr.success('预设已删除');
           overlay.remove();
           showAttributePresetManager();
         } else {
@@ -14400,14 +19504,13 @@
         try {
           const imported = AttributePresetManager.importPreset(evt.target.result);
           if (imported) {
-            if (window.toastr) window.toastr.success(`预设「${imported.name}」导入成功`);
             overlay.remove();
             showAttributePresetManager();
           } else {
             if (window.toastr) window.toastr.error('导入失败：格式不正确');
           }
         } catch (err) {
-          console.error('[ACU] 导入预设失败:', err);
+          console.error('[DICE]ACU 导入预设失败:', err);
           if (window.toastr) window.toastr.error('导入失败');
         }
       };
@@ -14558,16 +19661,14 @@
         // 保存
         if (isEdit) {
           AttributePresetManager.updatePreset(presetId, preset);
-          if (window.toastr) window.toastr.success('预设已更新');
         } else {
           AttributePresetManager.createPreset(preset);
-          if (window.toastr) window.toastr.success('预设已创建');
         }
 
         overlay.remove();
         showAttributePresetManager();
       } catch (err) {
-        console.error('[ACU] 保存预设失败:', err);
+        console.error('[DICE]ACU 保存预设失败:', err);
         if (window.toastr) window.toastr.error('保存失败：' + (err.message || 'JSON格式错误'));
       }
     });
@@ -14580,6 +19681,292 @@
       }
     });
   };
+
+  // ========================================
+  // Debug控制台窗口
+  // ========================================
+  const showDebugConsoleModal = () => {
+    const { $ } = getCore();
+    $('.acu-edit-overlay').not(':has(.acu-debug-console-dialog)').remove();
+    const config = getConfig();
+    const currentThemeClass = `acu-theme-${config.theme}`;
+    const t = getThemeColors();
+
+    // 获取过滤状态（从localStorage读取）
+    const savedFilters = Store.get('acu_debug_filters', { log: true, info: true, warn: true, error: true });
+    ConsoleCaptureManager.setFilters(savedFilters);
+
+    const renderLogs = () => {
+      const filteredLogs = ConsoleCaptureManager.getFilteredLogs();
+      const $logContainer = dialog.find('.acu-debug-log-container');
+      $logContainer.empty();
+
+      if (filteredLogs.length === 0) {
+        $logContainer.html(
+          '<div style="text-align:center;padding:40px;color:var(--acu-text-sub);"><i class="fa-solid fa-inbox"></i><br/>暂无日志</div>',
+        );
+        return;
+      }
+
+      filteredLogs.forEach(log => {
+        const typeColors = {
+          error: '#e74c3c',
+          warn: '#f39c12',
+          info: '#3498db',
+          log: '#95a5a6',
+        };
+        const typeIcons = {
+          error: 'fa-exclamation-circle',
+          warn: 'fa-exclamation-triangle',
+          info: 'fa-info-circle',
+          log: 'fa-circle',
+        };
+        const color = typeColors[log.type] || typeColors.log;
+        const icon = typeIcons[log.type] || typeIcons.log;
+
+        const logItem = $(`
+          <div class="acu-debug-log-item" data-type="${log.type}" style="padding:8px 12px;border-bottom:1px solid var(--acu-border);font-family:monospace;font-size:12px;line-height:1.5;">
+            <div style="display:flex;align-items:flex-start;gap:8px;">
+              <span style="color:${color};min-width:60px;font-size:11px;">
+                <i class="fa-solid ${icon}"></i> [${log.timeStr}]
+              </span>
+              <span style="color:${color};min-width:50px;font-size:11px;text-transform:uppercase;">[${log.type}]</span>
+              <span style="flex:1;color:var(--acu-text-main);word-break:break-word;white-space:pre-wrap;">${escapeHtml(log.content)}</span>
+            </div>
+            ${log.stack ? `<div style="margin-top:4px;margin-left:128px;color:var(--acu-text-sub);font-size:11px;white-space:pre-wrap;font-family:monospace;">${escapeHtml(log.stack)}</div>` : ''}
+          </div>
+        `);
+        $logContainer.append(logItem);
+      });
+    };
+
+    const dialog = $(`
+      <div class="acu-edit-overlay">
+        <div class="acu-edit-dialog acu-debug-console-dialog ${currentThemeClass}" style="max-width:90vw;max-height:90vh;width:800px;height:600px;display:flex;flex-direction:column;">
+          <div class="acu-settings-header" style="flex-shrink:0;">
+            <div class="acu-settings-title"><i class="fa-solid fa-bug"></i> Debug控制台</div>
+            <button class="acu-close-btn" id="debug-console-close"><i class="fa-solid fa-times"></i></button>
+          </div>
+
+          <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+            <!-- 工具栏 -->
+            <div style="padding:12px;border-bottom:1px solid var(--acu-border);flex-shrink:0;display:flex;flex-direction:column;gap:8px;">
+              <!-- Console抓取开关 -->
+              <div style="display:flex;align-items:center;gap:8px;padding-bottom:8px;border-bottom:1px solid var(--acu-border);">
+                <span style="font-size:12px;color:var(--acu-text-sub);flex:1;">Console抓取:</span>
+                <label class="acu-toggle">
+                  <input type="checkbox" id="debug-console-capture-toggle" ${ConsoleCaptureManager.enabled ? 'checked' : ''}>
+                  <span class="acu-toggle-slider"></span>
+                </label>
+                <span id="debug-console-capture-status" style="font-size:11px;color:var(--acu-text-sub);">${ConsoleCaptureManager.enabled ? '已启用' : '已关闭'}</span>
+              </div>
+              <!-- 过滤和操作按钮 -->
+              <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+                <div style="display:flex;gap:8px;align-items:center;flex:1;">
+                  <span style="font-size:12px;color:var(--acu-text-sub);">过滤:</span>
+                  <button class="acu-btn ${savedFilters.log ? 'acu-btn-primary' : 'acu-btn-secondary'}" data-filter-type="log" style="padding:4px 10px;font-size:12px;${savedFilters.log ? '' : 'opacity:0.5;'}">
+                    <span style="color:var(--acu-text-main);">Log</span>
+                  </button>
+                  <button class="acu-btn ${savedFilters.info ? 'acu-btn-primary' : 'acu-btn-secondary'}" data-filter-type="info" style="padding:4px 10px;font-size:12px;${savedFilters.info ? '' : 'opacity:0.5;'}">
+                    <span style="color:var(--acu-text-main);">Info</span>
+                  </button>
+                  <button class="acu-btn ${savedFilters.warn ? 'acu-btn-primary' : 'acu-btn-secondary'}" data-filter-type="warn" style="padding:4px 10px;font-size:12px;${savedFilters.warn ? '' : 'opacity:0.5;'}">
+                    <span style="color:var(--acu-text-main);">Warn</span>
+                  </button>
+                  <button class="acu-btn ${savedFilters.error ? 'acu-btn-primary' : 'acu-btn-secondary'}" data-filter-type="error" style="padding:4px 10px;font-size:12px;${savedFilters.error ? '' : 'opacity:0.5;'}">
+                    <span style="color:var(--acu-text-main);">Error</span>
+                  </button>
+                </div>
+                <div style="display:flex;gap:6px;">
+                  <button class="acu-btn acu-btn-secondary" id="debug-console-clear" style="padding:6px 12px;font-size:12px;">
+                    <i class="fa-solid fa-trash"></i> 清空
+                  </button>
+                  <button class="acu-btn acu-btn-secondary" id="debug-console-copy" style="padding:6px 12px;font-size:12px;">
+                    <i class="fa-solid fa-copy"></i> 复制
+                  </button>
+                  <button class="acu-btn acu-btn-primary" id="debug-console-export" style="padding:6px 12px;font-size:12px;">
+                    <i class="fa-solid fa-download"></i> 导出
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 日志显示区域 -->
+            <div class="acu-debug-log-scroll" style="flex:1;overflow-y:auto;overflow-x:hidden;background:var(--acu-card-bg);">
+              <div class="acu-debug-log-container"></div>
+            </div>
+
+            <!-- 底部状态栏 -->
+            <div style="padding:8px 12px;border-top:1px solid var(--acu-border);flex-shrink:0;font-size:11px;color:var(--acu-text-sub);display:flex;justify-content:space-between;">
+              <span>总计: <span id="debug-total-count">0</span> | 显示: <span id="debug-filtered-count">0</span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    `);
+
+    $('body').append(dialog);
+
+    // 更新计数
+    const updateCounts = () => {
+      const total = ConsoleCaptureManager.logs.length;
+      const filtered = ConsoleCaptureManager.getFilteredLogs().length;
+      dialog.find('#debug-total-count').text(total);
+      dialog.find('#debug-filtered-count').text(filtered);
+    };
+
+    // 初始渲染
+    renderLogs();
+    updateCounts();
+
+    // Console抓取开关
+    dialog.find('#debug-console-capture-toggle').on('change', function () {
+      const checked = $(this).is(':checked');
+      const $status = dialog.find('#debug-console-capture-status');
+      if (checked) {
+        ConsoleCaptureManager.enable();
+        $status.text('已启用');
+        // 添加启动日志
+        console.log('[DICE]Debug控制台抓取模式已开启');
+      } else {
+        ConsoleCaptureManager.disable();
+        $status.text('已关闭');
+      }
+    });
+
+    // 过滤选项变化
+    dialog.find('[data-filter-type]').on('click', function () {
+      const type = $(this).data('filter-type');
+      const isActive = $(this).hasClass('acu-btn-primary');
+      const newState = !isActive;
+
+      // 更新按钮样式
+      if (newState) {
+        $(this).removeClass('acu-btn-secondary').addClass('acu-btn-primary');
+        $(this).css('opacity', '1');
+      } else {
+        $(this).removeClass('acu-btn-primary').addClass('acu-btn-secondary');
+        $(this).css('opacity', '0.5');
+      }
+
+      // 更新过滤器
+      ConsoleCaptureManager.setFilters({ [type]: newState });
+      Store.set('acu_debug_filters', ConsoleCaptureManager.filters);
+      renderLogs();
+      updateCounts();
+    });
+
+    // 清空日志（直接清空，不弹窗）
+    dialog.find('#debug-console-clear').on('click', () => {
+      ConsoleCaptureManager.clear();
+      renderLogs();
+      updateCounts();
+    });
+
+    // 复制日志
+    dialog.find('#debug-console-copy').on('click', async () => {
+      const filteredLogs = ConsoleCaptureManager.getFilteredLogs();
+      if (filteredLogs.length === 0) {
+        if (window.toastr) window.toastr.warning('没有可复制的日志');
+        return;
+      }
+
+      const text = filteredLogs
+        .map(log => {
+          let line = `[${log.timeStr}] [${log.type.toUpperCase()}] ${log.content}`;
+          if (log.stack) {
+            line += '\n' + log.stack;
+          }
+          return line;
+        })
+        .join('\n');
+
+      try {
+        // 优先使用酒馆接口
+        if (window.TavernHelper && window.TavernHelper.triggerSlash) {
+          const safeContent = text.replace(/\"/g, '\\"').replace(/\}/g, '\\}');
+          await window.TavernHelper.triggerSlash(`/clipboard-set "${safeContent}"`);
+          return;
+        }
+        // 使用浏览器原生API
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          // 降级方案：使用execCommand
+          const textArea = document.createElement('textarea');
+          textArea.value = text;
+          textArea.style.position = 'fixed';
+          textArea.style.left = '-9999px';
+          textArea.style.top = '0';
+          textArea.setAttribute('readonly', '');
+          document.body.appendChild(textArea);
+          textArea.select();
+          textArea.setSelectionRange(0, 99999);
+          const successful = document.execCommand('copy');
+          document.body.removeChild(textArea);
+          if (!successful) {
+            throw new Error('execCommand failed');
+          }
+        }
+      } catch (err) {
+        console.error('[DICE]DebugConsole 复制失败:', err);
+        if (window.toastr) window.toastr.error('复制失败');
+      }
+    });
+
+    // 导出日志
+    dialog.find('#debug-console-export').on('click', () => {
+      const filteredLogs = ConsoleCaptureManager.getFilteredLogs();
+      if (filteredLogs.length === 0) {
+        if (window.toastr) window.toastr.warning('没有可导出的日志');
+        return;
+      }
+
+      const text = filteredLogs
+        .map(log => {
+          let line = `[${log.timeStr}] [${log.type.toUpperCase()}] ${log.content}`;
+          if (log.stack) {
+            line += '\n' + log.stack;
+          }
+          return line;
+        })
+        .join('\n\n');
+
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `debug-console-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+
+    // 关闭按钮
+    dialog.find('#debug-console-close, .acu-edit-overlay').on('click', function (e) {
+      if (e.target === this || $(e.target).closest('.acu-close-btn').length) {
+        dialog.remove();
+      }
+    });
+
+    // 定期刷新日志显示（实时模式）
+    // [已删除] 自动滚动功能，避免出错
+    const refreshInterval = setInterval(() => {
+      if (dialog.length && dialog.is(':visible')) {
+        renderLogs();
+        updateCounts();
+      }
+    }, 500);
+
+    // 窗口关闭时清理定时器
+    dialog.on('remove', () => {
+      clearInterval(refreshInterval);
+    });
+  };
+
+  // 暴露到全局，供紧急入口按钮调用
+  window.showDebugConsoleModal = showDebugConsoleModal;
 
   const showSettingsModal = () => {
     const { $ } = getCore();
@@ -14611,8 +19998,7 @@
 
       // 添加特殊按钮
       SPECIAL_BUTTONS_CONFIG.forEach(btn => {
-        // MVU 按钮仅当 MVU 可用时显示
-        if (btn.key === '__mvu__' && !MvuModule.isAvailable()) return;
+        // MVU 按钮始终参与管理，让用户可以设置顺序和可见性
         allItems.push({ key: btn.key, name: btn.name, icon: btn.icon, isSpecial: true });
       });
 
@@ -14668,7 +20054,13 @@
         <div class="acu-edit-overlay">
             <div class="acu-edit-dialog acu-settings-dialog ${currentThemeClass}">
                 <div class="acu-settings-header">
-                    <div class="acu-settings-title"><i class="fa-solid fa-cog"></i> 设置</div>
+                    <div class="acu-settings-title">
+                        <span class="acu-settings-text">
+                            <i class="fa-solid fa-cog"></i> 设置
+                            <span class="acu-version-badge">${SCRIPT_VERSION}</span>
+                        </span>
+                        <button class="acu-help-btn" id="acu-help-btn" title="查看使用文档"><i class="fa-solid fa-question-circle"></i></button>
+                    </div>
                     <button class="acu-close-btn" id="dlg-close-x"><i class="fa-solid fa-times"></i></button>
                 </div>
 
@@ -14778,24 +20170,6 @@
                         </div>
                     </div>
 
-                    <!-- 投骰高级设置 -->
-                    <div class="acu-settings-group ${isGroupExpanded('attrRules') ? '' : 'collapsed'}" data-group="attrRules">
-                        <div class="acu-settings-group-title">
-                            <i class="fa-solid ${chevron('attrRules')} acu-group-chevron"></i>
-                            <i class="fa-solid fa-dice-d20"></i> 投骰高级设置
-                        </div>
-                        <div class="acu-settings-group-body">
-                            <div class="acu-setting-row">
-                                <div class="acu-setting-info">
-                                    <span class="acu-setting-label">管理属性规则</span>
-                                    <span class="acu-setting-hint">创建、编辑和管理属性规则预设</span>
-                                </div>
-                                <button id="cfg-attr-preset-manage" class="acu-setting-btn" style="padding: 6px 12px; background: ${t.btnBg}; border: 1px solid ${t.border}; border-radius: 4px; color: ${t.textMain}; cursor: pointer; font-size: 12px;">
-                                    <i class="fa-solid fa-cog"></i> 管理
-                                </button>
-                            </div>
-                        </div>
-                    </div>
 
                     <!-- 位置与交互 -->
                     <div class="acu-settings-group ${isGroupExpanded('position') ? '' : 'collapsed'}" data-group="position">
@@ -14952,6 +20326,40 @@
                             </button>
                         </div>
                     </div>
+
+                    <!-- 高级设置 -->
+                    <div class="acu-settings-group ${isGroupExpanded('advanced') ? '' : 'collapsed'}" data-group="advanced">
+                        <div class="acu-settings-group-title">
+                            <i class="fa-solid ${chevron('advanced')} acu-group-chevron"></i>
+                            <i class="fa-solid fa-sliders-h"></i> 高级设置
+                        </div>
+                        <div class="acu-settings-group-body">
+                            <div class="acu-setting-row">
+                                <div class="acu-setting-info">
+                                    <span class="acu-setting-label"><i class="fa-solid fa-dice-d20"></i> 管理属性规则</span>
+                                </div>
+                                <button id="cfg-attr-preset-manage" class="acu-setting-btn" style="padding: 6px 12px; background: ${t.btnBg}; border: 1px solid ${t.border}; border-radius: 4px; color: ${t.textMain}; cursor: pointer; font-size: 12px;">
+                                    <i class="fa-solid fa-cog"></i> 管理
+                                </button>
+                            </div>
+                            <div class="acu-setting-row">
+                                <div class="acu-setting-info">
+                                    <span class="acu-setting-label"><i class="fa-solid fa-filter"></i> 过滤黑名单</span>
+                                </div>
+                                <button id="cfg-blacklist-manage" class="acu-setting-btn" style="padding: 6px 12px; background: ${t.btnBg}; border: 1px solid ${t.border}; border-radius: 4px; color: ${t.textMain}; cursor: pointer; font-size: 12px;">
+                                    <i class="fa-solid fa-cog"></i> 管理
+                                </button>
+                            </div>
+                            <div class="acu-setting-row">
+                                <div class="acu-setting-info">
+                                    <span class="acu-setting-label"><i class="fa-solid fa-bug"></i> Debug控制台</span>
+                                </div>
+                                <button id="btn-open-debug-console" class="acu-setting-btn" style="padding: 6px 12px; background: ${t.btnBg}; border: 1px solid ${t.border}; border-radius: 4px; color: ${t.textMain}; cursor: pointer; font-size: 12px;">
+                                    <i class="fa-solid fa-terminal"></i> 打开
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 </div><!-- 关闭 .acu-settings-body -->
@@ -15032,6 +20440,13 @@
       dialog.remove();
       isSettingsOpen = false;
       showAttributePresetManager();
+    });
+
+    // 管理过滤黑名单按钮
+    dialog.find('#cfg-blacklist-manage').on('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      showBlacklistManagerModal();
     });
 
     // 布局
@@ -15422,12 +20837,27 @@
       if (!preset) return;
       const json = PresetManager.exportPreset(preset.id);
       if (json) {
-        navigator.clipboard
-          .writeText(json)
-          .then(() => {})
-          .catch(() => {
-            prompt('复制以下内容:', json);
-          });
+        // 同属性预设导出方式一致：优先导出为文件，避免聊天窗口等环境的粘贴长度限制
+        try {
+          const filename = `acu_validation_preset_${preset.name || preset.id}_${Date.now()}.json`;
+          const blob = new Blob([json], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        } catch (e) {
+          // 如果浏览器不支持 Blob 下载，则回退到剪贴板/弹窗复制
+          navigator.clipboard
+            .writeText(json)
+            .then(() => {})
+            .catch(() => {
+              prompt('复制以下内容:', json);
+            });
+        }
       }
     });
 
@@ -15435,12 +20865,28 @@
     dialog.find('#btn-preset-import').on('click', function () {
       const json = prompt('粘贴预设 JSON:');
       if (!json?.trim()) return;
-      const newPreset = PresetManager.importPreset(json.trim());
-      if (newPreset) {
+      const result = PresetManager.importPreset(json.trim(), false);
+      if (result && result.preset) {
+        const newPreset = result.preset;
         dialog
           .find('#preset-select')
           .append(`<option value="${escapeHtml(newPreset.id)}">${escapeHtml(newPreset.name)}</option>`);
         dialog.find('#preset-select').val(newPreset.id).trigger('change');
+        // 如果版本较旧，提示用户是否合并
+        if (result.needsMerge) {
+          if (
+            confirm(
+              '检测到预设版本较旧，是否要合并新版本的默认值？\n\n这将保留您的自定义规则，并添加新版本中的新规则。',
+            )
+          ) {
+            if (PresetManager.mergePresetWithDefaults(newPreset.id)) {
+              if (window.toastr) window.toastr.success('预设已合并新版本的默认值');
+              refreshPresetUI();
+            } else {
+              if (window.toastr) window.toastr.error('合并失败');
+            }
+          }
+        }
       } else {
         if (window.toastr) window.toastr.error('导入失败，请检查格式');
       }
@@ -15464,6 +20910,15 @@
       showAddValidationRuleModal(dialog);
     });
 
+    // === Debug控制台 ===
+    dialog.find('#btn-open-debug-console').on('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      dialog.remove();
+      isSettingsOpen = false;
+      showDebugConsoleModal();
+    });
+
     // === 关闭 ===
     const closeDialog = () => {
       isSettingsOpen = false;
@@ -15471,14 +20926,47 @@
       renderInterface();
     };
     dialog.on('click', '#dlg-close-x, .acu-settings-header .acu-close-btn', closeDialog);
+
+    // 帮助按钮点击事件
+    dialog.on('click', '#acu-help-btn', function (e) {
+      e.stopPropagation();
+      window.open('https://jerryzmtz.github.io/DiceSystemManual//', '_blank');
+    });
     dialog.on('click', function (e) {
       if ($(e.target).hasClass('acu-edit-overlay')) closeDialog();
     });
   };
 
+  // [优化] 渲染防抖：避免短时间内多次渲染导致重复日志
+  let renderInterfaceTimer = null;
+  let renderInterfacePending = false;
+
   const renderInterface = () => {
     // 设置面板打开时跳过重绘，防止事件丢失
-    if (isSettingsOpen) return;
+    if (isSettingsOpen) {
+      if (!renderInterfacePending) {
+        console.info('[DICE]设置面板打开中，跳过界面渲染');
+        renderInterfacePending = true;
+      }
+      return;
+    }
+
+    // 防抖：如果已有待执行的渲染，取消它
+    if (renderInterfaceTimer) {
+      clearTimeout(renderInterfaceTimer);
+    }
+
+    // 设置新的防抖定时器（50ms延迟，足够短以保持响应性，足够长以合并多次调用）
+    renderInterfaceTimer = setTimeout(() => {
+      renderInterfaceTimer = null;
+      renderInterfacePending = false;
+      _renderInterfaceImpl();
+    }, 50);
+  };
+
+  // 实际的渲染实现函数
+  const _renderInterfaceImpl = () => {
+    console.info('[DICE]开始渲染界面...');
     const { $ } = getCore();
 
     // [修复] Observer 延迟创建保险 (带节流优化)
@@ -15710,7 +21198,7 @@
       // [修改] 支持仪表盘、变更面板和变量面板渲染
       const isDashboardActive = Store.get(STORAGE_KEY_DASHBOARD_ACTIVE, false);
       const isChangesPanelActive = Store.get('acu_changes_panel_active', false);
-      const isMvuActive = getActiveTabState() === MvuModule.MODULE_ID && MvuModule.isAvailable();
+      const isMvuActive = getActiveTabState() === MvuModule.MODULE_ID;
       const mvuSavedHeight = isMvuActive ? getTableHeights()[MvuModule.MODULE_ID] : null;
       const finalSavedHeight = mvuSavedHeight || savedHeight;
       const shouldShowPanel = isDashboardActive || isChangesPanelActive || isMvuActive || currentTabName;
@@ -15803,7 +21291,6 @@
           label: '变量',
           id: 'acu-btn-mvu',
           extraClass: 'acu-mvu-btn',
-          checkAvailable: () => MvuModule.isAvailable(),
           isActive: getActiveTabState() === MvuModule.MODULE_ID,
         },
       ];
@@ -15813,8 +21300,17 @@
 
       // 添加特殊按钮
       SPECIAL_NAV_ITEMS.forEach(item => {
+        // 先检查是否被用户隐藏
+        if (navHiddenList.includes(item.key)) return;
+
+        // 对于MVU按钮，总是显示（不再检查是否可用）
+        if (item.key === '__mvu__') {
+          allNavItems.push({ ...item, isSpecial: true });
+          return;
+        }
+
+        // 其他按钮的checkAvailable检查
         if (item.checkAvailable && !item.checkAvailable()) return;
-        if (navHiddenList.includes(item.key)) return; // 被隐藏则跳过
         allNavItems.push({ ...item, isSpecial: true });
       });
 
@@ -15914,11 +21410,31 @@
     if (Store.get('acu_changes_panel_active', false)) {
       bindChangesEvents();
     }
-    // [修复] 如果变量面板激活，绑定其事件
-    if (getActiveTabState() === MvuModule.MODULE_ID && MvuModule.isAvailable()) {
+    // [修复] 如果变量面板激活，绑定其事件并尝试获取数据
+    if (getActiveTabState() === MvuModule.MODULE_ID) {
       const $panel = $('#acu-data-area');
       if ($panel.length) {
+        // 总是尝试获取数据（带重试，增加重试次数）
+        // 简化逻辑：直接显示面板，不等待数据加载
+        // 用户可以通过刷新按钮来获取数据
+        $panel.html('<div class="acu-mvu-panel">' + MvuModule.renderPanel() + '</div>');
         MvuModule.bindEvents($panel);
+
+        // 可选：在后台尝试获取数据（不阻塞界面显示）
+        MvuModule.getDataWithRetry(5, 800)
+          .then(mvuData => {
+            // 如果获取到数据，刷新面板显示
+            if (mvuData) {
+              $panel.html('<div class="acu-mvu-panel">' + MvuModule.renderPanel() + '</div>');
+              MvuModule.bindEvents($panel);
+            }
+          })
+          .catch(err => {
+            console.error('[DICE]MvuModule Error getting data:', err);
+            // 错误时也刷新面板，显示错误状态
+            $panel.html('<div class="acu-mvu-panel">' + MvuModule.renderPanel() + '</div>');
+            MvuModule.bindEvents($panel);
+          });
       }
     }
 
@@ -15955,6 +21471,7 @@
         }
       }
     }, 0);
+    console.info('[DICE]界面渲染完成');
   };
 
   // [新增] 独立插入选项到最新气泡
@@ -16041,7 +21558,7 @@
               return;
             }
           } catch (err) {
-            console.warn('[ACU] TavernHelper 发送失败，尝试备用方案', err);
+            console.warn('[DICE]ACU TavernHelper 发送失败，尝试备用方案', err);
           }
         }
 
@@ -16059,9 +21576,9 @@
               await ST.executeSlashCommandsWithOptions('/trigger');
               return;
             }
-            console.warn('[ACU] ST接口 send 失败:', sendResult);
+            console.warn('[DICE]ACU ST接口 send 失败:', sendResult);
           } catch (err) {
-            console.warn('[ACU] ST接口失败，尝试按钮模拟', err);
+            console.warn('[DICE]ACU ST接口失败，尝试按钮模拟', err);
           }
         }
 
@@ -16364,6 +21881,7 @@
                     rowIndex: error.rowIndex,
                     columnName: error.columnName || '',
                     currentValue: error.currentValue || '',
+                    rowTitle: error.rowTitle || '', // 添加 rowTitle 到 ruleData
                     rule: error.rule,
                   }),
                 )
@@ -16377,6 +21895,7 @@
                          data-rule-type="${escapeHtml(error.ruleType || '')}"
                          data-rule-data="${ruleData}">
                         <span class="acu-change-badge" style="background:var(--acu-hl-manual-bg);color:var(--acu-hl-manual);">!</span>
+                        ${error.rowTitle && error.rowIndex >= 0 ? `<div class="acu-validation-row-title" style="font-size:11px;color:var(--acu-text-sub);margin-bottom:2px;">${escapeHtml(error.rowTitle)}</div>` : ''}
                         <span class="acu-change-title">${escapeHtml(error.columnName || '整行')}${error.currentValue ? `: ${escapeHtml(error.currentValue.length > 15 ? error.currentValue.substring(0, 15) + '...' : error.currentValue)}` : ''}</span>
                         <span class="acu-validation-error-msg">${escapeHtml(error.errorMessage.length > 25 ? error.errorMessage.substring(0, 25) + '...' : error.errorMessage)}</span>
                         <div class="acu-change-actions">
@@ -16577,7 +22096,7 @@
           }
           if (window.toastr) window.toastr.warning('无法找到对应的快照数据');
         } catch (err) {
-          console.error('[ACU] 恢复快照值失败:', err);
+          console.error('[DICE]ACU 恢复快照值失败:', err);
           if (window.toastr) window.toastr.error('恢复失败');
         }
       });
@@ -16603,12 +22122,13 @@
             rowIndex: parseInt($item.data('row'), 10) || parsed.rowIndex || 0,
             columnName: $item.data('column') || parsed.columnName || '',
             currentValue: parsed.currentValue || '',
+            rowTitle: parsed.rowTitle || '', // 添加 rowTitle 到错误对象
             ruleName: parsed.ruleName || parsed.rule?.name || '',
             errorMessage: parsed.errorMessage || parsed.rule?.errorMessage || '',
           };
           showSmartFixModal(error);
         } catch (err) {
-          console.error('[ACU] 解析规则数据失败:', err);
+          console.error('[DICE]ACU 解析规则数据失败:', err);
           if (window.toastr) window.toastr.error('解析规则数据失败');
         }
       });
@@ -17217,15 +22737,58 @@
 
         if (hasChanges) {
           // 1. 保存到数据库（不更新快照）
-          const api = getCore().getDB();
-          if (api && api.importTableAsJson) {
+          try {
+            const api = getCore().getDB();
+            if (!api || !api.importTableAsJson) {
+              throw new Error('数据库 API 不可用');
+            }
+
             const dataToSave = { mate: rawData.mate || { type: 'chatSheets', version: 1 } };
             Object.keys(rawData).forEach(k => {
               if (k.startsWith('sheet_')) dataToSave[k] = rawData[k];
             });
-            await api.importTableAsJson(JSON.stringify(dataToSave));
+
+            // 验证数据并序列化
+            let jsonString;
+            try {
+              jsonString = JSON.stringify(dataToSave);
+              // 检查数据大小（约 10MB 限制）
+              const sizeInMB = new Blob([jsonString]).size / (1024 * 1024);
+              if (sizeInMB > 10) {
+                throw new Error(`数据太大 (${sizeInMB.toFixed(2)}MB)，超过 10MB 限制`);
+              }
+            } catch (stringifyError) {
+              console.error('[DICE]ACU JSON 序列化失败:', stringifyError);
+              throw new Error(`数据序列化失败: ${stringifyError.message || stringifyError}`);
+            }
+
+            // 调用 importTableAsJson，它内部会调用 saveChat()
+            const result = await api.importTableAsJson(jsonString);
+            // 检查返回值，某些实现可能返回 false 表示失败
+            if (result === false) {
+              throw new Error('数据导入失败（返回 false）');
+            }
+            cachedRawData = rawData;
+          } catch (e) {
+            console.error('[DICE]ACU 保存失败:', e);
+            let errorMessage = e.message || '保存出错，请检查数据格式和大小';
+            // 检查是否是 "Settings could not be saved" 相关的错误
+            const errorMsg = String(e);
+            if (
+              errorMsg.includes('Settings could not be saved') ||
+              errorMsg.includes('server connection') ||
+              errorMsg.includes('data loss')
+            ) {
+              errorMessage = '保存失败：服务器连接问题或数据过大，请检查网络连接或减少数据量';
+            }
+            if (window.toastr) {
+              window.toastr.error(errorMessage, '保存失败', { timeOut: 7000 });
+            } else {
+              alert(`保存失败: ${errorMessage}`);
+            }
+            // 保存失败时不关闭对话框，让用户重试
+            return;
           }
-          cachedRawData = rawData;
 
           // 2. 只更新快照中这一行（关键！）
           const snapshot = loadSnapshot();
@@ -17457,6 +23020,7 @@
     });
   };
   const renderDashboard = allTables => {
+    console.info('[DICE]开始抓取仪表盘数据...');
     const config = getConfig();
 
     // [重构] 使用统一配置中心查找表格
@@ -17896,6 +23460,20 @@
                 </div>
             </div>
     `;
+
+    // 统计已加载的模块数量
+    const loadedModules = [
+      globalResult ? '全局数据' : null,
+      playerResult ? '主角信息' : null,
+      locationResult ? '地点' : null,
+      npcResult ? 'NPC' : null,
+      questResult ? '任务' : null,
+      bagResult ? '背包' : null,
+      skillResult ? '技能' : null,
+      equipResult ? '装备' : null,
+    ].filter(Boolean);
+
+    console.info(`[DICE]仪表盘数据抓取完成，共${loadedModules.length}个模块: ${loadedModules.join(', ')}`);
     return html;
   };
 
@@ -17924,7 +23502,11 @@
     }
 
     // --- 搜索和排序逻辑 ---
-    let processedRows = tableData.rows.map((row, index) => ({ data: row, originalIndex: index }));
+    let processedRows = tableData.rows.map((row, index) => {
+      const rowKey = LockManager.getRowKey(tableName, row, tableData.headers);
+      const isBookmarked = rowKey && BookmarkManager.isBookmarked(tableName, rowKey);
+      return { data: row, originalIndex: index, rowKey, isBookmarked };
+    });
     const searchTerm = (tableSearchStates[tableName] || '').toLowerCase().trim();
 
     // 检查是否需要倒序显示
@@ -17935,6 +23517,10 @@
         item.data.some(cell => String(cell).toLowerCase().includes(searchTerm)),
       );
       processedRows.sort((a, b) => {
+        // 优先按bookmark状态排序：bookmark的在前
+        if (a.isBookmarked && !b.isBookmarked) return -1;
+        if (!a.isBookmarked && b.isBookmarked) return 1;
+        // 在bookmark组内和非bookmark组内，保持原有的搜索匹配度排序
         const titleA = String(a.data[titleColIndex] || '').toLowerCase();
         const titleB = String(b.data[titleColIndex] || '').toLowerCase();
         const aHitTitle = titleA.includes(searchTerm);
@@ -17947,11 +23533,18 @@
       });
     } else {
       // 默认按原始顺序排列，如果启用倒序则反转
-      if (isReversed) {
-        processedRows.sort((a, b) => b.originalIndex - a.originalIndex);
-      } else {
-        processedRows.sort((a, b) => a.originalIndex - b.originalIndex);
-      }
+      // 但bookmark的始终在前
+      processedRows.sort((a, b) => {
+        // 优先按bookmark状态排序：bookmark的在前
+        if (a.isBookmarked && !b.isBookmarked) return -1;
+        if (!a.isBookmarked && b.isBookmarked) return 1;
+        // 在bookmark组内和非bookmark组内，保持原有的排序逻辑
+        if (isReversed) {
+          return b.originalIndex - a.originalIndex;
+        } else {
+          return a.originalIndex - b.originalIndex;
+        }
+      });
     }
 
     const itemsPerPage = config.itemsPerPage || 50;
@@ -18047,10 +23640,33 @@
             let hideLabel = false; // 是否隐藏列标题
             const splitRegex = /[;；]/;
 
+            // [新增] 字段类型判断函数
+            const isIdentityField = headerName => {
+              if (!headerName) return false;
+              const lowerHeader = String(headerName).toLowerCase();
+              return lowerHeader.includes('身份');
+            };
+
+            const isAttributeField = headerName => {
+              if (!headerName) return false;
+              const lowerHeader = String(headerName).toLowerCase();
+              return (
+                lowerHeader.includes('基础属性') || lowerHeader.includes('特有属性') || lowerHeader.includes('属性')
+              );
+            };
+
             // 检测是否是属性格式 (如 "演技:92" 或 "演技:92, 洞察:88")
-            const parsedAttrs = parseAttributeString(rawStr);
-            // [新增] 人际关系智能拆分
-            if (isRelationshipCell(rawStr, headerName)) {
+            // [修复] 如果是身份字段，跳过属性解析，直接作为普通文本处理
+            const parsedAttrs = isIdentityField(rawHeaderName) ? [] : parseAttributeString(rawStr);
+            // [修复] 身份字段优先处理：即使包含括号或分号，也作为普通文本完整显示（左对齐）
+            if (isIdentityField(rawHeaderName)) {
+              const badgeStyle = getBadgeStyle(rawStr);
+              const displayCell = safeStr(rawStr) === '' && String(cell) !== '0' ? '&nbsp;' : safeStr(rawStr);
+              contentHtml = badgeStyle
+                ? '<span class="acu-badge ' + badgeStyle + '">' + displayCell + '</span>'
+                : displayCell;
+            } else if (isRelationshipCell(rawStr, headerName)) {
+              // [新增] 人际关系智能拆分
               const relations = parseRelationshipString(rawStr);
               // [修复] 过滤掉关系标签为无效值的记录
               const validRelations = relations.filter(rel => {
@@ -18065,10 +23681,7 @@
                   const rel = validRelations[i];
                   const borderStyle =
                     i < validRelations.length - 1 ? 'border-bottom:1px dashed rgba(128,128,128,0.2);' : '';
-                  relHtml +=
-                    '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;' +
-                    borderStyle +
-                    '">';
+                  relHtml += '<div style="display:flex;align-items:center;gap:8px;padding:3px 0;' + borderStyle + '">';
                   relHtml +=
                     '<span style="color:var(--acu-text-sub);font-size:0.95em;">' + safeStr(rel.name) + '</span>';
                   if (rel.relation) {
@@ -18083,8 +23696,7 @@
               } else if (validRelations.length === 1) {
                 hideLabel = true;
                 const rel = validRelations[0];
-                contentHtml =
-                  '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;">';
+                contentHtml = '<div style="display:flex;align-items:center;gap:8px;padding:3px 0;">';
                 contentHtml +=
                   '<span style="color:var(--acu-text-sub);font-size:0.95em;">' + safeStr(rel.name) + '</span>';
                 if (rel.relation) {
@@ -18101,6 +23713,7 @@
               let attrsHtml = '';
               for (let i = 0; i < parsedAttrs.length; i++) {
                 const attr = parsedAttrs[i];
+                const showDice = !BlacklistManager.isBlacklisted(attr.name);
                 attrsHtml +=
                   '<div style="display:flex;justify-content:space-between;align-items:center;padding:2px 0;">';
                 attrsHtml +=
@@ -18114,12 +23727,14 @@
                   '<span style="color:var(--acu-text-main);font-weight:bold;font-size:0.95em;">' +
                   attr.value +
                   '</span>';
-                attrsHtml +=
-                  '<i class="fa-solid fa-dice-d20 acu-inline-dice-btn" data-attr-name="' +
-                  safeStr(attr.name) +
-                  '" data-attr-value="' +
-                  attr.value +
-                  '" style="cursor:pointer;color:var(--acu-accent);opacity:0.5;font-size:10px;" title="检定"></i>';
+                if (showDice) {
+                  attrsHtml +=
+                    '<i class="fa-solid fa-dice-d20 acu-inline-dice-btn" data-attr-name="' +
+                    safeStr(attr.name) +
+                    '" data-attr-value="' +
+                    attr.value +
+                    '" style="cursor:pointer;color:var(--acu-accent);opacity:0.5;font-size:10px;" title="检定"></i>';
+                }
                 attrsHtml += '</div></div>';
               }
               contentHtml = '<div class="acu-multi-attr-container">' + attrsHtml + '</div>';
@@ -18127,17 +23742,20 @@
               // 单属性格式 (如 "演技:92") - 也隐藏列标题
               hideLabel = true;
               const attr = parsedAttrs[0];
+              const showDice = !BlacklistManager.isBlacklisted(attr.name);
               contentHtml = '<div style="display:flex;justify-content:space-between;align-items:center;">';
               contentHtml +=
                 '<span style="color:var(--acu-text-sub);font-size:0.95em;">' + safeStr(attr.name) + '</span>';
               contentHtml += '<div style="display:flex;align-items:center;gap:6px;">';
               contentHtml += '<span style="color:var(--acu-text-main);font-weight:bold;">' + attr.value + '</span>';
-              contentHtml +=
-                '<i class="fa-solid fa-dice-d20 acu-inline-dice-btn" data-attr-name="' +
-                safeStr(attr.name) +
-                '" data-attr-value="' +
-                attr.value +
-                '" style="cursor:pointer;color:var(--acu-accent);opacity:0.5;font-size:11px;" title="检定"></i>';
+              if (showDice) {
+                contentHtml +=
+                  '<i class="fa-solid fa-dice-d20 acu-inline-dice-btn" data-attr-name="' +
+                  safeStr(attr.name) +
+                  '" data-attr-value="' +
+                  attr.value +
+                  '" style="cursor:pointer;color:var(--acu-accent);opacity:0.5;font-size:11px;" title="检定"></i>';
+              }
               contentHtml += '</div></div>';
             } else if (rawStr.length > 0 && splitRegex.test(rawStr) && !rawStr.includes('http')) {
               // [修复] 无效值黑名单，这些词不应被渲染为标签
@@ -18163,16 +23781,19 @@
                 contentHtml = '';
               }
             } else if (isNumericCell(rawStr) && !rawStr.includes(':') && !rawStr.includes('：')) {
-              // 纯数值加骰子，但保留列标题
+              // 纯数值加骰子，但保留列标题（右对齐，用于显示骰子图标）
               const numVal = extractNumericValue(rawStr);
+              const showDice = !BlacklistManager.isBlacklisted(headerName);
               contentHtml = '<div style="display:flex;justify-content:space-between;align-items:center;">';
               contentHtml += '<span>' + safeStr(rawStr) + '</span>';
-              contentHtml +=
-                '<i class="fa-solid fa-dice-d20 acu-inline-dice-btn" data-attr-name="' +
-                safeStr(headerName) +
-                '" data-attr-value="' +
-                numVal +
-                '" style="cursor:pointer;color:var(--acu-accent);opacity:0.5;font-size:11px;margin-left:6px;" title="检定"></i>';
+              if (showDice) {
+                contentHtml +=
+                  '<i class="fa-solid fa-dice-d20 acu-inline-dice-btn" data-attr-name="' +
+                  safeStr(headerName) +
+                  '" data-attr-value="' +
+                  numVal +
+                  '" style="cursor:pointer;color:var(--acu-accent);opacity:0.5;font-size:11px;" title="检定"></i>';
+              }
               contentHtml += '</div>';
             } else {
               const badgeStyle = getBadgeStyle(rawStr);
@@ -18297,7 +23918,14 @@
           ? ' <i class="fa-solid fa-lock" style="color:var(--acu-accent);font-size:11px;opacity:0.8;" title="整行已锁定"></i>'
           : '';
 
-        return `<div class="acu-data-card ${isPending ? 'pending-deletion' : ''}"><div class="acu-card-header"><span class="acu-card-index">${showDefaultIndex ? '#' + (realRowIdx + 1) : ''}</span><span class="acu-cell acu-editable-title ${rowClass}" data-key="${escapeHtml(tableData.key)}" data-tname="${escapeHtml(tableName)}" data-row="${realRowIdx}" data-col="${titleColIndex}" data-val="${encodeURIComponent(cardTitle ?? '')}" title="点击编辑标题">${escapeHtml(cardTitle)}${cardLockIcon}</span></div><div class="acu-card-body ${isGridMode ? 'view-grid' : 'view-list'}">${cardBody}</div>${actionsHtml}</div>`;
+        // 检查是否被bookmark
+        const cardBookmarkRowKey = LockManager.getRowKey(tableName, row, tableData.headers);
+        const isBookmarked = cardBookmarkRowKey && BookmarkManager.isBookmarked(tableName, cardBookmarkRowKey);
+        const bookmarkIcon = cardBookmarkRowKey
+          ? `<i class="${isBookmarked ? 'fa-solid' : 'fa-regular'} fa-bookmark acu-bookmark-icon ${isBookmarked ? 'bookmarked' : ''}" data-table="${escapeHtml(tableName)}" data-row-key="${escapeHtml(cardBookmarkRowKey)}" title="${isBookmarked ? '取消书签' : '添加书签'}"></i>`
+          : '';
+
+        return `<div class="acu-data-card ${isPending ? 'pending-deletion' : ''}"><div class="acu-card-header"><span class="acu-card-index">${showDefaultIndex ? '#' + (realRowIdx + 1) : ''}</span><span class="acu-cell acu-editable-title ${rowClass}" data-key="${escapeHtml(tableData.key)}" data-tname="${escapeHtml(tableName)}" data-row="${realRowIdx}" data-col="${titleColIndex}" data-val="${encodeURIComponent(cardTitle ?? '')}" title="点击编辑标题">${escapeHtml(cardTitle)}${cardLockIcon}</span>${bookmarkIcon}</div><div class="acu-card-body ${isGridMode ? 'view-grid' : 'view-list'}">${cardBody}</div>${actionsHtml}</div>`;
       })
       .join('');
     html += `</div></div>`;
@@ -18534,6 +24162,62 @@
             }
             return false;
           }
+          // [新增] MVU变量按钮特殊处理
+          if ($navBtn.attr('id') === 'acu-btn-mvu') {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            const isMvuActive = getActiveTabState() === MvuModule.MODULE_ID;
+            const isPanelVisible = $('#acu-data-area').hasClass('visible');
+
+            if (isMvuActive && isPanelVisible) {
+              // 变量面板已打开，关闭面板
+              saveActiveTabState(null);
+              $('#acu-data-area').removeClass('visible');
+              $('.acu-nav-btn').removeClass('active');
+            } else {
+              // 打开变量面板（总是显示，不检查 isAvailable）
+              Store.set(STORAGE_KEY_DASHBOARD_ACTIVE, false);
+              Store.set('acu_changes_panel_active', false);
+              saveActiveTabState(MvuModule.MODULE_ID);
+              $('.acu-nav-btn').removeClass('active');
+              $navBtn.addClass('active');
+
+              // 直接显示面板（简化逻辑，不等待数据加载）
+              const $panel = $('#acu-data-area');
+              try {
+                const panelHtml = MvuModule.renderPanel();
+                // 确保面板有正确的高度设置
+                const mvuSavedHeight = getTableHeights()[MvuModule.MODULE_ID];
+                if (mvuSavedHeight) {
+                  $panel.css('height', mvuSavedHeight + 'px').addClass('acu-manual-mode');
+                } else {
+                  $panel.css('height', '').removeClass('acu-manual-mode');
+                }
+                $panel.html('<div class="acu-mvu-panel">' + panelHtml + '</div>').addClass('visible');
+                MvuModule.bindEvents($panel);
+              } catch (error) {
+                console.error('[MVU] Error rendering panel:', error);
+              }
+
+              // 可选：在后台尝试获取数据（不阻塞界面显示）
+              // 用户可以通过刷新按钮来主动获取数据
+              MvuModule.getDataWithRetry(5, 800)
+                .then(mvuData => {
+                  // 如果获取到数据，刷新面板显示
+                  if (mvuData) {
+                    $panel.html('<div class="acu-mvu-panel">' + MvuModule.renderPanel() + '</div>');
+                    MvuModule.bindEvents($panel);
+                  }
+                })
+                .catch(err => {
+                  console.error('[DICE]MvuModule Error getting data:', err);
+                  // 错误时也刷新面板，显示错误状态
+                  $panel.html('<div class="acu-mvu-panel">' + MvuModule.renderPanel() + '</div>');
+                  MvuModule.bindEvents($panel);
+                });
+            }
+            return false;
+          }
           e.stopPropagation();
           // [修复] 点击普通表格时，必须关闭仪表盘和变更面板状态
           Store.set(STORAGE_KEY_DASHBOARD_ACTIVE, false);
@@ -18661,12 +24345,20 @@
           try {
             await api.manualUpdate();
           } catch (err) {
-            console.error('[ACU] 手动更新失败:', err);
-            if (window.toastr) window.toastr.error('手动更新触发失败');
+            console.error('[DICE]ACU 手动更新失败:', err);
+            const errorMessage = err.message || '更新过程中出现错误';
+            if (window.toastr) {
+              window.toastr.error(`更新失败: ${errorMessage}`, '错误', { timeOut: 5000 });
+            } else {
+              alert(`更新失败: ${errorMessage}`);
+            }
           }
         } else {
-          if (window.toastr)
-            window.toastr.warning('⚠ 后端脚本未提供 manualUpdate 接口，请确保同时也更新了最新的后端脚本');
+          if (window.toastr) {
+            window.toastr.warning('⚠ 后端脚本未提供 manualUpdate 接口，请确保同时也更新了最新的后端脚本', '', {
+              timeOut: 5000,
+            });
+          }
         }
       });
     $('body')
@@ -18712,13 +24404,23 @@
         const api = getCore().getDB();
         if (api && typeof api.manualUpdate === 'function') {
           try {
-            console.log('[ACU] 手动填表触发');
+            console.log('[DICE]ACU 手动填表触发');
+            // 包装 manualUpdate 调用，捕获可能的保存错误
             await api.manualUpdate();
           } catch (err) {
-            console.error('[ACU] 手动填表失败:', err);
+            console.error('[DICE]ACU 手动填表失败:', err);
+            const errorMessage = err.message || '填表过程中出现错误';
+            if (window.toastr) {
+              window.toastr.error(`填表失败: ${errorMessage}`, '错误', { timeOut: 5000 });
+            } else {
+              alert(`填表失败: ${errorMessage}`);
+            }
           }
         } else {
-          console.warn('[ACU] manualUpdate API 不可用');
+          console.warn('[DICE]ACU manualUpdate API 不可用');
+          if (window.toastr) {
+            window.toastr.warning('后端脚本未提供 manualUpdate 接口', '', { timeOut: 3000 });
+          }
         }
       });
     $('#acu-btn-save-global')
@@ -18958,6 +24660,28 @@
         // 普通表格状态：正常关闭面板
         closePanel();
       });
+    // [新增] bookmark图标点击事件
+    $('body')
+      .off('click.acu_bookmark')
+      .on('click.acu_bookmark', '.acu-bookmark-icon', function (e) {
+        e.stopPropagation();
+        e.preventDefault();
+
+        const $icon = $(this);
+        const tableName = $icon.data('table');
+        const rowKey = $icon.data('row-key');
+
+        if (!tableName || !rowKey) return;
+
+        // 切换bookmark状态
+        BookmarkManager.toggleBookmark(tableName, rowKey);
+
+        // 重新渲染表格以更新显示
+        if (typeof renderInterface === 'function') {
+          renderInterface();
+        }
+      });
+
     // [新增] 动作按钮点击事件
     $('body')
       .off('click.acu_action')
@@ -19549,29 +25273,32 @@
             hideLabel = true;
             let attrsHtml = '';
             parsedAttrs.forEach((attr, i) => {
+              const showDice = !BlacklistManager.isBlacklisted(attr.name);
               const borderStyle = i < parsedAttrs.length - 1 ? 'border-bottom:1px dashed rgba(128,128,128,0.2);' : '';
               attrsHtml += `<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;${borderStyle}">
                         <span style="color:var(--acu-text-sub);font-size:0.95em;">${escapeHtml(attr.name)}</span>
                         <div style="display:flex;align-items:center;gap:6px;">
                             <span style="color:var(--acu-text-main);font-weight:bold;">${attr.value}</span>
-                            <i class="fa-solid fa-dice-d20 acu-inline-dice-btn" data-attr-name="${escapeHtml(attr.name)}" data-attr-value="${attr.value}" style="cursor:pointer;color:var(--acu-accent);opacity:0.5;font-size:11px;" title="检定"></i>
+                            ${showDice ? `<i class="fa-solid fa-dice-d20 acu-inline-dice-btn" data-attr-name="${escapeHtml(attr.name)}" data-attr-value="${attr.value}" style="cursor:pointer;color:var(--acu-accent);opacity:0.5;font-size:11px;" title="检定"></i>` : ''}
                         </div></div>`;
             });
             contentHtml = `<div class="acu-multi-attr-container">${attrsHtml}</div>`;
           } else if (parsedAttrs.length === 1) {
             hideLabel = true;
             const attr = parsedAttrs[0];
+            const showDice = !BlacklistManager.isBlacklisted(attr.name);
             contentHtml = `<div style="display:flex;justify-content:space-between;align-items:center;">
                     <span style="color:var(--acu-text-sub);font-size:0.95em;">${escapeHtml(attr.name)}</span>
                     <div style="display:flex;align-items:center;gap:6px;">
                         <span style="color:var(--acu-text-main);font-weight:bold;">${attr.value}</span>
-                        <i class="fa-solid fa-dice-d20 acu-inline-dice-btn" data-attr-name="${escapeHtml(attr.name)}" data-attr-value="${attr.value}" style="cursor:pointer;color:var(--acu-accent);opacity:0.5;font-size:11px;" title="检定"></i>
+                        ${showDice ? `<i class="fa-solid fa-dice-d20 acu-inline-dice-btn" data-attr-name="${escapeHtml(attr.name)}" data-attr-value="${attr.value}" style="cursor:pointer;color:var(--acu-accent);opacity:0.5;font-size:11px;" title="检定"></i>` : ''}
                     </div></div>`;
           } else if (isNumericCell(rawStr) && !rawStr.includes(':') && !rawStr.includes('：')) {
             const numVal = extractNumericValue(rawStr);
+            const showDice = !BlacklistManager.isBlacklisted(headerName);
             contentHtml = `<div style="display:flex;justify-content:space-between;align-items:center;">
                     <span>${escapeHtml(rawStr)}</span>
-                    <i class="fa-solid fa-dice-d20 acu-inline-dice-btn" data-attr-name="${escapeHtml(headerName)}" data-attr-value="${numVal}" style="cursor:pointer;color:var(--acu-accent);opacity:0.5;font-size:11px;margin-left:6px;" title="检定"></i>
+                    ${showDice ? `<i class="fa-solid fa-dice-d20 acu-inline-dice-btn" data-attr-name="${escapeHtml(headerName)}" data-attr-value="${numVal}" style="cursor:pointer;color:var(--acu-accent);opacity:0.5;font-size:11px;margin-left:6px;" title="检定"></i>` : ''}
                 </div>`;
           } else {
             const badgeStyle = getBadgeStyle(rawStr);
@@ -19682,7 +25409,7 @@
         // 如果是水平滑动为主（X位移 > Y位移 * 1.5），阻止冒泡
         if (deltaX > deltaY * 1.5 && deltaX > 10) {
           e.stopPropagation();
-          console.log('[ACU] 阻止水平滑动冒泡，防止 ST swipe');
+          console.log('[DICE]ACU 阻止水平滑动冒泡，防止 ST swipe');
         }
       });
     })();
@@ -19699,7 +25426,7 @@
 
     // 检查必要元素是否存在
     if (!$container.length) {
-      console.error('[ACU] 找不到导航栏容器');
+      console.error('[DICE]ACU 找不到导航栏容器');
       isEditingOrder = false;
       return;
     }
@@ -20027,7 +25754,7 @@
     const rowIdx = parseInt($(cell).data('row'), 10);
     const colIdx = parseInt($(cell).data('col'), 10);
     if (isNaN(rowIdx) || isNaN(colIdx)) {
-      console.warn('[ACU] 无效的行/列索引');
+      console.warn('[DICE]ACU 无效的行/列索引');
       backdrop.remove();
       return;
     }
@@ -20184,7 +25911,7 @@
           closeAll();
           return; // 如果成功，直接结束，不走后面的浏览器逻辑
         } catch (err) {
-          console.warn('酒馆接口复制失败，尝试浏览器原生方法', err);
+          console.warn('[DICE]ACU 酒馆接口复制失败，尝试浏览器原生方法', err);
         }
       }
 
@@ -20228,7 +25955,7 @@
             throw new Error('execCommand failed');
           }
         } catch (err) {
-          console.error('复制失败:', err);
+          console.error('[DICE]ACU 复制失败:', err);
           prompt('复制失败，请长按下方文本手动复制:', text);
         }
       };
@@ -20507,18 +26234,271 @@
   // ==========================================
   // [优化后] 新的初始化入口 (Observer 只创建一次)
   // ==========================================
+  // 检测可视化表格脚本冲突
+  const detectVisualizerConflict = () => {
+    const { $ } = getCore();
+    if (!$) return false;
+
+    // 检测方法1: 检查是否存在可视化表格创建的 DOM 元素（最可靠）
+    // 可视化表格会创建 .acu-wrapper，但骰子系统也会创建，所以需要进一步判断
+    const $wrapper = $('.acu-wrapper');
+    if ($wrapper.length > 0) {
+      // 检查 wrapper 内部是否有可视化表格特有的元素
+      // 可视化表格 v12.60 使用 'acu_visualizer_ui_v20_pagination' 作为 SCRIPT_ID
+      // 检查是否有可视化表格特有的类名或结构
+      const hasVisualizerNav = $wrapper.find('.acu-nav-container').length > 0;
+      const hasVisualizerDataDisplay = $wrapper.find('.acu-data-display').length > 0;
+
+      // 如果 wrapper 存在但没有骰子系统的特征元素，可能是可视化表格
+      // 或者检查 wrapper 的 data 属性或 id
+      const wrapperId = $wrapper.attr('id') || '';
+      const wrapperClass = $wrapper.attr('class') || '';
+
+      // 如果检测到可视化表格特有的结构，判定为冲突
+      if (hasVisualizerNav && hasVisualizerDataDisplay) {
+        // 进一步检查：是否有骰子系统的特征（如骰子按钮等）
+        const hasDiceFeatures = $wrapper.find('[id*="dice"], [class*="dice"]').length > 0;
+        if (!hasDiceFeatures) {
+          return true; // 只有可视化表格的特征，没有骰子系统特征
+        }
+      }
+    }
+
+    // 检测方法2: 检查脚本内容中是否有可视化表格的标识
+    try {
+      const scripts = document.querySelectorAll('script');
+      for (const script of scripts) {
+        const content = script.textContent || script.innerHTML || '';
+        // 检查可视化表格 v12.60 的特定标识
+        if (content.includes('acu_visualizer_ui_v20_pagination') && content.includes('acu_ui_config_v18')) {
+          return true;
+        }
+      }
+    } catch (e) {
+      // 脚本检查失败，忽略
+    }
+
+    // 检测方法3: 检查 localStorage（作为辅助判断）
+    // 只有当 localStorage 中有可视化表格配置，且没有骰子系统配置时，才判定为冲突
+    try {
+      const visualizerConfig = localStorage.getItem('acu_ui_config_v18');
+      const diceConfig = localStorage.getItem('acu_ui_config_v19');
+
+      // 如果只有可视化表格的配置，且 DOM 中没有骰子系统的元素，判定为冲突
+      if (visualizerConfig && !diceConfig) {
+        // 再次检查 DOM，确保没有骰子系统的元素
+        const hasDiceInDOM = $('[id*="dice"], [class*="dice"]').length > 0;
+        if (!hasDiceInDOM) {
+          return true;
+        }
+      }
+    } catch (e) {
+      // localStorage 访问失败，忽略
+    }
+
+    return false;
+  };
+
+  // 显示冲突错误对话框
+  const showConflictDialog = () => {
+    const { $ } = getCore();
+    if (!$) return;
+
+    // 移除可能存在的旧对话框
+    $('.dice-conflict-dialog-overlay').remove();
+
+    const dialogHtml = `
+      <div class="dice-conflict-dialog-overlay" style="
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(0, 0, 0, 0.75);
+        backdrop-filter: blur(4px);
+        z-index: 2147483647;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 20px;
+        box-sizing: border-box;
+      ">
+        <div class="dice-conflict-dialog" style="
+          background: #fff;
+          border-radius: 16px;
+          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+          max-width: 500px;
+          width: 100%;
+          padding: 30px;
+          box-sizing: border-box;
+          animation: diceDialogPop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        ">
+          <div style="
+            text-align: center;
+            margin-bottom: 20px;
+          ">
+            <div style="
+              font-size: 48px;
+              color: #e74c3c;
+              margin-bottom: 15px;
+            ">⚠️</div>
+            <h2 style="
+              font-size: 24px;
+              font-weight: bold;
+              color: #333;
+              margin: 0 0 10px 0;
+            ">脚本冲突检测</h2>
+            <p style="
+              font-size: 16px;
+              color: #666;
+              line-height: 1.6;
+              margin: 0;
+            ">检测到"可视化表格"脚本正在运行</p>
+          </div>
+          <div style="
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+          ">
+            <p style="
+              font-size: 14px;
+              color: #856404;
+              line-height: 1.6;
+              margin: 0;
+            ">
+              <strong>提示：</strong>骰子系统与可视化表格脚本功能冲突，不能同时启用。<br>
+              请在酒馆助手的脚本管理中，<strong>关闭其中一个脚本后刷新酒馆页面</strong>。
+            </p>
+          </div>
+          <div style="
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+          ">
+            <button id="dice-conflict-close" style="
+              background: #6c757d;
+              color: #fff;
+              border: none;
+              border-radius: 8px;
+              padding: 12px 24px;
+              font-size: 16px;
+              font-weight: bold;
+              cursor: pointer;
+              transition: all 0.2s;
+              min-width: 120px;
+            ">我知道了</button>
+          </div>
+        </div>
+      </div>
+      <style>
+        @keyframes diceDialogPop {
+          from {
+            opacity: 0;
+            transform: translateY(20px) scale(0.95);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+        .dice-conflict-dialog button:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+        .dice-conflict-dialog button:active {
+          transform: translateY(0);
+        }
+        @media (max-width: 768px) {
+          .dice-conflict-dialog {
+            padding: 20px !important;
+            margin: 10px !important;
+            max-width: calc(100% - 20px) !important;
+          }
+          .dice-conflict-dialog h2 {
+            font-size: 20px !important;
+          }
+          .dice-conflict-dialog p {
+            font-size: 14px !important;
+          }
+        }
+      </style>
+    `;
+
+    $('body').append(dialogHtml);
+
+    // 绑定关闭事件
+    $('#dice-conflict-close').on('click', function () {
+      $('.dice-conflict-dialog-overlay').fadeOut(200, function () {
+        $(this).remove();
+      });
+    });
+
+    // 点击背景关闭
+    $('.dice-conflict-dialog-overlay').on('click', function (e) {
+      if ($(e.target).hasClass('dice-conflict-dialog-overlay')) {
+        $(this).fadeOut(200, function () {
+          $(this).remove();
+        });
+      }
+    });
+
+    // 使用 toastr 作为补充提示（如果可用）
+    if (window.toastr) {
+      window.toastr.error('脚本冲突：骰子系统与可视化表格不能同时启用', '冲突检测', {
+        timeOut: 0,
+        extendedTimeOut: 0,
+        closeButton: true,
+        preventDuplicates: true,
+      });
+    }
+  };
+
   const init = () => {
     if (isInitialized) return;
+
+    console.log('[DICE]开始初始化骰子系统...');
+
+    // 恢复 ConsoleCaptureManager 状态（从 localStorage）
+    try {
+      ConsoleCaptureManager.restore();
+      console.info('[DICE]ConsoleCaptureManager 状态已恢复');
+    } catch (e) {
+      console.error('[DICE]恢复 ConsoleCaptureManager 状态失败:', e);
+    }
+
+    // 检查并恢复错误状态（在初始化时）
+    try {
+      ErrorHandler.checkAndRestore();
+      console.info('[DICE]错误状态检查完成');
+    } catch (e) {
+      console.error('[DICE]初始化时检查错误状态失败:', e);
+    }
+
+    // 冲突检测：在初始化前检查是否有可视化表格脚本
+    if (detectVisualizerConflict()) {
+      showConflictDialog();
+      console.error('[DICE]骰子系统 检测到可视化表格脚本冲突，已阻止初始化');
+      return; // 阻止初始化
+    }
+
+    console.info('[DICE]注入 MVU 样式和自定义样式...');
     MvuModule.injectStyles();
 
     // 清理旧的 Observer（防止重复监听）
     if (observer) {
       observer.disconnect();
       observer = null;
+      console.info('[DICE]清理旧的 MutationObserver');
     }
     addStyles();
     // 2. 保留原有的 SillyTavern 事件监听（使用具名函数防止重复注册）
     if (window.SillyTavern && window.SillyTavern.eventSource) {
+      console.info('[DICE]注册 SillyTavern 事件监听器...');
       const events = window.SillyTavern.eventTypes;
       const source = window.SillyTavern.eventSource;
       const triggers = [events.CHAT_CHANGED, events.MESSAGE_SWIPED, events.MESSAGE_DELETED, events.MESSAGE_UPDATED];
@@ -20526,13 +26506,19 @@
       // 确保只创建一次处理函数
       if (!_boundRenderHandler) {
         _boundRenderHandler = () => {
-          if (!isEditingOrder) setTimeout(renderInterface, 500);
+          if (!isEditingOrder) {
+            console.info('[DICE]消息更新事件触发，延迟渲染界面');
+            setTimeout(renderInterface, 500);
+          } else {
+            console.info('[DICE]正在编辑顺序，跳过界面渲染');
+          }
         };
       }
 
       // 确保只创建一次聊天切换处理函数（移到模块级防止重复注册）
       if (!window._acuBoundChatChangeHandler) {
         window._acuBoundChatChangeHandler = () => {
+          console.info('[DICE]聊天切换事件触发，清理缓存并重新渲染');
           cachedRawData = null;
           tablePageStates = {};
           tableSearchStates = {};
@@ -20556,6 +26542,9 @@
           }
         }
       });
+      console.info(`[DICE]已注册 ${triggers.length} 个事件监听器`);
+    } else {
+      console.warn('[DICE]SillyTavern 事件源不可用，跳过事件监听器注册');
     }
 
     // 3. 轮询等待数据库 API 就绪
@@ -20563,10 +26552,13 @@
       const api = getCore().getDB();
       if (api?.exportTableAsJson) {
         isInitialized = true;
+        console.log('[DICE]骰子系统初始化成功');
+        console.info('[DICE]数据库 API 已就绪');
 
         // --- [Fix] 移动到这里：确保 API 就绪且 #chat 存在后再启动监听 (带节流优化) ---
         const $chat = $('#chat');
         if ($chat.length && !observer) {
+          console.info('[DICE]启动聊天区域 MutationObserver');
           let mutationLock = false;
           const handleMutation = () => {
             if (mutationLock) return;
@@ -20592,9 +26584,12 @@
           };
           observer = new MutationObserver(handleMutation);
           observer.observe($chat[0], { childList: true });
+        } else if (!$chat.length) {
+          console.warn('[DICE]聊天区域 (#chat) 未找到，跳过 MutationObserver 设置');
         }
         // --------------------------------------------------
 
+        console.info('[DICE]执行首次界面渲染...');
         renderInterface(); // 首次渲染
         // [新增] 初始化时处理已存在的消息中的投骰结果
         setTimeout(() => {
@@ -20603,6 +26598,7 @@
         // 注册回调
         if (api.registerTableUpdateCallback) {
           api.registerTableUpdateCallback(UpdateController.handleUpdate);
+          console.info('[DICE]已注册表格更新回调');
 
           // 恢复快照功能
           if (api.registerTableFillStartCallback) {
@@ -20610,16 +26606,22 @@
               const current = api.exportTableAsJson();
               if (current) saveSnapshot(current);
             });
+            console.info('[DICE]已注册表格填充开始回调');
           }
+        } else {
+          console.warn('[DICE]数据库 API 不支持回调注册');
         }
       } else {
         // 限制重试次数，防止无限循环 (约 60秒后放弃)
         if (!isInitialized) {
           window._acuInitRetries = (window._acuInitRetries || 0) + 1;
           if (window._acuInitRetries < 60) {
+            if (window._acuInitRetries % 10 === 0) {
+              console.info(`[DICE]等待数据库 API 就绪... (${window._acuInitRetries}/60)`);
+            }
             setTimeout(loop, 1000);
           } else {
-            console.warn('[ACU] 未检测到数据库后端 API，停止轮询。请确保已安装神·数据库脚本。');
+            console.error('[DICE]未检测到数据库后端 API，停止轮询。请确保已安装神·数据库脚本。');
           }
         }
       }
@@ -20741,6 +26743,26 @@
       interceptTextareaValue();
     }, 500);
 
+    // [新增] 监听ERA变量更新，自动刷新变量面板
+    const eventOn = window.eventOn || window.parent?.eventOn;
+    if (typeof eventOn === 'function') {
+      eventOn('era:writeDone', (detail) => {
+        // 清除 ERA 缓存
+        if (typeof MvuModule === 'object' && typeof MvuModule.clearCache === 'function') {
+          MvuModule.clearCache();
+        }
+
+        // 如果当前检测到的是ERA数据，自动刷新面板
+        const mode = MvuModule.detectMode();
+        if (mode === 'era' && getActiveTabState() === MvuModule.MODULE_ID) {
+          console.log('[DICE]ERA变量已更新，自动刷新面板');
+          renderInterface();
+        }
+      });
+    } else {
+      console.warn('[DICE]无法监听 ERA 事件，eventOn 不可用');
+    }
+
     // [新增] 页面卸载时清理资源
     $(window)
       .off('beforeunload.acu pagehide.acu')
@@ -20753,6 +26775,141 @@
           }
         } catch (e) {}
       });
+  };
+
+  // ========================================
+  // 测试函数：验证配对表修复逻辑
+  // ========================================
+  // 在浏览器控制台运行：window.testPairedTableFix()
+  window.testPairedTableFix = function () {
+    // 构造测试数据：包含空白行、共同编码、各自独有编码、跳号
+    const prefix = 'AM';
+    const startFrom = 1;
+    const columnName = '编码索引';
+
+    // 总结表（表1）：AM001, AM002, 空白(错误行), AM030, 空白(错误行)
+    // 有效编码：AM001, AM002, AM030
+    const table1Sheet = {
+      name: '总结表',
+      content: [
+        ['编码索引', '时间跨度', '纪要'],
+        ['AM001', '时间1', '纪要1'],
+        ['AM002', '时间2', '纪要2'],
+        [null, '时间3-错误行', '纪要3-错误行'], // 空白编码（错误行，应保持不动）
+        ['AM030', '时间4', '纪要4'],
+        [null, '时间5-错误行', '纪要5-错误行'], // 空白编码（错误行，应保持不动）
+      ],
+    };
+
+    // 总结大纲表（表2）：空白(错误行), AM002, AM030, AM040, AM050
+    // 有效编码：AM002, AM030, AM040, AM050
+    const table2Sheet = {
+      name: '总体大纲',
+      content: [
+        ['编码索引', '时间跨度', '大纲'],
+        [null, '时间A-错误行', '大纲A-错误行'], // 空白编码（错误行，应保持不动）
+        ['AM002', '时间B', '大纲B'],
+        ['AM030', '时间C', '大纲C'],
+        ['AM040', '时间D', '大纲D'],
+        ['AM050', '时间E', '大纲E'],
+      ],
+    };
+
+    // 提取编码
+    const extract1 = extractCodesFromTable(table1Sheet, columnName, prefix);
+    const extract2 = extractCodesFromTable(table2Sheet, columnName, prefix);
+
+    // 构建映射
+    const mapping = buildCodeMapping(extract1.allCodes, extract2.allCodes, prefix, startFrom);
+
+    // 执行修复
+    const rawData = {};
+    const result = alignAndFixPairedTables(
+      table1Sheet,
+      'sheet1',
+      table2Sheet,
+      'sheet2',
+      columnName,
+      mapping,
+      prefix,
+      startFrom,
+      rawData,
+    );
+
+    // 验证结果
+    const getValidCodes = sheet =>
+      sheet.content
+        .slice(1)
+        .map(r => r[0])
+        .filter(c => c && String(c).match(new RegExp(`^${prefix}\\d+$`)));
+
+    const codes1 = getValidCodes(table1Sheet);
+    const codes2 = getValidCodes(table2Sheet);
+
+    // 检查空白行是否保持原数据
+    const emptyRows1 = table1Sheet.content
+      .slice(1)
+      .filter(r => !r[0] || !String(r[0]).match(new RegExp(`^${prefix}\\d+$`)));
+    const emptyRows2 = table2Sheet.content
+      .slice(1)
+      .filter(r => !r[0] || !String(r[0]).match(new RegExp(`^${prefix}\\d+$`)));
+
+    // 验证编码是否严格递增
+    const validateSequence = (codes, prefix, startFrom) => {
+      const numbers = codes
+        .map(c => {
+          if (!c) return null;
+          const match = c.match(new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+)$`));
+          return match ? parseInt(match[1], 10) : null;
+        })
+        .filter(n => n !== null);
+
+      for (let i = 0; i < numbers.length; i++) {
+        if (numbers[i] !== startFrom + i) {
+          return false;
+        }
+      }
+      return true;
+    };
+
+    const isValid1 = validateSequence(codes1, prefix, startFrom);
+    const isValid2 = validateSequence(codes2, prefix, startFrom);
+
+    // 验证两个表的有效编码集合是否一致
+    const set1 = new Set(codes1);
+    const set2 = new Set(codes2);
+    const setsEqual = set1.size === set2.size && [...set1].every(c => set2.has(c));
+
+    // 验证空白行数据是否保留
+    const emptyRowsPreserved1 = emptyRows1.some(r => r[1] && r[1].includes('错误行'));
+    const emptyRowsPreserved2 = emptyRows2.some(r => r[1] && r[1].includes('错误行'));
+
+    return {
+      table1Sheet,
+      table2Sheet,
+      result,
+      codes1,
+      codes2,
+      emptyRows1,
+      emptyRows2,
+      isValid1,
+      isValid2,
+      setsEqual,
+      emptyRowsPreserved1,
+      emptyRowsPreserved2,
+      // 综合验证：有效编码严格递增 + 两表有效编码一致 + 空白行数据保留
+      isValid: isValid1 && isValid2 && setsEqual && emptyRowsPreserved1 && emptyRowsPreserved2,
+    };
+  };
+
+  // 暴露诊断工具到全局（方便控制台调用）
+  window.diagnoseDiceVariables = async function() {
+    if (typeof MvuModule !== 'undefined' && typeof MvuModule.diagnoseVariableFramework === 'function') {
+      return await MvuModule.diagnoseVariableFramework();
+    } else {
+      console.error('[DICE]MvuModule 未初始化或诊断工具不可用');
+      return null;
+    }
   };
 
   const { $ } = getCore();
