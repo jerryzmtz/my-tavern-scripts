@@ -3105,7 +3105,7 @@
           // 尝试实际获取 ERA 数据（带超时）
           const eraData = await Promise.race([
             getEraData(),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('ERA timeout')), 2000))
+            new Promise((_, reject) => setTimeout(() => reject(new Error('ERA timeout')), 2000)),
           ]);
 
           if (eraData && eraData.stat_data) {
@@ -3134,7 +3134,7 @@
                 delta_data: mvuData.delta_data || {},
                 schema: mvuData.schema || null,
                 _source: 'mvu', // 标记数据来源
-              }
+              },
             };
           }
         }
@@ -3150,7 +3150,7 @@
     // ===== ERA 数据获取函数 =====
     // 异步获取ERA变量数据
     async function getEraData() {
-      return new Promise((resolve) => {
+      return new Promise(resolve => {
         const timeoutId = setTimeout(() => {
           console.warn('[DICE]MvuModule ERA查询超时');
           resolve(null);
@@ -3161,7 +3161,7 @@
         const eventOn = window.eventOn || window.parent?.eventOn;
         const eventOff = window.eventOff || window.parent?.eventOff;
 
-        const onResult = (detail) => {
+        const onResult = detail => {
           clearTimeout(timeoutId);
           // 移除事件监听（如果 eventOff 不可用，则忽略）
           if (typeof eventOff === 'function') {
@@ -3202,7 +3202,7 @@
           console.log('[DICE]MvuModule ERA API 检查:', {
             eventEmit: typeof eventEmit === 'function',
             eventOn: typeof eventOn === 'function',
-            eventOff: typeof eventOff === 'function'
+            eventOff: typeof eventOff === 'function',
           });
 
           if (typeof eventOn !== 'function') {
@@ -3230,7 +3230,7 @@
 
     // ERA 变量设置函数
     async function setEraValue(path, newValue) {
-      return new Promise((resolve) => {
+      return new Promise(resolve => {
         const timeoutId = setTimeout(() => {
           console.warn('[DICE]MvuModule ERA写入超时');
           resolve(false);
@@ -3241,7 +3241,7 @@
         const eventOn = window.eventOn || window.parent?.eventOn;
         const eventOff = window.eventOff || window.parent?.eventOff;
 
-        const onWriteDone = (detail) => {
+        const onWriteDone = detail => {
           clearTimeout(timeoutId);
           if (typeof eventOff === 'function') {
             eventOff('era:writeDone', onWriteDone);
@@ -3269,7 +3269,7 @@
           eventOn('era:writeDone', onWriteDone);
           eventEmit('era:updateByPath', {
             path: path,
-            value: newValue
+            value: newValue,
           });
         } catch (e) {
           clearTimeout(timeoutId);
@@ -3917,7 +3917,6 @@
           // ERA 失败，尝试降级到 MVU
           console.warn('[DICE]ERA 数据获取失败，尝试降级到 MVU');
           return await getMvuDataWithRetry(maxRetries, retryDelay);
-
         } else {
           // MVU 模式
           return await getMvuDataWithRetry(maxRetries, retryDelay);
@@ -4349,9 +4348,10 @@
       const allLevelNames = new Set();
       filteredNumericItems.forEach(item => {
         // 排除最下层的属性名，只收集层级名
-        const hierarchyLevels = item.levelNames.length > 1
-          ? item.levelNames.slice(0, -1)  // 排除最后一个
-          : [];
+        const hierarchyLevels =
+          item.levelNames.length > 1
+            ? item.levelNames.slice(0, -1) // 排除最后一个
+            : [];
 
         hierarchyLevels.forEach(level => {
           if (level && !level.startsWith('[')) {
@@ -4416,15 +4416,11 @@
 
         // 【修复 1】排除最下层名称，避免与属性名重复
         // 如果 visibleLevels 有多个元素，移除最后一个
-        const pathLevels = visibleLevels.length > 1
-          ? visibleLevels.slice(0, -1)
-          : [];
+        const pathLevels = visibleLevels.length > 1 ? visibleLevels.slice(0, -1) : [];
 
         // 检查该项的所有层级是否都可见（用于初始显示状态）
         // 注意：这里使用 nonArrayLevels 的前 N-1 个层级（排除最下层）
-        const hierarchyLevels = nonArrayLevels.length > 1
-          ? nonArrayLevels.slice(0, -1)
-          : [];
+        const hierarchyLevels = nonArrayLevels.length > 1 ? nonArrayLevels.slice(0, -1) : [];
 
         const allLevelsVisible = hierarchyLevels.every(level => {
           try {
@@ -4489,7 +4485,7 @@
       getDataWithRetry: getDataWithRetry,
 
       // 诊断工具：检查变量框架状态
-      diagnoseVariableFramework: async function() {
+      diagnoseVariableFramework: async function () {
         const result = {
           timestamp: new Date().toISOString(),
           era: {
@@ -4518,7 +4514,7 @@
           try {
             const eraData = await Promise.race([
               getEraData(),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2000))
+              new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2000)),
             ]);
             result.era.available = true;
             result.era.dataAvailable = !!(eraData && eraData.stat_data);
@@ -4857,7 +4853,7 @@
             }
 
             // 【修复 3】局部更新路径显示，而不是全量重渲染
-            $('.mvu-numeric-item').each(function() {
+            $('.mvu-numeric-item').each(function () {
               const $item = $(this);
               try {
                 const levels = JSON.parse($item.attr('data-levels') || '[]');
@@ -26746,7 +26742,7 @@
     // [新增] 监听ERA变量更新，自动刷新变量面板
     const eventOn = window.eventOn || window.parent?.eventOn;
     if (typeof eventOn === 'function') {
-      eventOn('era:writeDone', (detail) => {
+      eventOn('era:writeDone', detail => {
         // 清除 ERA 缓存
         if (typeof MvuModule === 'object' && typeof MvuModule.clearCache === 'function') {
           MvuModule.clearCache();
@@ -26903,7 +26899,7 @@
   };
 
   // 暴露诊断工具到全局（方便控制台调用）
-  window.diagnoseDiceVariables = async function() {
+  window.diagnoseDiceVariables = async function () {
     if (typeof MvuModule !== 'undefined' && typeof MvuModule.diagnoseVariableFramework === 'function') {
       return await MvuModule.diagnoseVariableFramework();
     } else {
