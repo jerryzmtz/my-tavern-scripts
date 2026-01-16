@@ -9,7 +9,13 @@ fs.globSync('src/**/schema.ts').forEach(async schema_file => {
   try {
     globalThis._ = _;
     globalThis.z = z;
+<<<<<<< HEAD
     const module = await import(path.resolve(import.meta.dirname, schema_file));
+=======
+    const module = await import(
+      (process.platform === 'win32' ? 'file://' : '') + path.resolve(import.meta.dirname, schema_file)
+    );
+>>>>>>> 6e5a597c2b2ba17b6b9c10078977d2e8af0ab28d
     if (_.has(module, 'Schema')) {
       const schema = _.get(module, 'Schema');
       if (_.isFunction(schema)) {
