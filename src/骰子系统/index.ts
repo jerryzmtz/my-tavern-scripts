@@ -419,6 +419,112 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
+
+  // [新增] 生成唯一名称（用于预设导入时处理重名）
+  const generateUniqueName = (baseName: string, existingNames: string[]): string => {
+    if (!existingNames.includes(baseName)) return baseName;
+    let counter = 2;
+    let newName = `${baseName} (${counter})`;
+    while (existingNames.includes(newName)) {
+      counter++;
+      newName = `${baseName} (${counter})`;
+    }
+    return newName;
+  };
+
+  // [新增] 通用预设导入冲突弹窗（复用头像导入弹窗样式）
+  const showPresetConflictDialog = (options: {
+    presetName: string;
+    presetType: string;
+    onOverwrite: () => void;
+    onRename: (newName: string) => void;
+    onCancel: () => void;
+    existingNames: string[];
+  }) => {
+    const { $ } = getCore();
+    $('.acu-import-confirm-overlay').remove();
+
+    const t = getThemeColors();
+    const config = getConfig();
+    const suggestedName = generateUniqueName(options.presetName, options.existingNames);
+
+    const dialogHtml = `
+      <div class="acu-import-confirm-overlay acu-theme-${config.theme}">
+        <div class="acu-import-confirm-dialog">
+          <div class="acu-import-confirm-header">
+            <i class="fa-solid fa-file-import"></i> 导入${options.presetType}预设
+          </div>
+          <div class="acu-import-confirm-body">
+            <div class="acu-import-warning-container">
+              <i class="fa-solid fa-exclamation-triangle acu-import-warning-icon"></i>
+              <div class="acu-import-warning-title">发现同名预设</div>
+              <div class="acu-import-warning-message">预设「${escapeHtml(options.presetName)}」已存在，请选择处理方式：</div>
+            </div>
+            <div class="acu-import-conflict-options">
+              <label class="acu-import-radio">
+                <input type="radio" name="preset-conflict-mode" value="overwrite" checked />
+                <span>覆盖现有预设</span>
+              </label>
+              <label class="acu-import-radio">
+                <input type="radio" name="preset-conflict-mode" value="rename" />
+                <span>新建副本（命名为「${escapeHtml(suggestedName)}」）</span>
+              </label>
+            </div>
+          </div>
+          <div class="acu-import-confirm-footer">
+            <button class="acu-import-cancel-btn">取消</button>
+            <button class="acu-import-confirm-btn">确认导入</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const $dialog = $(dialogHtml);
+    $('body').append($dialog);
+
+    // 强制样式（与头像导入弹窗一致）
+    const overlayEl = $dialog[0];
+    overlayEl.style.cssText = `
+      position: fixed !important;
+      top: 0 !important;
+      left: 0 !important;
+      right: 0 !important;
+      bottom: 0 !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      background: rgba(0,0,0,0.6) !important;
+      z-index: 2147483655 !important;
+      display: flex;
+      justify-content: center !important;
+      align-items: center !important;
+      padding: 16px;
+      box-sizing: border-box !important;
+    `;
+
+    const closeDialog = () => $dialog.remove();
+
+    $dialog.find('.acu-import-cancel-btn').click(() => {
+      closeDialog();
+      options.onCancel();
+    });
+
+    $dialog.on('click', function (e) {
+      if ($(e.target).hasClass('acu-import-confirm-overlay')) {
+        closeDialog();
+        options.onCancel();
+      }
+    });
+
+    $dialog.find('.acu-import-confirm-btn').click(function () {
+      const mode = $dialog.find('input[name="preset-conflict-mode"]:checked').val();
+      closeDialog();
+      if (mode === 'overwrite') {
+        options.onOverwrite();
+      } else {
+        options.onRename(suggestedName);
+      }
+    });
+  };
   // [新增] 智能填充输入栏函数
   const smartInsertToTextarea = (newContent, contentType) => {
     // contentType: 'action' (交互选项) 或 'dice' (骰子结果)
@@ -548,6 +654,9 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
   // [新增] 在发送消息前恢复真实结果
   const restoreDiceResultBeforeSend = () => {
     const { $ } = getCore();
+    const diceCfg = getDiceConfig();
+    const hideInput = diceCfg.hideDiceResultFromUser !== undefined ? diceCfg.hideDiceResultFromUser : false;
+    if (hideInput) return;
     const $ta = $('#send_textarea');
     if (!$ta.length) return;
 
@@ -625,6 +734,7 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
   const STORAGE_KEY_UI_CONFIG = 'acu_ui_config_v19';
   const STORAGE_KEY_LAST_SNAPSHOT = 'acu_data_snapshot_v19';
   const STORAGE_KEY_IS_COLLAPSED = 'acu_ui_collapsed_state';
+  const STORAGE_KEY_OPTIONS_COLLAPSED = 'acu_options_collapsed'; // [新增] 选项面板独立折叠状态
   const STORAGE_KEY_DASHBOARD_ACTIVE = 'acu_dashboard_active';
   // [新增] 移植功能所需的存储键
   const STORAGE_KEY_TABLE_HEIGHTS = 'acu_table_heights_v19';
@@ -648,7 +758,7 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.4.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v3.3'; // 脚本版本号
+  const SCRIPT_VERSION = 'v3.31'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -8359,6 +8469,103 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
       warningIcon: '#ffff00',
       buttonTextOnAccent: '#0c0c0c',
     },
+    dreamcore: {
+      // 梦核「永恒下午」：阈限空间、90年代公共场所、VHS失真
+      bgPanel: '#F4F1EA',
+      border: '#D6D2C4',
+      textMain: '#5C5869',
+      textSub: '#9490A0',
+      btnBg: '#E6E1D5',
+      btnHover: '#DBD8CC',
+      accent: '#8A9AC6',
+      tableHead: '#EBE7DE',
+      successText: '#4A7A68',
+      successBg: 'rgba(74, 122, 104, 0.18)',
+      inputBg: '#FFFFFF',
+      inputText: '#4A4652',
+      placeholderText: '#B0ACC0',
+      btnActiveBg: '#8A9AC6',
+      btnActiveText: '#FFFFFF',
+      // 检定结果相关
+      failureText: '#8F5E5E',
+      failureBg: 'rgba(143, 94, 94, 0.18)',
+      warningText: '#8A7040',
+      warningBg: 'rgba(138, 112, 64, 0.18)',
+      critSuccessText: '#2D6E58',
+      critSuccessBg: 'rgba(45, 110, 88, 0.25)',
+      critFailureText: '#7A3E3E',
+      critFailureBg: 'rgba(122, 62, 62, 0.25)',
+      extremeSuccessText: '#5C5228',
+      extremeSuccessBg: 'rgba(92, 82, 40, 0.2)',
+      // UI通用颜色
+      overlayBg: 'rgba(244, 241, 234, 0.85)',
+      overlayBgLight: 'rgba(255, 255, 255, 0.4)',
+      shadowBg: 'rgba(92, 88, 105, 0.15)',
+      lightBg: 'rgba(138, 154, 198, 0.08)',
+      veryLightBg: 'rgba(138, 154, 198, 0.03)',
+      buttonText: '#5C5869',
+      grayBg: 'rgba(92, 88, 105, 0.08)',
+      // 按钮专用颜色
+      buttonBg: 'rgba(138, 154, 198, 0.4)',
+      buttonBgActive: 'rgba(138, 154, 198, 0.6)',
+      presetButtonBg: 'rgba(138, 154, 198, 0.2)',
+      presetButtonBgActive: 'rgba(138, 154, 198, 0.45)',
+      // 警告/错误相关
+      errorText: '#B85C5C',
+      errorBg: 'rgba(184, 92, 92, 0.15)',
+      errorBorder: 'rgba(184, 92, 92, 0.4)',
+      warningIcon: '#E0C080',
+      buttonTextOnAccent: '#FFFFFF',
+    },
+    // 超天酱 (Choutenちゃん) - 電脳カワイイ・オーバードライブ
+    // VTuber偶像风格：糖果色 + 赛博朋克 + 霓虹渐变
+    chouten: {
+      bgPanel: '#1A0A2E', // 深紫夜空
+      border: '#FF6B9D', // 活力粉边框
+      textMain: '#FFE4F0', // 柔粉白文字
+      textSub: '#B388FF', // 薰衣草紫
+      btnBg: 'rgba(255, 107, 157, 0.25)', // 半透明粉
+      btnHover: 'rgba(255, 107, 157, 0.4)', // 悬停加深
+      accent: '#7FFFD4', // 电子薄荷绿（标志色）
+      tableHead: 'rgba(45, 27, 78, 0.95)', // 深紫表头
+      successText: '#7FFFD4', // 薄荷绿成功
+      successBg: 'rgba(127, 255, 212, 0.2)',
+      inputBg: 'rgba(26, 10, 46, 0.9)', // 深紫输入框
+      inputText: '#FFE4F0',
+      placeholderText: '#9370DB', // 中紫占位符
+      btnActiveBg: '#FF6B9D', // 活力粉激活态
+      btnActiveText: '#1A0A2E', // 深紫文字（对比）
+      // 检定结果：霓虹糖果色系
+      failureText: '#FF6B6B', // 珊瑚红
+      failureBg: 'rgba(255, 107, 107, 0.25)',
+      warningText: '#FFD93D', // 柠檬黄
+      warningBg: 'rgba(255, 217, 61, 0.2)',
+      critSuccessText: '#00FFAB', // 霓虹绿
+      critSuccessBg: 'rgba(0, 255, 171, 0.25)',
+      critFailureText: '#FF4757', // 樱桃红
+      critFailureBg: 'rgba(255, 71, 87, 0.25)',
+      extremeSuccessText: '#00D9FF', // 电子蓝
+      extremeSuccessBg: 'rgba(0, 217, 255, 0.2)',
+      // UI通用颜色
+      overlayBg: 'rgba(26, 10, 46, 0.92)',
+      overlayBgLight: 'rgba(45, 27, 78, 0.85)',
+      shadowBg: 'rgba(255, 107, 157, 0.3)', // 粉色光晕阴影
+      lightBg: 'rgba(255, 107, 157, 0.08)',
+      veryLightBg: 'rgba(179, 136, 255, 0.05)',
+      buttonText: '#1A0A2E',
+      grayBg: 'rgba(179, 136, 255, 0.15)',
+      // 按钮专用颜色（霓虹渐变风格）
+      buttonBg: 'rgba(255, 107, 157, 0.6)',
+      buttonBgActive: 'rgba(255, 107, 157, 0.8)',
+      presetButtonBg: 'rgba(127, 255, 212, 0.2)',
+      presetButtonBgActive: 'rgba(127, 255, 212, 0.45)',
+      // 警告/错误相关
+      errorText: '#FF6B6B',
+      errorBg: 'rgba(255, 107, 107, 0.2)',
+      errorBorder: 'rgba(255, 107, 107, 0.5)',
+      warningIcon: '#FFD93D',
+      buttonTextOnAccent: '#1A0A2E',
+    },
   };
   const getThemeColors = () => {
     const theme = THEME_COLORS[getConfig().theme] || THEME_COLORS['retro'];
@@ -8777,6 +8984,8 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
     { id: 'vaporwave', name: '霓虹怀旧 (Vaporwave)', icon: 'fa-palette' },
     { id: 'classicpackaging', name: '经典包装 (Classic Packaging)', icon: 'fa-box' },
     { id: 'terminal', name: '终端绿屏 (Terminal)', icon: 'fa-terminal' },
+    { id: 'dreamcore', name: '梦核迷离 (Dreamcore)', icon: 'fa-cloud-moon' },
+    { id: 'chouten', name: '幻夜霓虹 (Cyber Kawaii)', icon: 'fa-star' },
   ];
 
   // [优化] 缓存 core 对象 (修复竞态条件 + 增强 ST 穿透查找)
@@ -8910,6 +9119,9 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
   const saveTableOrder = v => Store.set(STORAGE_KEY_TABLE_ORDER, v);
   const getCollapsedState = () => Store.get(STORAGE_KEY_IS_COLLAPSED, false);
   const saveCollapsedState = v => Store.set(STORAGE_KEY_IS_COLLAPSED, v);
+  // [新增] 选项面板独立折叠状态管理
+  const getOptionsCollapsedState = () => Store.get(STORAGE_KEY_OPTIONS_COLLAPSED, false);
+  const saveOptionsCollapsedState = v => Store.set(STORAGE_KEY_OPTIONS_COLLAPSED, v);
   // [修改] 读取快照时，严格核对身份证 (Chat ID)
   const loadSnapshot = () => {
     const data = Store.get(STORAGE_KEY_LAST_SNAPSHOT);
@@ -15905,6 +16117,211 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
     .acu-theme-terminal .acu-contest-panel input:not([type]) {
         color: #00ff00 !important;
     }
+    .acu-theme-dreamcore { --acu-bg-nav: #F4F1EA; --acu-bg-panel: #F4F1EA; --acu-border: #D6D2C4; --acu-text-main: #5C5869; --acu-text-sub: #9490A0; --acu-btn-bg: #E6E1D5; --acu-btn-hover: #DBD8CC; --acu-btn-active-bg: #8A9AC6; --acu-btn-active-text: #FFFFFF; --acu-accent: #8A9AC6; --acu-table-head: #EBE7DE; --acu-table-hover: #F8F6F0; --acu-shadow: rgba(92, 88, 105, 0.15); --acu-card-bg: #FFFFFF; --acu-badge-bg: #EBE7DE; --acu-menu-bg: #FCFAF5; --acu-menu-text: #5C5869; --acu-success-text: #4A7A68; --acu-success-bg: rgba(74, 122, 104, 0.18); --acu-scrollbar-track: #F4F1EA; --acu-scrollbar-thumb: #D6D2C4; --acu-input-bg: #FFFFFF; --acu-hl-manual: #8A7040; --acu-hl-manual-bg: rgba(138, 112, 64, 0.18); --acu-hl-diff: #8A9AC6; --acu-hl-diff-bg: rgba(138, 154, 198, 0.18); --acu-error-text: #B85C5C; --acu-error-bg: rgba(184, 92, 92, 0.15); --acu-error-border: rgba(184, 92, 92, 0.4); --acu-warning-icon: #E0C080; --acu-failure-text: #8F5E5E; --acu-failure-bg: rgba(143, 94, 94, 0.18); --acu-warning-text: #8A7040; --acu-warning-bg: rgba(138, 112, 64, 0.18); --acu-crit-success-text: #2D6E58; --acu-crit-success-bg: rgba(45, 110, 88, 0.25); --acu-crit-failure-text: #7A3E3E; --acu-crit-failure-bg: rgba(122, 62, 62, 0.25); --acu-extreme-success-text: #5C5228; --acu-extreme-success-bg: rgba(92, 82, 40, 0.2); --acu-overlay-bg: rgba(244, 241, 234, 0.85); --acu-overlay-bg-light: rgba(255, 255, 255, 0.4); --acu-shadow-bg: rgba(92, 88, 105, 0.15); --acu-light-bg: rgba(138, 154, 198, 0.08); --acu-very-light-bg: rgba(138, 154, 198, 0.03); --acu-button-text: #5C5869; --acu-gray-bg: rgba(92, 88, 105, 0.08); }
+    .acu-theme-dreamcore .acu-nav-btn { border-color: #D6D2C4; }
+    .acu-theme-dreamcore .acu-data-card { border-color: #D6D2C4; box-shadow: 0 2px 8px rgba(92, 88, 105, 0.1); }
+    .acu-theme-dreamcore .acu-dice-panel input::placeholder,
+    .acu-theme-dreamcore .acu-contest-panel input::placeholder {
+        color: #B0ACC0 !important;
+        opacity: 0.9;
+    }
+    .acu-theme-dreamcore .acu-dice-panel input[type="text"],
+    .acu-theme-dreamcore .acu-dice-panel input[type="number"],
+    .acu-theme-dreamcore .acu-dice-panel input:not([type]),
+    .acu-theme-dreamcore .acu-contest-panel input[type="text"],
+    .acu-theme-dreamcore .acu-contest-panel input[type="number"],
+    .acu-theme-dreamcore .acu-contest-panel input:not([type]) {
+        color: #4A4652 !important;
+    }
+    /* 超天酱 (Choutenちゃん) 主题：電脳カワイイ・オーバードライブ */
+    .acu-theme-chouten {
+        --acu-bg-nav: linear-gradient(135deg, rgba(26, 10, 46, 0.95) 0%, rgba(45, 27, 78, 0.95) 50%, rgba(26, 10, 46, 0.95) 100%);
+        --acu-bg-panel: rgba(26, 10, 46, 0.95);
+        --acu-border: #FF7EB6;
+        --acu-text-main: #FFFFFF;
+        --acu-text-sub: #D0BFFF;
+        --acu-btn-bg: rgba(255, 255, 255, 0.1);
+        --acu-btn-hover: rgba(255, 107, 157, 0.3);
+        --acu-btn-active-bg: linear-gradient(90deg, #FF6B9D, #B388FF);
+        --acu-btn-active-text: #FFFFFF;
+        --acu-accent: #7FFFD4;
+        --acu-table-head: rgba(255, 107, 157, 0.15);
+        --acu-table-hover: linear-gradient(90deg, rgba(255, 107, 157, 0.2), rgba(127, 255, 212, 0.2));
+        --acu-shadow: rgba(255, 107, 157, 0.5);
+        --acu-card-bg: rgba(20, 10, 35, 0.7);
+        --acu-badge-bg: rgba(127, 255, 212, 0.2);
+        --acu-menu-bg: #2D1B4E;
+        --acu-menu-text: #FFE4F0;
+        --acu-success-text: #7FFFD4;
+        --acu-success-bg: rgba(127, 255, 212, 0.15);
+        --acu-scrollbar-track: #1A0A2E;
+        --acu-scrollbar-thumb: #FF6B9D;
+        --acu-input-bg: rgba(0, 0, 0, 0.3);
+        --acu-hl-manual: #FFD93D;
+        --acu-hl-manual-bg: rgba(255, 217, 61, 0.2);
+        --acu-hl-diff: #7FFFD4;
+        --acu-hl-diff-bg: rgba(127, 255, 212, 0.2);
+        --acu-error-text: #FF6B6B;
+        --acu-error-bg: rgba(255, 107, 107, 0.2);
+        --acu-error-border: #FF6B6B;
+        --acu-warning-icon: #FFD93D;
+        --acu-failure-text: #FF6B6B;
+        --acu-failure-bg: rgba(255, 107, 107, 0.2);
+        --acu-warning-text: #FFD93D;
+        --acu-warning-bg: rgba(255, 217, 61, 0.2);
+        --acu-crit-success-text: #00FFAB;
+        --acu-crit-success-bg: rgba(0, 255, 171, 0.25);
+        --acu-crit-failure-text: #FF4757;
+        --acu-crit-failure-bg: rgba(255, 71, 87, 0.25);
+        --acu-extreme-success-text: #00D9FF;
+        --acu-extreme-success-bg: rgba(0, 217, 255, 0.2);
+        --acu-overlay-bg: rgba(26, 10, 46, 0.95);
+        --acu-overlay-bg-light: rgba(45, 27, 78, 0.85);
+        --acu-shadow-bg: rgba(255, 107, 157, 0.3);
+        --acu-light-bg: rgba(255, 107, 157, 0.1);
+        --acu-very-light-bg: rgba(179, 136, 255, 0.05);
+        --acu-button-text: #FFFFFF;
+        --acu-button-text-on-accent: #1A0A2E;
+        --acu-gray-bg: rgba(255, 255, 255, 0.05);
+    }
+
+    /* 超天酱：导航栏 - 偶像舞台光效 */
+    .acu-theme-chouten .acu-nav-container {
+        background: linear-gradient(180deg, rgba(45, 27, 78, 0.95) 0%, rgba(26, 10, 46, 0.98) 100%) !important;
+        border: 1px solid rgba(255, 107, 157, 0.5) !important;
+        box-shadow: 0 0 20px rgba(179, 136, 255, 0.2), inset 0 0 30px rgba(255, 107, 157, 0.1) !important;
+        backdrop-filter: blur(10px);
+        overflow: visible !important;
+    }
+    /* 顶部彩虹光条 */
+    .acu-theme-chouten .acu-nav-container::before {
+        content: '';
+        position: absolute;
+        top: -2px; left: -2px; right: -2px; bottom: -2px;
+        background: linear-gradient(90deg, #FF6B9D, #B388FF, #7FFFD4, #FF6B9D);
+        background-size: 300% 100%;
+        z-index: -1;
+        border-radius: 12px;
+        animation: chouten-rainbow-border 4s linear infinite;
+        opacity: 0.8;
+    }
+    @keyframes chouten-rainbow-border {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+    }
+
+    /* 超天酱：按钮 - 糖果霓虹 */
+    .acu-theme-chouten .acu-nav-btn {
+        border: 1px solid rgba(255, 255, 255, 0.2) !important;
+        background: rgba(255, 255, 255, 0.05) !important;
+        border-radius: 8px;
+        color: #FFE4F0;
+        transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        position: relative;
+        overflow: hidden;
+    }
+    .acu-theme-chouten .acu-nav-btn:hover {
+        background: rgba(255, 107, 157, 0.2) !important;
+        border-color: #FF6B9D !important;
+        text-shadow: 0 0 8px #FF6B9D;
+        transform: translateY(-2px) scale(1.02);
+        box-shadow: 0 5px 15px rgba(255, 107, 157, 0.3);
+    }
+    .acu-theme-chouten .acu-nav-btn.active {
+        background: linear-gradient(135deg, #FF6B9D 0%, #B388FF 100%) !important;
+        border-color: #FFFFFF !important;
+        color: #FFFFFF !important;
+        box-shadow: 0 0 20px rgba(255, 107, 157, 0.6), inset 0 0 10px rgba(255, 255, 255, 0.3);
+        font-weight: bold;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    }
+    /* 按钮激活时的闪烁粒子效果 (模拟) */
+    .acu-theme-chouten .acu-nav-btn.active::after {
+        content: '✦';
+        position: absolute;
+        top: 2px;
+        right: 4px;
+        font-size: 10px;
+        color: #7FFFD4;
+        animation: chouten-sparkle 1.5s infinite;
+    }
+
+    /* 超天酱：数据卡片 - 赛博光晕 */
+    .acu-theme-chouten .acu-data-card {
+        border: 1px solid rgba(179, 136, 255, 0.3) !important;
+        background: linear-gradient(160deg, rgba(30, 15, 50, 0.85) 0%, rgba(20, 8, 40, 0.9) 100%) !important;
+        backdrop-filter: blur(5px);
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3), inset 0 0 20px rgba(179, 136, 255, 0.05);
+        position: relative;
+    }
+    .acu-theme-chouten .acu-data-card::after {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0; height: 1px;
+        background: linear-gradient(90deg, transparent, #7FFFD4, transparent);
+        opacity: 0.5;
+    }
+    .acu-theme-chouten .acu-data-card:hover {
+        border-color: #7FFFD4 !important;
+        box-shadow: 0 8px 30px rgba(127, 255, 212, 0.15), 0 0 15px rgba(127, 255, 212, 0.1);
+        transform: translateY(-2px);
+    }
+
+    /* 超天酱：输入框 - 浮空全息 */
+    .acu-theme-chouten .acu-dice-panel input::placeholder,
+    .acu-theme-chouten .acu-contest-panel input::placeholder {
+        color: rgba(179, 136, 255, 0.6) !important;
+    }
+    .acu-theme-chouten .acu-dice-panel input,
+    .acu-theme-chouten .acu-contest-panel input {
+        background: rgba(0, 0, 0, 0.4) !important;
+        border: 1px solid rgba(255, 107, 157, 0.3) !important;
+        border-radius: 4px;
+        color: #7FFFD4 !important;
+        transition: all 0.3s ease;
+    }
+    .acu-theme-chouten .acu-dice-panel input:focus,
+    .acu-theme-chouten .acu-contest-panel input:focus {
+        border-color: #7FFFD4 !important;
+        box-shadow: 0 0 10px rgba(127, 255, 212, 0.4), inset 0 0 10px rgba(127, 255, 212, 0.1) !important;
+        background: rgba(0, 0, 0, 0.6) !important;
+    }
+
+    /* 超天酱：滚动条 */
+    .acu-theme-chouten ::-webkit-scrollbar-thumb {
+        background: linear-gradient(180deg, #FF6B9D, #B388FF) !important;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    .acu-theme-chouten ::-webkit-scrollbar-track {
+        background: rgba(0, 0, 0, 0.2) !important;
+    }
+
+    /* 超天酱：表格行 - 悬停高亮 */
+    .acu-theme-chouten .acu-card-row {
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .acu-theme-chouten .acu-card-row:hover {
+        background: linear-gradient(90deg, rgba(255, 107, 157, 0.2), rgba(179, 136, 255, 0.1)) !important;
+        box-shadow: inset 2px 0 0 #FF6B9D;
+    }
+
+    /* 超天酱：徽章闪烁动画 */
+    .acu-theme-chouten .acu-badge-green {
+        background: rgba(127, 255, 212, 0.15) !important;
+        color: #7FFFD4 !important;
+        border: 1px solid rgba(127, 255, 212, 0.4);
+        box-shadow: 0 0 10px rgba(127, 255, 212, 0.2);
+        animation: chouten-badge-pulse 2s infinite;
+    }
+    @keyframes chouten-badge-pulse {
+        0%, 100% { box-shadow: 0 0 5px rgba(127, 255, 212, 0.2); opacity: 0.9; }
+        50% { box-shadow: 0 0 15px rgba(127, 255, 212, 0.5); opacity: 1; }
+    }
+    @keyframes chouten-sparkle {
+        0%, 100% { opacity: 0.4; transform: scale(0.8); }
+        50% { opacity: 1; transform: scale(1.2); }
+    }
     /* Night Owl主题：数据验证和表格管理框框使用更暗的边框 */
     .acu-theme-nightowl .acu-table-manager-item,
     .acu-theme-nightowl .acu-validation-rule-item {
@@ -16091,20 +16508,16 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
             .acu-page-btn.active { background: var(--acu-accent); color: var(--acu-button-text-on-accent, #fff); border-color: var(--acu-accent); font-weight: bold; }
             .acu-page-btn.disabled { opacity: 0.5; cursor: not-allowed; }
             .acu-page-info { font-size: 12px; color: var(--acu-text-sub); margin: 0 10px; }
-            /* --- [新增] 行动选项面板样式 --- */
-            /* 改为 Flex Column 垂直布局 */
-            /* --- [修改] 袖珍型·垂直紧凑布局 --- */
+            /* --- [重设计] 行动选项面板样式 - 叙事书页风 --- */
             .acu-option-panel {
                 display: flex;
                 flex-direction: column;
-                gap: 2px;                 /* 间距极小，排列更紧密 */
-                padding: 4px;             /* 容器内边距缩小 */
-                background: var(--acu-bg-nav);
-                border: 1px solid var(--acu-border);
-                border-radius: 6px;       /* 圆角缩小 */
-                margin-top: 0;
-                margin-bottom: 4px;
-                backdrop-filter: blur(5px);
+                gap: 0;
+                padding: 0;
+                background: transparent;
+                border: none;
+                border-radius: 0;
+                margin: 12px 0;
                 width: 100%;
                 box-sizing: border-box;
                 z-index: 2147483641;
@@ -16114,51 +16527,71 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
             .acu-embedded-options-container {
                 width: 100%;
                 max-width: 100%;
-                margin-top: 6px;
+                margin: 12px 0;
+                padding: 0;
                 clear: both;
+                box-sizing: border-box;
                 animation: acuFadeIn 0.3s ease;
             }
 
             .acu-opt-header {
-                text-align: center;
-                font-size: 10px;          /* 标题字体更小 */
-                font-weight: bold;
-                color: var(--acu-text-sub);
-                padding-bottom: 2px;
-                border-bottom: 1px dashed var(--acu-border);
-                margin-bottom: 2px;
-            }
-
-            /* --- [修改] 袖珍按钮样式 --- */
-            .acu-opt-btn {
-                background: var(--acu-btn-bg);
-                border: 1px solid transparent; /* 默认无边框，更干净 */
-                padding: 3px 6px;              /* 极窄内边距 */
-                border-radius: 4px;
-                cursor: pointer;
-                color: var(--acu-text-main);
-                font-size: var(--acu-opt-font-size, 12px) !important; /* [修改] 使用独立变量 */
-                transition: all 0.15s;
-                font-weight: normal;           /* 去除加粗 */
-                text-align: left;              /* 左对齐 */
-                white-space: pre-wrap;
-                word-break: break-word;
-                min-height: 22px;              /* 压低高度，超薄 */
-                line-height: 1.3;
                 display: flex;
                 align-items: center;
-                justify-content: flex-start;
-                opacity: 0.9;
+                justify-content: space-between;
+                font-size: 11px;
+                font-weight: 600;
+                color: var(--acu-text-sub);
+                padding: 8px 0;
+                border-bottom: 1px solid var(--acu-border);
+                margin-bottom: 8px;
+                cursor: pointer;
+                user-select: none;
+                transition: color 0.2s;
+            }
+            .acu-opt-header:hover {
+                color: var(--acu-text-main);
             }
 
-            .acu-opt-btn:hover {
-                background: var(--acu-table-hover);
-                color: var(--acu-accent);
-                border-color: var(--acu-accent); /* 悬停时显示边框 */
-                transform: translateX(3px);      /* 悬停时轻微右移反馈 */
-                opacity: 1;
+            /* --- [重设计] 叙事条目风格按钮 --- */
+            .acu-opt-btn {
+                background: transparent;
+                border: none;
+                border-bottom: 1px dashed var(--acu-border);
+                padding: 12px 0;
+                border-radius: 0;
+                cursor: pointer;
+                color: var(--acu-text-main);
+                font-size: var(--acu-opt-font-size, 13px) !important;
+                transition: all 0.2s ease;
+                font-weight: normal;
+                text-align: left;
+                white-space: pre-wrap;
+                word-break: break-word;
+                min-height: 44px;
+                line-height: 1.6;
+                display: block;
+                position: relative;
+                opacity: 0.85;
             }
-            .acu-opt-btn:active { background: var(--acu-btn-active-bg); color: var(--acu-btn-active-text); }
+            .acu-opt-btn:last-child {
+                border-bottom: none;
+            }
+            .acu-opt-btn:hover {
+                opacity: 1;
+                background: var(--acu-table-hover);
+            }
+            .acu-opt-btn:active {
+                background: var(--acu-btn-hover);
+            }
+
+            /* --- [新增] 折叠态样式 --- */
+            .acu-option-panel.collapsed .acu-opt-btn {
+                display: none;
+            }
+            .acu-option-panel.collapsed .acu-opt-header {
+                border-bottom: none;
+                margin-bottom: 0;
+            }
             @keyframes acuFadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 
             /* [新增] 骰子结果隐藏动画：消除闪烁 */
@@ -17706,10 +18139,29 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
             }
             .acu-import-confirm-dialog {
                 width: 90%;
-                max-width: 320px;
+                max-width: 360px;
+                background: var(--acu-bg-panel);
+                border: 1px solid var(--acu-border);
+                border-radius: 12px;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+                overflow: hidden;
+            }
+            .acu-import-confirm-header {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 14px 18px;
+                background: var(--acu-table-head);
+                border-bottom: 1px solid var(--acu-border);
+                font-size: 14px;
+                font-weight: bold;
+                color: var(--acu-accent);
+            }
+            .acu-import-confirm-header i {
+                font-size: 16px;
             }
             .acu-import-confirm-body {
-                padding: 16px;
+                padding: 20px;
             }
             .acu-import-stats {
                 display: flex;
@@ -17736,30 +18188,6 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
                 padding-top: 12px;
                 border-top: 1px dashed var(--acu-border);
             }
-            .acu-import-conflict-options {
-                margin-top: 10px;
-                display: flex;
-                flex-direction: column;
-                gap: 8px;
-            }
-            .acu-import-radio {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                cursor: pointer;
-                font-size: 13px;
-                color: var(--acu-text-main);
-            }
-            .acu-import-radio input {
-                accent-color: var(--acu-accent);
-            }
-            .acu-import-confirm-footer {
-                display: flex;
-                gap: 10px;
-                padding: 12px 16px;
-                border-top: 1px solid var(--acu-border);
-                background: var(--acu-table-head);
-            }
             .acu-import-cancel-btn,
             .acu-import-confirm-btn {
                 flex: 1;
@@ -17771,20 +18199,86 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
                 transition: all 0.2s;
             }
             .acu-import-cancel-btn {
-                background: var(--acu-btn-bg);
-                border: 1px solid var(--acu-border);
-                color: var(--acu-text-main);
+                background: var(--acu-btn-bg) !important;
+                border: 1px solid var(--acu-border) !important;
+                color: var(--acu-text-main) !important;
             }
             .acu-import-cancel-btn:hover {
-                background: var(--acu-btn-hover);
+                background: var(--acu-btn-hover) !important;
             }
             .acu-import-confirm-btn {
-                background: var(--acu-accent);
-                border: none;
-                color: #fff;
+                background: var(--acu-accent) !important;
+                border: none !important;
+                color: #fff !important;
             }
             .acu-import-confirm-btn:hover {
-                opacity: 0.9;
+                opacity: 0.85 !important;
+                background: var(--acu-accent) !important;
+            }
+            /* ========== 预设导入警告样式 ========== */
+            .acu-import-warning-container {
+                text-align: center;
+                padding: 16px 12px 20px;
+                color: var(--acu-text-main);
+            }
+            .acu-import-warning-icon {
+                display: block;
+                width: 48px;
+                height: 48px;
+                margin: 0 auto 12px;
+                line-height: 48px;
+                border-radius: 50%;
+                background: rgba(243, 156, 18, 0.15);
+                color: var(--acu-warning-icon, #f39c12);
+                font-size: 22px;
+            }
+            .acu-import-warning-title {
+                font-size: 15px;
+                font-weight: bold;
+                margin-bottom: 8px;
+                color: var(--acu-text-main);
+            }
+            .acu-import-warning-message {
+                font-size: 13px;
+                color: var(--acu-text-sub);
+                line-height: 1.5;
+            }
+            .acu-import-conflict-options {
+                margin-top: 16px;
+                padding-top: 16px;
+                border-top: 1px dashed var(--acu-border);
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+            }
+            .acu-import-radio {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 10px 12px;
+                border-radius: 8px;
+                cursor: pointer;
+                font-size: 13px;
+                color: var(--acu-text-main) !important;
+                background: var(--acu-btn-bg) !important;
+                border: 1px solid transparent !important;
+                transition: all 0.2s ease;
+            }
+            .acu-import-radio:hover {
+                border-color: var(--acu-border) !important;
+                background: var(--acu-btn-hover) !important;
+            }
+            .acu-import-radio input {
+                accent-color: var(--acu-accent);
+                width: 16px;
+                height: 16px;
+            }
+            .acu-import-confirm-footer {
+                display: flex;
+                gap: 12px;
+                padding: 16px 20px;
+                border-top: 1px solid var(--acu-border);
+                background: var(--acu-table-head);
             }
             /* ========== 头像导入/导出相关样式 ========== */
             .acu-avatar-import-btn,
@@ -18318,6 +18812,99 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
             .acu-toggle input:checked + .acu-toggle-slider:before {
                 transform: translateX(20px);
                 box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            }
+            /* Range Slider 滑条样式 */
+            .acu-range-slider {
+                -webkit-appearance: none;
+                appearance: none;
+                flex: 1;
+                height: 6px;
+                border-radius: 3px;
+                background: rgba(120, 120, 128, 0.3);
+                outline: none;
+                cursor: pointer;
+                transition: background 0.2s ease;
+            }
+            .acu-range-slider::-webkit-slider-runnable-track {
+                height: 6px;
+                border-radius: 3px;
+                background: transparent;
+            }
+            .acu-range-slider::-webkit-slider-thumb {
+                -webkit-appearance: none !important;
+                appearance: none !important;
+                width: 18px !important;
+                height: 18px !important;
+                border-radius: 50% !important;
+                background: #fff !important;
+                border: 1px solid rgba(0,0,0,0.1) !important;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.25) !important;
+                cursor: pointer !important;
+                margin-top: -6px !important;
+                transition: all 0.2s ease;
+            }
+            .acu-range-slider:hover::-webkit-slider-thumb {
+                transform: scale(1.05) !important;
+                background: #e8e8e8 !important;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.2) !important;
+            }
+            .acu-range-slider:active::-webkit-slider-thumb {
+                transform: scale(0.95) !important;
+                background: #d0d0d0 !important;
+                box-shadow: 0 1px 4px rgba(0,0,0,0.15) !important;
+            }
+            .acu-range-slider::-moz-range-track {
+                height: 6px;
+                border-radius: 3px;
+                background: rgba(120, 120, 128, 0.16);
+            }
+            .acu-range-slider::-moz-range-thumb {
+                width: 18px !important;
+                height: 18px !important;
+                border-radius: 50% !important;
+                background: #fff !important;
+                border: 1px solid rgba(0,0,0,0.1) !important;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.25) !important;
+                cursor: pointer !important;
+                transition: all 0.2s ease;
+            }
+            .acu-range-slider:hover::-moz-range-thumb {
+                transform: scale(1.05) !important;
+                background: #e8e8e8 !important;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.2) !important;
+            }
+            .acu-range-slider:active::-moz-range-thumb {
+                transform: scale(0.95) !important;
+                background: #d0d0d0 !important;
+                box-shadow: 0 1px 4px rgba(0,0,0,0.15) !important;
+            }
+            .acu-range-value {
+                min-width: 45px;
+                text-align: right;
+                font-weight: 600;
+                font-size: 13px;
+                color: var(--acu-accent, var(--SmartThemeBodyColor, #d4a574));
+            }
+            /* 疯狂程度按钮组样式 */
+            .acu-crazy-btn {
+                padding: 4px 12px;
+                font-size: 12px;
+                border: 1px solid var(--acu-border, rgba(0,0,0,0.1));
+                border-radius: 4px;
+                background: var(--acu-btn-bg, rgba(0,0,0,0.05));
+                color: var(--acu-text, inherit);
+                cursor: pointer;
+                transition: all 0.2s ease;
+                font-weight: 500;
+            }
+            .acu-crazy-btn:hover {
+                background: var(--acu-btn-hover, rgba(0,0,0,0.1));
+            }
+            .acu-crazy-btn.active {
+                background: var(--acu-accent, #d4a574);
+                color: white;
+                border-color: var(--acu-accent, #d4a574);
+                box-shadow: 0 2px 4px rgba(0,0,0,0.15);
             }
             /* Debug控制台过滤样式 - 增加优先级防止被酒馆样式覆盖 */
             .acu-debug-console-dialog .acu-debug-filter,
@@ -19777,9 +20364,9 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
   };
 
   // ========================================
-  // 添加自定义验证规则弹窗
+  // 添加/编辑自定义验证规则弹窗
   // ========================================
-  const showAddValidationRuleModal = parentDialog => {
+  const showAddValidationRuleModal = (parentDialog: JQuery, editRuleId?: string) => {
     const { $ } = getCore();
     const config = getConfig();
     const currentThemeClass = `acu-theme-${config.theme}`;
@@ -19789,11 +20376,15 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
     const tables = processJsonData(rawData || {});
     const tableNames = Object.keys(tables);
 
+    // 编辑模式：获取现有规则数据
+    const isEditMode = !!editRuleId;
+    const existingRule = isEditMode ? ValidationRuleManager.getRule(editRuleId) : null;
+
     const dialog = $(`
-      <div class="acu-edit-overlay acu-validation-modal-overlay">
+      <div class="acu-edit-overlay acu-validation-modal-overlay" ${isEditMode ? 'style="opacity:0;transition:opacity 0.15s ease-in;"' : ''}>
         <div class="acu-edit-dialog acu-validation-modal ${currentThemeClass}">
           <div class="acu-dice-cfg-header">
-            <span><i class="fa-solid fa-plus"></i> 添加自定义验证规则</span>
+            <span><i class="fa-solid ${isEditMode ? 'fa-pen' : 'fa-plus'}"></i> ${isEditMode ? '编辑验证规则' : '添加自定义验证规则'}</span>
             <button class="acu-config-close" id="dlg-rule-close"><i class="fa-solid fa-times"></i></button>
           </div>
           <div class="acu-validation-modal-body">
@@ -19943,7 +20534,7 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
           </div>
           <div class="acu-dice-cfg-actions">
             <button id="dlg-rule-cancel">取消</button>
-            <button id="dlg-rule-save">添加</button>
+            <button id="dlg-rule-save">${isEditMode ? '保存' : '添加'}</button>
           </div>
         </div>
       </div>
@@ -20069,9 +20660,15 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
 
     // 关闭
     const closeDialog = () => dialog.remove();
-    dialog.on('click', '#dlg-rule-close, #dlg-rule-cancel', closeDialog);
+    dialog.on('click', '#dlg-rule-close, #dlg-rule-cancel', function (e) {
+      e.stopPropagation(); // 阻止事件冒泡到设置面板
+      closeDialog();
+    });
     dialog.on('click', function (e) {
-      if ($(e.target).hasClass('acu-validation-modal-overlay')) closeDialog();
+      if ($(e.target).hasClass('acu-validation-modal-overlay')) {
+        e.stopPropagation(); // 阻止事件冒泡到设置面板
+        closeDialog();
+      }
     });
 
     // 保存
@@ -20182,29 +20779,64 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
         }
       }
 
-      // 生成规则 ID
-      const ruleId = 'custom_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+      // 编辑模式使用原规则ID，新建模式生成新ID
+      const finalRuleId = isEditMode
+        ? editRuleId
+        : 'custom_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
 
-      // 添加规则（新建规则默认不启用拦截）
-      const newRule = {
-        id: ruleId,
+      // 构建规则对象
+      const ruleData = {
+        id: finalRuleId,
         name: name,
-        description: '',
+        description: existingRule?.description || '',
         targetTable: targetTable,
         targetColumn: isTableRule && ruleType !== 'sequence' ? '' : targetColumn, // 表级规则不需要 targetColumn，但sequence规则需要
         ruleType: ruleType,
         config: ruleConfig,
         errorMessage: errorMessage || typeInfo?.desc || '数据验证失败',
-        intercept: false, // 新建规则默认不启用拦截
+        intercept: existingRule?.intercept ?? false, // 编辑模式保留原拦截状态，新建模式默认不启用
+        enabled: existingRule?.enabled ?? true, // 编辑模式保留原启用状态，新建模式默认启用
       };
 
-      if (ValidationRuleManager.addCustomRule(newRule)) {
+      let success = false;
+      if (isEditMode) {
+        // 编辑模式：更新规则
+        success = ValidationRuleManager.updateCustomRule(editRuleId, ruleData);
+      } else {
+        // 新建模式：添加规则
+        success = ValidationRuleManager.addCustomRule(ruleData);
+      }
+
+      if (success) {
         closeDialog();
+
+        // 清除缓存确保获取最新数据
+        ValidationRuleManager.clearCache();
 
         // 刷新规则列表
         const $rulesList = parentDialog.find('#validation-rules-list');
-        const ruleHtml = `
-          <div class="acu-validation-rule-item" data-rule-id="${escapeHtml(ruleId)}">
+
+        if (isEditMode) {
+          // 编辑模式：更新现有规则项
+          const $existingItem = $rulesList.find(`.acu-validation-rule-item[data-rule-id="${escapeHtml(editRuleId)}"]`);
+          if ($existingItem.length) {
+            const hasIntercept = ruleData.intercept;
+            const isEnabled = ruleData.enabled;
+            $existingItem.find('.acu-rule-name').text(name);
+            $existingItem
+              .find('.acu-rule-target')
+              .text(`${targetTable}${isTableRule && ruleType !== 'sequence' ? ' (整表)' : '.' + targetColumn}`);
+            $existingItem
+              .find('.acu-rule-type-icon')
+              .attr('title', `${typeInfo?.name || ruleType}${isTableRule ? ' (表级)' : ''}`)
+              .find('i')
+              .attr('class', `fa-solid ${typeInfo?.icon || 'fa-question'}`);
+            $existingItem.toggleClass('disabled', !isEnabled);
+          }
+        } else {
+          // 新建模式：追加新规则项
+          const ruleHtml = `
+          <div class="acu-validation-rule-item" data-rule-id="${escapeHtml(finalRuleId)}">
             <div class="acu-rule-type-icon" title="${escapeHtml(typeInfo?.name || ruleType)}${isTableRule ? ' (表级)' : ''}">
               <i class="fa-solid ${typeInfo?.icon || 'fa-question'}"></i>
             </div>
@@ -20212,19 +20844,94 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
               <div class="acu-rule-name">${escapeHtml(name)}</div>
               <div class="acu-rule-target">${escapeHtml(targetTable)}${isTableRule && ruleType !== 'sequence' ? ' (整表)' : '.' + escapeHtml(targetColumn)}</div>
             </div>
-            <div class="acu-rule-intercept" data-rule-id="${escapeHtml(ruleId)}" title="点击启用拦截（违反时回滚）"><i class="fa-solid fa-shield-halved"></i></div>
+            <div class="acu-rule-intercept" data-rule-id="${escapeHtml(finalRuleId)}" title="点击启用拦截（违反时回滚）"><i class="fa-solid fa-shield-halved"></i></div>
+            <button class="acu-rule-edit" data-rule-id="${escapeHtml(finalRuleId)}" title="编辑此规则" style="background:none;border:none;color:var(--text-sub);cursor:pointer;padding:4px;opacity:0.6;transition:all 0.2s;flex-shrink:0;"><i class="fa-solid fa-pen"></i></button>
             <div class="acu-rule-toggle active" title="点击切换启用/禁用">
               <i class="fa-solid fa-toggle-on"></i>
             </div>
-            <button class="acu-rule-delete" data-rule-id="${escapeHtml(ruleId)}" title="删除此规则"><i class="fa-solid fa-trash"></i></button>
+            <button class="acu-rule-delete" data-rule-id="${escapeHtml(finalRuleId)}" title="删除此规则"><i class="fa-solid fa-trash"></i></button>
           </div>
         `;
-        $rulesList.append(ruleHtml);
+          $rulesList.append(ruleHtml);
+        }
         // 事件由父级事件委托处理，无需单独绑定
       } else {
-        if (window.toastr) window.toastr.error('规则添加失败');
+        if (window.toastr) window.toastr.error(isEditMode ? '规则更新失败' : '规则添加失败');
       }
     });
+
+    // 编辑模式：预填充现有规则数据（必须在事件绑定之后执行）
+    if (isEditMode && existingRule) {
+      dialog.find('#rule-name').val(existingRule.name || '');
+      dialog.find('#rule-error-msg').val(existingRule.errorMessage || '');
+
+      // 先设置表格，触发 change 事件更新列选项
+      dialog
+        .find('#rule-table')
+        .val(existingRule.targetTable || '')
+        .trigger('change');
+
+      // 再设置规则类型，触发 change 事件切换配置区域
+      dialog
+        .find('#rule-type')
+        .val(existingRule.ruleType || 'required')
+        .trigger('change');
+
+      // 延迟填充目标列和配置（等待表格/类型 change 事件处理完成）
+      setTimeout(() => {
+        // 填充目标列
+        if (existingRule.targetColumn) {
+          dialog.find('#rule-column').val(existingRule.targetColumn);
+          updateSelectColor(dialog.find('#rule-column'));
+        }
+
+        // 填充规则配置
+        const cfg = existingRule.config || {};
+        const ruleType = existingRule.ruleType;
+
+        if (ruleType === 'rowLimit') {
+          if (cfg.min !== undefined) dialog.find('#cfg-row-min').val(cfg.min);
+          if (cfg.max !== undefined) dialog.find('#cfg-row-max').val(cfg.max);
+        } else if (ruleType === 'sequence') {
+          dialog.find('#cfg-sequence-prefix').val(cfg.prefix || '');
+          dialog.find('#cfg-sequence-start').val(cfg.startFrom ?? 1);
+          if (cfg.pairedTable) {
+            dialog.find('#cfg-sequence-paired-table').val(cfg.pairedTable);
+            updateSelectColor(dialog.find('#cfg-sequence-paired-table'));
+          }
+        } else if (ruleType === 'format') {
+          dialog.find('#cfg-pattern').val(cfg.pattern || '');
+        } else if (ruleType === 'enum') {
+          dialog.find('#cfg-values').val((cfg.values || []).join(','));
+        } else if (ruleType === 'numeric') {
+          if (cfg.min !== undefined) dialog.find('#cfg-min').val(cfg.min);
+          if (cfg.max !== undefined) dialog.find('#cfg-max').val(cfg.max);
+        } else if (ruleType === 'relation') {
+          if (cfg.refTable) {
+            dialog.find('#cfg-ref-table').val(cfg.refTable).trigger('change');
+            // 延迟填充关联列，然后显示弹窗
+            setTimeout(() => {
+              const refColumns = Array.isArray(cfg.refColumn) ? cfg.refColumn : cfg.refColumn ? [cfg.refColumn] : [];
+              dialog.find('#cfg-ref-column').val(refColumns);
+              updateSelectColor(dialog.find('#cfg-ref-column'));
+              // 显示弹窗
+              dialog.css('opacity', '1');
+            }, 100);
+            return; // relation 类型在嵌套 setTimeout 中显示弹窗
+          }
+        } else if (ruleType === 'keyValue') {
+          dialog
+            .find('#cfg-keyvalue-type')
+            .val(cfg.valueType || 'text')
+            .trigger('change');
+          if (cfg.valueMin !== undefined) dialog.find('#cfg-keyvalue-min').val(cfg.valueMin);
+          if (cfg.valueMax !== undefined) dialog.find('#cfg-keyvalue-max').val(cfg.valueMax);
+        }
+
+        // 数据填充完成，显示弹窗
+        dialog.css('opacity', '1');
+      }, 100);
+    }
   };
 
   // ========================================
@@ -21872,7 +22579,6 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
       BlacklistManager.setBlacklist(blacklist);
       input.val('');
       updateTextarea();
-      if (window.toastr) window.toastr.success(`已添加 ${addedItems.length} 项`);
     });
 
     $modal.find('#blacklist-input').on('keypress', function (e) {
@@ -21885,7 +22591,6 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
       if (confirm('确定要重置黑名单为默认值吗？')) {
         BlacklistManager.resetToDefault();
         updateTextarea();
-        if (window.toastr) window.toastr.success('已重置为默认值');
       }
     });
 
@@ -22097,12 +22802,64 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
       const reader = new FileReader();
       reader.onload = evt => {
         try {
-          const imported = AttributePresetManager.importPreset(evt.target.result);
-          if (imported) {
-            overlay.remove();
-            showAttributePresetManager();
+          const jsonStr = evt.target.result as string;
+          if (!jsonStr?.trim()) return;
+
+          // 先解析JSON获取预设名称，检查是否有同名预设
+          let parsedData;
+          try {
+            parsedData = JSON.parse(jsonStr.trim());
+          } catch {
+            if (window.toastr) window.toastr.error('JSON格式无效');
+            return;
+          }
+
+          const importingName = parsedData?.name || '导入的预设';
+          const existingPresets = AttributePresetManager.getAllPresets();
+          const existingNames = existingPresets.map(p => p.name);
+          const hasConflict = existingNames.includes(importingName);
+
+          // 执行导入的函数
+          const doImport = (overwrite: boolean, newName?: string) => {
+            // 如果需要重命名，修改JSON中的名称
+            let finalJson = jsonStr.trim();
+            if (newName) {
+              parsedData.name = newName;
+              // 同时生成新的ID避免ID冲突
+              parsedData.id = `attr_preset_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+              finalJson = JSON.stringify(parsedData);
+            }
+
+            // 如果是覆盖模式且存在同名预设，先删除旧预设
+            if (overwrite && hasConflict) {
+              const existingPreset = existingPresets.find(p => p.name === importingName);
+              if (existingPreset && !existingPreset.builtin) {
+                AttributePresetManager.deletePreset(existingPreset.id);
+              }
+            }
+
+            const imported = AttributePresetManager.importPreset(finalJson);
+            if (imported) {
+              overlay.remove();
+              showAttributePresetManager();
+            } else {
+              if (window.toastr) window.toastr.error('导入失败：格式不正确');
+            }
+          };
+
+          // 如果有冲突，显示冲突处理弹窗
+          if (hasConflict) {
+            showPresetConflictDialog({
+              presetName: importingName,
+              presetType: '属性规则',
+              existingNames,
+              onOverwrite: () => doImport(true),
+              onRename: newName => doImport(false, newName),
+              onCancel: () => {},
+            });
           } else {
-            if (window.toastr) window.toastr.error('导入失败：格式不正确');
+            // 无冲突，直接导入
+            doImport(false);
           }
         } catch (err) {
           console.error('[DICE]ACU 导入预设失败:', err);
@@ -22728,34 +23485,32 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
       if (editRuleId) {
         // 更新现有规则
         RegexTransformationManager.updateRule(editRuleId, ruleData);
-        toastr.success('规则已更新');
       } else {
         // 添加新规则
         const newRule = RegexTransformationManager.addCustomRule(ruleData);
         if (newRule) {
           editRuleId = newRule.id;
-          toastr.success('规则已添加');
         }
       }
 
-      // [修复] 关闭当前对话框,不调用showSettingsModal避免触发数据处理
-      dialog.remove();
-
-      // 如果设置面板还开着,刷新规则列表
-      if ($('.acu-settings-dialog').length > 0) {
-        refreshRegexRulesList();
-      }
-    });
-
-    // 关闭弹窗的统一函数
-    const closeDialog = () => {
+      // [修复] 关闭当前对话框并重置状态
       isSettingsOpen = false; // 重置设置面板状态,允许后续界面渲染
       dialog.remove();
+      $(document).off('keydown.regex-rule-modal'); // 移除ESC键监听
       renderInterface(); // 触发界面重新渲染
+    });
+
+    // 关闭弹窗的统一函数（注意：不重置 isSettingsOpen，因为设置面板仍在后面打开）
+    const closeDialog = () => {
+      dialog.remove();
+      $(document).off('keydown.regex-rule-modal'); // 移除ESC键监听
     };
 
-    // 取消和关闭按钮
-    dialog.find('#acu-regex-rule-cancel, #acu-close-regex-rule').on('click', closeDialog);
+    // 取消和关闭按钮（阻止事件冒泡，防止触发设置面板的关闭事件）
+    dialog.find('#acu-regex-rule-cancel, #acu-close-regex-rule').on('click', function (e) {
+      e.stopPropagation();
+      closeDialog();
+    });
 
     // 点击遮罩层关闭
     dialog.on('click', function (e) {
@@ -23234,28 +23989,23 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
                         </div>
                         <div class="acu-settings-group-body">
                             <!-- 疯狂模式设置 -->
-                            <div class="acu-setting-row" style="flex-direction: column; align-items: stretch;">
-                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                                    <span class="acu-setting-label"><i class="fa-solid fa-fire" style="color: #e74c3c;"></i> 疯狂模式</span>
-                                    <label class="acu-toggle" style="margin-left: auto;">
-                                        <input type="checkbox" id="cfg-crazy-mode-enabled">
-                                        <span class="acu-toggle-slider"></span>
-                                    </label>
+                            <div class="acu-setting-row">
+                                <div class="acu-setting-info">
+                                    <span class="acu-setting-label"><i class="fa-solid fa-fire"></i> 疯狂模式</span>
                                 </div>
-                                <div id="crazy-level-container" style="display: flex; align-items: center; gap: 10px; padding: 8px 0;">
-                                    <span style="font-size: 12px; color: var(--acu-text-sub, #666);">疯狂程度:</span>
-                                    <input type="range" id="cfg-crazy-level" min="0" max="100" value="50" style="flex: 1; height: 6px;">
-                                    <span id="cfg-crazy-level-value" style="min-width: 40px; text-align: right; font-weight: bold; color: #e74c3c;">50%</span>
-                                </div>
-                                <div style="font-size: 11px; color: var(--acu-text-sub, #888); line-height: 1.4; margin-top: 4px;">
-                                    开启后，发送消息时会根据疯狂程度自动附加骰子检定结果。程度越高，触发概率越大，且更可能出现对抗检定。
-                                </div>
+                                <select id="cfg-crazy-mode" class="acu-setting-select" style="width: 90px; min-width: 90px;">
+                                    <option value="0">关闭</option>
+                                    <option value="25">低</option>
+                                    <option value="50">中</option>
+                                    <option value="75">高</option>
+                                    <option value="100">极限</option>
+                                </select>
                             </div>
                             <div class="acu-setting-row">
                                 <div class="acu-setting-info">
                                     <span class="acu-setting-label"><i class="fa-solid fa-dice-d20"></i> 管理属性规则</span>
                                 </div>
-                                <button id="cfg-attr-preset-manage" class="acu-setting-action-btn" style="width: auto; padding: 6px 12px; font-size: 12px; margin-bottom: 0;">
+                                <button id="cfg-attr-preset-manage" class="acu-setting-action-btn" style="width: 90px; padding: 6px 12px; font-size: 12px; margin-bottom: 0;">
                                     <i class="fa-solid fa-cog"></i> 管理
                                 </button>
                             </div>
@@ -23263,7 +24013,7 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
                                 <div class="acu-setting-info">
                                     <span class="acu-setting-label"><i class="fa-solid fa-filter"></i> 过滤黑名单</span>
                                 </div>
-                                <button id="cfg-blacklist-manage" class="acu-setting-action-btn" style="width: auto; padding: 6px 12px; font-size: 12px; margin-bottom: 0;">
+                                <button id="cfg-blacklist-manage" class="acu-setting-action-btn" style="width: 90px; padding: 6px 12px; font-size: 12px; margin-bottom: 0;">
                                     <i class="fa-solid fa-cog"></i> 管理
                                 </button>
                             </div>
@@ -23271,7 +24021,7 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
                                 <div class="acu-setting-info">
                                     <span class="acu-setting-label"><i class="fa-solid fa-bug"></i> Debug控制台</span>
                                 </div>
-                                <button id="btn-open-debug-console" class="acu-setting-action-btn" style="width: auto; padding: 6px 12px; font-size: 12px; margin-bottom: 0;">
+                                <button id="btn-open-debug-console" class="acu-setting-action-btn" style="width: 90px; padding: 6px 12px; font-size: 12px; margin-bottom: 0;">
                                     <i class="fa-solid fa-terminal"></i> 打开
                                 </button>
                             </div>
@@ -23362,37 +24112,19 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
     // 疯狂模式设置
     const initCrazyModeUI = () => {
       const crazyConfig = getCrazyModeConfig();
-      dialog.find('#cfg-crazy-mode-enabled').prop('checked', crazyConfig.enabled);
-      dialog.find('#cfg-crazy-level').val(crazyConfig.crazyLevel);
-      dialog.find('#cfg-crazy-level-value').text(crazyConfig.crazyLevel + '%');
+      // 根据enabled和crazyLevel设置下拉框的值
+      const selectValue = crazyConfig.enabled ? crazyConfig.crazyLevel : 0;
+      dialog.find('#cfg-crazy-mode').val(selectValue);
 
-      // 根据启用状态调整滑条样式
-      dialog.find('#crazy-level-container').css('opacity', crazyConfig.enabled ? '1' : '0.5');
-
-      // 开关事件
-      dialog.find('#cfg-crazy-mode-enabled').on('change', function () {
-        const enabled = $(this).prop('checked');
-        const currentConfig = getCrazyModeConfig();
-        saveCrazyModeConfig({ ...currentConfig, enabled });
-        dialog.find('#crazy-level-container').css('opacity', enabled ? '1' : '0.5');
-        if (enabled) {
-          toastr.success('疯狂模式已启用');
-        } else {
+      // 下拉选择事件
+      dialog.find('#cfg-crazy-mode').on('change', function () {
+        const value = parseInt($(this).val() as string, 10);
+        if (value === 0) {
+          saveCrazyModeConfig({ enabled: false, crazyLevel: 50 });
           toastr.info('疯狂模式已关闭');
+        } else {
+          saveCrazyModeConfig({ enabled: true, crazyLevel: value });
         }
-      });
-
-      // 滑条实时更新显示
-      dialog.find('#cfg-crazy-level').on('input', function () {
-        const level = parseInt($(this).val(), 10);
-        dialog.find('#cfg-crazy-level-value').text(level + '%');
-      });
-
-      // 滑条保存
-      dialog.find('#cfg-crazy-level').on('change', function () {
-        const level = parseInt($(this).val(), 10);
-        const currentConfig = getCrazyModeConfig();
-        saveCrazyModeConfig({ ...currentConfig, crazyLevel: level });
       });
     };
     initCrazyModeUI();
@@ -23686,9 +24418,8 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
       const rule = ValidationRuleManager.getRule(ruleId);
       if (!rule) return;
 
-      // 关闭设置弹窗，打开编辑弹窗
-      dialog.remove();
-      showAddValidationRuleModal(ruleId);
+      // 打开编辑弹窗（保留设置弹窗用于更新列表）
+      showAddValidationRuleModal(dialog, ruleId);
     });
 
     // === 验证规则：删除规则（使用事件委托）===
@@ -23829,35 +24560,100 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
       }
     });
 
-    // 导入预设
+    // 导入预设（使用文件选择器）
     dialog.find('#btn-preset-import').on('click', function () {
-      const json = prompt('粘贴预设 JSON:');
-      if (!json?.trim()) return;
-      const result = PresetManager.importPreset(json.trim(), false);
-      if (result && result.preset) {
-        const newPreset = result.preset;
-        dialog
-          .find('#preset-select')
-          .append(`<option value="${escapeHtml(newPreset.id)}">${escapeHtml(newPreset.name)}</option>`);
-        dialog.find('#preset-select').val(newPreset.id).trigger('change');
-        // 如果版本较旧，提示用户是否合并
-        if (result.needsMerge) {
-          if (
-            confirm(
-              '检测到预设版本较旧，是否要合并新版本的默认值？\n\n这将保留您的自定义规则，并添加新版本中的新规则。',
-            )
-          ) {
-            if (PresetManager.mergePresetWithDefaults(newPreset.id)) {
-              if (window.toastr) window.toastr.success('预设已合并新版本的默认值');
-              refreshPresetUI();
-            } else {
-              if (window.toastr) window.toastr.error('合并失败');
-            }
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.json,application/json';
+      input.onchange = async e => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (!file) return;
+
+        try {
+          const json = await file.text();
+          if (!json?.trim()) return;
+
+          // 先解析JSON获取预设名称，检查是否有同名预设
+          let parsedData;
+          try {
+            parsedData = JSON.parse(json.trim());
+          } catch {
+            if (window.toastr) window.toastr.error('JSON格式无效');
+            return;
           }
+
+          const importingName = parsedData?.preset?.name || '导入的预设';
+          const existingPresets = PresetManager.getAllPresets();
+          const existingNames = existingPresets.map(p => p.name);
+          const hasConflict = existingNames.includes(importingName);
+
+          // 执行导入的函数
+          const doImport = (overwrite: boolean, newName?: string) => {
+            // 如果需要重命名，修改JSON中的名称
+            let finalJson = json.trim();
+            if (newName && parsedData?.preset) {
+              parsedData.preset.name = newName;
+              // 同时生成新的ID避免ID冲突
+              parsedData.preset.id = `preset_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+              finalJson = JSON.stringify(parsedData);
+            }
+
+            // 如果是覆盖模式且存在同名预设，先删除旧预设
+            if (overwrite && hasConflict) {
+              const existingPreset = existingPresets.find(p => p.name === importingName);
+              if (existingPreset && existingPreset.id !== 'default') {
+                PresetManager.deletePreset(existingPreset.id);
+                dialog.find(`#preset-select option[value="${existingPreset.id}"]`).remove();
+              }
+            }
+
+            const result = PresetManager.importPreset(finalJson, false);
+            if (result && result.preset) {
+              const newPreset = result.preset;
+              dialog
+                .find('#preset-select')
+                .append(`<option value="${escapeHtml(newPreset.id)}">${escapeHtml(newPreset.name)}</option>`);
+              dialog.find('#preset-select').val(newPreset.id).trigger('change');
+
+              // 如果版本较旧，提示用户是否合并
+              if (result.needsMerge) {
+                if (
+                  confirm(
+                    '检测到预设版本较旧，是否要合并新版本的默认值？\n\n这将保留您的自定义规则，并添加新版本中的新规则。',
+                  )
+                ) {
+                  if (PresetManager.mergePresetWithDefaults(newPreset.id)) {
+                    refreshPresetUI();
+                  } else {
+                    if (window.toastr) window.toastr.error('合并失败');
+                  }
+                }
+              }
+            } else {
+              if (window.toastr) window.toastr.error('导入失败，请检查格式');
+            }
+          };
+
+          // 如果有冲突，显示冲突处理弹窗
+          if (hasConflict) {
+            showPresetConflictDialog({
+              presetName: importingName,
+              presetType: '数据验证',
+              existingNames,
+              onOverwrite: () => doImport(true),
+              onRename: newName => doImport(false, newName),
+              onCancel: () => {},
+            });
+          } else {
+            // 无冲突，直接导入
+            doImport(false);
+          }
+        } catch (err) {
+          console.error('[DICE]PresetManager 导入失败:', err);
+          if (window.toastr) window.toastr.error('导入失败: ' + (err as Error).message);
         }
-      } else {
-        if (window.toastr) window.toastr.error('导入失败，请检查格式');
-      }
+      };
+      input.click();
     });
 
     // 恢复默认预设规则
@@ -23884,7 +24680,6 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
       RegexTransformationManager.toggleRuleEnabled(ruleId, newState);
 
       if (newState) {
-        toastr.success('规则已启用');
       } else {
         toastr.info('规则已禁用');
       }
@@ -23899,8 +24694,7 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
       const rule = RegexTransformationManager.getRule(ruleId);
       if (!rule) return;
 
-      // 关闭设置弹窗，打开编辑弹窗
-      dialog.remove();
+      // 打开编辑弹窗
       showAddRegexRuleModal(ruleId);
     });
 
@@ -23914,7 +24708,6 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
       if (confirm(`确定要删除规则"${rule.name}"吗？`)) {
         RegexTransformationManager.removeRule(ruleId);
         refreshRegexRulesList(); // [修复] 局部刷新规则列表,而不是全量重渲染
-        toastr.success('规则已删除');
       }
     });
 
@@ -23922,8 +24715,6 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
     dialog.find('#regex-preset-select').on('change', function () {
       const presetId = $(this).val();
       RegexPresetManager.setActivePreset(String(presetId));
-
-      toastr.success('预设已切换');
 
       refreshRegexRulesList(); // [修复] 局部刷新规则列表,而不是全量重渲染
     });
@@ -23944,7 +24735,6 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
         $presetSelect.val(newPreset.id);
 
         refreshRegexRulesList(); // 刷新规则列表
-        toastr.success('预设已复制');
       } else {
         toastr.error('预设名称已存在');
       }
@@ -23965,7 +24755,6 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
         $presetSelect.val(newPreset.id);
 
         refreshRegexRulesList(); // 刷新规则列表
-        toastr.success('预设已创建');
       } else {
         toastr.error('预设名称已存在');
       }
@@ -23990,7 +24779,6 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
           }
 
           refreshRegexRulesList(); // 刷新规则列表
-          toastr.success('预设已删除');
         } else {
           toastr.error('不能删除最后一个预设');
         }
@@ -24011,7 +24799,6 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
         a.download = `regex-preset-${currentPreset.name}-${Date.now()}.json`;
         a.click();
         URL.revokeObjectURL(url);
-        toastr.success('预设已导出');
       }
     });
 
@@ -24019,24 +24806,78 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
     dialog.find('#btn-regex-preset-import').on('click', function () {
       const input = document.createElement('input');
       input.type = 'file';
-      input.accept = 'application/json';
+      input.accept = '.json,application/json';
       input.onchange = async e => {
         const file = (e.target as HTMLInputElement).files?.[0];
         if (!file) return;
 
         try {
           const text = await file.text();
-          const preset = RegexPresetManager.importPreset(text);
-          if (preset) {
-            // [修复] 刷新预设下拉列表
-            const $presetSelect = dialog.find('#regex-preset-select');
-            $presetSelect.append(`<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</option>`);
-            $presetSelect.val(preset.id);
+          if (!text?.trim()) return;
 
-            refreshRegexRulesList(); // 刷新规则列表
-            toastr.success('预设已导入');
+          // 先解析JSON获取预设名称，检查是否有同名预设
+          let parsedData;
+          try {
+            parsedData = JSON.parse(text.trim());
+          } catch {
+            toastr.error('JSON格式无效');
+            return;
+          }
+
+          const importingName = parsedData?.name || '导入的预设';
+          const existingPresets = RegexPresetManager.getAllPresets();
+          const existingNames = existingPresets.map(p => p.name);
+          const hasConflict = existingNames.includes(importingName);
+
+          // 执行导入的函数
+          const doImport = (overwrite: boolean, newName?: string) => {
+            // 如果需要重命名，修改JSON中的名称
+            let finalJson = text.trim();
+            if (newName) {
+              parsedData.name = newName;
+              // 同时生成新的ID避免ID冲突
+              parsedData.id = `regex_preset_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+              finalJson = JSON.stringify(parsedData);
+            }
+
+            // 如果是覆盖模式且存在同名预设，先删除旧预设
+            if (overwrite && hasConflict) {
+              const existingPreset = existingPresets.find(p => p.name === importingName);
+              if (existingPreset) {
+                // 检查是否不是最后一个预设
+                if (existingPresets.length > 1) {
+                  RegexPresetManager.deletePreset(existingPreset.id);
+                  dialog.find(`#regex-preset-select option[value="${existingPreset.id}"]`).remove();
+                }
+              }
+            }
+
+            const preset = RegexPresetManager.importPreset(finalJson);
+            if (preset) {
+              // [修复] 刷新预设下拉列表
+              const $presetSelect = dialog.find('#regex-preset-select');
+              $presetSelect.append(`<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</option>`);
+              $presetSelect.val(preset.id);
+
+              refreshRegexRulesList(); // 刷新规则列表
+            } else {
+              toastr.error('预设格式无效');
+            }
+          };
+
+          // 如果有冲突，显示冲突处理弹窗
+          if (hasConflict) {
+            showPresetConflictDialog({
+              presetName: importingName,
+              presetType: '正则转换',
+              existingNames,
+              onOverwrite: () => doImport(true),
+              onRename: newName => doImport(false, newName),
+              onCancel: () => {},
+            });
           } else {
-            toastr.error('预设格式无效');
+            // 无冲突，直接导入
+            doImport(false);
           }
         } catch (err) {
           toastr.error('导入失败: ' + (err as Error).message);
@@ -24047,8 +24888,6 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
 
     // === 正则转换规则:添加规则 ===
     dialog.find('#btn-add-regex-rule').on('click', function () {
-      dialog.remove();
-      isSettingsOpen = false;
       showAddRegexRuleModal();
     });
 
@@ -24099,7 +24938,6 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
           toastr.warning(`已应用 ${totalApplied} 处转换，${errors.length} 个错误`);
           console.warn('[DICE]正则转换错误:', errors);
         } else {
-          toastr.success(`已应用 ${totalApplied} 处转换`);
         }
 
         console.info('[DICE]正则转换执行完成');
@@ -24403,22 +25241,39 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
         if (k.includes('选项')) optionTables.push(tables[k]);
       });
 
-      // [修改开始] 添加收起面板的开关
+      // [修改开始] 添加收起面板的开关 - 叙事书页风重设计
       if (optionTables.length > 0) {
-        const isCollapsed = getCollapsedState();
-        const eyeIcon = isCollapsed ? 'fa-eye-slash' : 'fa-eye';
-        const eyeTitle = isCollapsed ? '展开面板' : '收起面板';
-        // 在标题栏右侧加一个小眼睛
-        let buttonsHtml = `
-                    <div class="acu-opt-header" style="position:relative;">
-                        行动选项
-                        <i class="fa-solid ${eyeIcon} acu-nav-toggle-btn"
-                           style="position:absolute; right:6px; top:50%; transform:translateY(-50%); cursor:pointer; opacity:0.6;"
-                           title="${eyeTitle}"></i>
-                    </div>`;
+        const isOptionsCollapsed = getOptionsCollapsedState();
+        const collapseIcon = isOptionsCollapsed ? 'fa-chevron-right' : 'fa-chevron-down';
+        const collapseText = isOptionsCollapsed ? '展开' : '收起';
+        const collapsedClass = isOptionsCollapsed ? 'collapsed' : '';
+
+        let optionCount = 0;
         let hasBtns = false;
         // [修改结束]
         let optionValues = []; // 用于生成指纹
+
+        // 先统计选项数量
+        optionTables.forEach(table => {
+          if (table.rows) {
+            table.rows.forEach(row => {
+              row.forEach((cell, idx) => {
+                if (idx > 0 && cell && String(cell).trim()) {
+                  optionCount++;
+                }
+              });
+            });
+          }
+        });
+
+        // 生成标题栏
+        let buttonsHtml = `
+                    <div class="acu-opt-header" data-action="toggle-options">
+                        <span>
+                            <i class="fa-solid ${collapseIcon}" style="margin-right:6px;font-size:10px;"></i>
+                            行动选项 (${optionCount})
+                        </span>
+                    </div>`;
 
         optionTables.forEach(table => {
           if (table.rows) {
@@ -24436,10 +25291,10 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
         });
 
         if (hasBtns) {
-          optionHtml = `<div class="acu-option-panel">${buttonsHtml}</div>`;
+          optionHtml = `<div class="acu-option-panel ${collapsedClass}">${buttonsHtml}</div>`;
           // 生成选项内容的指纹 (简单拼接)
           // [修复] 将收起状态加入指纹，强制触发重绘
-          currentOptionHash = optionValues.join('|||') + (isCollapsed ? '_collapsed' : '_expanded');
+          currentOptionHash = optionValues.join('|||') + (isOptionsCollapsed ? '_collapsed' : '_expanded');
         }
       }
     }
@@ -24773,8 +25628,9 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
       if ($aiMes.length === 0) return null;
 
       const $targetMes = $aiMes.last();
-      const $targetBlock = $targetMes.find('.mes_block');
-      return $targetBlock.length ? $targetBlock : $targetMes;
+      // [修复] 注入到 .mes_text 而非 .mes_block，确保与正文右侧对齐
+      const $targetText = $targetMes.find('.mes_text');
+      return $targetText.length ? $targetText : $targetMes;
     };
 
     const $target = getTargetContainer();
@@ -27437,6 +28293,17 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
         if (isEditingOrder) return;
         const currentState = getCollapsedState();
         saveCollapsedState(!currentState);
+        renderInterface();
+      });
+
+    // [新增] 选项面板折叠事件绑定
+    $('body')
+      .off('click.acu_opt_toggle')
+      .on('click.acu_opt_toggle', '.acu-opt-header[data-action="toggle-options"]', function (e) {
+        e.stopPropagation();
+        e.preventDefault();
+        const currentState = getOptionsCollapsedState();
+        saveOptionsCollapsedState(!currentState);
         renderInterface();
       });
 
