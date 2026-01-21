@@ -750,6 +750,8 @@ import { MAIN_STYLES } from './styles';
   const STORAGE_KEY_DICE_CONFIG = 'acu_dice_config_v1';
   const STORAGE_KEY_ATTRIBUTE_PRESETS = 'acu_attribute_presets_v1';
   const STORAGE_KEY_ACTIVE_ATTR_PRESET = 'acu_active_attr_preset_v1';
+  const STORAGE_KEY_ACTION_PRESETS = 'acu_action_presets_v1';
+  const STORAGE_KEY_ACTIVE_ACTION_PRESET = 'acu_active_action_preset_v1';
   const STORAGE_KEY_CRAZY_MODE = 'acu_dice_crazy_mode';
   const DEFAULT_CRAZY_MODE_CONFIG = {
     enabled: false,
@@ -2399,7 +2401,20 @@ import { MAIN_STYLES } from './styles';
       rules.push(newRule);
       Store.set(STORAGE_KEY_REGEX_RULES, rules);
       this.clearCache();
+
+      // 同步规则到当前激活预设
+      this._syncRulesToActivePreset();
+
       return newRule;
+    },
+
+    // 同步规则到当前激活预设
+    _syncRulesToActivePreset() {
+      const activePreset = RegexPresetManager.getActivePreset();
+      if (activePreset) {
+        const allRules = Store.get(STORAGE_KEY_REGEX_RULES, []);
+        RegexPresetManager.updatePresetRules(activePreset.id, allRules);
+      }
     },
 
     // 删除规则
@@ -2411,6 +2426,10 @@ import { MAIN_STYLES } from './styles';
       rules.splice(index, 1);
       Store.set(STORAGE_KEY_REGEX_RULES, rules);
       this.clearCache();
+
+      // 同步规则到当前激活预设
+      this._syncRulesToActivePreset();
+
       return true;
     },
 
@@ -2428,6 +2447,10 @@ import { MAIN_STYLES } from './styles';
       };
       Store.set(STORAGE_KEY_REGEX_RULES, rules);
       this.clearCache();
+
+      // 同步规则到当前激活预设
+      this._syncRulesToActivePreset();
+
       return true;
     },
 
@@ -2573,7 +2596,17 @@ import { MAIN_STYLES } from './styles';
       const preset = this.getAllPresets().find(p => p.id === presetId);
       if (!preset) return null;
 
-      return JSON.stringify(preset, null, 2);
+      // 如果是当前激活预设，从实际存储读取最新规则
+      const activePreset = this.getActivePreset();
+      const isActivePreset = activePreset && activePreset.id === presetId;
+      const rules = isActivePreset ? Store.get(STORAGE_KEY_REGEX_RULES, []) : preset.rules;
+
+      const exportData = {
+        ...preset,
+        rules: rules,
+      };
+
+      return JSON.stringify(exportData, null, 2);
     },
 
     // 从JSON导入预设
@@ -7129,6 +7162,241 @@ import { MAIN_STYLES } from './styles';
   })();
 
   // ========================================
+  // 自定义交互规则预设系统
+  // ========================================
+
+  // ActionPresetManager 类型定义（仅用于文档，实际是 JS 对象）
+  // interface ActionGroupPreset {
+  //   format: 'acu_action_preset_v1';
+  //   version: string;
+  //   id: string;
+  //   name: string;
+  //   builtin: boolean;
+  //   description?: string;
+  //   rules: ActionRule[];
+  // }
+  // interface ActionRule {
+  //   table_keywords: string[];
+  //   actions: ActionItem[];
+  // }
+  // interface ActionItem {
+  //   label: string;
+  //   icon?: string;
+  //   template?: string;
+  // }
+
+  // 内置默认交互规则预设
+  const BUILTIN_ACTION_PRESETS = [
+    {
+      format: 'acu_action_preset_v1',
+      version: PRESET_FORMAT_VERSION,
+      id: '__builtin_default__',
+      name: '默认交互规则',
+      builtin: true,
+      description: '基于表格类型的默认交互选项，包含地点、人物、物品、装备、技能、任务、势力等常用规则',
+      rules: [
+        {
+          table_keywords: ['地点', '地图', 'Location', 'Map', '世界', '场所'],
+          actions: [
+            { label: '前往', template: '<user>前往{Name}。' },
+            { label: '探索', template: '<user>探索{Name}。' },
+            { label: '停留', template: '<user>在{Name}停留。' },
+          ],
+        },
+        {
+          table_keywords: ['人物', 'NPC', '重要人物', '角色', '女主'],
+          actions: [
+            { label: '交谈', template: '<user>与{Name}交谈。' },
+            { label: '观察', template: '<user>观察{Name}。' },
+            { label: '战斗', template: '<user>与{Name}战斗。' },
+          ],
+        },
+        {
+          table_keywords: ['物品', '背包', '道具'],
+          actions: [
+            { label: '使用', template: '<user>使用了{Name}。' },
+            { label: '查看', template: '<user>查看了{Name}。' },
+            { label: '丢弃', template: '<user>丢弃了{Name}。' },
+          ],
+        },
+        {
+          table_keywords: ['装备', '武器', '防具'],
+          actions: [
+            { label: '装备', template: '<user>装备了{Name}。' },
+            { label: '卸下', template: '<user>卸下了{Name}。' },
+            { label: '卖出', template: '<user>卖出了{Name}。' },
+          ],
+        },
+        {
+          table_keywords: ['技能', '能力'],
+          actions: [
+            { label: '使用', template: '<user>使用{Name}。' },
+            { label: '练习', template: '<user>练习{Name}。' },
+          ],
+        },
+        {
+          table_keywords: ['备忘', '任务', '事项'],
+          actions: [
+            { label: '追踪', template: '<user>将{Name}设为当前追踪目标。' },
+            { label: '整理', template: '<user>整理关于{Name}的信息。' },
+            { label: '放弃', template: '<user>放弃了{Name}。' },
+          ],
+        },
+        {
+          table_keywords: ['势力', '组织', '阵营'],
+          actions: [
+            { label: '打探', template: '<user>打探{Name}的情报。' },
+            { label: '加入', template: '<user>申请加入{Name}。' },
+            { label: '合作', template: '<user>向{Name}请求合作。' },
+          ],
+        },
+      ],
+    },
+  ];
+
+  const ActionPresetManager = (() => {
+    let _cache = null;
+
+    return {
+      // 获取所有预设（内置 + 用户自定义）
+      getAllPresets() {
+        if (_cache) return _cache;
+        const stored = Store.get(STORAGE_KEY_ACTION_PRESETS, []);
+        _cache = [...BUILTIN_ACTION_PRESETS, ...stored];
+        return _cache;
+      },
+
+      // 根据ID获取单个预设
+      getPresetById(id) {
+        return this.getAllPresets().find(p => p.id === id) || null;
+      },
+
+      // 获取当前激活的预设ID（默认为内置预设）
+      getActivePresetId() {
+        const stored = Store.get(STORAGE_KEY_ACTIVE_ACTION_PRESET, '__builtin_default__');
+        return stored === null ? '__builtin_default__' : stored;
+      },
+
+      // 获取当前激活的预设
+      getActivePreset() {
+        const activeId = this.getActivePresetId();
+        if (!activeId || activeId === '__none__') return null;
+        return this.getPresetById(activeId);
+      },
+
+      // 设置激活的预设（'__none__' 表示全部关闭）
+      setActivePresetId(id) {
+        try {
+          const finalId = id === '' || id === undefined || id === null ? '__none__' : id;
+          Store.set(STORAGE_KEY_ACTIVE_ACTION_PRESET, finalId);
+          _cache = null;
+          console.log('[DICE]ActionPresetManager 切换预设:', finalId);
+          return true;
+        } catch (err) {
+          console.error('[DICE]ActionPresetManager 设置预设失败:', err);
+          return false;
+        }
+      },
+
+      // 创建自定义预设
+      createPreset(preset) {
+        const stored = Store.get(STORAGE_KEY_ACTION_PRESETS, []);
+        const newPreset = {
+          format: 'acu_action_preset_v1',
+          version: PRESET_FORMAT_VERSION,
+          ...preset,
+          id: preset.id || 'custom_' + Date.now(),
+          builtin: false,
+          createdAt: new Date().toISOString(),
+        };
+        stored.push(newPreset);
+        Store.set(STORAGE_KEY_ACTION_PRESETS, stored);
+        _cache = null;
+        console.log('[DICE]ActionPresetManager 创建预设:', newPreset.name);
+        return newPreset;
+      },
+
+      // 更新自定义预设
+      updatePreset(id, updates) {
+        const stored = Store.get(STORAGE_KEY_ACTION_PRESETS, []);
+        const index = stored.findIndex(p => p.id === id);
+        if (index < 0) return false;
+        stored[index] = { ...stored[index], ...updates, version: PRESET_FORMAT_VERSION };
+        Store.set(STORAGE_KEY_ACTION_PRESETS, stored);
+        _cache = null;
+        console.log('[DICE]ActionPresetManager 更新预设:', id);
+        return true;
+      },
+
+      // 删除自定义预设
+      deletePreset(id) {
+        const stored = Store.get(STORAGE_KEY_ACTION_PRESETS, []);
+        const filtered = stored.filter(p => p.id !== id);
+        if (filtered.length === stored.length) return false;
+        Store.set(STORAGE_KEY_ACTION_PRESETS, filtered);
+        _cache = null;
+        // 如果删除的是激活预设，清除激活状态
+        if (Store.get(STORAGE_KEY_ACTIVE_ACTION_PRESET) === id) {
+          Store.set(STORAGE_KEY_ACTIVE_ACTION_PRESET, null);
+        }
+        console.log('[DICE]ActionPresetManager 删除预设:', id);
+        return true;
+      },
+
+      // 导出预设为 JSON
+      exportPreset(id) {
+        const preset = this.getPresetById(id);
+        if (!preset) return null;
+        const exported = {
+          format: 'acu_action_preset_v1',
+          version: PRESET_FORMAT_VERSION,
+          ...preset,
+        };
+        delete exported.builtin;
+        delete exported.createdAt;
+        return JSON.stringify(exported, null, 2);
+      },
+
+      // 从 JSON 导入预设
+      importPreset(jsonStr) {
+        try {
+          const data = JSON.parse(jsonStr);
+
+          // 校验格式
+          if (data.format !== 'acu_action_preset_v1') {
+            throw new Error('不支持的预设格式，需要 acu_action_preset_v1');
+          }
+
+          // 基本校验
+          if (!data.name || !data.rules || !Array.isArray(data.rules)) {
+            throw new Error('预设数据不完整，需要 name 和 rules 字段');
+          }
+
+          // 生成新ID避免冲突
+          const imported = {
+            ...data,
+            id: 'imported_' + Date.now(),
+            builtin: false,
+            version: PRESET_FORMAT_VERSION,
+            createdAt: new Date().toISOString(),
+          };
+
+          const result = this.createPreset(imported);
+          return result;
+        } catch (e) {
+          console.error('[DICE]ActionPresetManager 导入失败:', e);
+          return null;
+        }
+      },
+
+      // 清除缓存
+      clearCache() {
+        _cache = null;
+      },
+    };
+  })();
+
+  // ========================================
   // 疯狂模式系统
   // ========================================
 
@@ -8638,7 +8906,41 @@ import { MAIN_STYLES } from './styles';
     }
     return theme;
   };
-  const getGMConfig = () => Store.get(STORAGE_KEY_GM_CONFIG, DEFAULT_GM_CONFIG);
+  const getGMConfig = () => {
+    const baseConfig = Store.get(STORAGE_KEY_GM_CONFIG, DEFAULT_GM_CONFIG);
+
+    // 检查用户是否明确禁用了所有交互规则
+    const activePresetId = ActionPresetManager.getActivePresetId();
+    if (activePresetId === '__none__') {
+      return {
+        ...baseConfig,
+        action_rules_disabled: true, // 标记：用户明确禁用了所有规则
+      };
+    }
+
+    // 注入用户自定义交互规则
+    const activePreset = ActionPresetManager.getActivePreset();
+    if (activePreset && activePreset.rules && activePreset.rules.length > 0) {
+      // 转换预设格式为 custom_action_groups 格式
+      const customActionGroups = activePreset.rules.map(rule => ({
+        table_keywords: rule.table_keywords || [],
+        actions: (rule.actions || []).map(action => ({
+          label: action.label,
+          icon: action.icon || ACTION_ICON_MAP[action.label] || 'fa-circle',
+          type: 'prompt',
+          template: action.template || `<user>对{Name}执行互动:${action.label}。`,
+          auto_send: false,
+        })),
+      }));
+
+      return {
+        ...baseConfig,
+        custom_action_groups: customActionGroups,
+      };
+    }
+
+    return baseConfig;
+  };
 
   // 统一的结果标签样式生成函数（融入主题，保证对比度）
   const getResultBadgeStyle = (resultType, t) => {
@@ -8683,16 +8985,146 @@ import { MAIN_STYLES } from './styles';
     };
   };
 
-  const getActionsForTable = tableName => {
+  // [统一] 交互选项的图标映射表，供所有渲染位置共享使用
+  const ACTION_ICON_MAP: Record<string, string> = {
+    // 战斗类
+    战斗: 'fa-hand-fist',
+    攻击: 'fa-hand-fist',
+    防御: 'fa-shield',
+    逃跑: 'fa-person-running',
+    // 社交类
+    交谈: 'fa-comments',
+    对话: 'fa-comments',
+    告别: 'fa-hand',
+    求爱: 'fa-heart',
+    邀约: 'fa-calendar-check',
+    赠送: 'fa-gift',
+    送礼: 'fa-gift',
+    // 观察类
+    观察: 'fa-eye',
+    查看: 'fa-eye',
+    检查: 'fa-magnifying-glass',
+    // 物品操作
+    使用: 'fa-hand-pointer',
+    丢弃: 'fa-trash',
+    装备: 'fa-shield-halved',
+    卸下: 'fa-circle-xmark',
+    卖出: 'fa-coins',
+    购买: 'fa-shopping-cart',
+    // 移动类
+    前往: 'fa-walking',
+    探索: 'fa-search',
+    停留: 'fa-clock',
+    离开: 'fa-door-open',
+    // 技能类
+    练习: 'fa-dumbbell',
+    施展: 'fa-wand-magic-sparkles',
+    凝练: 'fa-fire',
+    // 任务类
+    追踪: 'fa-crosshairs',
+    整理: 'fa-list-check',
+    放弃: 'fa-circle-xmark',
+    完成: 'fa-check',
+    // 组织类
+    打探: 'fa-ear-listen',
+    加入: 'fa-user-plus',
+    合作: 'fa-handshake',
+    // 表演类
+    表演: 'fa-music',
+    演奏: 'fa-guitar',
+    唱歌: 'fa-microphone',
+  };
+
+  /**
+   * 获取指定表格的默认交互动作
+   *
+   * [扩展点] 支持用户自定义规则，优先级：用户自定义规则 > 内置默认规则
+   * 将来可通过 config.custom_action_groups 添加用户定义的表格规则
+   * 例如用户可以为"神通表"定义固有选项"凝练"、"施展"
+   *
+   * @param tableName 表格名称（用于匹配动作组）
+   * @returns 匹配的动作列表（返回副本，避免变异原配置）
+   */
+  const getActionsForTable = (tableName: string) => {
     const config = getGMConfig();
-    if (!config.enabled || !config.action_groups) return [];
+    if (!config.enabled) return [];
+
+    // 如果用户明确禁用了所有规则，返回空数组
+    if ((config as any).action_rules_disabled) return [];
+
     const lowerName = tableName.toLowerCase();
-    for (const group of config.action_groups) {
-      const matched = group.table_keywords.some(keyword => lowerName.includes(keyword.toLowerCase()));
-      if (matched) return group.actions || [];
+
+    // [扩展点] 优先检查用户自定义规则
+    const customRules = (config as any).custom_action_groups || [];
+    for (const group of customRules) {
+      const matched = group.table_keywords.some((keyword: string) => lowerName.includes(keyword.toLowerCase()));
+      if (matched) return [...(group.actions || [])]; // 返回副本
     }
+
+    // 回退到内置默认规则
+    const builtinRules = config.action_groups || [];
+    for (const group of builtinRules) {
+      const matched = group.table_keywords.some((keyword: string) => lowerName.includes(keyword.toLowerCase()));
+      if (matched) return [...(group.actions || [])]; // 返回副本
+    }
+
     return [];
   };
+
+  /**
+   * 获取指定行的完整交互选项列表
+   * 合并逻辑：默认动作 + AI生成的自定义动作（去重）
+   *
+   * @param tableName 表格名称（用于匹配默认动作）
+   * @param headers 表头数组
+   * @param rowData 行数据数组
+   * @returns 完整的动作列表（默认动作在前，自定义动作在后）
+   */
+  const getInteractOptionsForRow = (tableName: string, headers: any[], rowData: any[]) => {
+    // 1. 获取基于表格类型的默认动作（返回副本避免变异）
+    const defaultActions = [...getActionsForTable(tableName)];
+
+    // 2. 查找"交互选项"列索引
+    const interactColIdx = headers.findIndex(h => h && String(h).includes('交互'));
+    if (interactColIdx < 0 || !rowData[interactColIdx]) {
+      return defaultActions;
+    }
+
+    // 3. 过滤无效值
+    const invalidValues = ['-', 'null', 'none', '无', '空', 'n/a', 'undefined', '/'];
+    const cellValue = String(rowData[interactColIdx]).trim();
+    if (!cellValue || invalidValues.includes(cellValue.toLowerCase())) {
+      return defaultActions;
+    }
+
+    // 4. 解析分隔的选项
+    const interactOptions = cellValue
+      .split(/[,，、;；]/)
+      .map(s => s.trim())
+      .filter(s => s && !invalidValues.includes(s.toLowerCase()));
+
+    if (interactOptions.length === 0) {
+      return defaultActions;
+    }
+
+    // 5. 获取默认动作的标签列表，用于去重
+    const existingLabels = defaultActions.map(a => a.label.toLowerCase());
+
+    // 6. 只追加不在默认动作中的自定义选项
+    const newActions = interactOptions
+      .filter(opt => !existingLabels.includes(opt.toLowerCase()))
+      .map(opt => ({
+        label: opt,
+        icon: ACTION_ICON_MAP[opt] || 'fa-hand-pointer',
+        type: 'prompt',
+        template: `<user>对{Name}执行互动:${opt}。`,
+        auto_send: true,
+      }));
+
+    // 7. 返回合并后的数组：默认动作 + 自定义动作
+    return [...defaultActions, ...newActions];
+  };
+
   const isNumericCell = value => {
     if (value === null || value === undefined || value === '') return false;
     const str = String(value).trim();
@@ -18908,6 +19340,370 @@ import { MAIN_STYLES } from './styles';
   };
 
   // ========================================
+  // 自定义交互规则管理
+  // ========================================
+  const showActionPresetManager = () => {
+    const { $ } = getCore();
+    $('.acu-edit-overlay').remove();
+
+    const config = getConfig();
+    const t = getThemeColors();
+    const presets = ActionPresetManager.getAllPresets();
+    const activeId = ActionPresetManager.getActivePresetId();
+
+    // 生成预设列表HTML
+    const presetsHtml =
+      presets.length === 0
+        ? `<div style="text-align: center; padding: 40px; color: ${t.textSub};">暂无自定义规则，点击下方按钮创建</div>`
+        : presets
+            .map(preset => {
+              const isActive = preset.id === activeId;
+              const isBuiltin = (preset as any).builtin === true;
+              const keywordsSummary =
+                (preset.rules || [])
+                  .flatMap(r => r.table_keywords || [])
+                  .slice(0, 3)
+                  .join('、') || '无';
+              const actionsSummary =
+                (preset.rules || [])
+                  .flatMap(r => (r.actions || []).map(a => a.label))
+                  .slice(0, 4)
+                  .join('、') || '无';
+
+              return `
+          <div class="acu-preset-item" data-id="${preset.id}">
+            <div class="acu-preset-info">
+              <div class="acu-preset-name">${escapeHtml(preset.name)}${isBuiltin ? `<span style="font-size: 10px; color: ${t.textSub}; margin-left: 6px;">(内置)</span>` : ''}</div>
+              ${preset.description ? `<div class="acu-preset-desc">${escapeHtml(preset.description)}</div>` : ''}
+              <div class="acu-preset-stats" style="font-size: 11px; color: ${t.textSub};">
+                关键词: ${escapeHtml(keywordsSummary)} | 动作: ${escapeHtml(actionsSummary)}
+              </div>
+            </div>
+            <div class="acu-preset-actions" style="display: flex; align-items: center; gap: 8px;">
+              <label class="acu-toggle" style="margin: 0;">
+                <input type="checkbox" class="acu-action-preset-toggle" data-id="${preset.id}" ${isActive ? 'checked' : ''}>
+                <span class="acu-toggle-slider"></span>
+              </label>
+              ${
+                isBuiltin
+                  ? `<button class="acu-preset-btn acu-action-preset-copy" data-id="${preset.id}" title="复制为自定义规则"><i class="fa-solid fa-copy"></i></button>`
+                  : `<button class="acu-preset-btn acu-action-preset-edit" data-id="${preset.id}" title="编辑"><i class="fa-solid fa-pen"></i></button>`
+              }
+              <button class="acu-preset-btn acu-action-preset-export" data-id="${preset.id}" title="导出"><i class="fa-solid fa-download"></i></button>
+              ${!isBuiltin ? `<button class="acu-preset-btn acu-action-preset-delete" data-id="${preset.id}" title="删除" style="color: #e74c3c;"><i class="fa-solid fa-trash"></i></button>` : ''}
+            </div>
+          </div>
+        `;
+            })
+            .join('');
+
+    const overlay = $(`
+      <div class="acu-edit-overlay">
+        <div class="acu-edit-dialog acu-theme-${config.theme}" style="width: 600px; max-width: 92vw; max-height: 80vh;">
+          <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px solid ${t.border};">
+            <div style="font-size: 16px; font-weight: bold; color: ${t.textMain};">
+              <i class="fa-solid fa-wand-magic-sparkles"></i> 自定义交互规则管理
+            </div>
+            <button class="acu-close-btn"><i class="fa-solid fa-times"></i></button>
+          </div>
+
+          <div style="flex: 1; overflow-y: auto; padding: 12px 0;">
+            <div id="acu-action-presets-list">
+              ${presetsHtml}
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid ${t.border};">
+            <button id="acu-action-preset-new" style="flex: 1; padding: 10px; background: ${t.buttonBg || t.accent}; border: none; border-radius: 6px; color: ${t.buttonText}; cursor: pointer; font-size: 13px;">
+              <i class="fa-solid fa-plus"></i> 新建规则
+            </button>
+            <button id="acu-action-preset-import" style="flex: 1; padding: 10px; background: ${t.btnBg}; border: 1px solid ${t.border}; border-radius: 6px; color: ${t.textMain}; cursor: pointer; font-size: 13px;">
+              <i class="fa-solid fa-file-import"></i> 导入
+            </button>
+            <button id="acu-action-preset-back" style="padding: 10px 16px; background: ${t.btnBg}; border: 1px solid ${t.border}; border-radius: 6px; color: ${t.textMain}; cursor: pointer; font-size: 13px;">
+              <i class="fa-solid fa-arrow-left"></i> 返回
+            </button>
+          </div>
+        </div>
+      </div>
+    `);
+
+    $('body').append(overlay);
+
+    // 关闭按钮
+    overlay.find('.acu-close-btn, #acu-action-preset-back').on('click', () => {
+      overlay.remove();
+      showSettingsModal();
+    });
+
+    // Toggle切换预设激活状态（单选）
+    overlay.on('change', '.acu-action-preset-toggle', function () {
+      const $toggle = $(this);
+      const id = $toggle.data('id');
+      const isChecked = $toggle.is(':checked');
+
+      if (isChecked) {
+        ActionPresetManager.setActivePresetId(id);
+        // 取消其他toggle
+        overlay.find('.acu-action-preset-toggle').each(function () {
+          if ($(this).data('id') !== id) {
+            $(this).prop('checked', false);
+          }
+        });
+      } else {
+        // 只有当取消的是当前激活的预设时，才清空
+        if (ActionPresetManager.getActivePresetId() === id) {
+          ActionPresetManager.setActivePresetId(null);
+          if (window.toastr) window.toastr.info('所有交互规则已禁用');
+        }
+      }
+    });
+
+    // 编辑预设
+    overlay.on('click', '.acu-action-preset-edit', function () {
+      const id = $(this).data('id');
+      overlay.remove();
+      showActionPresetEditor(id);
+    });
+
+    // 导出预设
+    overlay.on('click', '.acu-action-preset-export', function () {
+      const id = $(this).data('id');
+      const json = ActionPresetManager.exportPreset(id);
+      if (!json) {
+        if (window.toastr) window.toastr.error('导出失败');
+        return;
+      }
+
+      // 复制到剪贴板
+      navigator.clipboard
+        .writeText(json)
+        .then(() => {
+          if (window.toastr) window.toastr.success('已复制到剪贴板');
+        })
+        .catch(() => {
+          // 回退：创建textarea复制
+          const ta = document.createElement('textarea');
+          ta.value = json;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+          if (window.toastr) window.toastr.success('已复制到剪贴板');
+        });
+    });
+
+    // 复制内置预设为自定义预设
+    overlay.on('click', '.acu-action-preset-copy', function () {
+      const id = $(this).data('id');
+      const preset = presets.find(p => p.id === id);
+      if (!preset) return;
+
+      const copyData = {
+        name: preset.name + ' (副本)',
+        description: preset.description || '',
+        rules: JSON.parse(JSON.stringify(preset.rules)),
+      };
+
+      const newPreset = ActionPresetManager.createPreset(copyData);
+      if (newPreset) {
+        if (window.toastr)
+          window.toastr.success(`已创建副本：${newPreset.name}，包含 ${newPreset.rules.length} 个规则组`);
+        overlay.remove();
+        showActionPresetManager(); // 刷新列表而不是打开编辑器
+      }
+    });
+
+    // 删除预设
+    overlay.on('click', '.acu-action-preset-delete', function () {
+      const id = $(this).data('id');
+      const preset = presets.find(p => p.id === id);
+
+      if (confirm(`确定要删除规则「${preset?.name}」吗？`)) {
+        const success = ActionPresetManager.deletePreset(id);
+        if (success) {
+          overlay.remove();
+          showActionPresetManager();
+        } else {
+          if (window.toastr) window.toastr.error('删除失败');
+        }
+      }
+    });
+
+    // 新建预设
+    overlay.find('#acu-action-preset-new').on('click', () => {
+      overlay.remove();
+      showActionPresetEditor();
+    });
+
+    // 导入预设
+    overlay.find('#acu-action-preset-import').on('click', () => {
+      const jsonStr = prompt('请粘贴要导入的JSON数据:');
+      if (!jsonStr?.trim()) return;
+
+      const result = ActionPresetManager.importPreset(jsonStr.trim());
+      if (result) {
+        if (window.toastr) window.toastr.success(`导入成功：${result.name}`);
+        overlay.remove();
+        showActionPresetManager();
+      } else {
+        if (window.toastr) window.toastr.error('导入失败，请检查JSON格式');
+      }
+    });
+
+    // 点击遮罩关闭
+    overlay.on('click', function (e) {
+      if ($(e.target).hasClass('acu-edit-overlay')) {
+        overlay.remove();
+        showSettingsModal();
+      }
+    });
+  };
+
+  // 交互规则编辑器（JSON配置风格）
+  const showActionPresetEditor = (presetId?: string) => {
+    const { $ } = getCore();
+    $('.acu-edit-overlay').remove();
+
+    const config = getConfig();
+    const t = getThemeColors();
+    const isEdit = !!presetId;
+    const existingPreset = isEdit ? ActionPresetManager.getPresetById(presetId) : null;
+
+    // 默认值
+    const defaultData = {
+      name: existingPreset?.name || '新交互规则',
+      description: existingPreset?.description || '',
+      rules: existingPreset?.rules || [
+        {
+          table_keywords: ['示例表'],
+          actions: [{ label: '交互', template: '<user>对{Name}执行互动:交互。' }],
+        },
+      ],
+    };
+
+    const overlay = $(`
+      <div class="acu-edit-overlay">
+        <div class="acu-edit-dialog acu-theme-${config.theme}" style="width: 700px; max-width: 95vw; max-height: 85vh;">
+          <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px solid ${t.border};">
+            <div style="font-size: 16px; font-weight: bold; color: ${t.textMain};">
+              <i class="fa-solid fa-wand-magic-sparkles"></i> ${isEdit ? '编辑' : '新建'}交互规则
+            </div>
+            <button class="acu-close-btn"><i class="fa-solid fa-times"></i></button>
+          </div>
+
+          <div style="flex: 1; overflow-y: auto; padding: 12px 0;">
+            <div style="margin-bottom: 16px;">
+              <label style="display: block; font-size: 12px; color: ${t.textSub}; margin-bottom: 4px;">预设名称</label>
+              <input id="action-preset-name" type="text" value="${escapeHtml(defaultData.name)}" style="width: 100%; padding: 8px; border: 1px solid ${t.border}; border-radius: 6px; background: ${t.inputBg}; color: ${t.textMain}; box-sizing: border-box;" />
+            </div>
+
+            <div style="margin-bottom: 16px;">
+              <label style="display: block; font-size: 12px; color: ${t.textSub}; margin-bottom: 4px;">描述</label>
+              <input id="action-preset-desc" type="text" value="${escapeHtml(defaultData.description)}" placeholder="可选" style="width: 100%; padding: 8px; border: 1px solid ${t.border}; border-radius: 6px; background: ${t.inputBg}; color: ${t.textMain}; box-sizing: border-box;" />
+            </div>
+
+            <div style="margin-bottom: 16px;">
+              <label style="display: block; font-size: 12px; color: ${t.textSub}; margin-bottom: 8px;">
+                规则配置 <span style="font-size: 10px; color: ${t.textSub};">(JSON格式，支持直接编辑)</span>
+              </label>
+              <textarea id="action-preset-json" style="width: 100%; height: 300px; padding: 10px; border: 1px solid ${t.border}; border-radius: 6px; background: ${t.inputBg}; color: ${t.textMain}; font-family: 'Consolas', 'Monaco', monospace; font-size: 12px; resize: vertical; box-sizing: border-box;"></textarea>
+            </div>
+
+            <div style="font-size: 11px; color: ${t.textSub}; padding: 8px; background: var(--acu-table-head); border-radius: 6px; line-height: 1.6;">
+              <strong>配置格式说明：</strong><br/>
+              • 每个规则包含 table_keywords（表名关键词数组）和 actions（动作数组）<br/>
+              • 动作包含 label（按钮文字）和 template（发送模板，{Name}为行名称）<br/>
+              • 示例: { "table_keywords": ["人物"], "actions": [{ "label": "交谈", "template": "<user>与{Name}交谈。" }] }
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid ${t.border};">
+            <button id="action-preset-save" style="flex: 1; padding: 10px; background: ${t.buttonBg || t.accent}; border: none; border-radius: 6px; color: ${t.buttonText}; cursor: pointer; font-size: 13px; font-weight: bold;">
+              <i class="fa-solid fa-check"></i> 保存
+            </button>
+            <button id="action-preset-cancel" style="padding: 10px 16px; background: ${t.btnBg}; border: 1px solid ${t.border}; border-radius: 6px; color: ${t.textMain}; cursor: pointer; font-size: 13px;">
+              <i class="fa-solid fa-times"></i> 取消
+            </button>
+          </div>
+        </div>
+      </div>
+    `);
+
+    $('body').append(overlay);
+
+    const $jsonTextarea = overlay.find('#action-preset-json');
+
+    // 初始化JSON（只显示 rules 部分）
+    $jsonTextarea.val(JSON.stringify(defaultData.rules, null, 2));
+
+    // 关闭
+    overlay.find('.acu-close-btn, #action-preset-cancel').on('click', () => {
+      overlay.remove();
+      showActionPresetManager();
+    });
+
+    // 保存
+    overlay.find('#action-preset-save').on('click', () => {
+      try {
+        const name = (overlay.find('#action-preset-name').val() as string).trim();
+        const description = (overlay.find('#action-preset-desc').val() as string).trim();
+        const jsonStr = ($jsonTextarea.val() as string).trim();
+
+        if (!name) {
+          if (window.toastr) window.toastr.warning('请输入预设名称');
+          return;
+        }
+
+        // 解析JSON
+        const rules = JSON.parse(jsonStr);
+
+        // 校验格式
+        if (!Array.isArray(rules) || rules.length === 0) {
+          if (window.toastr) window.toastr.error('规则不能为空，需要至少一个规则');
+          return;
+        }
+
+        // 校验每个规则
+        for (let i = 0; i < rules.length; i++) {
+          const rule = rules[i];
+          if (!rule.table_keywords || !Array.isArray(rule.table_keywords) || rule.table_keywords.length === 0) {
+            if (window.toastr) window.toastr.error(`规则 ${i + 1} 缺少 table_keywords`);
+            return;
+          }
+          if (!rule.actions || !Array.isArray(rule.actions) || rule.actions.length === 0) {
+            if (window.toastr) window.toastr.error(`规则 ${i + 1} 缺少 actions`);
+            return;
+          }
+        }
+
+        if (isEdit && presetId) {
+          // 更新现有预设
+          ActionPresetManager.updatePreset(presetId, { name, description, rules });
+          if (window.toastr) window.toastr.success('规则已更新');
+        } else {
+          // 创建新预设
+          ActionPresetManager.createPreset({ name, description, rules });
+          if (window.toastr) window.toastr.success('规则已创建');
+        }
+
+        overlay.remove();
+        showActionPresetManager();
+      } catch (e) {
+        if (window.toastr) window.toastr.error('JSON 格式错误: ' + (e as Error).message);
+      }
+    });
+
+    // 点击遮罩关闭
+    overlay.on('click', function (e) {
+      if ($(e.target).hasClass('acu-edit-overlay')) {
+        overlay.remove();
+        showActionPresetManager();
+      }
+    });
+  };
+
+  // ========================================
   // Debug控制台窗口
   // ========================================
   const showDebugConsoleModal = () => {
@@ -19366,11 +20162,10 @@ import { MAIN_STYLES } from './styles';
         }
       }
 
-      // [修复] 关闭当前对话框并重置状态
-      isSettingsOpen = false; // 重置设置面板状态,允许后续界面渲染
+      // [修复] 关闭当前对话框并刷新规则列表
       dialog.remove();
       $(document).off('keydown.regex-rule-modal'); // 移除ESC键监听
-      renderInterface(); // 触发界面重新渲染
+      refreshRegexRulesList(); // 刷新规则列表而不是重渲染整个界面
     });
 
     // 关闭弹窗的统一函数（注意：不重置 isSettingsOpen，因为设置面板仍在后面打开）
@@ -19884,6 +20679,14 @@ import { MAIN_STYLES } from './styles';
                             </div>
                             <div class="acu-setting-row">
                                 <div class="acu-setting-info">
+                                    <span class="acu-setting-label"><i class="fa-solid fa-wand-magic-sparkles"></i> 自定义交互规则</span>
+                                </div>
+                                <button id="cfg-action-preset-manage" class="acu-setting-action-btn" style="width: 90px; padding: 6px 12px; font-size: 12px; margin-bottom: 0;">
+                                    <i class="fa-solid fa-cog"></i> 管理
+                                </button>
+                            </div>
+                            <div class="acu-setting-row">
+                                <div class="acu-setting-info">
                                     <span class="acu-setting-label"><i class="fa-solid fa-filter"></i> 过滤黑名单</span>
                                 </div>
                                 <button id="cfg-blacklist-manage" class="acu-setting-action-btn" style="width: 90px; padding: 6px 12px; font-size: 12px; margin-bottom: 0;">
@@ -19966,6 +20769,11 @@ import { MAIN_STYLES } from './styles';
         borderColor: t.border,
         color: t.textMain,
       });
+      dialog.find('#cfg-action-preset-manage').css({
+        background: t.btnBg,
+        borderColor: t.border,
+        color: t.textMain,
+      });
     });
 
     // 字体
@@ -19980,6 +20788,14 @@ import { MAIN_STYLES } from './styles';
       dialog.remove();
       isSettingsOpen = false;
       showAttributePresetManager();
+    });
+
+    // 管理交互规则按钮
+    dialog.find('#cfg-action-preset-manage').on('click', function (e) {
+      e.stopPropagation();
+      dialog.remove();
+      isSettingsOpen = false;
+      showActionPresetManager();
     });
 
     // 疯狂模式设置
@@ -20731,6 +21547,11 @@ import { MAIN_STYLES } from './styles';
               const $presetSelect = dialog.find('#regex-preset-select');
               $presetSelect.append(`<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</option>`);
               $presetSelect.val(preset.id);
+
+              // [修复] 切换到导入的预设并同步规则到实际存储
+              RegexPresetManager.setActivePreset(preset.id);
+              Store.set(STORAGE_KEY_REGEX_RULES, preset.rules || []);
+              RegexTransformationManager.clearCache();
 
               refreshRegexRulesList(); // 刷新规则列表
             } else {
@@ -23873,54 +24694,9 @@ import { MAIN_STYLES } from './styles';
           .join('');
 
         // [修改] 给 acu-card-body 增加了 view-grid 或 view-list 类
-        // [新增] 获取该表格的动作列表并生成按钮HTML
-        let tableActions = getActionsForTable(tableName);
+        // [修复] 传入完整的 tableData.headers 而非 slice 后的 headers，避免 getInteractOptionsForRow 内部索引错位
+        const tableActions = getInteractOptionsForRow(tableName, tableData.headers, row);
         let actionsHtml = '';
-
-        // [特殊处理] 检查是否有"交互选项"列，将自定义选项追加到默认动作后面
-        const interactColIdx = headers.findIndex(h => h && h.includes('交互'));
-        if (interactColIdx >= 0 && row[interactColIdx + 1]) {
-          // 过滤掉无效值：-、null、none、空、无、N/A 等
-          const invalidValues = ['-', 'null', 'none', '无', '空', 'n/a', 'undefined', '/'];
-          const interactOptions = String(row[interactColIdx + 1])
-            .split(/[,，、;；]/)
-            .map(s => s.trim())
-            .filter(s => s && !invalidValues.includes(s.toLowerCase()));
-          if (interactOptions.length > 0) {
-            // 获取默认动作的标签列表，用于去重
-            const existingLabels = tableActions.map(a => a.label.toLowerCase());
-            // 常用动作的图标映射
-            const iconMap = {
-              战斗: 'fa-hand-fist',
-              攻击: 'fa-hand-fist',
-              交谈: 'fa-comments',
-              对话: 'fa-comments',
-              观察: 'fa-eye',
-              查看: 'fa-eye',
-              使用: 'fa-hand-pointer',
-              赠送: 'fa-gift',
-              送礼: 'fa-gift',
-              丢弃: 'fa-trash',
-              装备: 'fa-shield-halved',
-              邀约: 'fa-calendar-check',
-              告别: 'fa-hand',
-              求爱: 'fa-heart',
-              表演: 'fa-music',
-            };
-            // 只追加不在默认动作中的自定义选项
-            const newActions = interactOptions
-              .filter(opt => !existingLabels.includes(opt.toLowerCase()))
-              .map(opt => ({
-                label: opt,
-                icon: iconMap[opt] || 'fa-hand-pointer',
-                type: 'prompt',
-                template: `<user>${opt}{Name}。`,
-                auto_send: true,
-              }));
-            // 合并：默认动作 + 自定义动作
-            tableActions = [...tableActions, ...newActions];
-          }
-        }
 
         if (tableActions.length > 0) {
           const cardTitle = row[titleColIndex] || '未知';
@@ -24826,39 +25602,8 @@ import { MAIN_STYLES } from './styles';
         const headers = rawData[tableKey].content[0] || [];
         const rowData = rawData[tableKey].content[rowIdx + 1] || [];
 
-        // 无效值列表
-        const invalidValues = ['-', 'null', 'none', '无', '空', 'n/a', 'undefined', '/'];
-
-        // 先获取默认动作配置
-        let actions = getActionsForTable(tableName);
-
-        // 查找"交互选项"列，追加自定义动作（而非覆盖）
-        const interactColIdx = headers.findIndex(h => h && String(h).includes('交互'));
-        if (interactColIdx >= 0 && rowData[interactColIdx]) {
-          const cellValue = String(rowData[interactColIdx]).trim();
-          if (cellValue && !invalidValues.includes(cellValue.toLowerCase())) {
-            const interactOptions = cellValue
-              .split(/[,，、;；]/)
-              .map(s => s.trim())
-              .filter(s => s && !invalidValues.includes(s.toLowerCase()));
-            if (interactOptions.length > 0) {
-              // 获取默认动作的标签列表，用于去重
-              const existingLabels = actions.map(a => a.label.toLowerCase());
-              // 只追加不在默认动作中的自定义选项
-              const newActions = interactOptions
-                .filter(opt => !existingLabels.includes(opt.toLowerCase()))
-                .map(opt => ({
-                  label: opt,
-                  icon: 'fa-hand-pointer',
-                  type: 'prompt',
-                  template: `<user>对{Name}进行交互：${opt}。`,
-                  auto_send: true,
-                }));
-              // 合并：默认动作 + 自定义动作
-              actions = [...actions, ...newActions];
-            }
-          }
-        }
+        // [统一] 使用公共函数获取交互选项（默认动作 + AI生成的自定义动作）
+        const actions = getInteractOptionsForRow(tableName, headers, rowData);
 
         const action = actions[actionIdx];
 
@@ -25385,8 +26130,8 @@ import { MAIN_STYLES } from './styles';
               relations.forEach((rel, i) => {
                 const borderStyle = i < relations.length - 1 ? 'border-bottom:1px dashed rgba(128,128,128,0.2);' : '';
                 relHtml += `<div style="display:flex;justify-content:flex-start;align-items:center;gap:8px;padding:3px 0;${borderStyle}">
-                              <span style="color:var(--acu-text-main);font-size:0.95em;">${escapeHtml(rel.name)}${inlineLockIcon}</span>
-                              ${rel.relation ? `<span style="color:var(--acu-text-sub);font-size:0.85em;background:var(--acu-badge-bg);padding:1px 6px;border-radius:8px;">${escapeHtml(rel.relation)}</span>` : ''}
+                              <span style="color:var(--acu-text-sub);font-size:0.95em;">${escapeHtml(rel.name)}${inlineLockIcon}</span>
+                              ${rel.relation ? `<span style="color:var(--acu-text-main);font-size:0.85em;background:var(--acu-badge-bg);padding:1px 6px;border-radius:8px;">${escapeHtml(rel.relation)}</span>` : ''}
                           </div>`;
               });
               contentHtml = `<div class="acu-relation-container">${relHtml}</div>`;
@@ -25394,8 +26139,8 @@ import { MAIN_STYLES } from './styles';
               hideLabel = true; // [修复] 单个人际关系也需要隐藏标签
               const rel = relations[0];
               contentHtml = `<div style="display:flex;justify-content:flex-start;align-items:center;gap:8px;">
-                          <span style="color:var(--acu-text-main);">${escapeHtml(rel.name)}${inlineLockIcon}</span>
-                          <span style="color:var(--acu-text-sub);font-size:0.85em;background:var(--acu-badge-bg);padding:1px 6px;border-radius:8px;">${escapeHtml(rel.relation)}</span>
+                          <span style="color:var(--acu-text-sub);">${escapeHtml(rel.name)}${inlineLockIcon}</span>
+                          <span style="color:var(--acu-text-main);font-size:0.85em;background:var(--acu-badge-bg);padding:1px 6px;border-radius:8px;">${escapeHtml(rel.relation)}</span>
                       </div>`;
             }
           } else if (parsedAttrs.length > 1) {
@@ -25443,25 +26188,10 @@ import { MAIN_STYLES } from './styles';
             </div>`;
         });
 
-        // 构建动作按钮
+        // [统一] 使用公共函数获取交互选项（默认动作 + AI生成的自定义动作）
+        // [修复] 原逻辑直接覆盖默认选项，现改为追加合并
+        const tableActions = getInteractOptionsForRow(tableName, headers, rowData);
         let actionsHtml = '';
-        let tableActions = getActionsForTable(tableName);
-        const interactColIdx = headers.findIndex(h => h && String(h).includes('交互'));
-        if (interactColIdx > 0 && rowData[interactColIdx]) {
-          const interactOptions = String(rowData[interactColIdx])
-            .split(/[,，、;；]/)
-            .map(s => s.trim())
-            .filter(s => s);
-          if (interactOptions.length > 0) {
-            tableActions = interactOptions.map(opt => ({
-              label: opt,
-              icon: 'fa-hand-pointer',
-              type: 'prompt',
-              template: `<user>对{Name}进行交互：${opt}。`,
-              auto_send: true,
-            }));
-          }
-        }
         if (tableActions.length > 0) {
           const actionBtns = tableActions
             .map(
