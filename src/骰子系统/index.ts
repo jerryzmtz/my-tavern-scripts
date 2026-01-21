@@ -4205,6 +4205,51 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
     return null;
   };
 
+  // 获取地点名的所有候选emoji（用于去重分配）
+  const getEmojiCandidates = (name: string): string[] => {
+    if (!name) return [];
+    const candidates: string[] = [];
+    for (const [pattern, emoji] of LOCATION_EMOJI_MAP) {
+      if (pattern.test(name)) {
+        candidates.push(emoji);
+      }
+    }
+    return candidates;
+  };
+
+  // 批量分配emoji，实现去重（最短名称优先）
+  const resolveBatchLocationEmojis = (names: string[]): Map<string, string | null> => {
+    // 1. 计算每个地点的候选列表
+    const candidatesMap = new Map<string, string[]>();
+    for (const name of names) {
+      candidatesMap.set(name, getEmojiCandidates(name));
+    }
+
+    // 2. 按长度排序（最短优先），同长度按字母序
+    const sortedNames = [...names].sort((a, b) => {
+      if (a.length !== b.length) return a.length - b.length;
+      return a.localeCompare(b);
+    });
+
+    // 3. 贪心分配
+    const usedEmojis = new Set<string>();
+    const result = new Map<string, string | null>();
+
+    for (const name of sortedNames) {
+      const candidates = candidatesMap.get(name) || [];
+      const available = candidates.find(e => !usedEmojis.has(e));
+      if (available) {
+        result.set(name, available);
+        usedEmojis.add(available);
+      } else {
+        // 所有候选都被占用，回退到第一个候选（允许重复显示）
+        result.set(name, candidates.length > 0 ? candidates[0] : null);
+      }
+    }
+
+    return result;
+  };
+
   const getElementEmoji = (name, type) => {
     if (!name && !type) return null;
     for (const [pattern, emoji] of ELEMENT_EMOJI_MAP) {
@@ -12460,8 +12505,20 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
     const locationImportanceIdx = findColumnIndex(locationHeaders, ['重要度', '重要性'], null);
     const locationExploreIdx = findColumnIndex(locationHeaders, ['探索状态', '探索进度', '状态'], null);
 
+    // 先收集所有地点名，用于批量emoji分配（去重）
+    const allLocationNames: string[] = [];
+    locationRows.forEach(row => {
+      const name = String(row[locationNameIdx] || '')
+        .trim()
+        .replace(/[\u200B-\u200D\uFEFF]/g, '');
+      if (name) allLocationNames.push(name);
+    });
+    const emojiMap = resolveBatchLocationEmojis(allLocationNames);
+
     locationRows.forEach((row, idx) => {
-      const name = String(row[locationNameIdx] || '').trim();
+      const name = String(row[locationNameIdx] || '')
+        .trim()
+        .replace(/[\u200B-\u200D\uFEFF]/g, '');
       if (!name) return;
       const region = locationRegionIdx >= 0 ? String(row[locationRegionIdx] || '').trim() : '';
 
@@ -12472,7 +12529,7 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
         description: locationDescIdx >= 0 ? row[locationDescIdx] || '' : '',
         importance: locationImportanceIdx >= 0 ? row[locationImportanceIdx] || '' : '',
         exploreStatus: locationExploreIdx >= 0 ? row[locationExploreIdx] || '' : '',
-        emoji: getLocationEmoji(name),
+        emoji: emojiMap.get(name) ?? null,
         tableKey: locationResult.key || '',
         rowIndex: idx,
       };
@@ -12866,7 +12923,7 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
       $focusArea.html(renderFocusArea(viewModel, focusLocation));
 
       const regionLocations = Array.from(viewModel.locations.values())
-        .filter(l => l.region === selectedRegion)
+        .filter(l => (l.region || '其他') === selectedRegion)
         .sort((a, b) => {
           // 按交互热度排序: 角色数 + 元素数（降序）
           const scoreA =
@@ -12905,7 +12962,9 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
       selectedRegion = newRegion;
 
       // 检查当前 focusLocation 是否在新地区内
-      const regionLocations = Array.from(viewModel.locations.values()).filter(l => l.region === selectedRegion);
+      const regionLocations = Array.from(viewModel.locations.values()).filter(
+        l => (l.region || '其他') === selectedRegion,
+      );
       const currentInNewRegion = regionLocations.find(l => l.name === focusLocation);
 
       if (!currentInNewRegion && regionLocations.length > 0) {
@@ -17471,6 +17530,8 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
                 font-size: 14px;
                 font-weight: bold;
                 color: var(--acu-accent);
+                white-space: nowrap;
+                flex-shrink: 0;
             }
             .acu-map-actions {
                 display: flex;
@@ -17741,6 +17802,7 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
             /* 地区标签页 */
             .acu-map-region-tabs {
                 display: flex;
+                flex-wrap: wrap;
                 gap: 4px;
                 margin-left: auto;
                 margin-right: 8px;
@@ -29488,7 +29550,9 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
           const currentHeader = headers[cIdx] || '';
           if (currentHeader.includes('交互')) return; // 隐藏交互选项列
 
-          const headerName = headers[cIdx] || '属性' + cIdx;
+          const rawHeaderName = headers[cIdx] || '属性' + cIdx;
+          // 清理列标题：移除括号/方括号及其内容（复用普通表格逻辑）
+          const headerName = rawHeaderName.replace(/[\(（\[【][^)）\]】]*[\)）\]】]/g, '').trim();
           const rawStr = String(cell || '').trim();
           if (!rawStr) return;
 
@@ -29503,7 +29567,7 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
           let hideLabel = false;
 
           const parsedAttrs = parseAttributeString(rawStr);
-          // [新增] 人际关系智能拆分
+          // [新增] 人际关系智能拆分 - 复用重要人物表样式
           if (isRelationshipCell(rawStr, headerName)) {
             const relations = parseRelationshipString(rawStr);
             if (relations.length > 1) {
@@ -29511,17 +29575,18 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
               let relHtml = '';
               relations.forEach((rel, i) => {
                 const borderStyle = i < relations.length - 1 ? 'border-bottom:1px dashed rgba(128,128,128,0.2);' : '';
-                relHtml += `<div style="display:flex;justify-content:flex-start;align-items:center;gap:8px;padding:3px 0;${borderStyle}">
-                              <span style="color:var(--acu-text-main);font-size:0.95em;">${escapeHtml(rel.name)}${inlineLockIcon}</span>
-                              ${rel.relation ? `<span style="color:var(--acu-text-sub);font-size:0.85em;background:var(--acu-badge-bg);padding:1px 6px;border-radius:8px;">${escapeHtml(rel.relation)}</span>` : ''}
+                relHtml += `<div style="display:flex;align-items:center;gap:8px;padding:3px 0;${borderStyle}">
+                              <span style="color:var(--acu-text-sub);font-size:0.95em;">${escapeHtml(rel.name)}${inlineLockIcon}</span>
+                              ${rel.relation ? `<span style="color:var(--acu-text-main);font-size:0.85em;background:var(--acu-badge-bg);padding:1px 6px;border-radius:8px;">${escapeHtml(rel.relation)}</span>` : ''}
                           </div>`;
               });
               contentHtml = `<div class="acu-relation-container">${relHtml}</div>`;
-            } else if (relations.length === 1 && relations[0].relation) {
+            } else if (relations.length === 1) {
+              hideLabel = true;
               const rel = relations[0];
-              contentHtml = `<div style="display:flex;justify-content:flex-start;align-items:center;gap:8px;">
-                          <span style="color:var(--acu-text-main);">${escapeHtml(rel.name)}${inlineLockIcon}</span>
-                          <span style="color:var(--acu-text-sub);font-size:0.85em;background:var(--acu-badge-bg);padding:1px 6px;border-radius:8px;">${escapeHtml(rel.relation)}</span>
+              contentHtml = `<div style="display:flex;align-items:center;gap:8px;padding:3px 0;">
+                          <span style="color:var(--acu-text-sub);font-size:0.95em;">${escapeHtml(rel.name)}${inlineLockIcon}</span>
+                          ${rel.relation ? `<span style="color:var(--acu-text-main);font-size:0.85em;background:var(--acu-badge-bg);padding:1px 6px;border-radius:8px;">${escapeHtml(rel.relation)}</span>` : ''}
                       </div>`;
             }
           } else if (parsedAttrs.length > 1) {
