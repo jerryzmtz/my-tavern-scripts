@@ -171,7 +171,7 @@ export const MAIN_STYLES = `
     .acu-relation-graph-overlay button,
     .acu-avatar-manager-overlay button,
     .acu-preview-overlay button,
-    .acu-embedded-options-container button {
+    .acu-embedded-options-container button:not(.acu-opt-btn) {
         font-family: inherit;
         font-size: inherit;
         line-height: 1.4;
@@ -190,7 +190,7 @@ export const MAIN_STYLES = `
     .acu-relation-graph-overlay button:hover,
     .acu-avatar-manager-overlay button:hover,
     .acu-preview-overlay button:hover,
-    .acu-embedded-options-container button:hover {
+    .acu-embedded-options-container button:not(.acu-opt-btn):hover {
         background: var(--acu-btn-hover);
     }
     .acu-wrapper button:focus,
@@ -200,7 +200,7 @@ export const MAIN_STYLES = `
     .acu-relation-graph-overlay button:focus,
     .acu-avatar-manager-overlay button:focus,
     .acu-preview-overlay button:focus,
-    .acu-embedded-options-container button:focus {
+    .acu-embedded-options-container button:not(.acu-opt-btn):focus {
         outline: none;
         box-shadow: none;
     }
@@ -326,12 +326,12 @@ export const MAIN_STYLES = `
     [class^="acu-"] *::-webkit-scrollbar { display: none !important; }
 
     /* ========== 主题变量定义 ========== */
-    .acu-theme-retro { --acu-bg-nav: #e6e2d3; --acu-bg-panel: #e6e2d3; --acu-border: #dcd0c0; --acu-text-main: #5e4b35; --acu-text-sub: #999; --acu-btn-bg: #dcd0c0; --acu-btn-hover: #cbbba8; --acu-btn-active-bg: #8d7b6f; --acu-btn-active-text: #fdfaf5; --acu-accent: #7a695f; --acu-table-head: #efebe4; --acu-table-hover: #f0ebe0; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #fffef9; --acu-badge-bg: #efebe4; --acu-menu-bg: #fff; --acu-menu-text: #333; --acu-success-text: #27ae60; --acu-success-bg: rgba(39, 174, 96, 0.15); --acu-scrollbar-track: #e6e2d3; --acu-scrollbar-thumb: #cbbba8; --acu-input-bg: #f5f2eb;--acu-hl-manual: #d35400; --acu-hl-manual-bg: rgba(211, 84, 0, 0.15); --acu-hl-diff: #2980b9; --acu-hl-diff-bg: rgba(41, 128, 185, 0.15); --acu-error-text: #e74c3c; --acu-error-bg: rgba(231, 76, 60, 0.15); --acu-error-border: rgba(231, 76, 60, 0.5); --acu-warning-icon: #e67e22; --acu-failure-text: #e74c3c; --acu-failure-bg: rgba(231, 76, 60, 0.15); --acu-warning-text: #f39c12; --acu-warning-bg: rgba(243, 156, 18, 0.15); --acu-crit-success-text: #9b59b6; --acu-crit-success-bg: rgba(155, 89, 182, 0.15); --acu-crit-failure-text: #c0392b; --acu-crit-failure-bg: rgba(192, 57, 43, 0.15); --acu-extreme-success-text: #2980b9; --acu-extreme-success-bg: rgba(41, 128, 185, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(0,0,0,0.1); --acu-very-light-bg: rgba(0,0,0,0.02); --acu-button-text: #5e4b35; --acu-gray-bg: rgba(128,128,128,0.1); }
-    .acu-theme-dark { --acu-bg-nav: #2b2b2b; --acu-bg-panel: #252525; --acu-border: #444; --acu-text-main: #eee; --acu-text-sub: #aaa; --acu-btn-bg: #3a3a3a; --acu-btn-hover: #4a4a4a; --acu-btn-active-bg: #6a5acd; --acu-btn-active-text: #fff; --acu-accent: #9b8cd9; --acu-table-head: #333333; --acu-table-hover: #3a3a3a; --acu-shadow: rgba(0,0,0,0.6); --acu-card-bg: #2d3035; --acu-badge-bg: #3a3f4b; --acu-menu-bg: #333; --acu-menu-text: #eee; --acu-success-text: #4cd964; --acu-success-bg: rgba(76, 217, 100, 0.2); --acu-scrollbar-track: #2b2b2b; --acu-scrollbar-thumb: #555; --acu-hl-manual: #ff6b81; --acu-hl-manual-bg: rgba(255, 107, 129, 0.2); --acu-hl-diff: #00d2d3; --acu-hl-diff-bg: rgba(0, 210, 211, 0.2); --acu-error-text: #ff6b6b; --acu-error-bg: rgba(255, 107, 107, 0.2); --acu-error-border: rgba(255, 107, 107, 0.5); --acu-warning-icon: #ffa726; --acu-failure-text: #ff6b6b; --acu-failure-bg: rgba(255, 107, 107, 0.2); --acu-warning-text: #ffa726; --acu-warning-bg: rgba(255, 167, 38, 0.2); --acu-crit-success-text: #ba68c8; --acu-crit-success-bg: rgba(186, 104, 200, 0.2); --acu-crit-failure-text: #d32f2f; --acu-crit-failure-bg: rgba(211, 47, 47, 0.2); --acu-extreme-success-text: #42a5f5; --acu-extreme-success-bg: rgba(66, 165, 245, 0.2); --acu-overlay-bg: rgba(0,0,0,0.75); --acu-overlay-bg-light: rgba(0,0,0,0.65); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(255,255,255,0.05); --acu-very-light-bg: rgba(255,255,255,0.02); --acu-button-text: #fff; --acu-gray-bg: rgba(255,255,255,0.1); }
-    .acu-theme-modern { --acu-bg-nav: #ffffff; --acu-bg-panel: #f8f9fa; --acu-border: #e0e0e0; --acu-text-main: #333; --acu-text-sub: #666; --acu-btn-bg: #f1f3f5; --acu-btn-hover: #e9ecef; --acu-btn-active-bg: #007bff; --acu-btn-active-text: #fff; --acu-accent: #007bff; --acu-table-head: #f8f9fa; --acu-table-hover: #f1f3f5; --acu-shadow: rgba(0,0,0,0.1); --acu-card-bg: #ffffff; --acu-badge-bg: #f1f3f5; --acu-menu-bg: #fff; --acu-menu-text: #333; --acu-success-text: #28a745; --acu-success-bg: rgba(40, 167, 69, 0.15); --acu-scrollbar-track: #fff; --acu-scrollbar-thumb: #ccc; --acu-hl-manual: #fd7e14; --acu-hl-manual-bg: rgba(253, 126, 20, 0.15); --acu-hl-diff: #0d6efd; --acu-hl-diff-bg: rgba(13, 110, 253, 0.15); --acu-error-text: #dc3545; --acu-error-bg: rgba(220, 53, 69, 0.15); --acu-error-border: rgba(220, 53, 69, 0.5); --acu-warning-icon: #fd7e14; --acu-failure-text: #dc3545; --acu-failure-bg: rgba(220, 53, 69, 0.15); --acu-warning-text: #ffc107; --acu-warning-bg: rgba(255, 193, 7, 0.15); --acu-crit-success-text: #6f42c1; --acu-crit-success-bg: rgba(111, 66, 193, 0.15); --acu-crit-failure-text: #c82333; --acu-crit-failure-bg: rgba(200, 35, 51, 0.15); --acu-extreme-success-text: #17a2b8; --acu-extreme-success-bg: rgba(23, 162, 184, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(0,0,0,0.1); --acu-very-light-bg: rgba(0,0,0,0.02); --acu-button-text: #333; --acu-gray-bg: rgba(128,128,128,0.1); }
-    .acu-theme-forest { --acu-bg-nav: #e8f5e9; --acu-bg-panel: #e8f5e9; --acu-border: #c8e6c9; --acu-text-main: #2e7d32; --acu-text-sub: #81c784; --acu-btn-bg: #c8e6c9; --acu-btn-hover: #a5d6a7; --acu-btn-active-bg: #43a047; --acu-btn-active-text: #fff; --acu-accent: #4caf50; --acu-table-head: #dcedc8; --acu-table-hover: #f1f8e9; --acu-shadow: rgba(0,0,0,0.1); --acu-card-bg: #ffffff; --acu-badge-bg: #dcedc8; --acu-menu-bg: #fff; --acu-menu-text: #2e7d32; --acu-success-text: #2e7d32; --acu-success-bg: rgba(46, 125, 50, 0.2); --acu-scrollbar-track: #e8f5e9; --acu-scrollbar-thumb: #a5d6a7; --acu-hl-manual: #e67e22; --acu-hl-manual-bg: rgba(230, 126, 34, 0.15); --acu-hl-diff: #1e8449; --acu-hl-diff-bg: rgba(30, 132, 73, 0.2); --acu-button-text: #2e7d32; }
-    .acu-theme-ocean { --acu-bg-nav: #e3f2fd; --acu-bg-panel: #e3f2fd; --acu-border: #90caf9; --acu-text-main: #1565c0; --acu-text-sub: #64b5f6; --acu-btn-bg: #bbdefb; --acu-btn-hover: #90caf9; --acu-btn-active-bg: #1976d2; --acu-btn-active-text: #fff; --acu-accent: #2196f3; --acu-table-head: #bbdefb; --acu-table-hover: #e1f5fe; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #e3f2fd; --acu-menu-bg: #fff; --acu-menu-text: #1565c0; --acu-success-text: #0288d1; --acu-success-bg: rgba(2, 136, 209, 0.15); --acu-scrollbar-track: #e3f2fd; --acu-scrollbar-thumb: #90caf9; --acu-hl-manual: #ff4757; --acu-hl-manual-bg: rgba(255, 71, 87, 0.15); --acu-hl-diff: #0277bd; --acu-hl-diff-bg: rgba(2, 119, 189, 0.2); --acu-error-text: #d32f2f; --acu-error-bg: rgba(211, 47, 47, 0.15); --acu-error-border: rgba(211, 47, 47, 0.5); --acu-warning-icon: #f57c00; --acu-failure-text: #d32f2f; --acu-failure-bg: rgba(211, 47, 47, 0.15); --acu-warning-text: #f57c00; --acu-warning-bg: rgba(245, 124, 0, 0.15); --acu-crit-success-text: #7b1fa2; --acu-crit-success-bg: rgba(123, 31, 162, 0.15); --acu-crit-failure-text: #b71c1c; --acu-crit-failure-bg: rgba(183, 28, 28, 0.15); --acu-extreme-success-text: #0277bd; --acu-extreme-success-bg: rgba(2, 119, 189, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(0,0,0,0.1); --acu-very-light-bg: rgba(0,0,0,0.02); --acu-button-text: #1565c0; --acu-gray-bg: rgba(128,128,128,0.1); }
-    .acu-theme-cyber { --acu-bg-nav: #000000; --acu-bg-panel: #0a0a0a; --acu-border: #333; --acu-text-main: #00ffcc; --acu-text-sub: #ff00ff; --acu-btn-bg: #111; --acu-btn-hover: #222; --acu-btn-active-bg: #ff00ff; --acu-btn-active-text: #000; --acu-accent: #00ffcc; --acu-table-head: #050505; --acu-table-hover: #111; --acu-shadow: 0 0 15px rgba(0,255,204,0.15); --acu-card-bg: #050505; --acu-badge-bg: #1a1a1a; --acu-menu-bg: #111; --acu-menu-text: #00ffcc; --acu-success-text: #0f0; --acu-success-bg: rgba(0, 255, 0, 0.15); --acu-scrollbar-track: #000; --acu-scrollbar-thumb: #333; --acu-hl-manual: #ff9f43; --acu-hl-manual-bg: rgba(255, 159, 67, 0.2); --acu-hl-diff: #0abde3; --acu-hl-diff-bg: rgba(10, 189, 227, 0.2); }
+    .acu-theme-retro { --acu-bg-nav: #e6e2d3; --acu-bg-panel: #e6e2d3; --acu-border: #dcd0c0; --acu-text-main: #5e4b35; --acu-text-sub: #999; --acu-btn-bg: #dcd0c0; --acu-btn-hover: #cbbba8; --acu-btn-active-bg: #8d7b6f; --acu-btn-active-text: #fdfaf5; --acu-accent: #7a695f; --acu-table-head: #efebe4; --acu-table-hover: #f0ebe0; --acu-opt-hover: #f7f3ed; --acu-opt-bg: #fffef9; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #fffef9; --acu-badge-bg: #efebe4; --acu-menu-bg: #fff; --acu-menu-text: #333; --acu-success-text: #27ae60; --acu-success-bg: rgba(39, 174, 96, 0.15); --acu-scrollbar-track: #e6e2d3; --acu-scrollbar-thumb: #cbbba8; --acu-input-bg: #f5f2eb;--acu-hl-manual: #d35400; --acu-hl-manual-bg: rgba(211, 84, 0, 0.15); --acu-hl-diff: #2980b9; --acu-hl-diff-bg: rgba(41, 128, 185, 0.15); --acu-error-text: #e74c3c; --acu-error-bg: rgba(231, 76, 60, 0.15); --acu-error-border: rgba(231, 76, 60, 0.5); --acu-warning-icon: #e67e22; --acu-failure-text: #e74c3c; --acu-failure-bg: rgba(231, 76, 60, 0.15); --acu-warning-text: #f39c12; --acu-warning-bg: rgba(243, 156, 18, 0.15); --acu-crit-success-text: #9b59b6; --acu-crit-success-bg: rgba(155, 89, 182, 0.15); --acu-crit-failure-text: #c0392b; --acu-crit-failure-bg: rgba(192, 57, 43, 0.15); --acu-extreme-success-text: #2980b9; --acu-extreme-success-bg: rgba(41, 128, 185, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(0,0,0,0.1); --acu-very-light-bg: rgba(0,0,0,0.02); --acu-button-text: #5e4b35; --acu-gray-bg: rgba(128,128,128,0.1); }
+    .acu-theme-dark { --acu-bg-nav: #2b2b2b; --acu-bg-panel: #252525; --acu-border: #444; --acu-text-main: #eee; --acu-text-sub: #aaa; --acu-btn-bg: #3a3a3a; --acu-btn-hover: #4a4a4a; --acu-btn-active-bg: #6a5acd; --acu-btn-active-text: #fff; --acu-accent: #9b8cd9; --acu-table-head: #333333; --acu-table-hover: #3a3a3a; --acu-opt-hover: rgba(255, 255, 255, 0.1); --acu-opt-bg: rgba(255, 255, 255, 0.05); --acu-shadow: rgba(0,0,0,0.6); --acu-card-bg: #2d3035; --acu-badge-bg: #3a3f4b; --acu-menu-bg: #333; --acu-menu-text: #eee; --acu-success-text: #4cd964; --acu-success-bg: rgba(76, 217, 100, 0.2); --acu-scrollbar-track: #2b2b2b; --acu-scrollbar-thumb: #555; --acu-hl-manual: #ff6b81; --acu-hl-manual-bg: rgba(255, 107, 129, 0.2); --acu-hl-diff: #00d2d3; --acu-hl-diff-bg: rgba(0, 210, 211, 0.2); --acu-error-text: #ff6b6b; --acu-error-bg: rgba(255, 107, 107, 0.2); --acu-error-border: rgba(255, 107, 107, 0.5); --acu-warning-icon: #ffa726; --acu-failure-text: #ff6b6b; --acu-failure-bg: rgba(255, 107, 107, 0.2); --acu-warning-text: #ffa726; --acu-warning-bg: rgba(255, 167, 38, 0.2); --acu-crit-success-text: #ba68c8; --acu-crit-success-bg: rgba(186, 104, 200, 0.2); --acu-crit-failure-text: #d32f2f; --acu-crit-failure-bg: rgba(211, 47, 47, 0.2); --acu-extreme-success-text: #42a5f5; --acu-extreme-success-bg: rgba(66, 165, 245, 0.2); --acu-overlay-bg: rgba(0,0,0,0.75); --acu-overlay-bg-light: rgba(0,0,0,0.65); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(255,255,255,0.05); --acu-very-light-bg: rgba(255,255,255,0.02); --acu-button-text: #fff; --acu-gray-bg: rgba(255,255,255,0.1); }
+    .acu-theme-modern { --acu-bg-nav: #ffffff; --acu-bg-panel: #f8f9fa; --acu-border: #e0e0e0; --acu-text-main: #333; --acu-text-sub: #666; --acu-btn-bg: #f1f3f5; --acu-btn-hover: #e9ecef; --acu-btn-active-bg: #007bff; --acu-btn-active-text: #fff; --acu-accent: #007bff; --acu-table-head: #f8f9fa; --acu-table-hover: #f1f3f5; --acu-opt-hover: #f1f3f5; --acu-opt-bg: #ffffff; --acu-shadow: rgba(0,0,0,0.1); --acu-card-bg: #ffffff; --acu-badge-bg: #f1f3f5; --acu-menu-bg: #fff; --acu-menu-text: #333; --acu-success-text: #28a745; --acu-success-bg: rgba(40, 167, 69, 0.15); --acu-scrollbar-track: #fff; --acu-scrollbar-thumb: #ccc; --acu-hl-manual: #fd7e14; --acu-hl-manual-bg: rgba(253, 126, 20, 0.15); --acu-hl-diff: #0d6efd; --acu-hl-diff-bg: rgba(13, 110, 253, 0.15); --acu-error-text: #dc3545; --acu-error-bg: rgba(220, 53, 69, 0.15); --acu-error-border: rgba(220, 53, 69, 0.5); --acu-warning-icon: #fd7e14; --acu-failure-text: #dc3545; --acu-failure-bg: rgba(220, 53, 69, 0.15); --acu-warning-text: #ffc107; --acu-warning-bg: rgba(255, 193, 7, 0.15); --acu-crit-success-text: #6f42c1; --acu-crit-success-bg: rgba(111, 66, 193, 0.15); --acu-crit-failure-text: #c82333; --acu-crit-failure-bg: rgba(200, 35, 51, 0.15); --acu-extreme-success-text: #17a2b8; --acu-extreme-success-bg: rgba(23, 162, 184, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(0,0,0,0.1); --acu-very-light-bg: rgba(0,0,0,0.02); --acu-button-text: #333; --acu-gray-bg: rgba(128,128,128,0.1); }
+    .acu-theme-forest { --acu-bg-nav: #e8f5e9; --acu-bg-panel: #e8f5e9; --acu-border: #c8e6c9; --acu-text-main: #2e7d32; --acu-text-sub: #81c784; --acu-btn-bg: #c8e6c9; --acu-btn-hover: #a5d6a7; --acu-btn-active-bg: #43a047; --acu-btn-active-text: #fff; --acu-accent: #4caf50; --acu-table-head: #dcedc8; --acu-table-hover: #f1f8e9; --acu-opt-hover: #f1f8e9; --acu-opt-bg: #ffffff; --acu-shadow: rgba(0,0,0,0.1); --acu-card-bg: #ffffff; --acu-badge-bg: #dcedc8; --acu-menu-bg: #fff; --acu-menu-text: #2e7d32; --acu-success-text: #2e7d32; --acu-success-bg: rgba(46, 125, 50, 0.2); --acu-scrollbar-track: #e8f5e9; --acu-scrollbar-thumb: #a5d6a7; --acu-hl-manual: #e67e22; --acu-hl-manual-bg: rgba(230, 126, 34, 0.15); --acu-hl-diff: #1e8449; --acu-hl-diff-bg: rgba(30, 132, 73, 0.2); --acu-button-text: #2e7d32; }
+    .acu-theme-ocean { --acu-bg-nav: #e3f2fd; --acu-bg-panel: #e3f2fd; --acu-border: #90caf9; --acu-text-main: #1565c0; --acu-text-sub: #64b5f6; --acu-btn-bg: #bbdefb; --acu-btn-hover: #90caf9; --acu-btn-active-bg: #1976d2; --acu-btn-active-text: #fff; --acu-accent: #2196f3; --acu-table-head: #bbdefb; --acu-table-hover: #e1f5fe; --acu-opt-hover: #e1f5fe; --acu-opt-bg: #ffffff; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #e3f2fd; --acu-menu-bg: #fff; --acu-menu-text: #1565c0; --acu-success-text: #0288d1; --acu-success-bg: rgba(2, 136, 209, 0.15); --acu-scrollbar-track: #e3f2fd; --acu-scrollbar-thumb: #90caf9; --acu-hl-manual: #ff4757; --acu-hl-manual-bg: rgba(255, 71, 87, 0.15); --acu-hl-diff: #0277bd; --acu-hl-diff-bg: rgba(2, 119, 189, 0.2); --acu-error-text: #d32f2f; --acu-error-bg: rgba(211, 47, 47, 0.15); --acu-error-border: rgba(211, 47, 47, 0.5); --acu-warning-icon: #f57c00; --acu-failure-text: #d32f2f; --acu-failure-bg: rgba(211, 47, 47, 0.15); --acu-warning-text: #f57c00; --acu-warning-bg: rgba(245, 124, 0, 0.15); --acu-crit-success-text: #7b1fa2; --acu-crit-success-bg: rgba(123, 31, 162, 0.15); --acu-crit-failure-text: #b71c1c; --acu-crit-failure-bg: rgba(183, 28, 28, 0.15); --acu-extreme-success-text: #0277bd; --acu-extreme-success-bg: rgba(2, 119, 189, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(0,0,0,0.1); --acu-very-light-bg: rgba(0,0,0,0.02); --acu-button-text: #1565c0; --acu-gray-bg: rgba(128,128,128,0.1); }
+    .acu-theme-cyber { --acu-bg-nav: #000000; --acu-bg-panel: #0a0a0a; --acu-border: #333; --acu-text-main: #00ffcc; --acu-text-sub: #ff00ff; --acu-btn-bg: #111; --acu-btn-hover: #222; --acu-btn-active-bg: #ff00ff; --acu-btn-active-text: #000; --acu-accent: #00ffcc; --acu-table-head: #050505; --acu-table-hover: #111; --acu-opt-hover: rgba(0, 255, 204, 0.15); --acu-opt-bg: rgba(0, 255, 204, 0.08); --acu-shadow: 0 0 15px rgba(0,255,204,0.15); --acu-card-bg: #050505; --acu-badge-bg: #1a1a1a; --acu-menu-bg: #111; --acu-menu-text: #00ffcc; --acu-success-text: #0f0; --acu-success-bg: rgba(0, 255, 0, 0.15); --acu-scrollbar-track: #000; --acu-scrollbar-thumb: #333; --acu-hl-manual: #ff9f43; --acu-hl-manual-bg: rgba(255, 159, 67, 0.2); --acu-hl-diff: #0abde3; --acu-hl-diff-bg: rgba(10, 189, 227, 0.2); }
     .acu-theme-cyber .acu-nav-btn { border-color: #222; }
     .acu-theme-cyber .acu-data-card { border-color: #222; }
     .acu-theme-cyber .acu-dice-panel input::placeholder,
@@ -347,13 +347,13 @@ export const MAIN_STYLES = `
     .acu-theme-cyber .acu-contest-panel input:not([type]) {
         color: #ff00ff !important;
     }
-    .acu-theme-nightowl { --acu-bg-nav: #0a2133; --acu-bg-panel: #011627; --acu-border: #132e45; --acu-text-main: #e0e6f2; --acu-text-sub: #a6b8cc; --acu-btn-bg: #1f3a52; --acu-btn-hover: #2a4a68; --acu-btn-active-bg: #7fdbca; --acu-btn-active-text: #011627; --acu-accent: #7fdbca; --acu-table-head: #0a2133; --acu-table-hover: #01294a; --acu-shadow: rgba(0,0,0,0.5); --acu-card-bg: #0a2133; --acu-badge-bg: #1f3a52; --acu-menu-bg: #011627; --acu-menu-text: #e0e6f2; --acu-success-text: #addb67; --acu-success-bg: rgba(173, 219, 103, 0.15); --acu-scrollbar-track: #011627; --acu-scrollbar-thumb: #1f3a52; --acu-hl-manual: #ff8f66; --acu-hl-manual-bg: rgba(255, 143, 102, 0.2); --acu-hl-diff: #82aaff; --acu-hl-diff-bg: rgba(130, 170, 255, 0.2); }
-    .acu-theme-sakura { --acu-bg-nav: #F9F0EF; --acu-bg-panel: #F9F0EF; --acu-border: #EBDCD9; --acu-text-main: #6B5552; --acu-text-sub: #C08D8D; --acu-btn-bg: #EBDCD9; --acu-btn-hover: #D8C7C4; --acu-btn-active-bg: #C08D8D; --acu-btn-active-text: #F9F0EF; --acu-accent: #C08D8D; --acu-table-head: #F9F0EF; --acu-table-hover: #F5EAE8; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #F9F0EF; --acu-menu-bg: #fff; --acu-menu-text: #6B5552; --acu-success-text: #6B5552; --acu-success-bg: rgba(192, 141, 141, 0.12); --acu-scrollbar-track: #F9F0EF; --acu-scrollbar-thumb: #EBDCD9; --acu-hl-manual: #A68A7A; --acu-hl-manual-bg: rgba(166, 138, 122, 0.12); --acu-hl-diff: #9B7A7A; --acu-hl-diff-bg: rgba(155, 122, 122, 0.2); --acu-error-text: #9B7A7A; --acu-error-bg: rgba(155, 122, 122, 0.12); --acu-error-border: rgba(155, 122, 122, 0.4); --acu-warning-icon: #A68A7A; --acu-failure-text: #9B7A7A; --acu-failure-bg: rgba(155, 122, 122, 0.12); --acu-warning-text: #A68A7A; --acu-warning-bg: rgba(166, 138, 122, 0.12); --acu-crit-success-text: #8B7A7A; --acu-crit-success-bg: rgba(139, 122, 122, 0.12); --acu-crit-failure-text: #8B6F6F; --acu-crit-failure-bg: rgba(139, 111, 111, 0.12); --acu-extreme-success-text: #9B8A8A; --acu-extreme-success-bg: rgba(155, 138, 138, 0.12); --acu-overlay-bg: rgba(107, 85, 82, 0.6); --acu-overlay-bg-light: rgba(107, 85, 82, 0.5); --acu-shadow-bg: rgba(107, 85, 82, 0.3); --acu-light-bg: rgba(192, 141, 141, 0.08); --acu-very-light-bg: rgba(192, 141, 141, 0.02); --acu-button-text: #6B5552; --acu-gray-bg: rgba(192, 141, 141, 0.08); }
-    .acu-theme-minepink { --acu-bg-nav: #1a1a1a; --acu-bg-panel: #1a1a1a; --acu-border: #333333; --acu-text-main: #ffb3d9; --acu-text-sub: #ff80c1; --acu-btn-bg: #2a2a2a; --acu-btn-hover: #3a3a3a; --acu-btn-active-bg: #ff80c1; --acu-btn-active-text: #1a1a1a; --acu-accent: #ff80c1; --acu-table-head: #252525; --acu-table-hover: #2a2a2a; --acu-shadow: rgba(0,0,0,0.6); --acu-card-bg: #222222; --acu-badge-bg: #2a2a2a; --acu-menu-bg: #1a1a1a; --acu-menu-text: #ffb3d9; --acu-success-text: #ff80c1; --acu-success-bg: rgba(255, 128, 193, 0.2); --acu-scrollbar-track: #1a1a1a; --acu-scrollbar-thumb: #333333; --acu-hl-manual: #ffa726; --acu-hl-manual-bg: rgba(255, 167, 38, 0.2); --acu-hl-diff: #ff80c1; --acu-hl-diff-bg: rgba(255, 128, 193, 0.2); --acu-error-text: #ff6b6b; --acu-error-bg: rgba(255, 107, 107, 0.2); --acu-error-border: rgba(255, 107, 107, 0.5); --acu-warning-icon: #ffa726; --acu-failure-text: #ff6b6b; --acu-failure-bg: rgba(255, 107, 107, 0.2); --acu-warning-text: #ffa726; --acu-warning-bg: rgba(255, 167, 38, 0.2); --acu-crit-success-text: #ff80c1; --acu-crit-success-bg: rgba(255, 128, 193, 0.2); --acu-crit-failure-text: #ff4444; --acu-crit-failure-bg: rgba(255, 68, 68, 0.2); --acu-extreme-success-text: #ffb3d9; --acu-extreme-success-bg: rgba(255, 179, 217, 0.2); --acu-overlay-bg: rgba(0,0,0,0.8); --acu-overlay-bg-light: rgba(0,0,0,0.7); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(255, 128, 193, 0.1); --acu-very-light-bg: rgba(255, 128, 193, 0.02); --acu-button-text: #1a1a1a; --acu-gray-bg: rgba(255, 128, 193, 0.1); }
-    .acu-theme-purple { --acu-bg-nav: #f3e5f5; --acu-bg-panel: #f3e5f5; --acu-border: #ce93d8; --acu-text-main: #6a1b9a; --acu-text-sub: #9c27b0; --acu-btn-bg: #e1bee7; --acu-btn-hover: #ce93d8; --acu-btn-active-bg: #9c27b0; --acu-btn-active-text: #fff; --acu-accent: #9c27b0; --acu-table-head: #f8e1f5; --acu-table-hover: #fce4ec; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #f8e1f5; --acu-menu-bg: #fff; --acu-menu-text: #6a1b9a; --acu-success-text: #6a1b9a; --acu-success-bg: rgba(106, 27, 154, 0.15); --acu-scrollbar-track: #f3e5f5; --acu-scrollbar-thumb: #ce93d8; --acu-hl-manual: #f57c00; --acu-hl-manual-bg: rgba(245, 124, 0, 0.15); --acu-hl-diff: #6a1b9a; --acu-hl-diff-bg: rgba(106, 27, 154, 0.2); --acu-error-text: #d32f2f; --acu-error-bg: rgba(211, 47, 47, 0.15); --acu-error-border: rgba(211, 47, 47, 0.5); --acu-warning-icon: #f57c00; --acu-failure-text: #d32f2f; --acu-failure-bg: rgba(211, 47, 47, 0.15); --acu-warning-text: #f57c00; --acu-warning-bg: rgba(245, 124, 0, 0.15); --acu-crit-success-text: #7b1fa2; --acu-crit-success-bg: rgba(123, 31, 162, 0.15); --acu-crit-failure-text: #b71c1c; --acu-crit-failure-bg: rgba(183, 28, 28, 0.15); --acu-extreme-success-text: #6a1b9a; --acu-extreme-success-bg: rgba(106, 27, 154, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(156, 39, 176, 0.1); --acu-very-light-bg: rgba(156, 39, 176, 0.02); --acu-button-text: #6a1b9a; --acu-gray-bg: rgba(156, 39, 176, 0.1); }
-    .acu-theme-wechat { --acu-bg-nav: #F7F7F7; --acu-bg-panel: #F7F7F7; --acu-border: #E5E5E5; --acu-text-main: #333333; --acu-text-sub: #666666; --acu-btn-bg: #E5E5E5; --acu-btn-hover: #D5D5D5; --acu-btn-active-bg: #09B83E; --acu-btn-active-text: #FFFFFF; --acu-accent: #09B83E; --acu-table-head: #F0F0F0; --acu-table-hover: #EBEBEB; --acu-shadow: rgba(0,0,0,0.1); --acu-card-bg: #ffffff; --acu-badge-bg: #F0F0F0; --acu-menu-bg: #fff; --acu-menu-text: #333333; --acu-success-text: #09B83E; --acu-success-bg: rgba(9, 184, 62, 0.12); --acu-scrollbar-track: #F7F7F7; --acu-scrollbar-thumb: #E5E5E5; --acu-hl-manual: #FF9500; --acu-hl-manual-bg: rgba(255, 149, 0, 0.12); --acu-hl-diff: #09B83E; --acu-hl-diff-bg: rgba(9, 184, 62, 0.2); --acu-error-text: #E53E3E; --acu-error-bg: rgba(229, 62, 62, 0.12); --acu-error-border: rgba(229, 62, 62, 0.5); --acu-warning-icon: #FF9500; --acu-failure-text: #E53E3E; --acu-failure-bg: rgba(229, 62, 62, 0.12); --acu-warning-text: #FF9500; --acu-warning-bg: rgba(255, 149, 0, 0.12); --acu-crit-success-text: #07A832; --acu-crit-success-bg: rgba(7, 168, 50, 0.15); --acu-crit-failure-text: #C53030; --acu-crit-failure-bg: rgba(197, 48, 48, 0.15); --acu-extreme-success-text: #09B83E; --acu-extreme-success-bg: rgba(9, 184, 62, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.2); --acu-light-bg: rgba(9, 184, 62, 0.08); --acu-very-light-bg: rgba(9, 184, 62, 0.02); --acu-button-text: #333333; --acu-gray-bg: rgba(9, 184, 62, 0.08); }
-    .acu-theme-educational { --acu-bg-nav: #000000; --acu-bg-panel: #000000; --acu-border: #1B1B1B; --acu-text-main: #FFFFFF; --acu-text-sub: #CCCCCC; --acu-btn-bg: #1B1B1B; --acu-btn-hover: #2B2B2B; --acu-btn-active-bg: #FF9900; --acu-btn-active-text: #000000; --acu-accent: #FF9900; --acu-table-head: #1B1B1B; --acu-table-hover: #2B2B2B; --acu-shadow: rgba(0,0,0,0.6); --acu-card-bg: #1B1B1B; --acu-badge-bg: #1B1B1B; --acu-menu-bg: #000000; --acu-menu-text: #FFFFFF; --acu-success-text: #FF9900; --acu-success-bg: rgba(255, 153, 0, 0.15); --acu-scrollbar-track: #000000; --acu-scrollbar-thumb: #1B1B1B; --acu-input-bg: #1B1B1B; --acu-hl-manual: #FF9900; --acu-hl-manual-bg: rgba(255, 153, 0, 0.15); --acu-hl-diff: #FFB84D; --acu-hl-diff-bg: rgba(255, 184, 77, 0.2); --acu-error-text: #FF6B6B; --acu-error-bg: rgba(255, 107, 107, 0.2); --acu-error-border: rgba(255, 107, 107, 0.5); --acu-warning-icon: #FFAA00; --acu-failure-text: #FF6B6B; --acu-failure-bg: rgba(255, 107, 107, 0.2); --acu-warning-text: #FFAA00; --acu-warning-bg: rgba(255, 170, 0, 0.2); --acu-crit-success-text: #FF9900; --acu-crit-success-bg: rgba(255, 153, 0, 0.2); --acu-crit-failure-text: #FF4444; --acu-crit-failure-bg: rgba(255, 68, 68, 0.2); --acu-extreme-success-text: #FFB84D; --acu-extreme-success-bg: rgba(255, 184, 77, 0.2); --acu-overlay-bg: rgba(0,0,0,0.8); --acu-overlay-bg-light: rgba(0,0,0,0.7); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(255, 153, 0, 0.1); --acu-very-light-bg: rgba(255, 153, 0, 0.02); --acu-button-text: #FFFFFF; --acu-gray-bg: rgba(255, 255, 255, 0.1); }
-    .acu-theme-vaporwave { --acu-bg-nav: #191970; --acu-bg-panel: #191970; --acu-border: rgba(0, 255, 255, 0.3); --acu-text-main: #00FFFF; --acu-text-sub: #FF00FF; --acu-btn-bg: rgba(25, 25, 112, 0.8); --acu-btn-hover: rgba(0, 255, 255, 0.2); --acu-btn-active-bg: #FF00FF; --acu-btn-active-text: #191970; --acu-accent: #00FFFF; --acu-table-head: rgba(25, 25, 112, 0.9); --acu-table-hover: rgba(0, 255, 255, 0.1); --acu-shadow: 0 0 15px rgba(0, 255, 255, 0.3); --acu-card-bg: rgba(25, 25, 112, 0.95); --acu-badge-bg: rgba(25, 25, 112, 0.8); --acu-menu-bg: #191970; --acu-menu-text: #00FFFF; --acu-success-text: #00FFFF; --acu-success-bg: rgba(0, 255, 255, 0.15); --acu-scrollbar-track: #191970; --acu-scrollbar-thumb: rgba(0, 255, 255, 0.3); --acu-input-bg: rgba(25, 25, 112, 0.6); --acu-hl-manual: #00FFFF; --acu-hl-manual-bg: rgba(0, 255, 255, 0.2); --acu-hl-diff: #FF00FF; --acu-hl-diff-bg: rgba(255, 0, 255, 0.2); --acu-error-text: #FF00FF; --acu-error-bg: rgba(255, 0, 255, 0.2); --acu-error-border: rgba(255, 0, 255, 0.5); --acu-warning-icon: #FF00FF; --acu-failure-text: #FF00FF; --acu-failure-bg: rgba(255, 0, 255, 0.2); --acu-warning-text: #FF00FF; --acu-warning-bg: rgba(255, 0, 255, 0.15); --acu-crit-success-text: #00FFFF; --acu-crit-success-bg: rgba(0, 255, 255, 0.2); --acu-crit-failure-text: #FF00FF; --acu-crit-failure-bg: rgba(255, 0, 255, 0.25); --acu-extreme-success-text: #00FFFF; --acu-extreme-success-bg: rgba(0, 255, 255, 0.2); --acu-overlay-bg: rgba(25, 25, 112, 0.85); --acu-overlay-bg-light: rgba(25, 25, 112, 0.75); --acu-shadow-bg: rgba(0, 255, 255, 0.3); --acu-light-bg: rgba(0, 255, 255, 0.05); --acu-very-light-bg: rgba(0, 255, 255, 0.02); --acu-button-text: #F0F8FF; --acu-gray-bg: rgba(0, 255, 255, 0.1); }
+    .acu-theme-nightowl { --acu-bg-nav: #0a2133; --acu-bg-panel: #011627; --acu-border: #132e45; --acu-text-main: #e0e6f2; --acu-text-sub: #a6b8cc; --acu-btn-bg: #1f3a52; --acu-btn-hover: #2a4a68; --acu-btn-active-bg: #7fdbca; --acu-btn-active-text: #011627; --acu-accent: #7fdbca; --acu-table-head: #0a2133; --acu-table-hover: #01294a; --acu-opt-hover: rgba(127, 219, 202, 0.15); --acu-opt-bg: rgba(127, 219, 202, 0.08); --acu-shadow: rgba(0,0,0,0.5); --acu-card-bg: #0a2133; --acu-badge-bg: #1f3a52; --acu-menu-bg: #011627; --acu-menu-text: #e0e6f2; --acu-success-text: #addb67; --acu-success-bg: rgba(173, 219, 103, 0.15); --acu-scrollbar-track: #011627; --acu-scrollbar-thumb: #1f3a52; --acu-hl-manual: #ff8f66; --acu-hl-manual-bg: rgba(255, 143, 102, 0.2); --acu-hl-diff: #82aaff; --acu-hl-diff-bg: rgba(130, 170, 255, 0.2); }
+    .acu-theme-sakura { --acu-bg-nav: #F9F0EF; --acu-bg-panel: #F9F0EF; --acu-border: #EBDCD9; --acu-text-main: #6B5552; --acu-text-sub: #C08D8D; --acu-btn-bg: #EBDCD9; --acu-btn-hover: #D8C7C4; --acu-btn-active-bg: #C08D8D; --acu-btn-active-text: #F9F0EF; --acu-accent: #C08D8D; --acu-table-head: #F9F0EF; --acu-table-hover: #F5EAE8; --acu-opt-hover: #F5EAE8; --acu-opt-bg: #ffffff; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #F9F0EF; --acu-menu-bg: #fff; --acu-menu-text: #6B5552; --acu-success-text: #6B5552; --acu-success-bg: rgba(192, 141, 141, 0.12); --acu-scrollbar-track: #F9F0EF; --acu-scrollbar-thumb: #EBDCD9; --acu-hl-manual: #A68A7A; --acu-hl-manual-bg: rgba(166, 138, 122, 0.12); --acu-hl-diff: #9B7A7A; --acu-hl-diff-bg: rgba(155, 122, 122, 0.2); --acu-error-text: #9B7A7A; --acu-error-bg: rgba(155, 122, 122, 0.12); --acu-error-border: rgba(155, 122, 122, 0.4); --acu-warning-icon: #A68A7A; --acu-failure-text: #9B7A7A; --acu-failure-bg: rgba(155, 122, 122, 0.12); --acu-warning-text: #A68A7A; --acu-warning-bg: rgba(166, 138, 122, 0.12); --acu-crit-success-text: #8B7A7A; --acu-crit-success-bg: rgba(139, 122, 122, 0.12); --acu-crit-failure-text: #8B6F6F; --acu-crit-failure-bg: rgba(139, 111, 111, 0.12); --acu-extreme-success-text: #9B8A8A; --acu-extreme-success-bg: rgba(155, 138, 138, 0.12); --acu-overlay-bg: rgba(107, 85, 82, 0.6); --acu-overlay-bg-light: rgba(107, 85, 82, 0.5); --acu-shadow-bg: rgba(107, 85, 82, 0.3); --acu-light-bg: rgba(192, 141, 141, 0.08); --acu-very-light-bg: rgba(192, 141, 141, 0.02); --acu-button-text: #6B5552; --acu-gray-bg: rgba(192, 141, 141, 0.08); }
+    .acu-theme-minepink { --acu-bg-nav: #1a1a1a; --acu-bg-panel: #1a1a1a; --acu-border: #333333; --acu-text-main: #ffb3d9; --acu-text-sub: #ff80c1; --acu-btn-bg: #2a2a2a; --acu-btn-hover: #3a3a3a; --acu-btn-active-bg: #ff80c1; --acu-btn-active-text: #1a1a1a; --acu-accent: #ff80c1; --acu-table-head: #252525; --acu-table-hover: #2a2a2a; --acu-opt-hover: rgba(255, 128, 193, 0.15); --acu-opt-bg: rgba(255, 128, 193, 0.08); --acu-shadow: rgba(0,0,0,0.6); --acu-card-bg: #222222; --acu-badge-bg: #2a2a2a; --acu-menu-bg: #1a1a1a; --acu-menu-text: #ffb3d9; --acu-success-text: #ff80c1; --acu-success-bg: rgba(255, 128, 193, 0.2); --acu-scrollbar-track: #1a1a1a; --acu-scrollbar-thumb: #333333; --acu-hl-manual: #ffa726; --acu-hl-manual-bg: rgba(255, 167, 38, 0.2); --acu-hl-diff: #ff80c1; --acu-hl-diff-bg: rgba(255, 128, 193, 0.2); --acu-error-text: #ff6b6b; --acu-error-bg: rgba(255, 107, 107, 0.2); --acu-error-border: rgba(255, 107, 107, 0.5); --acu-warning-icon: #ffa726; --acu-failure-text: #ff6b6b; --acu-failure-bg: rgba(255, 107, 107, 0.2); --acu-warning-text: #ffa726; --acu-warning-bg: rgba(255, 167, 38, 0.2); --acu-crit-success-text: #ff80c1; --acu-crit-success-bg: rgba(255, 128, 193, 0.2); --acu-crit-failure-text: #ff4444; --acu-crit-failure-bg: rgba(255, 68, 68, 0.2); --acu-extreme-success-text: #ffb3d9; --acu-extreme-success-bg: rgba(255, 179, 217, 0.2); --acu-overlay-bg: rgba(0,0,0,0.8); --acu-overlay-bg-light: rgba(0,0,0,0.7); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(255, 128, 193, 0.1); --acu-very-light-bg: rgba(255, 128, 193, 0.02); --acu-button-text: #1a1a1a; --acu-gray-bg: rgba(255, 128, 193, 0.1); }
+    .acu-theme-purple { --acu-bg-nav: #f3e5f5; --acu-bg-panel: #f3e5f5; --acu-border: #ce93d8; --acu-text-main: #6a1b9a; --acu-text-sub: #9c27b0; --acu-btn-bg: #e1bee7; --acu-btn-hover: #ce93d8; --acu-btn-active-bg: #9c27b0; --acu-btn-active-text: #fff; --acu-accent: #9c27b0; --acu-table-head: #f8e1f5; --acu-table-hover: #fce4ec; --acu-opt-hover: #fce4ec; --acu-opt-bg: #ffffff; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #f8e1f5; --acu-menu-bg: #fff; --acu-menu-text: #6a1b9a; --acu-success-text: #6a1b9a; --acu-success-bg: rgba(106, 27, 154, 0.15); --acu-scrollbar-track: #f3e5f5; --acu-scrollbar-thumb: #ce93d8; --acu-hl-manual: #f57c00; --acu-hl-manual-bg: rgba(245, 124, 0, 0.15); --acu-hl-diff: #6a1b9a; --acu-hl-diff-bg: rgba(106, 27, 154, 0.2); --acu-error-text: #d32f2f; --acu-error-bg: rgba(211, 47, 47, 0.15); --acu-error-border: rgba(211, 47, 47, 0.5); --acu-warning-icon: #f57c00; --acu-failure-text: #d32f2f; --acu-failure-bg: rgba(211, 47, 47, 0.15); --acu-warning-text: #f57c00; --acu-warning-bg: rgba(245, 124, 0, 0.15); --acu-crit-success-text: #7b1fa2; --acu-crit-success-bg: rgba(123, 31, 162, 0.15); --acu-crit-failure-text: #b71c1c; --acu-crit-failure-bg: rgba(183, 28, 28, 0.15); --acu-extreme-success-text: #6a1b9a; --acu-extreme-success-bg: rgba(106, 27, 154, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(156, 39, 176, 0.1); --acu-very-light-bg: rgba(156, 39, 176, 0.02); --acu-button-text: #6a1b9a; --acu-gray-bg: rgba(156, 39, 176, 0.1); }
+    .acu-theme-wechat { --acu-bg-nav: #F7F7F7; --acu-bg-panel: #F7F7F7; --acu-border: #E5E5E5; --acu-text-main: #333333; --acu-text-sub: #666666; --acu-btn-bg: #E5E5E5; --acu-btn-hover: #D5D5D5; --acu-btn-active-bg: #09B83E; --acu-btn-active-text: #FFFFFF; --acu-accent: #09B83E; --acu-table-head: #F0F0F0; --acu-table-hover: #EBEBEB; --acu-opt-hover: #EBEBEB; --acu-opt-bg: #ffffff; --acu-shadow: rgba(0,0,0,0.1); --acu-card-bg: #ffffff; --acu-badge-bg: #F0F0F0; --acu-menu-bg: #fff; --acu-menu-text: #333333; --acu-success-text: #09B83E; --acu-success-bg: rgba(9, 184, 62, 0.12); --acu-scrollbar-track: #F7F7F7; --acu-scrollbar-thumb: #E5E5E5; --acu-hl-manual: #FF9500; --acu-hl-manual-bg: rgba(255, 149, 0, 0.12); --acu-hl-diff: #09B83E; --acu-hl-diff-bg: rgba(9, 184, 62, 0.2); --acu-error-text: #E53E3E; --acu-error-bg: rgba(229, 62, 62, 0.12); --acu-error-border: rgba(229, 62, 62, 0.5); --acu-warning-icon: #FF9500; --acu-failure-text: #E53E3E; --acu-failure-bg: rgba(229, 62, 62, 0.12); --acu-warning-text: #FF9500; --acu-warning-bg: rgba(255, 149, 0, 0.12); --acu-crit-success-text: #07A832; --acu-crit-success-bg: rgba(7, 168, 50, 0.15); --acu-crit-failure-text: #C53030; --acu-crit-failure-bg: rgba(197, 48, 48, 0.15); --acu-extreme-success-text: #09B83E; --acu-extreme-success-bg: rgba(9, 184, 62, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.2); --acu-light-bg: rgba(9, 184, 62, 0.08); --acu-very-light-bg: rgba(9, 184, 62, 0.02); --acu-button-text: #333333; --acu-gray-bg: rgba(9, 184, 62, 0.08); }
+    .acu-theme-educational { --acu-bg-nav: #000000; --acu-bg-panel: #000000; --acu-border: #1B1B1B; --acu-text-main: #FFFFFF; --acu-text-sub: #CCCCCC; --acu-btn-bg: #1B1B1B; --acu-btn-hover: #2B2B2B; --acu-btn-active-bg: #FF9900; --acu-btn-active-text: #000000; --acu-accent: #FF9900; --acu-table-head: #1B1B1B; --acu-table-hover: #2B2B2B; --acu-opt-hover: rgba(255, 153, 0, 0.18); --acu-opt-bg: rgba(255, 153, 0, 0.1); --acu-shadow: rgba(0,0,0,0.6); --acu-card-bg: #1B1B1B; --acu-badge-bg: #1B1B1B; --acu-menu-bg: #000000; --acu-menu-text: #FFFFFF; --acu-success-text: #FF9900; --acu-success-bg: rgba(255, 153, 0, 0.15); --acu-scrollbar-track: #000000; --acu-scrollbar-thumb: #1B1B1B; --acu-input-bg: #1B1B1B; --acu-hl-manual: #FF9900; --acu-hl-manual-bg: rgba(255, 153, 0, 0.15); --acu-hl-diff: #FFB84D; --acu-hl-diff-bg: rgba(255, 184, 77, 0.2); --acu-error-text: #FF6B6B; --acu-error-bg: rgba(255, 107, 107, 0.2); --acu-error-border: rgba(255, 107, 107, 0.5); --acu-warning-icon: #FFAA00; --acu-failure-text: #FF6B6B; --acu-failure-bg: rgba(255, 107, 107, 0.2); --acu-warning-text: #FFAA00; --acu-warning-bg: rgba(255, 170, 0, 0.2); --acu-crit-success-text: #FF9900; --acu-crit-success-bg: rgba(255, 153, 0, 0.2); --acu-crit-failure-text: #FF4444; --acu-crit-failure-bg: rgba(255, 68, 68, 0.2); --acu-extreme-success-text: #FFB84D; --acu-extreme-success-bg: rgba(255, 184, 77, 0.2); --acu-overlay-bg: rgba(0,0,0,0.8); --acu-overlay-bg-light: rgba(0,0,0,0.7); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(255, 153, 0, 0.1); --acu-very-light-bg: rgba(255, 153, 0, 0.02); --acu-button-text: #FFFFFF; --acu-gray-bg: rgba(255, 255, 255, 0.1); }
+    .acu-theme-vaporwave { --acu-bg-nav: #191970; --acu-bg-panel: #191970; --acu-border: rgba(0, 255, 255, 0.3); --acu-text-main: #00FFFF; --acu-text-sub: #FF00FF; --acu-btn-bg: rgba(25, 25, 112, 0.8); --acu-btn-hover: rgba(0, 255, 255, 0.2); --acu-btn-active-bg: #FF00FF; --acu-btn-active-text: #191970; --acu-accent: #00FFFF; --acu-table-head: rgba(25, 25, 112, 0.9); --acu-table-hover: rgba(0, 255, 255, 0.1); --acu-opt-hover: rgba(0, 255, 255, 0.18); --acu-opt-bg: rgba(0, 255, 255, 0.1); --acu-shadow: 0 0 15px rgba(0, 255, 255, 0.3); --acu-card-bg: rgba(25, 25, 112, 0.95); --acu-badge-bg: rgba(25, 25, 112, 0.8); --acu-menu-bg: #191970; --acu-menu-text: #00FFFF; --acu-success-text: #00FFFF; --acu-success-bg: rgba(0, 255, 255, 0.15); --acu-scrollbar-track: #191970; --acu-scrollbar-thumb: rgba(0, 255, 255, 0.3); --acu-input-bg: rgba(25, 25, 112, 0.6); --acu-hl-manual: #00FFFF; --acu-hl-manual-bg: rgba(0, 255, 255, 0.2); --acu-hl-diff: #FF00FF; --acu-hl-diff-bg: rgba(255, 0, 255, 0.2); --acu-error-text: #FF00FF; --acu-error-bg: rgba(255, 0, 255, 0.2); --acu-error-border: rgba(255, 0, 255, 0.5); --acu-warning-icon: #FF00FF; --acu-failure-text: #FF00FF; --acu-failure-bg: rgba(255, 0, 255, 0.2); --acu-warning-text: #FF00FF; --acu-warning-bg: rgba(255, 0, 255, 0.15); --acu-crit-success-text: #00FFFF; --acu-crit-success-bg: rgba(0, 255, 255, 0.2); --acu-crit-failure-text: #FF00FF; --acu-crit-failure-bg: rgba(255, 0, 255, 0.25); --acu-extreme-success-text: #00FFFF; --acu-extreme-success-bg: rgba(0, 255, 255, 0.2); --acu-overlay-bg: rgba(25, 25, 112, 0.85); --acu-overlay-bg-light: rgba(25, 25, 112, 0.75); --acu-shadow-bg: rgba(0, 255, 255, 0.3); --acu-light-bg: rgba(0, 255, 255, 0.05); --acu-very-light-bg: rgba(0, 255, 255, 0.02); --acu-button-text: #F0F8FF; --acu-gray-bg: rgba(0, 255, 255, 0.1); }
     .acu-theme-vaporwave .acu-nav-btn { border-color: rgba(0, 255, 255, 0.3); }
     .acu-theme-vaporwave .acu-data-card { border-color: rgba(0, 255, 255, 0.3); }
     .acu-theme-vaporwave .acu-dice-panel input::placeholder,
@@ -369,7 +369,7 @@ export const MAIN_STYLES = `
     .acu-theme-vaporwave .acu-contest-panel input:not([type]) {
         color: #00FFFF !important;
     }
-    .acu-theme-classicpackaging { --acu-bg-nav: #000000; --acu-bg-panel: #000000; --acu-border: #FFFF00; --acu-text-main: #FFFF00; --acu-text-sub: #CCCC00; --acu-btn-bg: #FF0000; --acu-btn-hover: #CC0000; --acu-btn-active-bg: #0000FF; --acu-btn-active-text: #FFFF00; --acu-accent: #FF0000; --acu-table-head: #1a1a1a; --acu-table-hover: #2a2a2a; --acu-shadow: rgba(255,255,0,0.3); --acu-card-bg: #1a1a1a; --acu-badge-bg: #FF0000; --acu-menu-bg: #000000; --acu-menu-text: #FFFF00; --acu-success-text: #0000FF; --acu-success-bg: rgba(0, 0, 255, 0.2); --acu-scrollbar-track: #000000; --acu-scrollbar-thumb: #FFFF00; --acu-input-bg: #1a1a1a; --acu-hl-manual: #FF0000; --acu-hl-manual-bg: rgba(255, 0, 0, 0.2); --acu-hl-diff: #0000FF; --acu-hl-diff-bg: rgba(0, 0, 255, 0.2); --acu-error-text: #FF0000; --acu-error-bg: rgba(255, 0, 0, 0.2); --acu-error-border: rgba(255, 0, 0, 0.8); --acu-warning-icon: #FF0000; --acu-failure-text: #FF0000; --acu-failure-bg: rgba(255, 0, 0, 0.2); --acu-warning-text: #FF0000; --acu-warning-bg: rgba(255, 0, 0, 0.15); --acu-crit-success-text: #0000FF; --acu-crit-success-bg: rgba(0, 0, 255, 0.2); --acu-crit-failure-text: #FF0000; --acu-crit-failure-bg: rgba(255, 0, 0, 0.25); --acu-extreme-success-text: #0000FF; --acu-extreme-success-bg: rgba(0, 0, 255, 0.2); --acu-overlay-bg: rgba(0,0,0,0.9); --acu-overlay-bg-light: rgba(0,0,0,0.8); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(255,255,0,0.1); --acu-very-light-bg: rgba(255,255,0,0.02); --acu-button-text: #FFFF00; --acu-gray-bg: rgba(255,255,0,0.1); }
+    .acu-theme-classicpackaging { --acu-bg-nav: #000000; --acu-bg-panel: #000000; --acu-border: #FFFF00; --acu-text-main: #FFFF00; --acu-text-sub: #CCCC00; --acu-btn-bg: #FF0000; --acu-btn-hover: #CC0000; --acu-btn-active-bg: #0000FF; --acu-btn-active-text: #FFFF00; --acu-accent: #FF0000; --acu-table-head: #1a1a1a; --acu-table-hover: #2a2a2a; --acu-opt-hover: rgba(255, 255, 0, 0.15); --acu-opt-bg: rgba(255, 255, 0, 0.08); --acu-shadow: rgba(255,255,0,0.3); --acu-card-bg: #1a1a1a; --acu-badge-bg: #FF0000; --acu-menu-bg: #000000; --acu-menu-text: #FFFF00; --acu-success-text: #0000FF; --acu-success-bg: rgba(0, 0, 255, 0.2); --acu-scrollbar-track: #000000; --acu-scrollbar-thumb: #FFFF00; --acu-input-bg: #1a1a1a; --acu-hl-manual: #FF0000; --acu-hl-manual-bg: rgba(255, 0, 0, 0.2); --acu-hl-diff: #0000FF; --acu-hl-diff-bg: rgba(0, 0, 255, 0.2); --acu-error-text: #FF0000; --acu-error-bg: rgba(255, 0, 0, 0.2); --acu-error-border: rgba(255, 0, 0, 0.8); --acu-warning-icon: #FF0000; --acu-failure-text: #FF0000; --acu-failure-bg: rgba(255, 0, 0, 0.2); --acu-warning-text: #FF0000; --acu-warning-bg: rgba(255, 0, 0, 0.15); --acu-crit-success-text: #0000FF; --acu-crit-success-bg: rgba(0, 0, 255, 0.2); --acu-crit-failure-text: #FF0000; --acu-crit-failure-bg: rgba(255, 0, 0, 0.25); --acu-extreme-success-text: #0000FF; --acu-extreme-success-bg: rgba(0, 0, 255, 0.2); --acu-overlay-bg: rgba(0,0,0,0.9); --acu-overlay-bg-light: rgba(0,0,0,0.8); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(255,255,0,0.1); --acu-very-light-bg: rgba(255,255,0,0.02); --acu-button-text: #FFFF00; --acu-gray-bg: rgba(255,255,0,0.1); }
     .acu-theme-classicpackaging .acu-nav-btn { border-color: #FFFF00; border-width: 2px; font-weight: bold; }
     .acu-theme-classicpackaging .acu-data-card { border-color: #FFFF00; border-width: 2px; }
     .acu-theme-classicpackaging .acu-dice-panel input::placeholder,
@@ -386,12 +386,12 @@ export const MAIN_STYLES = `
         color: #FFFF00 !important;
         font-weight: bold;
     }
-    .acu-theme-galgame { --acu-bg-nav: #FFF0F5; --acu-bg-panel: #FFF0F5; --acu-border: #F0D4E4; --acu-text-main: #6B4A5A; --acu-text-sub: #B08A9A; --acu-btn-bg: #FFE4E9; --acu-btn-hover: #FFD4E4; --acu-btn-active-bg: #E8B4D9; --acu-btn-active-text: #6B4A5A; --acu-accent: #E8B4D9; --acu-table-head: #FFF5F9; --acu-table-hover: #FFF0F8; --acu-shadow: rgba(232, 180, 217, 0.25); --acu-card-bg: #ffffff; --acu-badge-bg: #FFF5F9; --acu-menu-bg: #fff; --acu-menu-text: #6B4A5A; --acu-success-text: #D4A5C8; --acu-success-bg: rgba(212, 165, 200, 0.15); --acu-scrollbar-track: #FFF0F5; --acu-scrollbar-thumb: #F0D4E4; --acu-input-bg: #FFF8FA; --acu-hl-manual: #D4A5A5; --acu-hl-manual-bg: rgba(212, 165, 165, 0.15); --acu-hl-diff: #E8B4D9; --acu-hl-diff-bg: rgba(232, 180, 217, 0.2); --acu-error-text: #C88A9A; --acu-error-bg: rgba(200, 138, 154, 0.15); --acu-error-border: rgba(200, 138, 154, 0.4); --acu-warning-icon: #D4A5A5; --acu-failure-text: #C88A9A; --acu-failure-bg: rgba(200, 138, 154, 0.15); --acu-warning-text: #D4A5A5; --acu-warning-bg: rgba(212, 165, 165, 0.15); --acu-crit-success-text: #E8B4D9; --acu-crit-success-bg: rgba(232, 180, 217, 0.2); --acu-crit-failure-text: #C88A9A; --acu-crit-failure-bg: rgba(200, 138, 154, 0.2); --acu-extreme-success-text: #D4A5C8; --acu-extreme-success-bg: rgba(212, 165, 200, 0.2); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(232, 180, 217, 0.25); --acu-light-bg: rgba(232, 180, 217, 0.08); --acu-very-light-bg: rgba(232, 180, 217, 0.02); --acu-button-text: #6B4A5A; --acu-button-text-on-accent: #6B4A5A; --acu-gray-bg: rgba(232, 180, 217, 0.1); }
+    .acu-theme-galgame { --acu-bg-nav: #FFF0F5; --acu-bg-panel: #FFF0F5; --acu-border: #F0D4E4; --acu-text-main: #6B4A5A; --acu-text-sub: #B08A9A; --acu-btn-bg: #FFE4E9; --acu-btn-hover: #FFD4E4; --acu-btn-active-bg: #E8B4D9; --acu-btn-active-text: #6B4A5A; --acu-accent: #E8B4D9; --acu-table-head: #FFF5F9; --acu-table-hover: #FFF0F8; --acu-opt-hover: #FFF0F8; --acu-opt-bg: #ffffff; --acu-shadow: rgba(232, 180, 217, 0.25); --acu-card-bg: #ffffff; --acu-badge-bg: #FFF5F9; --acu-menu-bg: #fff; --acu-menu-text: #6B4A5A; --acu-success-text: #D4A5C8; --acu-success-bg: rgba(212, 165, 200, 0.15); --acu-scrollbar-track: #FFF0F5; --acu-scrollbar-thumb: #F0D4E4; --acu-input-bg: #FFF8FA; --acu-hl-manual: #D4A5A5; --acu-hl-manual-bg: rgba(212, 165, 165, 0.15); --acu-hl-diff: #E8B4D9; --acu-hl-diff-bg: rgba(232, 180, 217, 0.2); --acu-error-text: #C88A9A; --acu-error-bg: rgba(200, 138, 154, 0.15); --acu-error-border: rgba(200, 138, 154, 0.4); --acu-warning-icon: #D4A5A5; --acu-failure-text: #C88A9A; --acu-failure-bg: rgba(200, 138, 154, 0.15); --acu-warning-text: #D4A5A5; --acu-warning-bg: rgba(212, 165, 165, 0.15); --acu-crit-success-text: #E8B4D9; --acu-crit-success-bg: rgba(232, 180, 217, 0.2); --acu-crit-failure-text: #C88A9A; --acu-crit-failure-bg: rgba(200, 138, 154, 0.2); --acu-extreme-success-text: #D4A5C8; --acu-extreme-success-bg: rgba(212, 165, 200, 0.2); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(232, 180, 217, 0.25); --acu-light-bg: rgba(232, 180, 217, 0.08); --acu-very-light-bg: rgba(232, 180, 217, 0.02); --acu-button-text: #6B4A5A; --acu-button-text-on-accent: #6B4A5A; --acu-gray-bg: rgba(232, 180, 217, 0.1); }
     .acu-theme-galgame .acu-nav-btn { border-radius: 8px; transition: all 0.3s ease; }
     .acu-theme-galgame .acu-data-card { border-radius: 12px; box-shadow: 0 4px 12px rgba(232, 180, 217, 0.15); transition: all 0.3s ease; }
     .acu-theme-galgame .acu-data-card:hover { box-shadow: 0 6px 20px rgba(232, 180, 217, 0.25); transform: translateY(-2px); }
     .acu-theme-galgame .acu-nav-btn:hover { box-shadow: 0 2px 8px rgba(232, 180, 217, 0.2); }
-    .acu-theme-terminal { --acu-bg-nav: #0c0c0c; --acu-bg-panel: #0c0c0c; --acu-border: #00ff00; --acu-text-main: #00ff00; --acu-text-sub: #00cc00; --acu-btn-bg: #1a1a1a; --acu-btn-hover: #2a2a2a; --acu-btn-active-bg: #00ff00; --acu-btn-active-text: #0c0c0c; --acu-accent: #00ff00; --acu-table-head: #0a0a0a; --acu-table-hover: #1a1a1a; --acu-shadow: rgba(0,255,0,0.2); --acu-card-bg: #0c0c0c; --acu-badge-bg: #1a1a1a; --acu-menu-bg: #0c0c0c; --acu-menu-text: #00ff00; --acu-success-text: #00ff00; --acu-success-bg: rgba(0, 255, 0, 0.15); --acu-scrollbar-track: #0c0c0c; --acu-scrollbar-thumb: #00ff00; --acu-input-bg: #0c0c0c; --acu-hl-manual: #ffff00; --acu-hl-manual-bg: rgba(255, 255, 0, 0.15); --acu-hl-diff: #00ffff; --acu-hl-diff-bg: rgba(0, 255, 255, 0.15); --acu-error-text: #ff0000; --acu-error-bg: rgba(255, 0, 0, 0.15); --acu-error-border: rgba(255, 0, 0, 0.5); --acu-warning-icon: #ffff00; --acu-failure-text: #ff0000; --acu-failure-bg: rgba(255, 0, 0, 0.15); --acu-warning-text: #ffff00; --acu-warning-bg: rgba(255, 255, 0, 0.15); --acu-crit-success-text: #00ffff; --acu-crit-success-bg: rgba(0, 255, 255, 0.15); --acu-crit-failure-text: #ff00ff; --acu-crit-failure-bg: rgba(255, 0, 255, 0.15); --acu-extreme-success-text: #00ff00; --acu-extreme-success-bg: rgba(0, 255, 0, 0.2); --acu-overlay-bg: rgba(0,0,0,0.9); --acu-overlay-bg-light: rgba(0,0,0,0.8); --acu-shadow-bg: rgba(0,0,0,0.7); --acu-light-bg: rgba(0,255,0,0.05); --acu-very-light-bg: rgba(0,255,0,0.02); --acu-button-text: #0c0c0c; --acu-gray-bg: rgba(0,255,0,0.05); font-family: 'Courier New', 'Consolas', 'Monaco', monospace; }
+    .acu-theme-terminal { --acu-bg-nav: #0c0c0c; --acu-bg-panel: #0c0c0c; --acu-border: #00ff00; --acu-text-main: #00ff00; --acu-text-sub: #00cc00; --acu-btn-bg: #1a1a1a; --acu-btn-hover: #2a2a2a; --acu-btn-active-bg: #00ff00; --acu-btn-active-text: #0c0c0c; --acu-accent: #00ff00; --acu-table-head: #0a0a0a; --acu-table-hover: #1a1a1a; --acu-opt-hover: rgba(0, 255, 0, 0.12); --acu-opt-bg: rgba(0, 255, 0, 0.06); --acu-shadow: rgba(0,255,0,0.2); --acu-card-bg: #0c0c0c; --acu-badge-bg: #1a1a1a; --acu-menu-bg: #0c0c0c; --acu-menu-text: #00ff00; --acu-success-text: #00ff00; --acu-success-bg: rgba(0, 255, 0, 0.15); --acu-scrollbar-track: #0c0c0c; --acu-scrollbar-thumb: #00ff00; --acu-input-bg: #0c0c0c; --acu-hl-manual: #ffff00; --acu-hl-manual-bg: rgba(255, 255, 0, 0.15); --acu-hl-diff: #00ffff; --acu-hl-diff-bg: rgba(0, 255, 255, 0.15); --acu-error-text: #ff0000; --acu-error-bg: rgba(255, 0, 0, 0.15); --acu-error-border: rgba(255, 0, 0, 0.5); --acu-warning-icon: #ffff00; --acu-failure-text: #ff0000; --acu-failure-bg: rgba(255, 0, 0, 0.15); --acu-warning-text: #ffff00; --acu-warning-bg: rgba(255, 255, 0, 0.15); --acu-crit-success-text: #00ffff; --acu-crit-success-bg: rgba(0, 255, 255, 0.15); --acu-crit-failure-text: #ff00ff; --acu-crit-failure-bg: rgba(255, 0, 255, 0.15); --acu-extreme-success-text: #00ff00; --acu-extreme-success-bg: rgba(0, 255, 0, 0.2); --acu-overlay-bg: rgba(0,0,0,0.9); --acu-overlay-bg-light: rgba(0,0,0,0.8); --acu-shadow-bg: rgba(0,0,0,0.7); --acu-light-bg: rgba(0,255,0,0.05); --acu-very-light-bg: rgba(0,255,0,0.02); --acu-button-text: #0c0c0c; --acu-gray-bg: rgba(0,255,0,0.05); font-family: 'Courier New', 'Consolas', 'Monaco', monospace; }
     .acu-theme-terminal .acu-nav-btn { border-color: #00ff00; text-shadow: 0 0 5px rgba(0,255,0,0.5); }
     .acu-theme-terminal .acu-data-card { border-color: #00ff00; text-shadow: 0 0 2px rgba(0,255,0,0.3); }
     .acu-theme-terminal .acu-dice-panel input::placeholder,
@@ -407,8 +407,127 @@ export const MAIN_STYLES = `
     .acu-theme-terminal .acu-contest-panel input:not([type]) {
         color: #00ff00 !important;
     }
-    .acu-theme-dreamcore { --acu-bg-nav: #F4F1EA; --acu-bg-panel: #F4F1EA; --acu-border: #D6D2C4; --acu-text-main: #5C5869; --acu-text-sub: #9490A0; --acu-btn-bg: #E6E1D5; --acu-btn-hover: #DBD8CC; --acu-btn-active-bg: #8A9AC6; --acu-btn-active-text: #FFFFFF; --acu-accent: #8A9AC6; --acu-table-head: #EBE7DE; --acu-table-hover: #F8F6F0; --acu-shadow: rgba(92, 88, 105, 0.15); --acu-card-bg: #FFFFFF; --acu-badge-bg: #EBE7DE; --acu-menu-bg: #FCFAF5; --acu-menu-text: #5C5869; --acu-success-text: #4A7A68; --acu-success-bg: rgba(74, 122, 104, 0.18); --acu-scrollbar-track: #F4F1EA; --acu-scrollbar-thumb: #D6D2C4; --acu-input-bg: #FFFFFF; --acu-hl-manual: #8A7040; --acu-hl-manual-bg: rgba(138, 112, 64, 0.18); --acu-hl-diff: #8A9AC6; --acu-hl-diff-bg: rgba(138, 154, 198, 0.18); --acu-error-text: #B85C5C; --acu-error-bg: rgba(184, 92, 92, 0.15); --acu-error-border: rgba(184, 92, 92, 0.4); --acu-warning-icon: #E0C080; --acu-failure-text: #8F5E5E; --acu-failure-bg: rgba(143, 94, 94, 0.18); --acu-warning-text: #8A7040; --acu-warning-bg: rgba(138, 112, 64, 0.18); --acu-crit-success-text: #2D6E58; --acu-crit-success-bg: rgba(45, 110, 88, 0.25); --acu-crit-failure-text: #7A3E3E; --acu-crit-failure-bg: rgba(122, 62, 62, 0.25); --acu-extreme-success-text: #5C5228; --acu-extreme-success-bg: rgba(92, 82, 40, 0.2); --acu-overlay-bg: rgba(244, 241, 234, 0.85); --acu-overlay-bg-light: rgba(255, 255, 255, 0.4); --acu-shadow-bg: rgba(92, 88, 105, 0.15); --acu-light-bg: rgba(138, 154, 198, 0.08); --acu-very-light-bg: rgba(138, 154, 198, 0.03); --acu-button-text: #5C5869; --acu-gray-bg: rgba(92, 88, 105, 0.08); }
+    .acu-theme-dreamcore { --acu-bg-nav: #F4F1EA; --acu-bg-panel: #F4F1EA; --acu-border: #D6D2C4; --acu-text-main: #5C5869; --acu-text-sub: #9490A0; --acu-btn-bg: #E6E1D5; --acu-btn-hover: #DBD8CC; --acu-btn-active-bg: #8A9AC6; --acu-btn-active-text: #FFFFFF; --acu-accent: #8A9AC6; --acu-table-head: #EBE7DE; --acu-table-hover: #F8F6F0; --acu-opt-hover: #F8F6F0; --acu-opt-bg: #FFFFFF; --acu-shadow: rgba(92, 88, 105, 0.15); --acu-card-bg: #FFFFFF; --acu-badge-bg: #EBE7DE; --acu-menu-bg: #FCFAF5; --acu-menu-text: #5C5869; --acu-success-text: #4A7A68; --acu-success-bg: rgba(74, 122, 104, 0.18); --acu-scrollbar-track: #F4F1EA; --acu-scrollbar-thumb: #D6D2C4; --acu-input-bg: #FFFFFF; --acu-hl-manual: #8A7040; --acu-hl-manual-bg: rgba(138, 112, 64, 0.18); --acu-hl-diff: #8A9AC6; --acu-hl-diff-bg: rgba(138, 154, 198, 0.18); --acu-error-text: #B85C5C; --acu-error-bg: rgba(184, 92, 92, 0.15); --acu-error-border: rgba(184, 92, 92, 0.4); --acu-warning-icon: #E0C080; --acu-failure-text: #8F5E5E; --acu-failure-bg: rgba(143, 94, 94, 0.18); --acu-warning-text: #8A7040; --acu-warning-bg: rgba(138, 112, 64, 0.18); --acu-crit-success-text: #2D6E58; --acu-crit-success-bg: rgba(45, 110, 88, 0.25); --acu-crit-failure-text: #7A3E3E; --acu-crit-failure-bg: rgba(122, 62, 62, 0.25); --acu-extreme-success-text: #5C5228; --acu-extreme-success-bg: rgba(92, 82, 40, 0.2); --acu-overlay-bg: rgba(244, 241, 234, 0.85); --acu-overlay-bg-light: rgba(255, 255, 255, 0.4); --acu-shadow-bg: rgba(92, 88, 105, 0.15); --acu-light-bg: rgba(138, 154, 198, 0.08); --acu-very-light-bg: rgba(138, 154, 198, 0.03); --acu-button-text: #5C5869; --acu-gray-bg: rgba(92, 88, 105, 0.08); }
     .acu-theme-dreamcore .acu-nav-btn { border-color: #D6D2C4; }
+    /* 极光幻境 (Aurora) 主题：深邃星空与极光渐变 */
+    .acu-theme-aurora {
+        --acu-bg-nav: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.9));
+        --acu-bg-panel: linear-gradient(180deg, rgba(15, 23, 42, 0.95) 0%, rgba(51, 65, 85, 0.9) 100%);
+        --acu-border: rgba(56, 189, 248, 0.6);
+        --acu-text-main: #e2e8f0;
+        --acu-text-sub: #94a3b8;
+        --acu-btn-bg: linear-gradient(135deg, rgba(56, 189, 248, 0.15), rgba(168, 85, 247, 0.15));
+        --acu-btn-hover: linear-gradient(135deg, rgba(56, 189, 248, 0.25), rgba(168, 85, 247, 0.25));
+        --acu-btn-active-bg: linear-gradient(135deg, #38bdf8, #a855f7);
+        --acu-btn-active-text: #fff;
+        --acu-accent: #38bdf8;
+        --acu-table-head: linear-gradient(90deg, rgba(56, 189, 248, 0.1), rgba(168, 85, 247, 0.1));
+        --acu-table-hover: rgba(56, 189, 248, 0.08);
+        --acu-opt-hover: rgba(56, 189, 248, 0.15);
+        --acu-opt-bg: rgba(56, 189, 248, 0.08);
+        --acu-shadow: 0 8px 32px rgba(56, 189, 248, 0.15), 0 4px 16px rgba(168, 85, 247, 0.1);
+        --acu-card-bg: linear-gradient(145deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.98));
+        --acu-badge-bg: rgba(56, 189, 248, 0.2);
+        --acu-menu-bg: #1e293b;
+        --acu-menu-text: #e2e8f0;
+        --acu-success-text: #4ade80;
+        --acu-success-bg: rgba(74, 222, 128, 0.15);
+        --acu-scrollbar-track: rgba(15, 23, 42, 0.5);
+        --acu-scrollbar-thumb: rgba(56, 189, 248, 0.4);
+        --acu-input-bg: rgba(15, 23, 42, 0.5);
+        --acu-hl-manual: #f97316;
+        --acu-hl-manual-bg: rgba(249, 115, 22, 0.2);
+        --acu-hl-diff: #38bdf8;
+        --acu-hl-diff-bg: rgba(56, 189, 248, 0.2);
+        --acu-error-text: #f87171;
+        --acu-error-bg: rgba(248, 113, 113, 0.2);
+        --acu-error-border: rgba(248, 113, 113, 0.5);
+        --acu-warning-icon: #fbbf24;
+        --acu-failure-text: #f87171;
+        --acu-failure-bg: rgba(248, 113, 113, 0.2);
+        --acu-warning-text: #fbbf24;
+        --acu-warning-bg: rgba(251, 191, 36, 0.2);
+        --acu-crit-success-text: #a855f7;
+        --acu-crit-success-bg: rgba(168, 85, 247, 0.2);
+        --acu-crit-failure-text: #ef4444;
+        --acu-crit-failure-bg: rgba(239, 68, 68, 0.25);
+        --acu-extreme-success-text: #22d3ee;
+        --acu-extreme-success-bg: rgba(34, 211, 238, 0.2);
+        --acu-overlay-bg: rgba(15, 23, 42, 0.8);
+        --acu-overlay-bg-light: rgba(30, 41, 59, 0.7);
+        --acu-shadow-bg: rgba(56, 189, 248, 0.2);
+        --acu-light-bg: rgba(56, 189, 248, 0.08);
+        --acu-very-light-bg: rgba(56, 189, 248, 0.03);
+        --acu-button-text: #e2e8f0;
+        --acu-gray-bg: rgba(148, 163, 184, 0.1);
+    }
+    .acu-theme-aurora .acu-nav-btn { border-color: rgba(56, 189, 248, 0.3); }
+    .acu-theme-aurora .acu-data-card { border-color: rgba(56, 189, 248, 0.3); box-shadow: 0 4px 20px rgba(56, 189, 248, 0.1), 0 2px 10px rgba(168, 85, 247, 0.08); }
+    .acu-theme-aurora .acu-dice-panel input::placeholder,
+    .acu-theme-aurora .acu-contest-panel input::placeholder {
+        color: #94a3b8 !important;
+        opacity: 0.7;
+    }
+    .acu-theme-aurora .acu-dice-panel input[type="text"],
+    .acu-theme-aurora .acu-dice-panel input[type="number"],
+    .acu-theme-aurora .acu-dice-panel input:not([type]),
+    .acu-theme-aurora .acu-contest-panel input[type="text"],
+    .acu-theme-aurora .acu-contest-panel input[type="number"],
+    .acu-theme-aurora .acu-contest-panel input:not([type]) {
+        color: #e2e8f0 !important;
+    }
+    /* 极光幻境：导航栏 - 极光渐变光效 */
+    .acu-theme-aurora .acu-nav-container {
+        background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.9) 50%, rgba(51, 65, 85, 0.85) 100%) !important;
+        border: 1px solid rgba(56, 189, 248, 0.4) !important;
+        box-shadow: 0 0 30px rgba(56, 189, 248, 0.1), 0 0 60px rgba(168, 85, 247, 0.05), inset 0 0 20px rgba(56, 189, 248, 0.05) !important;
+        backdrop-filter: blur(12px);
+        overflow: visible !important;
+    }
+    /* 极光顶部渐变光条 */
+    .acu-theme-aurora .acu-nav-container::before {
+        content: '';
+        position: absolute;
+        top: -1px; left: -1px; right: -1px; bottom: -1px;
+        background: linear-gradient(90deg, #38bdf8, #a855f7, #22d3ee, #38bdf8);
+        background-size: 300% 100%;
+        z-index: -1;
+        border-radius: 14px;
+        animation: aurora-glow 6s ease-in-out infinite;
+        opacity: 0.6;
+    }
+    @keyframes aurora-glow {
+        0% { background-position: 0% 50%; opacity: 0.4; }
+        50% { background-position: 100% 50%; opacity: 0.7; }
+        100% { background-position: 0% 50%; opacity: 0.4; }
+    }
+    /* 极光幻境：按钮样式 */
+    .acu-theme-aurora .acu-nav-btn {
+        border: 1px solid rgba(56, 189, 248, 0.2) !important;
+        background: linear-gradient(135deg, rgba(56, 189, 248, 0.1), rgba(168, 85, 247, 0.1)) !important;
+        border-radius: 8px;
+        color: #e2e8f0;
+        transition: all 0.3s ease;
+    }
+    .acu-theme-aurora .acu-nav-btn:hover {
+        background: linear-gradient(135deg, rgba(56, 189, 248, 0.2), rgba(168, 85, 247, 0.2)) !important;
+        border-color: rgba(56, 189, 248, 0.5) !important;
+        box-shadow: 0 4px 15px rgba(56, 189, 248, 0.2);
+        transform: translateY(-2px);
+    }
+    .acu-theme-aurora .acu-nav-btn.active {
+        background: linear-gradient(135deg, #38bdf8, #a855f7) !important;
+        border-color: transparent !important;
+        color: #ffffff !important;
+        box-shadow: 0 4px 20px rgba(56, 189, 248, 0.4), 0 2px 10px rgba(168, 85, 247, 0.3);
+        font-weight: bold;
+    }
+    /* 极光幻境：数据卡片 */
+    .acu-theme-aurora .acu-data-card:hover {
+        border-color: rgba(56, 189, 248, 0.5) !important;
+        box-shadow: 0 8px 30px rgba(56, 189, 248, 0.15), 0 4px 15px rgba(168, 85, 247, 0.1);
+        transform: translateY(-3px);
+    }
     .acu-theme-dreamcore .acu-data-card { border-color: #D6D2C4; box-shadow: 0 2px 8px rgba(92, 88, 105, 0.1); }
     .acu-theme-dreamcore .acu-dice-panel input::placeholder,
     .acu-theme-dreamcore .acu-contest-panel input::placeholder {
@@ -437,6 +556,7 @@ export const MAIN_STYLES = `
         --acu-accent: #7FFFD4;
         --acu-table-head: rgba(255, 107, 157, 0.15);
         --acu-table-hover: linear-gradient(90deg, rgba(255, 107, 157, 0.2), rgba(127, 255, 212, 0.2));
+        --acu-opt-hover: linear-gradient(90deg, rgba(255, 107, 157, 0.15), rgba(127, 255, 212, 0.15)); --acu-opt-bg: transparent;
         --acu-shadow: rgba(255, 107, 157, 0.5);
         --acu-card-bg: rgba(20, 10, 35, 0.7);
         --acu-badge-bg: rgba(127, 255, 212, 0.2);
@@ -474,6 +594,25 @@ export const MAIN_STYLES = `
         --acu-button-text-on-accent: #1A0A2E;
         --acu-gray-bg: rgba(255, 255, 255, 0.05);
     }
+
+    .acu-theme-retro { --acu-opt-bright-bg: #fffef9; }
+    .acu-theme-modern,
+    .acu-theme-forest,
+    .acu-theme-ocean,
+    .acu-theme-sakura,
+    .acu-theme-purple,
+    .acu-theme-wechat,
+    .acu-theme-galgame,
+    .acu-theme-dreamcore { --acu-opt-bright-bg: #ffffff; }
+    .acu-theme-dark { --acu-opt-bright-bg: rgba(255, 255, 255, 0.05); }
+    .acu-theme-cyber { --acu-opt-bright-bg: rgba(0, 255, 204, 0.08); }
+    .acu-theme-nightowl { --acu-opt-bright-bg: rgba(127, 219, 202, 0.08); }
+    .acu-theme-minepink { --acu-opt-bright-bg: rgba(255, 128, 193, 0.08); }
+    .acu-theme-educational { --acu-opt-bright-bg: rgba(255, 153, 0, 0.1); }
+    .acu-theme-vaporwave { --acu-opt-bright-bg: rgba(0, 255, 255, 0.1); }
+    .acu-theme-classicpackaging { --acu-opt-bright-bg: rgba(255, 255, 0, 0.08); }
+    .acu-theme-terminal { --acu-opt-bright-bg: rgba(0, 255, 0, 0.06); }
+    .acu-theme-chouten { --acu-opt-bright-bg: transparent; }
 
     /* 超天酱：导航栏 - 偶像舞台光效 */
     .acu-theme-chouten .acu-nav-container {
@@ -802,16 +941,18 @@ export const MAIN_STYLES = `
             .acu-option-panel {
                 display: flex;
                 flex-direction: column;
-                gap: 0;
-                padding: 0;
-                background: transparent;
-                border: none;
-                border-radius: 0;
-                margin: 12px 0;
+                gap: 2px;
+                padding: 4px;
+                background: var(--acu-opt-panel-bg, var(--acu-bg-nav));
+                border: 1px solid var(--acu-border);
+                border-radius: 6px;
+                margin-top: 0;
+                margin-bottom: 4px;
                 width: 100%;
                 box-sizing: border-box;
                 z-index: 31001;
                 animation: acuFadeIn 0.3s ease;
+                backdrop-filter: blur(5px);
             }
 
             .acu-embedded-options-container {
@@ -830,7 +971,7 @@ export const MAIN_STYLES = `
                 justify-content: space-between;
                 font-size: 11px;
                 font-weight: 600;
-                color: var(--acu-text-sub);
+                color: var(--acu-text-main);
                 padding: 8px 0;
                 border-bottom: 1px solid var(--acu-border);
                 margin-bottom: 8px;
@@ -844,34 +985,37 @@ export const MAIN_STYLES = `
 
             /* --- [重设计] 叙事条目风格按钮 --- */
             .acu-opt-btn {
-                background: transparent;
-                border: none;
-                border-bottom: 1px dashed var(--acu-border);
-                padding: 12px 0;
-                border-radius: 0;
+                background: var(--acu-opt-bright-bg, #ffffff);
+                border: 1px solid transparent;
+                padding: 3px 6px;
+                border-radius: 4px;
                 cursor: pointer;
                 color: var(--acu-text-main);
-                font-size: var(--acu-opt-font-size, 13px) !important;
-                transition: all 0.2s ease;
+                font-size: var(--acu-opt-font-size, 12px) !important;
+                transition: all 0.15s;
                 font-weight: normal;
                 text-align: left;
                 white-space: pre-wrap;
                 word-break: break-word;
-                min-height: 44px;
-                line-height: 1.6;
-                display: block;
-                position: relative;
-                opacity: 0.85;
+                min-height: 22px;
+                line-height: 1.3;
+                display: flex;
+                align-items: center;
+                justify-content: flex-start;
+                opacity: 1;
             }
             .acu-opt-btn:last-child {
                 border-bottom: none;
             }
             .acu-opt-btn:hover {
-                opacity: 1;
                 background: var(--acu-table-hover);
+                color: var(--acu-accent);
+                border-color: var(--acu-accent);
+                transform: translateX(3px);
             }
             .acu-opt-btn:active {
-                background: var(--acu-btn-hover);
+                background: var(--acu-btn-active-bg);
+                color: var(--acu-btn-active-text);
             }
 
             /* --- [新增] 折叠态样式 --- */
@@ -1206,6 +1350,8 @@ export const MAIN_STYLES = `
                     padding: 4px 8px !important;
                     min-width: 0; /* 允许flex子元素收缩 */
                     overflow: hidden; /* 防止内容溢出 */
+                    align-items: center;
+                    color: var(--acu-text-main);
                 }
 
                 .acu-dash-locations .acu-location-item > span:first-child {
@@ -1219,6 +1365,22 @@ export const MAIN_STYLES = `
 
                 .acu-dash-locations .acu-location-item > span:first-child i {
                     flex-shrink: 0; /* 图标不收缩 */
+                    font-size: 9px;
+                    opacity: 0.4;
+                    color: var(--acu-text-sub);
+                }
+
+                .acu-dash-locations .acu-location-item > i {
+                    margin-left: auto;
+                    width: 14px;
+                    text-align: center;
+                    font-size: 10px;
+                    opacity: 0.4;
+                    color: var(--acu-text-sub);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    line-height: 1;
                 }
 
                 .acu-dash-locations .acu-location-item > span:first-child > span {
@@ -1240,8 +1402,6 @@ export const MAIN_STYLES = `
 
                 .acu-location-item.current {
                     background: var(--acu-hl-diff-bg);
-                    font-weight: bold;
-                    color: var(--acu-hl-diff);
                 }
 
                 .acu-location-item i {
@@ -1481,11 +1641,14 @@ export const MAIN_STYLES = `
                 background: var(--acu-table-hover);
             }
             .acu-current-location span {
-                color: var(--acu-accent);
-                font-weight: 600;
+                color: inherit;
+                font-weight: inherit;
             }
             .acu-current-location i {
-                color: var(--acu-accent);
+                color: inherit;
+            }
+            .acu-current-location > span:first-child > span {
+                font-weight: 600;
             }
             /* === 自定义下拉菜单样式 === */
             .acu-dropdown-wrapper { position: relative; width: 100%; }
@@ -4223,5 +4386,614 @@ export const MAIN_STYLES = `
             .acu-crop-reupload:hover {
                 background: var(--acu-btn-hover);
                 color: var(--acu-accent);
+            }
+
+            /* ========== 收藏夹面板样式 ========== */
+            .acu-favorites-overlay,
+            .acu-fav-edit-overlay,
+            .acu-fav-new-overlay,
+            .acu-fav-send-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.6);
+                z-index: 31300;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                backdrop-filter: blur(2px);
+            }
+            .acu-favorites-panel {
+                width: 90%;
+                max-width: 800px;
+                max-height: 85vh;
+                background: var(--acu-bg-panel);
+                border: 1px solid var(--acu-border);
+                border-radius: 12px;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+            }
+            .acu-favorites-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 14px 18px;
+                background: var(--acu-table-head);
+                border-bottom: 1px solid var(--acu-border);
+            }
+            .acu-favorites-header h3 {
+                margin: 0;
+                font-size: 16px;
+                color: var(--acu-accent);
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+            .acu-favorites-header-actions {
+                display: flex;
+                gap: 8px;
+            }
+            .acu-fav-header-btn {
+                padding: 6px 12px;
+                background: var(--acu-btn-bg);
+                border: 1px solid var(--acu-border);
+                border-radius: 6px;
+                color: var(--acu-text-main);
+                cursor: pointer;
+                font-size: 12px;
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                transition: all 0.2s ease;
+            }
+            .acu-fav-header-btn:hover {
+                background: var(--acu-btn-hover);
+                color: var(--acu-accent);
+            }
+            .acu-fav-header-btn.acu-fav-close {
+                background: transparent;
+                border: none;
+                font-size: 16px;
+            }
+            .acu-favorites-filter {
+                display: flex;
+                gap: 10px;
+                padding: 12px 18px;
+                border-bottom: 1px solid var(--acu-border);
+                background: var(--acu-bg-main);
+            }
+            .acu-favorites-filter select,
+            .acu-favorites-filter input {
+                flex: 1;
+                padding: 8px 12px;
+                background: var(--acu-bg-panel);
+                border: 1px solid var(--acu-border);
+                border-radius: 6px;
+                color: var(--acu-text-main);
+                font-size: 13px;
+            }
+            .acu-favorites-filter select {
+                max-width: 200px;
+            }
+            .acu-favorites-content {
+                flex: 1;
+                overflow-y: auto;
+                padding: 16px;
+            }
+            .acu-favorites-empty {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                padding: 60px 20px;
+                color: var(--acu-text-muted);
+                text-align: center;
+            }
+            .acu-favorites-group {
+                margin-bottom: 20px;
+            }
+            .acu-favorites-group-title {
+                font-size: 14px;
+                font-weight: 600;
+                color: var(--acu-text-main);
+                margin-bottom: 10px;
+                display: flex;
+                align-items: center;
+                gap: 6px;
+            }
+            .acu-favorites-group-cards {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+                gap: 12px;
+            }
+            .acu-favorites-card {
+                background: var(--acu-bg-main);
+                border: 1px solid var(--acu-border);
+                border-radius: 8px;
+                padding: 12px;
+                transition: all 0.2s ease;
+            }
+            .acu-favorites-card:hover {
+                border-color: var(--acu-accent);
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            }
+            .acu-favorites-card-header {
+                margin-bottom: 8px;
+            }
+            .acu-favorites-card-preview {
+                font-size: 12px;
+                color: var(--acu-text-main);
+                line-height: 1.5;
+            }
+            .acu-fav-preview-item {
+                display: block;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .acu-fav-preview-item b {
+                color: var(--acu-accent);
+            }
+            .acu-favorites-card-source {
+                font-size: 11px;
+                color: var(--acu-text-muted);
+                margin-top: 4px;
+            }
+            .acu-favorites-card-tags {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 4px;
+                margin-bottom: 8px;
+            }
+            .acu-favorites-tag {
+                padding: 2px 8px;
+                background: var(--acu-accent);
+                color: var(--acu-btn-active-text);
+                border-radius: 10px;
+                font-size: 10px;
+                font-weight: 500;
+            }
+            .acu-favorites-card-actions {
+                display: flex;
+                gap: 6px;
+                justify-content: flex-end;
+            }
+            .acu-fav-btn {
+                width: 28px;
+                height: 28px;
+                background: var(--acu-btn-bg);
+                border: 1px solid var(--acu-border);
+                border-radius: 6px;
+                color: var(--acu-text-main);
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 12px;
+                transition: all 0.2s ease;
+            }
+            .acu-fav-btn:hover {
+                background: var(--acu-btn-hover);
+                color: var(--acu-accent);
+            }
+            .acu-fav-delete:hover {
+                color: #e74c3c;
+            }
+            .acu-fav-send:hover {
+                color: #27ae60;
+            }
+
+            /* 编辑弹窗 */
+            .acu-fav-edit-modal,
+            .acu-fav-new-modal,
+            .acu-fav-send-modal {
+                width: 90%;
+                max-width: 500px;
+                max-height: 80vh;
+                background: var(--acu-bg-panel);
+                border: 1px solid var(--acu-border);
+                border-radius: 12px;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+            }
+            .acu-fav-edit-modal-header,
+            .acu-fav-new-modal-header,
+            .acu-fav-send-modal-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 14px 18px;
+                background: var(--acu-table-head);
+                border-bottom: 1px solid var(--acu-border);
+            }
+            .acu-fav-edit-modal-header h4,
+            .acu-fav-new-modal-header h4,
+            .acu-fav-send-modal-header h4 {
+                margin: 0;
+                font-size: 15px;
+                color: var(--acu-accent);
+            }
+            .acu-fav-edit-close,
+            .acu-fav-new-close,
+            .acu-fav-send-close {
+                background: transparent;
+                border: none;
+                color: var(--acu-text-main);
+                cursor: pointer;
+                font-size: 16px;
+            }
+            .acu-fav-edit-modal-body,
+            .acu-fav-new-modal-body,
+            .acu-fav-send-modal-body {
+                flex: 1;
+                overflow-y: auto;
+                padding: 16px;
+            }
+            .acu-fav-edit-tags-section {
+                margin-bottom: 16px;
+            }
+            .acu-fav-edit-tags-section label {
+                display: block;
+                font-size: 12px;
+                color: var(--acu-text-muted);
+                margin-bottom: 6px;
+            }
+            .acu-fav-edit-tags-section input {
+                width: 100%;
+                padding: 8px 12px;
+                background: var(--acu-bg-main);
+                border: 1px solid var(--acu-border);
+                border-radius: 6px;
+                color: var(--acu-text-main);
+                font-size: 13px;
+            }
+            .acu-fav-edit-rows {
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+                margin-bottom: 12px;
+            }
+            .acu-fav-edit-row {
+                display: flex;
+                gap: 8px;
+                align-items: center;
+            }
+            .acu-fav-edit-header {
+                flex: 0 0 120px;
+                padding: 8px 10px;
+                background: var(--acu-bg-main);
+                border: 1px solid var(--acu-border);
+                border-radius: 6px;
+                color: var(--acu-accent);
+                font-size: 12px;
+                font-weight: 600;
+            }
+            .acu-fav-edit-value {
+                flex: 1;
+                padding: 8px 10px;
+                background: var(--acu-bg-main);
+                border: 1px solid var(--acu-border);
+                border-radius: 6px;
+                color: var(--acu-text-main);
+                font-size: 12px;
+            }
+            .acu-fav-edit-remove {
+                width: 28px;
+                height: 28px;
+                background: transparent;
+                border: 1px solid var(--acu-border);
+                border-radius: 6px;
+                color: var(--acu-text-muted);
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .acu-fav-edit-remove:hover {
+                color: #e74c3c;
+                border-color: #e74c3c;
+            }
+            .acu-fav-edit-add-col {
+                padding: 8px 12px;
+                background: var(--acu-btn-bg);
+                border: 1px dashed var(--acu-border);
+                border-radius: 6px;
+                color: var(--acu-text-main);
+                cursor: pointer;
+                font-size: 12px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 6px;
+                transition: all 0.2s ease;
+            }
+            .acu-fav-edit-add-col:hover {
+                border-color: var(--acu-accent);
+                color: var(--acu-accent);
+            }
+            .acu-fav-edit-modal-footer,
+            .acu-fav-new-modal-footer,
+            .acu-fav-send-modal-footer {
+                display: flex;
+                justify-content: flex-end;
+                gap: 10px;
+                padding: 14px 18px;
+                border-top: 1px solid var(--acu-border);
+                background: var(--acu-bg-main);
+            }
+            .acu-fav-edit-cancel,
+            .acu-fav-new-cancel,
+            .acu-fav-send-cancel {
+                padding: 8px 16px;
+                background: var(--acu-btn-bg);
+                border: 1px solid var(--acu-border);
+                border-radius: 6px;
+                color: var(--acu-text-main);
+                cursor: pointer;
+            }
+            .acu-fav-edit-save,
+            .acu-fav-new-create {
+                padding: 8px 16px;
+                background: var(--acu-accent);
+                border: 1px solid var(--acu-accent);
+                border-radius: 6px;
+                color: var(--acu-btn-active-text);
+                cursor: pointer;
+            }
+            .acu-fav-edit-save:hover,
+            .acu-fav-new-create:hover {
+                opacity: 0.9;
+            }
+
+            /* 发送选择弹窗 */
+            .acu-fav-send-option {
+                padding: 12px;
+                background: var(--acu-bg-main);
+                border: 1px solid var(--acu-border);
+                border-radius: 8px;
+                margin-bottom: 8px;
+                cursor: pointer;
+                transition: all 0.2s ease;
+            }
+            .acu-fav-send-option:hover {
+                border-color: var(--acu-accent);
+                background: var(--acu-btn-hover);
+            }
+            .acu-fav-send-option-name {
+                font-size: 14px;
+                font-weight: 600;
+                color: var(--acu-text-main);
+                margin-bottom: 4px;
+            }
+            .acu-fav-send-option-mode {
+                font-size: 12px;
+            }
+            .acu-fav-send-unmatched {
+                font-size: 11px;
+                color: var(--acu-text-muted);
+                margin-top: 4px;
+            }
+
+            /* 新建模板选择 */
+            .acu-fav-new-modal-body label {
+                display: block;
+                font-size: 13px;
+                color: var(--acu-text-main);
+                margin-bottom: 10px;
+            }
+            .acu-fav-new-modal-body select {
+                width: 100%;
+                padding: 10px 12px;
+                background: var(--acu-bg-main);
+                border: 1px solid var(--acu-border);
+                border-radius: 6px;
+                color: var(--acu-text-main);
+                font-size: 14px;
+            }
+
+            @media (max-width: 768px) {
+                .acu-favorites-panel {
+                    width: 95%;
+                    max-height: 90vh;
+                }
+                .acu-favorites-group-cards {
+                    grid-template-columns: 1fr;
+                }
+                .acu-favorites-header-actions {
+                    flex-wrap: wrap;
+                }
+                .acu-fav-header-btn span {
+                    display: none;
+                }
+            }
+
+            /* ========== 收藏夹面板样式 (新增) ========== */
+            .acu-fav-panel-content {
+                padding: 12px;
+                overflow-y: auto;
+                max-height: calc(85vh - 60px);
+                flex: 1;
+            }
+            /* [已废弃] 工具栏已移至Header，保留样式以防回退 */
+            /*
+            .acu-fav-toolbar {
+                display: flex;
+                gap: 8px;
+                margin-bottom: 12px;
+                flex-wrap: wrap;
+            }
+            */
+            .acu-fav-select,
+            .acu-fav-input {
+                padding: 6px 10px !important;
+                background: var(--acu-bg-panel) !important;
+                border: 1px solid var(--acu-border) !important;
+                border-radius: 6px !important;
+                color: var(--acu-text-main) !important;
+                font-size: 12px !important;
+                height: auto !important;
+                box-shadow: none !important;
+            }
+            .acu-fav-select {
+                min-width: 120px;
+            }
+            .acu-fav-input {
+                flex: 1;
+                min-width: 150px;
+            }
+            .acu-fav-toolbar-btn {
+                padding: 6px 10px;
+                background: var(--acu-btn-bg);
+                border: 1px solid var(--acu-border);
+                border-radius: 6px;
+                color: var(--acu-text-main);
+                cursor: pointer;
+                font-size: 12px;
+            }
+            .acu-fav-toolbar-btn:hover {
+                background: var(--acu-btn-hover);
+                color: var(--acu-accent);
+            }
+            .acu-fav-grid {
+                display: flex;
+                flex-direction: column;
+                gap: 16px;
+            }
+            .acu-fav-group-title {
+                font-size: 13px;
+                font-weight: 600;
+                color: var(--acu-accent);
+                margin-bottom: 8px;
+                display: flex;
+                align-items: center;
+                gap: 6px;
+            }
+            .acu-fav-group-cards {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px;
+            }
+            /* 收藏夹卡片 - 复用 acu-data-card 宽度，保持与普通表格一致 */
+            .acu-fav-card {
+                flex: 0 0 var(--acu-card-width, 260px);
+                width: var(--acu-card-width, 260px);
+                cursor: pointer;
+            }
+            .acu-fav-card-tags {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 4px;
+                padding: 6px 12px 8px;
+                border-top: 1px dashed var(--acu-border);
+            }
+            .acu-fav-tag {
+                padding: 2px 6px;
+                background: var(--acu-accent);
+                color: var(--acu-btn-active-text);
+                border-radius: 8px;
+                font-size: 10px;
+            }
+            /* [已废弃] 操作按钮已改为单击菜单，保留样式以防回退 */
+            /*
+            .acu-fav-card-actions {
+                display: flex;
+                justify-content: flex-end;
+                gap: 4px;
+                padding: 8px 12px;
+                border-top: 1px solid var(--acu-border);
+                background: var(--acu-bg-main);
+            }
+            .acu-fav-action-btn {
+                width: 28px;
+                height: 28px;
+                background: var(--acu-btn-bg);
+                border: 1px solid var(--acu-border);
+                border-radius: 6px;
+                color: var(--acu-text-main);
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 11px;
+            }
+            .acu-fav-action-btn:hover {
+                background: var(--acu-btn-hover);
+                color: var(--acu-accent);
+            }
+            .acu-fav-delete:hover {
+                color: #e74c3c;
+            }
+            */
+            .acu-fav-empty {
+                text-align: center;
+                padding: 40px 20px;
+                color: var(--acu-text-muted);
+            }
+            .acu-fav-empty i {
+                font-size: 36px;
+                opacity: 0.3;
+                margin-bottom: 12px;
+            }
+            .acu-fav-empty p {
+                margin: 4px 0;
+            }
+
+            /* 编辑弹窗 - 保留弹窗形式，添加移动端适配 */
+            .acu-fav-edit-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.6);
+                z-index: 31300;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .acu-fav-edit-modal {
+                width: 90%;
+                max-width: 500px;
+                max-height: 80vh;
+                background: var(--acu-bg-panel);
+                border: 1px solid var(--acu-border);
+                border-radius: 12px;
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+            }
+            @media (max-width: 768px) {
+                .acu-fav-edit-modal {
+                    position: fixed !important;
+                    top: 5% !important;
+                    left: 50% !important;
+                    transform: translateX(-50%) !important;
+                    width: 92vw !important;
+                    max-height: 88vh !important;
+                }
+                .acu-fav-edit-overlay {
+                    align-items: flex-start !important;
+                    padding-top: 5vh !important;
+                }
+                .acu-fav-group-cards {
+                    grid-template-columns: 1fr !important;
+                }
+            }
+            /* 编辑弹窗输入框样式覆盖 */
+            .acu-fav-edit-modal input {
+                padding: 8px 10px !important;
+                background: var(--acu-bg-panel) !important;
+                border: 1px solid var(--acu-border) !important;
+                border-radius: 6px !important;
+                color: var(--acu-text-main) !important;
+                font-size: 12px !important;
+                height: auto !important;
+                box-shadow: none !important;
             }
 `;

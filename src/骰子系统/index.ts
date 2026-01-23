@@ -794,7 +794,7 @@ import { MAIN_STYLES } from './styles';
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.4.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v3.41'; // 脚本版本号
+  const SCRIPT_VERSION = 'v3.50'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -3925,6 +3925,536 @@ import { MAIN_STYLES } from './styles';
       } catch (e) {
         console.error('[DICE]LocalAvatarDB clearAll error:', e);
         return false;
+      }
+    },
+  };
+
+  // ========================================
+  // FavoritesDB - 收藏夹 IndexedDB 存储
+  // ========================================
+  /**
+   * @typedef {Object} FavoriteItem
+   * @property {string} id - UUID
+   * @property {string[]} header - 列名数组 (不含首列null)
+   * @property {(string|number)[]} rowData - 值数组 (与header对应)
+   * @property {string[]} tags - 用户标签
+   * @property {number} createdAt - 创建时间戳
+   * @property {number} updatedAt - 最后修改时间戳
+   * @property {{tableUid: string, tableName: string, chatId: string}} [sourceInfo] - 来源信息
+   */
+  interface FavoriteItem {
+    id: string;
+    header: string[];
+    rowData: (string | number)[];
+    tags: string[];
+    createdAt: number;
+    updatedAt: number;
+    sourceInfo?: {
+      tableUid: string;
+      tableName: string;
+      chatId: string;
+    };
+  }
+
+  const FavoritesDB = {
+    DB_NAME: 'acu_favorites',
+    STORE_NAME: 'items',
+    DB_VERSION: 1,
+    _db: null as IDBDatabase | null,
+
+    // 初始化数据库
+    async init(): Promise<IDBDatabase> {
+      if (this._db) return this._db;
+
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(this.DB_NAME, this.DB_VERSION);
+
+        request.onerror = () => {
+          console.error('[DICE]FavoritesDB 打开数据库失败:', request.error);
+          reject(request.error);
+        };
+
+        request.onsuccess = () => {
+          this._db = request.result;
+          resolve(this._db);
+        };
+
+        request.onupgradeneeded = event => {
+          const db = (event.target as IDBOpenDBRequest).result;
+          if (!db.objectStoreNames.contains(this.STORE_NAME)) {
+            // 主键为 id (UUID)
+            db.createObjectStore(this.STORE_NAME, { keyPath: 'id' });
+          }
+        };
+      });
+    },
+
+    // 添加收藏项
+    async add(item: FavoriteItem): Promise<boolean> {
+      if (!item || !item.id) return false;
+
+      try {
+        const db = await this.init();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction(this.STORE_NAME, 'readwrite');
+          const store = tx.objectStore(this.STORE_NAME);
+
+          const request = store.add(item);
+          request.onsuccess = () => resolve(true);
+          request.onerror = () => {
+            console.error('[DICE]FavoritesDB add 失败:', request.error);
+            reject(request.error);
+          };
+        });
+      } catch (e) {
+        console.error('[DICE]FavoritesDB add error:', e);
+        return false;
+      }
+    },
+
+    // 按ID获取
+    async get(id: string): Promise<FavoriteItem | null> {
+      if (!id) return null;
+
+      try {
+        const db = await this.init();
+        return new Promise(resolve => {
+          const tx = db.transaction(this.STORE_NAME, 'readonly');
+          const store = tx.objectStore(this.STORE_NAME);
+          const request = store.get(id);
+
+          request.onsuccess = () => {
+            resolve(request.result || null);
+          };
+
+          request.onerror = () => resolve(null);
+        });
+      } catch (e) {
+        console.error('[DICE]FavoritesDB get error:', e);
+        return null;
+      }
+    },
+
+    // 更新收藏项 (合并更新)
+    async update(id: string, updates: Partial<FavoriteItem>): Promise<boolean> {
+      if (!id) return false;
+
+      try {
+        const existing = await this.get(id);
+        if (!existing) return false;
+
+        const updated = {
+          ...existing,
+          ...updates,
+          id: existing.id, // 确保 id 不被覆盖
+          updatedAt: Date.now(),
+        };
+
+        const db = await this.init();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction(this.STORE_NAME, 'readwrite');
+          const store = tx.objectStore(this.STORE_NAME);
+
+          const request = store.put(updated);
+          request.onsuccess = () => resolve(true);
+          request.onerror = () => {
+            console.error('[DICE]FavoritesDB update 失败:', request.error);
+            reject(request.error);
+          };
+        });
+      } catch (e) {
+        console.error('[DICE]FavoritesDB update error:', e);
+        return false;
+      }
+    },
+
+    // 删除收藏项
+    async delete(id: string): Promise<boolean> {
+      if (!id) return false;
+
+      try {
+        const db = await this.init();
+        return new Promise(resolve => {
+          const tx = db.transaction(this.STORE_NAME, 'readwrite');
+          const store = tx.objectStore(this.STORE_NAME);
+          const request = store.delete(id);
+
+          request.onsuccess = () => resolve(true);
+          request.onerror = () => resolve(false);
+        });
+      } catch (e) {
+        console.error('[DICE]FavoritesDB delete error:', e);
+        return false;
+      }
+    },
+
+    // 获取所有收藏项
+    async getAll(): Promise<FavoriteItem[]> {
+      try {
+        const db = await this.init();
+        return new Promise(resolve => {
+          const tx = db.transaction(this.STORE_NAME, 'readonly');
+          const store = tx.objectStore(this.STORE_NAME);
+          const request = store.getAll();
+
+          request.onsuccess = () => resolve(request.result || []);
+          request.onerror = () => resolve([]);
+        });
+      } catch (e) {
+        console.error('[DICE]FavoritesDB getAll error:', e);
+        return [];
+      }
+    },
+
+    // 获取所有唯一标签
+    async getAllTags(): Promise<string[]> {
+      try {
+        const items = await this.getAll();
+        const tagSet = new Set<string>();
+        for (const item of items) {
+          if (item.tags && Array.isArray(item.tags)) {
+            for (const tag of item.tags) {
+              if (tag) tagSet.add(tag);
+            }
+          }
+        }
+        return Array.from(tagSet).sort();
+      } catch (e) {
+        console.error('[DICE]FavoritesDB getAllTags error:', e);
+        return [];
+      }
+    },
+
+    // 按标签筛选
+    async getByTag(tag: string): Promise<FavoriteItem[]> {
+      if (!tag) return [];
+
+      try {
+        const items = await this.getAll();
+        return items.filter(item => item.tags && item.tags.includes(tag));
+      } catch (e) {
+        console.error('[DICE]FavoritesDB getByTag error:', e);
+        return [];
+      }
+    },
+
+    // 清空所有
+    async clear(): Promise<boolean> {
+      try {
+        const db = await this.init();
+        return new Promise(resolve => {
+          const tx = db.transaction(this.STORE_NAME, 'readwrite');
+          const store = tx.objectStore(this.STORE_NAME);
+          const request = store.clear();
+
+          request.onsuccess = () => resolve(true);
+          request.onerror = () => resolve(false);
+        });
+      } catch (e) {
+        console.error('[DICE]FavoritesDB clear error:', e);
+        return false;
+      }
+    },
+
+    // 获取总数
+    async count(): Promise<number> {
+      try {
+        const db = await this.init();
+        return new Promise(resolve => {
+          const tx = db.transaction(this.STORE_NAME, 'readonly');
+          const store = tx.objectStore(this.STORE_NAME);
+          const request = store.count();
+
+          request.onsuccess = () => resolve(request.result || 0);
+          request.onerror = () => resolve(0);
+        });
+      } catch (e) {
+        console.error('[DICE]FavoritesDB count error:', e);
+        return 0;
+      }
+    },
+  };
+
+  // ========================================
+  // FavoritesManager - 收藏夹业务逻辑层
+  // ========================================
+
+  interface TableCompatibility {
+    tableUid: string;
+    tableName: string;
+    mode: 'strict' | 'loose' | 'incompatible';
+    matchedCols: string[];
+    unmatchedCols: string[];
+    matchRatio: number;
+  }
+
+  const FavoritesManager = {
+    // 添加收藏
+    async addFavorite(
+      tableUid: string,
+      tableName: string,
+      header: string[],
+      rowData: (string | number)[],
+      tags: string[] = [],
+    ): Promise<FavoriteItem | null> {
+      try {
+        const chatId = SillyTavern.getCurrentChatId() || '';
+        const item: FavoriteItem = {
+          id: crypto.randomUUID(),
+          header: header,
+          rowData: rowData,
+          tags: tags,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          sourceInfo: {
+            tableUid,
+            tableName,
+            chatId,
+          },
+        };
+
+        const success = await FavoritesDB.add(item);
+        if (success) {
+          console.log('[DICE]FavoritesManager 添加收藏:', item.id);
+          return item;
+        }
+        return null;
+      } catch (e) {
+        console.error('[DICE]FavoritesManager addFavorite error:', e);
+        return null;
+      }
+    },
+
+    // 更新收藏
+    async updateFavorite(id: string, updates: Partial<FavoriteItem>): Promise<boolean> {
+      try {
+        const success = await FavoritesDB.update(id, updates);
+        if (success) {
+          console.log('[DICE]FavoritesManager 更新收藏:', id);
+        }
+        return success;
+      } catch (e) {
+        console.error('[DICE]FavoritesManager updateFavorite error:', e);
+        return false;
+      }
+    },
+
+    // 复制收藏
+    async duplicateFavorite(id: string): Promise<FavoriteItem | null> {
+      try {
+        const original = await FavoritesDB.get(id);
+        if (!original) return null;
+
+        const copy: FavoriteItem = {
+          ...original,
+          id: crypto.randomUUID(),
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+
+        const success = await FavoritesDB.add(copy);
+        if (success) {
+          console.log('[DICE]FavoritesManager 复制收藏:', id, '->', copy.id);
+          return copy;
+        }
+        return null;
+      } catch (e) {
+        console.error('[DICE]FavoritesManager duplicateFavorite error:', e);
+        return null;
+      }
+    },
+
+    // 删除收藏
+    async deleteFavorite(id: string): Promise<boolean> {
+      try {
+        const success = await FavoritesDB.delete(id);
+        if (success) {
+          console.log('[DICE]FavoritesManager 删除收藏:', id);
+        }
+        return success;
+      } catch (e) {
+        console.error('[DICE]FavoritesManager deleteFavorite error:', e);
+        return false;
+      }
+    },
+
+    // 添加标签
+    async addTag(id: string, tag: string): Promise<boolean> {
+      try {
+        const item = await FavoritesDB.get(id);
+        if (!item) return false;
+
+        if (!item.tags.includes(tag)) {
+          item.tags.push(tag);
+          return await FavoritesDB.update(id, { tags: item.tags });
+        }
+        return true;
+      } catch (e) {
+        console.error('[DICE]FavoritesManager addTag error:', e);
+        return false;
+      }
+    },
+
+    // 移除标签
+    async removeTag(id: string, tag: string): Promise<boolean> {
+      try {
+        const item = await FavoritesDB.get(id);
+        if (!item) return false;
+
+        const index = item.tags.indexOf(tag);
+        if (index > -1) {
+          item.tags.splice(index, 1);
+          return await FavoritesDB.update(id, { tags: item.tags });
+        }
+        return true;
+      } catch (e) {
+        console.error('[DICE]FavoritesManager removeTag error:', e);
+        return false;
+      }
+    },
+
+    // 获取所有标签
+    async getAllTags(): Promise<string[]> {
+      return await FavoritesDB.getAllTags();
+    },
+
+    // 获取所有收藏
+    async getAll(): Promise<FavoriteItem[]> {
+      return await FavoritesDB.getAll();
+    },
+
+    // 按标签获取
+    async getByTag(tag: string): Promise<FavoriteItem[]> {
+      return await FavoritesDB.getByTag(tag);
+    },
+
+    // 按ID获取
+    async getById(id: string): Promise<FavoriteItem | null> {
+      return await FavoritesDB.get(id);
+    },
+
+    // 查找兼容表格
+    findCompatibleTables(favorite: FavoriteItem, currentTables: Record<string, any>): TableCompatibility[] {
+      const results: TableCompatibility[] = [];
+
+      for (const uid in currentTables) {
+        const table = currentTables[uid];
+        if (!table || !table.content || !table.content[0]) continue;
+
+        // 获取表头（去掉首列null）
+        const tableHeader: string[] = table.content[0].slice(1).map((h: any) => String(h || ''));
+
+        // 检查是否严格匹配
+        const isStrict =
+          favorite.header.length === tableHeader.length && favorite.header.every((h, i) => h === tableHeader[i]);
+
+        // 计算匹配列
+        const matchedCols = favorite.header.filter(h => tableHeader.includes(h));
+        const unmatchedCols = favorite.header.filter(h => !tableHeader.includes(h));
+        const matchRatio = favorite.header.length > 0 ? matchedCols.length / favorite.header.length : 0;
+
+        if (isStrict) {
+          results.push({
+            tableUid: uid,
+            tableName: table.name || uid,
+            mode: 'strict',
+            matchedCols,
+            unmatchedCols,
+            matchRatio: 1,
+          });
+        } else if (matchRatio > 0) {
+          results.push({
+            tableUid: uid,
+            tableName: table.name || uid,
+            mode: 'loose',
+            matchedCols,
+            unmatchedCols,
+            matchRatio,
+          });
+        }
+      }
+
+      // 按匹配度排序（strict优先，然后按matchRatio降序）
+      return results.sort((a, b) => {
+        if (a.mode === 'strict' && b.mode !== 'strict') return -1;
+        if (a.mode !== 'strict' && b.mode === 'strict') return 1;
+        return b.matchRatio - a.matchRatio;
+      });
+    },
+
+    // 映射行数据到目标表格
+    mapRowToTable(favorite: FavoriteItem, targetHeader: string[]): (string | number | null)[] {
+      const newRow: (string | number | null)[] = [null]; // 首列固定null
+      for (const col of targetHeader) {
+        const srcIndex = favorite.header.indexOf(col);
+        newRow.push(srcIndex >= 0 ? favorite.rowData[srcIndex] : '');
+      }
+      return newRow;
+    },
+
+    // 导出收藏夹
+    async exportFavorites(): Promise<string> {
+      try {
+        const items = await FavoritesDB.getAll();
+        const exportData = {
+          version: 1,
+          exportedAt: Date.now(),
+          items: items,
+        };
+        return JSON.stringify(exportData, null, 2);
+      } catch (e) {
+        console.error('[DICE]FavoritesManager exportFavorites error:', e);
+        return '';
+      }
+    },
+
+    // 导入收藏夹
+    async importFavorites(jsonStr: string): Promise<{ added: number; updated: number } | null> {
+      try {
+        const data = JSON.parse(jsonStr);
+        if (!data || !data.items || !Array.isArray(data.items)) {
+          console.error('[DICE]FavoritesManager 导入格式无效');
+          return null;
+        }
+
+        let added = 0;
+        let updated = 0;
+
+        for (const item of data.items) {
+          if (!item.id || !item.header || !item.rowData) continue;
+
+          const existing = await FavoritesDB.get(item.id);
+          if (existing) {
+            // 覆盖更新
+            await FavoritesDB.update(item.id, {
+              header: item.header,
+              rowData: item.rowData,
+              tags: item.tags || [],
+              updatedAt: Date.now(),
+              sourceInfo: item.sourceInfo,
+            });
+            updated++;
+          } else {
+            // 新增
+            const newItem: FavoriteItem = {
+              id: item.id,
+              header: item.header,
+              rowData: item.rowData,
+              tags: item.tags || [],
+              createdAt: item.createdAt || Date.now(),
+              updatedAt: Date.now(),
+              sourceInfo: item.sourceInfo,
+            };
+            await FavoritesDB.add(newItem);
+            added++;
+          }
+        }
+
+        console.log('[DICE]FavoritesManager 导入完成:', added, '新增,', updated, '更新');
+        return { added, updated };
+      } catch (e) {
+        console.error('[DICE]FavoritesManager importFavorites error:', e);
+        return null;
       }
     },
   };
@@ -9295,8 +9825,8 @@ import { MAIN_STYLES } from './styles';
   const ACTION_BUTTONS = [
     // { id: 'acu-btn-save-global', icon: 'fa-save', title: '保存所有修改' }, // 已废弃：使用即时保存
     { id: 'acu-btn-refresh', icon: 'fa-sync-alt', title: '重新加载' },
+    { id: 'acu-btn-open-editor', icon: 'fa-database', title: '打开神-数据库' },
     { id: 'acu-btn-collapse', icon: 'fa-chevron-down', title: '收起面板' },
-    // {id: 'acu-btn-open-editor', icon: 'fa-table-columns', title: '打开内置编辑器'},
     { id: 'acu-btn-refill', icon: 'fa-bolt', title: '重新填表' },
     { id: 'acu-btn-settings', icon: 'fa-cog', title: '全能设置' },
   ];
@@ -9503,6 +10033,7 @@ import { MAIN_STYLES } from './styles';
     { id: 'classicpackaging', name: '经典包装 (Classic Packaging)', icon: 'fa-box' },
     { id: 'terminal', name: '终端绿屏 (Terminal)', icon: 'fa-terminal' },
     { id: 'dreamcore', name: '梦核迷离 (Dreamcore)', icon: 'fa-cloud-moon' },
+    { id: 'aurora', name: '极光幻境 (Aurora)', icon: 'fa-snowflake' },
     { id: 'chouten', name: '幻夜霓虹 (Cyber Kawaii)', icon: 'fa-star' },
   ];
 
@@ -14613,11 +15144,11 @@ import { MAIN_STYLES } from './styles';
         const nodeAvatar = await AvatarManager.getAsync(node.name);
         const isPlayer = node.isPlayer;
 
-        // 在场标记：左上角小圆点（随节点大小缩放）
-        const indicatorRadius = node.radius * 0.28;
-        const indicatorOffset = node.radius * 0.65;
+        // 在场标记：右下角小圆点（随节点大小缩放，Discord风格）
+        const indicatorRadius = node.radius * 0.22;
+        const indicatorOffset = node.radius * 0.62;
         const inSceneIndicator = node.isInScene
-          ? `<circle class="acu-node-inscene-indicator" cx="${-indicatorOffset}" cy="${-indicatorOffset}" r="${indicatorRadius}" style="fill:var(--acu-accent);stroke:var(--acu-bg-panel);stroke-width:2;" />`
+          ? `<circle class="acu-node-inscene-indicator" cx="${indicatorOffset}" cy="${indicatorOffset}" r="${indicatorRadius}" style="fill:var(--acu-accent);stroke:var(--acu-bg-panel);stroke-width:3;" />`
           : '';
 
         const nodeDisplayName = replaceUserPlaceholders(node.name);
@@ -16320,7 +16851,8 @@ import { MAIN_STYLES } from './styles';
                     ${fontImport}
                     .acu-wrapper, .acu-edit-dialog, .acu-cell-menu, .acu-nav-container, .acu-data-card, .acu-panel-title, .acu-settings-label, .acu-btn-block, .acu-nav-btn, .acu-edit-textarea,
                     .acu-dice-panel, .acu-contest-panel, .acu-dice-config-dialog,
-                    .acu-relation-graph-container, .acu-avatar-manager, .acu-import-confirm-dialog {
+                    .acu-relation-graph-container, .acu-avatar-manager, .acu-import-confirm-dialog,
+                    .acu-embedded-options-container, .acu-option-panel, .acu-opt-btn {
                         font-family: ${fontVal} !important;
                     }
                 </style>
@@ -20382,6 +20914,842 @@ import { MAIN_STYLES } from './styles';
   // 暴露到全局，供紧急入口按钮调用
   window.showDebugConsoleModal = showDebugConsoleModal;
 
+  // ========================================
+  // AcuDice 公共 API - 供其他插件和角色卡调用
+  // ========================================
+
+  /**
+   * AcuDice 公共 API
+   * 提供骰子投掷和检定功能给外部插件使用
+   */
+  const AcuDiceAPI = {
+    /** API 版本号 */
+    version: '1.0.0',
+
+    /**
+     * 骰子投掷（同步）
+     * @param formula 骰子表达式，如 "2d6", "1d20+5", "4d6kh3"
+     * @returns 投掷结果对象
+     * @example
+     * AcuDice.roll('2d6') // => { total: 7, formula: '2d6', breakdown: '2d6 = 7' }
+     * AcuDice.roll('1d20+5') // => { total: 15, formula: '1d20+5', breakdown: '1d20+5 = 15' }
+     */
+    roll(formula: string): { total: number; formula: string; breakdown: string } {
+      if (!formula || typeof formula !== 'string') {
+        throw new Error('[AcuDice] roll() 需要一个有效的骰子表达式字符串');
+      }
+      const total = evaluateFormula(formula, {});
+      return {
+        total,
+        formula,
+        breakdown: `${formula} = ${total}`,
+      };
+    },
+
+    /**
+     * 属性/技能检定（异步）
+     * @param options 检定选项
+     * @returns 检定结果对象
+     * @example
+     * await AcuDice.check({ attribute: '力量' })
+     * await AcuDice.check({ attribute: '力量', targetValue: 50, diceType: '1d100' })
+     */
+    async check(
+      options: {
+        attribute?: string;
+        skill?: string;
+        targetValue?: number;
+        diceType?: string;
+        successCriteria?: 'lte' | 'gte';
+        modifier?: number;
+      } = {},
+    ): Promise<{
+      success: boolean;
+      roll: number;
+      target: number;
+      margin: number;
+      criticalSuccess: boolean;
+      criticalFailure: boolean;
+      message: string;
+      diceType: string;
+      rule: 'coc' | 'dnd';
+    }> {
+      const diceCfg = getDiceConfig();
+      const diceType = options.diceType || diceCfg.lastDiceType || '1d100';
+      const successCriteria = options.successCriteria || (diceType === '1d20' ? 'gte' : 'lte');
+      const isDND = successCriteria === 'gte';
+      const modifier = options.modifier || 0;
+
+      // 获取目标值
+      let targetValue = options.targetValue;
+
+      // 如果指定了属性名但没有目标值，尝试从角色数据获取
+      if (targetValue === undefined && (options.attribute || options.skill)) {
+        const attrName = options.attribute || options.skill || '';
+        const rawData = cachedRawData || getTableData();
+
+        if (rawData) {
+          // 从主角信息表查找属性值
+          for (const key in rawData) {
+            const sheet = rawData[key];
+            if (sheet?.name === '主角信息' && sheet.content?.[1]) {
+              const headers = sheet.content[0] || [];
+              const row = sheet.content[1];
+              for (let idx = 0; idx < headers.length; idx++) {
+                const h = headers[idx];
+                if (h && (h.includes('属性') || h.includes('技能'))) {
+                  const parsed = parseAttributeString(row[idx] || '');
+                  const found = parsed.find((attr: { name: string; value: number }) => attr.name === attrName);
+                  if (found) {
+                    targetValue = found.value;
+                    break;
+                  }
+                }
+              }
+              if (targetValue !== undefined) break;
+            }
+          }
+        }
+
+        if (targetValue === undefined) {
+          throw new Error(`[AcuDice] 未找到属性或技能: ${attrName}`);
+        }
+      }
+
+      if (targetValue === undefined) {
+        throw new Error('[AcuDice] check() 需要 targetValue 或有效的 attribute/skill 名称');
+      }
+
+      // 投骰
+      const rollResult = rollDiceExpression(diceType);
+      if (isNaN(rollResult)) {
+        throw new Error(`[AcuDice] 无效的骰子表达式: ${diceType}`);
+      }
+
+      const finalRoll = rollResult + modifier;
+      const target = targetValue;
+
+      // 判定结果
+      let success = false;
+      let criticalSuccess = false;
+      let criticalFailure = false;
+      let message = '';
+
+      if (isDND) {
+        // DND 规则: roll >= target 成功
+        success = finalRoll >= target;
+        criticalSuccess = rollResult === diceCfg.dndCritSuccess;
+        criticalFailure = rollResult === diceCfg.dndCritFail;
+
+        if (criticalSuccess) {
+          success = true;
+          message = `大成功！掷出 ${rollResult}${modifier ? ` + ${modifier}` : ''} = ${finalRoll}，DC ${target}`;
+        } else if (criticalFailure) {
+          success = false;
+          message = `大失败！掷出 ${rollResult}${modifier ? ` + ${modifier}` : ''} = ${finalRoll}，DC ${target}`;
+        } else if (success) {
+          message = `成功！掷出 ${finalRoll} >= DC ${target}`;
+        } else {
+          message = `失败！掷出 ${finalRoll} < DC ${target}`;
+        }
+      } else {
+        // COC 规则: roll <= target 成功
+        success = finalRoll <= target;
+        criticalSuccess = finalRoll <= diceCfg.critSuccessMax;
+        criticalFailure = finalRoll >= diceCfg.critFailMin;
+
+        if (criticalSuccess) {
+          success = true;
+          message = `大成功！掷出 ${finalRoll}，目标 ${target}`;
+        } else if (criticalFailure) {
+          success = false;
+          message = `大失败！掷出 ${finalRoll}，目标 ${target}`;
+        } else if (success) {
+          const hardSuccess = finalRoll <= Math.floor(target / diceCfg.hardSuccessDiv);
+          const extremeSuccess = finalRoll <= Math.floor(target / diceCfg.difficultSuccessDiv);
+          if (extremeSuccess) {
+            message = `极难成功！掷出 ${finalRoll} <= ${Math.floor(target / diceCfg.difficultSuccessDiv)}`;
+          } else if (hardSuccess) {
+            message = `困难成功！掷出 ${finalRoll} <= ${Math.floor(target / diceCfg.hardSuccessDiv)}`;
+          } else {
+            message = `成功！掷出 ${finalRoll} <= ${target}`;
+          }
+        } else {
+          message = `失败！掷出 ${finalRoll} > ${target}`;
+        }
+      }
+
+      return {
+        success,
+        roll: finalRoll,
+        target,
+        margin: isDND ? finalRoll - target : target - finalRoll,
+        criticalSuccess,
+        criticalFailure,
+        message,
+        diceType,
+        rule: isDND ? 'dnd' : 'coc',
+      };
+    },
+
+    /**
+     * 初始化回调 - API 已就绪时调用
+     * @param callback 回调函数
+     */
+    onReady(callback: () => void): void {
+      if (typeof callback === 'function') {
+        callback();
+      }
+    },
+
+    /**
+     * 事件订阅（预留接口，暂未实现）
+     */
+    on(event: string, handler: Function): void {
+      console.warn('[AcuDice] 事件系统尚未实现，event:', event);
+    },
+
+    /**
+     * 取消事件订阅（预留接口，暂未实现）
+     */
+    off(event: string, handler: Function): void {
+      console.warn('[AcuDice] 事件系统尚未实现，event:', event);
+    },
+  };
+
+  // 使用 Object.defineProperty 防止意外覆盖
+  Object.defineProperty(window, 'AcuDice', {
+    value: AcuDiceAPI,
+    writable: false,
+    configurable: false,
+  });
+
+  console.info('[AcuDice] API v1.0.0 已加载');
+
+  // ========================================
+  // ========================================
+  // 收藏夹面板 (旧弹窗版本 - 已废弃，保留用于兼容)
+  // 新版本使用 renderFavoritesPanel() + bindFavoritesEvents() 面板模式
+  // ========================================
+  /** @deprecated 使用新的面板模式 renderFavoritesPanel() 替代 */
+  const showFavoritesPanel = async () => {
+    const { $ } = getCore();
+    $('.acu-favorites-overlay').remove();
+
+    const config = getConfig();
+    const t = getThemeColors();
+
+    // 获取所有收藏和标签
+    const allFavorites = await FavoritesManager.getAll();
+    const allTags = await FavoritesManager.getAllTags();
+
+    // 获取当前聊天的表格（用于新建卡片选择模板）
+    const rawData = cachedRawData || getTableData();
+    const currentTables = rawData || {};
+
+    // 按标签分组
+    const groupedByTag: Record<string, FavoriteItem[]> = {};
+    const untagged: FavoriteItem[] = [];
+
+    for (const fav of allFavorites) {
+      if (fav.tags && fav.tags.length > 0) {
+        for (const tag of fav.tags) {
+          if (!groupedByTag[tag]) groupedByTag[tag] = [];
+          groupedByTag[tag].push(fav);
+        }
+      } else {
+        untagged.push(fav);
+      }
+    }
+
+    // 生成卡片HTML
+    const renderFavoriteCard = (fav: FavoriteItem) => {
+      const preview = fav.header
+        .slice(0, 3)
+        .map(
+          (h, i) =>
+            `<span class="acu-fav-preview-item"><b>${escapeHtml(h)}:</b> ${escapeHtml(String(fav.rowData[i] || ''))}</span>`,
+        )
+        .join('');
+      const tagsHtml = fav.tags.map(tag => `<span class="acu-favorites-tag">${escapeHtml(tag)}</span>`).join('');
+      const sourceInfo = fav.sourceInfo ? `来自: ${escapeHtml(fav.sourceInfo.tableName)}` : '';
+
+      return `
+        <div class="acu-favorites-card" data-id="${escapeHtml(fav.id)}">
+          <div class="acu-favorites-card-header">
+            <div class="acu-favorites-card-preview">${preview}</div>
+            <div class="acu-favorites-card-source">${sourceInfo}</div>
+          </div>
+          <div class="acu-favorites-card-tags">${tagsHtml}</div>
+          <div class="acu-favorites-card-actions">
+            <button class="acu-fav-btn acu-fav-edit" title="编辑"><i class="fa-solid fa-pen"></i></button>
+            <button class="acu-fav-btn acu-fav-copy" title="复制"><i class="fa-solid fa-copy"></i></button>
+            <button class="acu-fav-btn acu-fav-send" title="发送到表格"><i class="fa-solid fa-paper-plane"></i></button>
+            <button class="acu-fav-btn acu-fav-delete" title="删除"><i class="fa-solid fa-trash"></i></button>
+          </div>
+        </div>
+      `;
+    };
+
+    // 生成分组内容HTML
+    let contentHtml = '';
+
+    // 按标签分组显示
+    for (const tag of Object.keys(groupedByTag).sort()) {
+      contentHtml += `
+        <div class="acu-favorites-group">
+          <div class="acu-favorites-group-title"><i class="fa-solid fa-tag"></i> ${escapeHtml(tag)} (${groupedByTag[tag].length})</div>
+          <div class="acu-favorites-group-cards">
+            ${groupedByTag[tag].map(renderFavoriteCard).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    // 无标签的平铺显示
+    if (untagged.length > 0) {
+      contentHtml += `
+        <div class="acu-favorites-group">
+          <div class="acu-favorites-group-title"><i class="fa-solid fa-inbox"></i> 未分类 (${untagged.length})</div>
+          <div class="acu-favorites-group-cards">
+            ${untagged.map(renderFavoriteCard).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    if (allFavorites.length === 0) {
+      contentHtml = `
+        <div class="acu-favorites-empty">
+          <i class="fa-solid fa-star" style="font-size: 48px; opacity: 0.3;"></i>
+          <p>暂无收藏</p>
+          <p style="font-size: 12px; opacity: 0.7;">右键点击表格行 → 选择"收藏此行"</p>
+        </div>
+      `;
+    }
+
+    // 标签筛选下拉
+    const tagFilterOptions = allTags
+      .map(tag => `<option value="${escapeHtml(tag)}">${escapeHtml(tag)}</option>`)
+      .join('');
+
+    const overlayHtml = `
+      <div class="acu-favorites-overlay acu-theme-${config.theme}">
+        <div class="acu-favorites-panel">
+          <div class="acu-favorites-header">
+            <h3><i class="fa-solid fa-star"></i> 收藏夹</h3>
+            <div class="acu-favorites-header-actions">
+              <button class="acu-fav-header-btn" id="acu-fav-new" title="新建卡片"><i class="fa-solid fa-plus"></i> 新建</button>
+              <button class="acu-fav-header-btn" id="acu-fav-import" title="导入"><i class="fa-solid fa-file-import"></i> 导入</button>
+              <button class="acu-fav-header-btn" id="acu-fav-export" title="导出"><i class="fa-solid fa-file-export"></i> 导出</button>
+              <button class="acu-fav-header-btn acu-fav-close" title="关闭"><i class="fa-solid fa-times"></i></button>
+            </div>
+          </div>
+          <div class="acu-favorites-filter">
+            <select id="acu-fav-tag-filter">
+              <option value="">全部标签</option>
+              ${tagFilterOptions}
+            </select>
+            <input type="text" id="acu-fav-search" placeholder="搜索收藏..." />
+          </div>
+          <div class="acu-favorites-content">
+            ${contentHtml}
+          </div>
+        </div>
+      </div>
+    `;
+
+    $('body').append(overlayHtml);
+
+    const $overlay = $('.acu-favorites-overlay');
+    const $panel = $overlay.find('.acu-favorites-panel');
+
+    // 关闭面板
+    const closePanel = () => {
+      $overlay.remove();
+    };
+
+    $overlay.on('click', e => {
+      if ($(e.target).hasClass('acu-favorites-overlay')) {
+        closePanel();
+      }
+    });
+
+    $panel.find('.acu-fav-close').on('click', closePanel);
+
+    // 标签筛选
+    $panel.find('#acu-fav-tag-filter').on('change', async function () {
+      const tag = $(this).val() as string;
+      const filtered = tag ? await FavoritesManager.getByTag(tag) : await FavoritesManager.getAll();
+      const $content = $panel.find('.acu-favorites-content');
+
+      if (filtered.length === 0) {
+        $content.html('<div class="acu-favorites-empty"><p>没有匹配的收藏</p></div>');
+      } else {
+        $content.html(`<div class="acu-favorites-group-cards">${filtered.map(renderFavoriteCard).join('')}</div>`);
+      }
+    });
+
+    // 搜索
+    $panel.find('#acu-fav-search').on('input', async function () {
+      const query = ($(this).val() as string).toLowerCase().trim();
+      const all = await FavoritesManager.getAll();
+      const filtered = query
+        ? all.filter(fav => {
+            const headerMatch = fav.header.some(h => h.toLowerCase().includes(query));
+            const dataMatch = fav.rowData.some(d => String(d).toLowerCase().includes(query));
+            const tagMatch = fav.tags.some(t => t.toLowerCase().includes(query));
+            return headerMatch || dataMatch || tagMatch;
+          })
+        : all;
+
+      const $content = $panel.find('.acu-favorites-content');
+      if (filtered.length === 0) {
+        $content.html('<div class="acu-favorites-empty"><p>没有匹配的收藏</p></div>');
+      } else {
+        $content.html(`<div class="acu-favorites-group-cards">${filtered.map(renderFavoriteCard).join('')}</div>`);
+      }
+    });
+
+    // 编辑卡片
+    $panel.on('click', '.acu-fav-edit', async function () {
+      const id = $(this).closest('.acu-favorites-card').data('id');
+      const fav = await FavoritesManager.getById(id);
+      if (!fav) return;
+
+      showFavoriteEditModal(fav, async updated => {
+        await FavoritesManager.updateFavorite(id, updated);
+        toastr.success('保存成功');
+        closePanel();
+        showFavoritesPanel();
+      });
+    });
+
+    // 复制卡片
+    $panel.on('click', '.acu-fav-copy', async function () {
+      const id = $(this).closest('.acu-favorites-card').data('id');
+      const result = await FavoritesManager.duplicateFavorite(id);
+      if (result) {
+        toastr.success('复制成功');
+        closePanel();
+        showFavoritesPanel();
+      } else {
+        toastr.error('复制失败');
+      }
+    });
+
+    // 发送到表格
+    $panel.on('click', '.acu-fav-send', async function () {
+      const id = $(this).closest('.acu-favorites-card').data('id');
+      const fav = await FavoritesManager.getById(id);
+      if (!fav) return;
+
+      const compatible = FavoritesManager.findCompatibleTables(fav, currentTables);
+      if (compatible.length === 0) {
+        toastr.warning('当前聊天没有兼容的表格');
+        return;
+      }
+
+      showSendToTableModal(fav, compatible, currentTables, () => {
+        toastr.success('发送成功');
+        closePanel();
+        renderInterface();
+      });
+    });
+
+    // 删除卡片
+    $panel.on('click', '.acu-fav-delete', async function () {
+      const id = $(this).closest('.acu-favorites-card').data('id');
+      if (!confirm('确定要删除这个收藏吗？')) return;
+
+      const result = await FavoritesManager.deleteFavorite(id);
+      if (result) {
+        toastr.success('删除成功');
+        $(this)
+          .closest('.acu-favorites-card')
+          .fadeOut(200, function () {
+            $(this).remove();
+          });
+      } else {
+        toastr.error('删除失败');
+      }
+    });
+
+    // 新建卡片
+    $panel.find('#acu-fav-new').on('click', () => {
+      const tableKeys = Object.keys(currentTables);
+      if (tableKeys.length === 0) {
+        toastr.warning('当前聊天没有表格模板');
+        return;
+      }
+
+      showNewFavoriteModal(currentTables, async (header, tableName) => {
+        const emptyRowData = header.map(() => '');
+        const newFav = await FavoritesManager.addFavorite('', tableName, header, emptyRowData, []);
+        if (newFav) {
+          toastr.success('创建成功');
+          closePanel();
+          showFavoritesPanel();
+          // 立即打开编辑
+          setTimeout(async () => {
+            const freshFav = await FavoritesManager.getById(newFav.id);
+            if (freshFav) {
+              showFavoriteEditModal(freshFav, async updated => {
+                await FavoritesManager.updateFavorite(newFav.id, updated);
+                toastr.success('保存成功');
+                $('.acu-favorites-overlay').remove();
+                showFavoritesPanel();
+              });
+            }
+          }, 100);
+        }
+      });
+    });
+
+    // 导出
+    $panel.find('#acu-fav-export').on('click', async () => {
+      const json = await FavoritesManager.exportFavorites();
+      if (!json) {
+        toastr.error('导出失败');
+        return;
+      }
+
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const now = new Date();
+      const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+      a.href = url;
+      a.download = `favorites_${dateStr}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toastr.success('导出成功');
+    });
+
+    // 导入
+    $panel.find('#acu-fav-import').on('click', () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.json';
+      input.onchange = async e => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (!file) return;
+
+        try {
+          const text = await file.text();
+          const result = await FavoritesManager.importFavorites(text);
+          if (result) {
+            toastr.success(`导入成功: ${result.added}项新增, ${result.updated}项更新`);
+            closePanel();
+            showFavoritesPanel();
+          } else {
+            toastr.error('导入失败: 格式无效');
+          }
+        } catch (err) {
+          toastr.error('导入失败: ' + (err instanceof Error ? err.message : String(err)));
+        }
+      };
+      input.click();
+    });
+  };
+
+  // 收藏卡片编辑弹窗
+  const showFavoriteEditModal = (fav: FavoriteItem, onSave: (updated: Partial<FavoriteItem>) => void) => {
+    const { $ } = getCore();
+    $('.acu-fav-edit-overlay').remove();
+
+    const config = getConfig();
+
+    // 生成编辑行HTML
+    const renderEditRows = (header: string[], rowData: (string | number)[]) => {
+      return header
+        .map(
+          (h, i) => `
+        <div class="acu-fav-edit-row" data-index="${i}">
+          <input type="text" class="acu-fav-edit-header" value="${escapeHtml(h)}" placeholder="列名" />
+          <input type="text" class="acu-fav-edit-value" value="${escapeHtml(String(rowData[i] || ''))}" placeholder="值" />
+          <button class="acu-fav-edit-remove" title="删除列"><i class="fa-solid fa-minus"></i></button>
+        </div>
+      `,
+        )
+        .join('');
+    };
+
+    const overlayHtml = `
+      <div class="acu-fav-edit-overlay acu-theme-${config.theme}">
+        <div class="acu-fav-edit-modal">
+          <div class="acu-fav-edit-modal-header">
+            <h4>编辑收藏</h4>
+            <button class="acu-fav-edit-close"><i class="fa-solid fa-times"></i></button>
+          </div>
+          <div class="acu-fav-edit-modal-body">
+            <div class="acu-fav-edit-tags-section">
+              <label>标签 (逗号分隔):</label>
+              <input type="text" id="acu-fav-edit-tags" value="${escapeHtml(fav.tags.join(', '))}" />
+            </div>
+            <div class="acu-fav-edit-rows">
+              ${renderEditRows(fav.header, fav.rowData)}
+            </div>
+            <button class="acu-fav-edit-add-col"><i class="fa-solid fa-plus"></i> 添加列</button>
+          </div>
+          <div class="acu-fav-edit-modal-footer">
+            <button class="acu-fav-edit-cancel">取消</button>
+            <button class="acu-fav-edit-save">保存</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    $('body').append(overlayHtml);
+
+    const $overlay = $('.acu-fav-edit-overlay');
+    const $modal = $overlay.find('.acu-fav-edit-modal');
+
+    const closeModal = () => $overlay.remove();
+
+    $overlay.on('click', e => {
+      if ($(e.target).hasClass('acu-fav-edit-overlay')) closeModal();
+    });
+
+    $modal.find('.acu-fav-edit-close, .acu-fav-edit-cancel').on('click', closeModal);
+
+    // 删除列
+    $modal.on('click', '.acu-fav-edit-remove', function () {
+      $(this).closest('.acu-fav-edit-row').remove();
+    });
+
+    // 添加列
+    $modal.find('.acu-fav-edit-add-col').on('click', () => {
+      const newIndex = $modal.find('.acu-fav-edit-row').length;
+      const newRowHtml = `
+        <div class="acu-fav-edit-row" data-index="${newIndex}">
+          <input type="text" class="acu-fav-edit-header" value="" placeholder="列名" />
+          <input type="text" class="acu-fav-edit-value" value="" placeholder="值" />
+          <button class="acu-fav-edit-remove" title="删除列"><i class="fa-solid fa-minus"></i></button>
+        </div>
+      `;
+      $modal.find('.acu-fav-edit-rows').append(newRowHtml);
+    });
+
+    // 保存
+    $modal.find('.acu-fav-edit-save').on('click', () => {
+      const newHeader: string[] = [];
+      const newRowData: (string | number)[] = [];
+
+      $modal.find('.acu-fav-edit-row').each(function () {
+        const h = $(this).find('.acu-fav-edit-header').val() as string;
+        const v = $(this).find('.acu-fav-edit-value').val() as string;
+        if (h.trim()) {
+          newHeader.push(h.trim());
+          newRowData.push(v);
+        }
+      });
+
+      const tagsStr = ($modal.find('#acu-fav-edit-tags').val() as string) || '';
+      const newTags = tagsStr
+        .split(',')
+        .map(t => t.trim())
+        .filter(t => t.length > 0);
+
+      onSave({
+        header: newHeader,
+        rowData: newRowData,
+        tags: newTags,
+      });
+
+      closeModal();
+    });
+  };
+
+  // 新建收藏弹窗（选择模板）
+  const showNewFavoriteModal = (
+    currentTables: Record<string, any>,
+    onCreate: (header: string[], tableName: string) => void,
+  ) => {
+    const { $ } = getCore();
+    $('.acu-fav-new-overlay').remove();
+
+    const config = getConfig();
+
+    const tableOptions = Object.keys(currentTables)
+      .map(key => {
+        const table = currentTables[key];
+        const name = table.name || key;
+        return `<option value="${escapeHtml(key)}">${escapeHtml(name)}</option>`;
+      })
+      .join('');
+
+    const overlayHtml = `
+      <div class="acu-fav-new-overlay acu-theme-${config.theme}">
+        <div class="acu-fav-new-modal">
+          <div class="acu-fav-new-modal-header">
+            <h4>选择模板</h4>
+            <button class="acu-fav-new-close"><i class="fa-solid fa-times"></i></button>
+          </div>
+          <div class="acu-fav-new-modal-body">
+            <label>从以下表格中选择结构作为模板:</label>
+            <select id="acu-fav-new-template">
+              ${tableOptions}
+            </select>
+          </div>
+          <div class="acu-fav-new-modal-footer">
+            <button class="acu-fav-new-cancel">取消</button>
+            <button class="acu-fav-new-create">创建</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    $('body').append(overlayHtml);
+
+    const $overlay = $('.acu-fav-new-overlay');
+    const $modal = $overlay.find('.acu-fav-new-modal');
+
+    const closeModal = () => $overlay.remove();
+
+    $overlay.on('click', e => {
+      if ($(e.target).hasClass('acu-fav-new-overlay')) closeModal();
+    });
+
+    $modal.find('.acu-fav-new-close, .acu-fav-new-cancel').on('click', closeModal);
+
+    $modal.find('.acu-fav-new-create').on('click', () => {
+      const key = $modal.find('#acu-fav-new-template').val() as string;
+      const table = currentTables[key];
+      if (!table || !table.content || !table.content[0]) {
+        toastr.error('无效的表格模板');
+        return;
+      }
+
+      const fullHeader = table.content[0];
+      const header: string[] = fullHeader.slice(1).map((h: any) => String(h || ''));
+      const tableName = table.name || key;
+
+      onCreate(header, tableName);
+      closeModal();
+    });
+  };
+
+  // 发送到表格弹窗
+  const showSendToTableModal = (
+    fav: FavoriteItem,
+    compatible: TableCompatibility[],
+    currentTables: Record<string, any>,
+    onSuccess: () => void,
+  ) => {
+    const { $ } = getCore();
+    $('.acu-fav-send-overlay').remove();
+
+    const config = getConfig();
+
+    const tableListHtml = compatible
+      .map(c => {
+        const modeLabel =
+          c.mode === 'strict'
+            ? '<span style="color:#27ae60;">✓ 完全匹配</span>'
+            : `<span style="color:#f39c12;">⚠ 部分匹配 (${c.matchedCols.length}/${fav.header.length}列)</span>`;
+        const unmatchedInfo =
+          c.unmatchedCols.length > 0
+            ? `<div class="acu-fav-send-unmatched">未匹配: ${c.unmatchedCols.join(', ')}</div>`
+            : '';
+
+        return `
+        <div class="acu-fav-send-option" data-uid="${escapeHtml(c.tableUid)}" data-mode="${c.mode}">
+          <div class="acu-fav-send-option-name">${escapeHtml(c.tableName)}</div>
+          <div class="acu-fav-send-option-mode">${modeLabel}</div>
+          ${unmatchedInfo}
+        </div>
+      `;
+      })
+      .join('');
+
+    const overlayHtml = `
+      <div class="acu-fav-send-overlay acu-theme-${config.theme}">
+        <div class="acu-fav-send-modal">
+          <div class="acu-fav-send-modal-header">
+            <h4>选择目标表格</h4>
+            <button class="acu-fav-send-close"><i class="fa-solid fa-times"></i></button>
+          </div>
+          <div class="acu-fav-send-modal-body">
+            ${tableListHtml}
+          </div>
+          <div class="acu-fav-send-modal-footer">
+            <button class="acu-fav-send-cancel">取消</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    $('body').append(overlayHtml);
+
+    const $overlay = $('.acu-fav-send-overlay');
+    const $modal = $overlay.find('.acu-fav-send-modal');
+
+    const closeModal = () => $overlay.remove();
+
+    $overlay.on('click', e => {
+      if ($(e.target).hasClass('acu-fav-send-overlay')) closeModal();
+    });
+
+    $modal.find('.acu-fav-send-close, .acu-fav-send-cancel').on('click', closeModal);
+
+    // 点击选项发送
+    $modal.on('click', '.acu-fav-send-option', async function () {
+      const uid = $(this).data('uid') as string;
+      const mode = $(this).data('mode') as string;
+      const table = currentTables[uid];
+
+      if (!table || !table.content) {
+        toastr.error('无法获取目标表格');
+        return;
+      }
+
+      const targetHeader: string[] = table.content[0].slice(1).map((h: any) => String(h || ''));
+      const newRow = FavoritesManager.mapRowToTable(fav, targetHeader);
+
+      // 插入新行
+      table.content.push(newRow);
+
+      // 更新缓存
+      if (cachedRawData && cachedRawData[uid]) {
+        cachedRawData[uid].content = table.content;
+      }
+
+      // 写入数据库
+      try {
+        const api = getCore().getDB();
+        if (!api || !api.importTableAsJson) {
+          toastr.error('数据库 API 不可用，无法发送到表格');
+          return;
+        }
+        const jsonString = JSON.stringify(cachedRawData);
+        const result = await api.importTableAsJson(jsonString);
+        if (result === false) {
+          toastr.error('数据导入失败');
+          return;
+        }
+        console.log('[DICE]FavoritesManager 发送成功，已写入数据库');
+      } catch (err) {
+        console.error('[DICE]FavoritesManager 写入数据库失败:', err);
+        toastr.error('写入数据库失败: ' + (err.message || err));
+        return;
+      }
+
+      // 提示未匹配列
+      if (mode === 'loose') {
+        const unmatchedCount = fav.header.filter(h => !targetHeader.includes(h)).length;
+        if (unmatchedCount > 0) {
+          toastr.info(`${unmatchedCount}列未匹配，已填充空值`);
+        }
+      }
+
+      closeModal();
+      onSuccess();
+    });
+  };
+
   const showSettingsModal = () => {
     const { $ } = getCore();
     $('.acu-edit-overlay').not(':has(.acu-settings-dialog)').remove();
@@ -22151,10 +23519,14 @@ import { MAIN_STYLES } from './styles';
         });
 
         if (hasBtns) {
-          optionHtml = `<div class="acu-option-panel ${collapsedClass}">${buttonsHtml}</div>`;
+          optionHtml = `<div class="acu-option-panel acu-theme-${config.theme} ${collapsedClass}">${buttonsHtml}</div>`;
           // 生成选项内容的指纹 (简单拼接)
           // [修复] 将收起状态加入指纹，强制触发重绘
-          currentOptionHash = optionValues.join('|||') + (isOptionsCollapsed ? '_collapsed' : '_expanded');
+          currentOptionHash =
+            optionValues.join('|||') +
+            (isOptionsCollapsed ? '_collapsed' : '_expanded') +
+            `_theme_${config.theme}` +
+            `_optSize_${config.optionFontSize || 12}`;
         }
       }
     }
@@ -22398,6 +23770,13 @@ import { MAIN_STYLES } from './styles';
                     </button>`;
         }
       });
+
+      // [新增] 收藏夹按钮 (在变量面板之后，表格标签之后)
+      const isFavoritesActive = Store.get('acu_favorites_panel_active', false);
+      html += `<button class="acu-nav-btn acu-favorites-btn ${isFavoritesActive ? 'active' : ''}" id="acu-btn-favorites" style="order: ${allNavItems.length + 10};" title="收藏夹">
+                <i class="fa-solid fa-star"></i><span>收藏夹</span>
+            </button>`;
+
       // 渲染固定功能按钮（order 设为最大值，确保在最后）
       html += `<div class="acu-actions-group" id="acu-active-actions" style="order: 9999;">`;
       ACTION_BUTTONS.forEach(btn => {
@@ -22533,9 +23912,11 @@ import { MAIN_STYLES } from './styles';
       if ($aiMes.length === 0) return null;
 
       const $targetMes = $aiMes.last();
-      // [修复] 注入到 .mes_text 而非 .mes_block，确保与正文右侧对齐
       const $targetText = $targetMes.find('.mes_text');
-      return $targetText.length ? $targetText : $targetMes;
+      const $targetBlock = $targetMes.find('.mes_block');
+      if ($targetText.length) return $targetText;
+      if ($targetBlock.length) return $targetBlock;
+      return $targetMes;
     };
 
     const $target = getTargetContainer();
@@ -24470,7 +25851,7 @@ import { MAIN_STYLES } from './styles';
                         <span><i class="fa-solid fa-map"></i> 地点 (${locationParsed.length})</span>
                         <i class="fa-solid fa-map acu-dash-map-btn" title="地图可视化" style="cursor:pointer;color:var(--acu-text-sub);opacity:0.6;font-size:12px;padding:4px;"></i>
                     </h3>
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 6px;min-height:110px;max-height:110px;overflow-y:auto;overflow-x:hidden;margin-bottom:10px;">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 6px;align-content:start;max-height:110px;overflow-y:auto;overflow-x:hidden;margin-bottom:10px;">
                     ${
                       locationParsed.length > 0
                         ? locationParsed
@@ -24502,7 +25883,7 @@ import { MAIN_STYLES } from './styles';
                             <i class="fa-solid fa-user-circle acu-dash-avatar-manager-btn" title="头像管理" style="cursor:pointer;color:var(--acu-text-sub);opacity:0.6;font-size:12px;padding:4px;"></i>
                         </span>
                     </h3>
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 6px;min-height:100px;max-height:150px;overflow-y:auto;overflow-x:hidden;">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 6px;align-content:start;max-height:150px;overflow-y:auto;overflow-x:hidden;">
                     ${
                       allNPCs.length > 0
                         ? allNPCs
@@ -24640,6 +26021,294 @@ import { MAIN_STYLES } from './styles';
 
     console.info(`[DICE]仪表盘数据抓取完成，共${loadedModules.length}个模块: ${loadedModules.join(', ')}`);
     return html;
+  };
+
+  // ========== [新增] 收藏夹面板渲染函数 ==========
+  const renderFavoritesPanel = async (): Promise<string> => {
+    const allFavorites = await FavoritesManager.getAll();
+    const allTags = await FavoritesManager.getAllTags();
+
+    // 按标签分组
+    const groupedByTag: Record<string, FavoriteItem[]> = {};
+    const untagged: FavoriteItem[] = [];
+
+    for (const fav of allFavorites) {
+      if (fav.tags && fav.tags.length > 0) {
+        for (const tag of fav.tags) {
+          if (!groupedByTag[tag]) groupedByTag[tag] = [];
+          groupedByTag[tag].push(fav);
+        }
+      } else {
+        untagged.push(fav);
+      }
+    }
+
+    // 生成卡片HTML (复用普通表格卡片样式 acu-data-card)
+    const renderFavoriteCard = (fav: FavoriteItem) => {
+      // 显示所有行，不做截断，超过高度内部滚动
+      const rowsHtml = fav.header
+        .map(
+          (h, i) => `
+        <div class="acu-card-row">
+          <div class="acu-card-label">${escapeHtml(h)}</div>
+          <div class="acu-card-value">${escapeHtml(String(fav.rowData[i] || ''))}</div>
+        </div>
+      `,
+        )
+        .join('');
+      const tagsHtml = fav.tags.map(tag => `<span class="acu-fav-tag">${escapeHtml(tag)}</span>`).join('');
+      const sourceLabel = fav.sourceInfo ? escapeHtml(fav.sourceInfo.tableName) : '';
+
+      // 复用 acu-data-card 结构
+      return `
+        <div class="acu-data-card acu-fav-card" data-id="${escapeHtml(fav.id)}">
+          <div class="acu-card-header">
+            <span class="acu-card-index">${sourceLabel}</span>
+            <span class="acu-editable-title">${escapeHtml(String(fav.rowData[0] || '未命名'))}</span>
+          </div>
+          <div class="acu-card-body view-list">${rowsHtml}</div>
+          ${tagsHtml ? `<div class="acu-fav-card-tags">${tagsHtml}</div>` : ''}
+        </div>
+      `;
+    };
+
+    // 获取配置以复用布局选项
+    const config = getConfig();
+
+    // 生成分组内容
+    let contentHtml = '';
+
+    // 按标签分组，每组使用 acu-card-grid 实现横向滚动
+    for (const tag of Object.keys(groupedByTag).sort()) {
+      contentHtml += `
+        <div class="acu-fav-group">
+          <div class="acu-fav-group-title"><i class="fa-solid fa-tag"></i> ${escapeHtml(tag)}</div>
+          <div class="acu-card-grid">${groupedByTag[tag].map(renderFavoriteCard).join('')}</div>
+        </div>
+      `;
+    }
+
+    // 未分类
+    if (untagged.length > 0) {
+      contentHtml += `
+        <div class="acu-fav-group">
+          <div class="acu-fav-group-title"><i class="fa-solid fa-inbox"></i> 未分类</div>
+          <div class="acu-card-grid">${untagged.map(renderFavoriteCard).join('')}</div>
+        </div>
+      `;
+    }
+
+    if (allFavorites.length === 0) {
+      contentHtml += `
+        <div class="acu-fav-empty">
+          <i class="fa-solid fa-star"></i>
+          <p>暂无收藏</p>
+          <p>右键点击表格行 → 选择"收藏此行"</p>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="acu-fav-wrapper acu-theme-${config.theme}" style="--acu-card-width:${config.cardWidth}px; --acu-font-size:${config.fontSize}px;">
+      <div class="acu-panel-header">
+        <div class="acu-panel-title">
+          <div class="acu-title-main"><i class="fa-solid fa-star"></i> <span class="acu-title-text">收藏夹</span></div>
+          <div class="acu-title-sub">(共${allFavorites.length}项)</div>
+        </div>
+        <div class="acu-header-actions">
+          <select id="acu-fav-tag-filter" class="acu-fav-select">
+            <option value="">全部标签</option>
+            ${allTags.map(tag => `<option value="${escapeHtml(tag)}">${escapeHtml(tag)}</option>`).join('')}
+          </select>
+          <button class="acu-view-btn" id="acu-fav-new" title="新建"><i class="fa-solid fa-plus"></i></button>
+          <button class="acu-view-btn" id="acu-fav-import" title="导入"><i class="fa-solid fa-file-import"></i></button>
+          <button class="acu-view-btn" id="acu-fav-export" title="导出"><i class="fa-solid fa-file-export"></i></button>
+          <div class="acu-search-wrapper"><i class="fa-solid fa-search acu-search-icon"></i><input type="text" class="acu-search-input" id="acu-fav-search" placeholder="搜索..." /></div>
+          <button class="acu-close-btn" title="关闭"><i class="fa-solid fa-times"></i></button>
+        </div>
+      </div>
+      <div class="acu-fav-panel-content">
+        ${contentHtml}
+      </div>
+      </div>
+    `;
+  };
+
+  // ========== [新增] 收藏夹面板事件绑定 ==========
+  const bindFavoritesEvents = ($panel: JQuery) => {
+    const { $ } = getCore();
+    const rawData = cachedRawData || getTableData();
+    const currentTables = rawData || {};
+
+    // 解绑旧事件，防止重复绑定导致事件累积
+    $panel.off();
+
+    // 标签筛选
+    $panel.find('#acu-fav-tag-filter').on('change', async function () {
+      const tag = $(this).val() as string;
+      const html = await renderFavoritesPanel();
+      $panel.html(html);
+      bindFavoritesEvents($panel);
+      if (tag) {
+        $panel.find('#acu-fav-tag-filter').val(tag);
+        // 隐藏不匹配的分组
+        $panel.find('.acu-fav-group').each(function () {
+          const groupTitle = $(this).find('.acu-fav-group-title').text();
+          if (!groupTitle.includes(tag) && !groupTitle.includes('未分类')) {
+            $(this).hide();
+          }
+        });
+      }
+    });
+
+    // 搜索
+    $panel.find('#acu-fav-search').on(
+      'input',
+      _.debounce(function () {
+        const searchTerm = ($(this).val() as string).toLowerCase().trim();
+        $panel.find('.acu-fav-card').each(function () {
+          const cardText = $(this).text().toLowerCase();
+          $(this).toggle(cardText.includes(searchTerm));
+        });
+      }, 300),
+    );
+
+    // 显示收藏卡片菜单
+    const showFavCardMenu = (e: JQuery.ClickEvent, cardId: string) => {
+      $('.acu-cell-menu, .acu-menu-backdrop').remove();
+
+      const backdrop = $('<div class="acu-menu-backdrop"></div>');
+      $('body').append(backdrop);
+
+      const config = getConfig();
+      const menu = $(`
+        <div class="acu-cell-menu acu-theme-${config.theme}" data-fav-id="${escapeHtml(cardId)}">
+          <div class="acu-cell-menu-item" data-action="edit"><i class="fa-solid fa-pen"></i> 编辑</div>
+          <div class="acu-cell-menu-item" data-action="copy"><i class="fa-solid fa-copy"></i> 复制</div>
+          <div class="acu-cell-menu-item" data-action="send" style="color:#3498db"><i class="fa-solid fa-paper-plane"></i> 发送到表格</div>
+          <div class="acu-cell-menu-item" data-action="delete" style="color:#e74c3c"><i class="fa-solid fa-trash"></i> 删除</div>
+          <div class="acu-cell-menu-item" data-action="close"><i class="fa-solid fa-times"></i> 关闭菜单</div>
+        </div>
+      `);
+      $('body').append(menu);
+
+      // 定位菜单
+      const winWidth = $(window).width() || 800;
+      const winHeight = $(window).height() || 600;
+      const mWidth = menu.outerWidth() || 150;
+      const mHeight = menu.outerHeight() || 150;
+      let posX = e.clientX || winWidth / 2;
+      let posY = e.clientY || winHeight / 2;
+      if (posX + mWidth > winWidth) posX = winWidth - mWidth - 10;
+      if (posY + mHeight > winHeight) posY = winHeight - mHeight - 10;
+      menu.css({ left: posX, top: posY });
+
+      // 点击backdrop关闭
+      backdrop.on('click', () => {
+        $('.acu-cell-menu, .acu-menu-backdrop').remove();
+      });
+
+      // 菜单项点击事件
+      menu.on('click', '.acu-cell-menu-item', async function () {
+        const action = $(this).data('action');
+        const id = menu.data('fav-id');
+        $('.acu-cell-menu, .acu-menu-backdrop').remove();
+
+        if (action === 'close') return;
+
+        const fav = await FavoritesManager.getById(id);
+        if (!fav) return;
+
+        if (action === 'edit') {
+          showFavoriteEditModal(fav, async updated => {
+            await FavoritesManager.updateFavorite(id, updated);
+            $panel.html(await renderFavoritesPanel());
+            bindFavoritesEvents($panel);
+          });
+        } else if (action === 'copy') {
+          const copied = await FavoritesManager.duplicateFavorite(id);
+          if (copied) {
+            $panel.html(await renderFavoritesPanel());
+            bindFavoritesEvents($panel);
+          }
+        } else if (action === 'send') {
+          const compatible = FavoritesManager.findCompatibleTables(fav, currentTables);
+          if (compatible.length === 0) {
+            toastr.warning('当前聊天没有兼容的表格');
+            return;
+          }
+          showSendToTableModal(fav, compatible, currentTables, async () => {
+            $panel.html(await renderFavoritesPanel());
+            bindFavoritesEvents($panel);
+          });
+        } else if (action === 'delete') {
+          await FavoritesManager.deleteFavorite(id);
+          $panel.html(await renderFavoritesPanel());
+          bindFavoritesEvents($panel);
+        }
+      });
+    };
+
+    // 单击卡片显示菜单
+    $panel.on('click', '.acu-fav-card', function (e) {
+      e.stopPropagation();
+      const $card = $(this);
+      const cardId = $card.data('id');
+
+      // Toggle行为：同一卡片再次点击则关闭菜单
+      const existingMenu = $('.acu-cell-menu');
+      if (existingMenu.length && existingMenu.data('fav-id') === cardId) {
+        $('.acu-cell-menu, .acu-menu-backdrop').remove();
+        return;
+      }
+
+      showFavCardMenu(e, cardId);
+    });
+
+    // 新建
+    $panel.on('click', '#acu-fav-new', function () {
+      showNewFavoriteModal(async () => {
+        $panel.html(await renderFavoritesPanel());
+        bindFavoritesEvents($panel);
+      });
+    });
+
+    // 导入
+    $panel.on('click', '#acu-fav-import', async function () {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.json';
+      input.onchange = async e => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (file) {
+          const text = await file.text();
+          const count = await FavoritesManager.importFavorites(text);
+          if (count > 0) {
+            if (window.toastr) window.toastr.success(`导入成功: ${count}条`);
+            $panel.html(await renderFavoritesPanel());
+            bindFavoritesEvents($panel);
+          } else {
+            if (window.toastr) window.toastr.warning('导入失败或无有效数据');
+          }
+        }
+      };
+      input.click();
+    });
+
+    // 导出
+    $panel.on('click', '#acu-fav-export', async function () {
+      const json = await FavoritesManager.exportFavorites();
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `favorites_${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      if (window.toastr) window.toastr.success('导出成功');
+    });
+
+    console.log('[DICE] bindFavoritesEvents initialized');
   };
 
   const renderTableContent = (tableData, tableName) => {
@@ -25384,6 +27053,35 @@ import { MAIN_STYLES } from './styles';
             }
             return false;
           }
+          // [新增] 收藏夹按钮特殊处理 - 使用面板模式
+          if ($navBtn.attr('id') === 'acu-btn-favorites') {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            const isFavoritesActive = Store.get('acu_favorites_panel_active', false);
+            const isPanelVisible = $('#acu-data-area').hasClass('visible');
+
+            if (isFavoritesActive && isPanelVisible) {
+              // 收藏夹面板已打开，关闭面板
+              Store.set('acu_favorites_panel_active', false);
+              $('#acu-data-area').removeClass('visible');
+              $('.acu-nav-btn').removeClass('active');
+            } else {
+              // 打开收藏夹面板
+              Store.set('acu_favorites_panel_active', true);
+              Store.set(STORAGE_KEY_DASHBOARD_ACTIVE, false);
+              Store.set('acu_changes_panel_active', false);
+              saveActiveTabState(null);
+              $('.acu-nav-btn').removeClass('active');
+              $navBtn.addClass('active');
+
+              // 使用 switchPanel 实现平滑过渡
+              switchPanel(async $panel => {
+                $panel.html(await renderFavoritesPanel());
+                bindFavoritesEvents($panel);
+              });
+            }
+            return false;
+          }
           // [新增] MVU变量按钮特殊处理
           if ($navBtn.attr('id') === 'acu-btn-mvu') {
             e.preventDefault();
@@ -25444,6 +27142,7 @@ import { MAIN_STYLES } from './styles';
           // [修复] 点击普通表格时，必须关闭仪表盘和变更面板状态
           Store.set(STORAGE_KEY_DASHBOARD_ACTIVE, false);
           Store.set('acu_changes_panel_active', false);
+          Store.set('acu_favorites_panel_active', false);
           const tableName = $navBtn.data('table');
           const currentActiveTab = getActiveTabState();
           if (currentActiveTab === tableName && $('#acu-data-area').hasClass('visible')) {
@@ -25601,18 +27300,19 @@ import { MAIN_STYLES } from './styles';
         });
       });
 
-    /* // 内置编辑器（已注释）
-    $('#acu-btn-open-editor').off('click').on('click', (e) => {
+    // 打开神-数据库
+    $('#acu-btn-open-editor')
+      .off('click')
+      .on('click', e => {
         e.stopPropagation();
         if (isEditingOrder) return;
         const api = getCore().getDB();
-        if (api && typeof api.openVisualizer === 'function') {
-            api.openVisualizer();
+        if (api && typeof api.openSettings === 'function') {
+          api.openSettings(); // 修改为打开总控制台/设置界面
         } else if (window.toastr) {
-            window.toastr.warning('后端脚本(神·数据库)未就绪或版本过低');
+          window.toastr.warning('后端脚本(神·数据库)未就绪或版本过低');
         }
-    });
-    */
+      });
 
     // 重新填表按钮
     $('#acu-btn-refill')
@@ -27031,6 +28731,7 @@ import { MAIN_STYLES } from './styles';
                 <div class="acu-cell-menu-item" id="act-edit-card" style="color:#9b59b6"><i class="fa-solid fa-edit"></i> 整体编辑</div>
                 <div class="acu-cell-menu-item" id="act-insert" style="color:#2980b9"><i class="fa-solid fa-plus"></i> 在下方插入新行</div>
                 <div class="acu-cell-menu-item" id="act-copy"><i class="fa-solid fa-copy"></i> 复制内容</div>
+                <div class="acu-cell-menu-item" id="act-favorite" style="color:#f1c40f"><i class="fa-solid fa-star"></i> 收藏此行</div>
                 ${lockMenuHtml}
                 ${isModified ? '<div class="acu-cell-menu-item" id="act-undo" style="color:#e67e22; border-top:1px solid #eee;"><i class="fa-solid fa-undo"></i> 撤销本次修改</div>' : ''}
                 <div class="acu-cell-menu-item" id="act-delete" style="color:#e74c3c"><i class="fa-solid fa-trash"></i> 删除整行</div>
@@ -27180,6 +28881,55 @@ import { MAIN_STYLES } from './styles';
       };
 
       doCopy(content);
+      closeAll();
+    });
+
+    // 收藏此行功能
+    menu.find('#act-favorite').click(async () => {
+      try {
+        // 获取当前行的完整数据
+        const tableData = cachedRawData?.[tableKey];
+        if (!tableData || !tableData.content) {
+          toastr.error('无法获取表格数据');
+          closeAll();
+          return;
+        }
+
+        // 获取表头（去掉首列null）
+        const fullHeader = tableData.content[0] || [];
+        const header: string[] = fullHeader.slice(1).map((h: any) => String(h || ''));
+
+        // 获取行数据（去掉首列null）
+        const fullRowData = tableData.content[rowIdx + 1] || [];
+        const rowDataValues: (string | number)[] = fullRowData.slice(1);
+
+        if (header.length === 0 || rowDataValues.length === 0) {
+          toastr.error('行数据为空');
+          closeAll();
+          return;
+        }
+
+        // 弹出标签输入框
+        const tagInput = prompt('请输入标签（多个标签用逗号分隔，留空则无标签）：', '');
+        const tags: string[] = tagInput
+          ? tagInput
+              .split(',')
+              .map(t => t.trim())
+              .filter(t => t.length > 0)
+          : [];
+
+        // 添加到收藏夹
+        const result = await FavoritesManager.addFavorite(tableKey, tableName, header, rowDataValues, tags);
+
+        if (result) {
+          toastr.success('收藏成功');
+        } else {
+          toastr.error('收藏失败');
+        }
+      } catch (e) {
+        console.error('[DICE]收藏失败:', e);
+        toastr.error('收藏失败: ' + (e instanceof Error ? e.message : String(e)));
+      }
       closeAll();
     });
 
