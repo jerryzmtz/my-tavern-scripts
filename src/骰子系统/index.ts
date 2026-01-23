@@ -421,6 +421,41 @@ import { MAIN_STYLES } from './styles';
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
 
+  /**
+   * 设置弹窗点击遮罩关闭的事件监听
+   * - PC端：需要 mousedown 和 mouseup 都在遮罩上才关闭（防止选择文本时误关闭）
+   * - Mobile端：保持原有行为，触摸点击遮罩即关闭
+   * @param $overlay jQuery对象，弹窗遮罩层
+   * @param overlayClass 遮罩层的类名（用于判断点击目标）
+   * @param onClose 关闭时的回调函数
+   */
+  const setupOverlayClose = ($overlay: JQuery, overlayClass: string, onClose: () => void) => {
+    const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
+    if (isMobile) {
+      // Mobile: 触摸点击遮罩即关闭
+      $overlay.on('click', function (e) {
+        if ($(e.target).hasClass(overlayClass)) {
+          onClose();
+        }
+      });
+    } else {
+      // PC: 需要 mousedown 和 mouseup 都在遮罩上才关闭
+      let mouseDownOnOverlay = false;
+
+      $overlay.on('mousedown', function (e) {
+        mouseDownOnOverlay = $(e.target).hasClass(overlayClass);
+      });
+
+      $overlay.on('mouseup', function (e) {
+        if (mouseDownOnOverlay && $(e.target).hasClass(overlayClass)) {
+          onClose();
+        }
+        mouseDownOnOverlay = false;
+      });
+    }
+  };
+
   // [新增] 生成唯一名称（用于预设导入时处理重名）
   const generateUniqueName = (baseName: string, existingNames: string[]): string => {
     if (!existingNames.includes(baseName)) return baseName;
@@ -494,7 +529,7 @@ import { MAIN_STYLES } from './styles';
       width: 100vw !important;
       height: 100vh !important;
       background: rgba(0,0,0,0.6) !important;
-      z-index: 2147483655 !important;
+      z-index: 31300 !important;
       display: flex;
       justify-content: center !important;
       align-items: center !important;
@@ -509,11 +544,9 @@ import { MAIN_STYLES } from './styles';
       options.onCancel();
     });
 
-    $dialog.on('click', function (e) {
-      if ($(e.target).hasClass('acu-import-confirm-overlay')) {
-        closeDialog();
-        options.onCancel();
-      }
+    setupOverlayClose($dialog, 'acu-import-confirm-overlay', () => {
+      closeDialog();
+      options.onCancel();
     });
 
     $dialog.find('.acu-import-confirm-btn').click(function () {
@@ -730,7 +763,7 @@ import { MAIN_STYLES } from './styles';
   };
   const STORAGE_KEY_TABLE_ORDER = 'acu_table_order';
   const STORAGE_KEY_ACTION_ORDER = 'acu_action_order';
-  const STORAGE_KEY_PENDING_DELETIONS = 'acu_pending_deletions';
+
   const STORAGE_KEY_ACTIVE_TAB = 'acu_active_tab';
   const STORAGE_KEY_UI_CONFIG = 'acu_ui_config_v19';
   const STORAGE_KEY_LAST_SNAPSHOT = 'acu_data_snapshot_v19';
@@ -1280,7 +1313,7 @@ import { MAIN_STYLES } from './styles';
     {
       id: 'builtin_item_quality_format',
       name: '物品品质格式化',
-      description: '确保物品品质首���母大写',
+      description: '确保物品品质首字母大写',
       operation: 'replace',
       pattern: '\\b(普通|优秀|稀有|史诗|传说|神话)\\b',
       flags: { global: true },
@@ -3359,7 +3392,8 @@ import { MAIN_STYLES } from './styles';
 
         // 匹配前缀+数字格式
         if (prefix) {
-          const regex = new RegExp(`^${prefix}(\\d+)$`);
+          const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const regex = new RegExp(`^${escapedPrefix}(\\d+)$`);
           const match = strValue.match(regex);
           if (match) {
             const num = parseInt(match[1], 10);
@@ -4636,7 +4670,7 @@ import { MAIN_STYLES } from './styles';
             }
             .acu-mvu-panel .mvu-header-btn.active {
                 background: var(--acu-accent);
-                color: #fff;
+                color: var(--acu-btn-active-text);
                 border-color: var(--acu-accent);
             }
             /* [新增] 数值模式样式 */
@@ -4719,7 +4753,7 @@ import { MAIN_STYLES } from './styles';
             }
             .mvu-level-toggle[data-visible="true"]:hover {
                 background: var(--acu-accent) !important;
-                color: #fff !important;
+                color: var(--acu-btn-active-text) !important;
                 border-color: var(--acu-accent) !important;
             }
             .mvu-level-toggle[data-visible="false"]:hover,
@@ -5060,7 +5094,7 @@ import { MAIN_STYLES } from './styles';
             .mvu-edit-btn.mvu-btn-save {
                 background: var(--acu-accent);
                 border: 1px solid var(--acu-accent);
-                color: #fff;
+                color: var(--acu-btn-active-text);
             }
             .mvu-edit-btn.mvu-btn-save:hover {
                 opacity: 0.9;
@@ -6546,11 +6580,9 @@ import { MAIN_STYLES } from './styles';
         });
 
         // 点击遮罩关闭
-        $overlay.on('click', function (e) {
-          if ($(e.target).hasClass('mvu-edit-overlay')) {
-            $overlay.remove();
-            onSave(null);
-          }
+        setupOverlayClose($overlay, 'mvu-edit-overlay', () => {
+          $overlay.remove();
+          onSave(null);
         });
 
         // 键盘快捷键
@@ -9259,8 +9291,9 @@ import { MAIN_STYLES } from './styles';
   };
 
   // 固定显示的功能按钮
+  // 注意：保存按钮已移除，系统现在使用即时保存模式（每次编辑/删除后自动保存）
   const ACTION_BUTTONS = [
-    { id: 'acu-btn-save-global', icon: 'fa-save', title: '保存所有修改' },
+    // { id: 'acu-btn-save-global', icon: 'fa-save', title: '保存所有修改' }, // 已废弃：使用即时保存
     { id: 'acu-btn-refresh', icon: 'fa-sync-alt', title: '重新加载' },
     { id: 'acu-btn-collapse', icon: 'fa-chevron-down', title: '收起面板' },
     // {id: 'acu-btn-open-editor', icon: 'fa-table-columns', title: '打开内置编辑器'},
@@ -9270,6 +9303,7 @@ import { MAIN_STYLES } from './styles';
 
   let isInitialized = false;
   let isSaving = false;
+  let saveQueue: Promise<void> = Promise.resolve(); // 保存队列，确保并发保存按顺序执行
   let isEditingOrder = false;
   let isSettingsOpen = false;
   let currentDiffMap = new Set();
@@ -9279,6 +9313,12 @@ import { MAIN_STYLES } from './styles';
   // --- 全局状态变量 ---
   let cachedRawData = null;
   let hasUnsavedChanges = false;
+  // [修复] 存储待删除行的索引（按表格分组）
+  let pendingDeletions: Record<string, number[]> = {};
+  const getPendingDeletions = () => pendingDeletions;
+  const clearPendingDeletions = () => {
+    pendingDeletions = {};
+  };
   let isAutoTransforming = false; // 防止自动转换循环触发
   let tablePageStates = {};
   let tableSearchStates = {};
@@ -9591,8 +9631,7 @@ import { MAIN_STYLES } from './styles';
 
   const getActiveTabState = () => Store.get(STORAGE_KEY_ACTIVE_TAB);
   const saveActiveTabState = v => Store.set(STORAGE_KEY_ACTIVE_TAB, v);
-  const getPendingDeletions = () => Store.get(STORAGE_KEY_PENDING_DELETIONS, {});
-  const savePendingDeletions = v => Store.set(STORAGE_KEY_PENDING_DELETIONS, v);
+
   const getSavedTableOrder = () => Store.get(STORAGE_KEY_TABLE_ORDER);
   const saveTableOrder = v => Store.set(STORAGE_KEY_TABLE_ORDER, v);
   const getCollapsedState = () => Store.get(STORAGE_KEY_IS_COLLAPSED, false);
@@ -10889,7 +10928,7 @@ import { MAIN_STYLES } from './styles';
       width: '100vw',
       height: '100vh',
       background: 'rgba(0,0,0,0.6)',
-      'z-index': '2147483655',
+      'z-index': '31300',
       display: 'flex',
       'align-items': 'center',
       'justify-content': 'center',
@@ -10921,9 +10960,7 @@ import { MAIN_STYLES } from './styles';
 
     const closePanel = () => $panel.remove();
     $panel.find('.acu-config-close').click(closePanel);
-    $panel.on('click', e => {
-      if ($(e.target).hasClass('acu-dice-config-overlay')) closePanel();
-    });
+    setupOverlayClose($panel, 'acu-dice-config-overlay', closePanel);
 
     // === Stepper 步进器事件 ===
     $panel.find('.acu-stepper').each(function () {
@@ -11090,7 +11127,7 @@ import { MAIN_STYLES } from './styles';
     const inputStyle = `width:100%;padding:5px;background:${t.inputBg} !important;border:1px solid ${t.border};border-radius:4px;color:${inputTextColor} !important;font-size:12px;text-align:center;box-sizing:border-box;`;
 
     const overlay = $(
-      `<div class="acu-dice-overlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:${t.overlayBgLight};z-index:2147483647;"></div>`,
+      `<div class="acu-dice-overlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:${t.overlayBgLight};z-index:31200;"></div>`,
     );
 
     // [精简] 成功标准选项：只保留 COC 和 DND
@@ -11116,7 +11153,7 @@ import { MAIN_STYLES } from './styles';
                 border: 1px solid ${t.border};
                 border-radius: 12px;
                 box-shadow: 0 20px 60px ${t.shadowBg};
-                z-index: 2147483648;
+                z-index: 31201;
                 overflow: hidden;
             ">
                 <div style="padding: 12px 15px; background: ${t.tableHead}; border-bottom: 1px solid ${t.border}; display: flex; justify-content: space-between; align-items: center;">
@@ -12086,7 +12123,7 @@ import { MAIN_STYLES } from './styles';
     const overlay = $(
       '<div class="acu-contest-overlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:' +
         t.overlayBg +
-        ';z-index:2147483647;"></div>',
+        ';z-index:31200;"></div>',
     );
     const panelHtml =
       '<div class="acu-contest-panel acu-theme-' +
@@ -12097,7 +12134,7 @@ import { MAIN_STYLES } from './styles';
       t.border +
       ';border-radius:12px;box-shadow:0 20px 60px ' +
       t.shadowBg +
-      ';z-index:2147483648;overflow:hidden;">' +
+      ';z-index:31201;overflow:hidden;">' +
       '<div style="padding:12px 15px;background:' +
       t.tableHead +
       ';border-bottom:1px solid ' +
@@ -13237,7 +13274,7 @@ import { MAIN_STYLES } from './styles';
     overlayEl.style.setProperty('display', 'flex', 'important');
     overlayEl.style.setProperty('justify-content', 'center', 'important');
     overlayEl.style.setProperty('align-items', 'center', 'important');
-    overlayEl.style.setProperty('z-index', '2147483650', 'important');
+    overlayEl.style.setProperty('z-index', '31100', 'important');
 
     // selectedRegion 已在上方确定，无需重新赋值
     const $focusArea = overlay.find('.acu-map-focus-area');
@@ -13386,7 +13423,71 @@ import { MAIN_STYLES } from './styles';
 
     refreshPanel();
 
-    overlay.on('click', '.acu-map-close', () => {
+    // [新增] 存储刷新回调，供外部删除操作调用
+    overlay.data('refreshMapData', async () => {
+      const newViewModel = await buildMapViewModel();
+      if (newViewModel) {
+        viewModel = newViewModel;
+
+        // [修复] 检查当前焦点地点是否仍然存在，不存在则回退
+        if (!viewModel.locations.has(focusLocation)) {
+          // [优化] 优先回退到当前次要地区的第一个详细地点
+          const detailLocation = viewModel.detailLocation || '';
+          const playerLocation = viewModel.playerLocation || '';
+
+          let newFocus = '';
+          let newRegion = selectedRegion;
+
+          // 优先级1: 当前次要地区的第一个可用地点
+          const regionLocs = Array.from(viewModel.locations.values()).filter(
+            l => (l.region || '其他') === selectedRegion,
+          );
+          if (regionLocs.length > 0) {
+            newFocus = regionLocs[0].name;
+          } else if (detailLocation && viewModel.locations.has(detailLocation)) {
+            // 优先级2: detailLocation（当前次要地区不存在时）
+            newFocus = detailLocation;
+            const loc = viewModel.locations.get(detailLocation);
+            newRegion = loc?.region || newRegion;
+          } else if (playerLocation && viewModel.locations.has(playerLocation)) {
+            // 优先级3: playerLocation
+            newFocus = playerLocation;
+            const loc = viewModel.locations.get(playerLocation);
+            newRegion = loc?.region || newRegion;
+          } else if (viewModel.focusLocation && viewModel.locations.has(viewModel.focusLocation)) {
+            // 优先级4: focusLocation
+            newFocus = viewModel.focusLocation;
+            const loc = viewModel.locations.get(newFocus);
+            newRegion = loc?.region || newRegion;
+          } else {
+            // 兜底：任意第一个地点
+            const firstLoc = Array.from(viewModel.locations.values())[0];
+            if (firstLoc) {
+              newFocus = firstLoc.name;
+              newRegion = firstLoc.region || '其他';
+            }
+          }
+
+          if (newFocus) {
+            focusLocation = newFocus;
+            selectedRegion = newRegion;
+            // 同步更新Store，防止下次打开地图时跳回已删除地点
+            Store.set(STORAGE_KEY_MAP_FOCUS, focusLocation);
+            // 更新tab缓存
+            tabSelectionCache.set(selectedRegion, focusLocation);
+          }
+        }
+
+        refreshPanel();
+      }
+    });
+
+    // [修复] 直接绑定关闭按钮事件（而非事件委托，避免被其他事件干扰）
+    const $closeBtn = overlay.find('.acu-map-close');
+    $closeBtn.on('click', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
       overlay.remove();
     });
     overlay.on('click', '.acu-map-region-tab', function () {
@@ -13418,10 +13519,8 @@ import { MAIN_STYLES } from './styles';
 
       refreshPanel();
     });
-    overlay.on('click', function (e) {
-      if ($(e.target).hasClass('acu-map-overlay')) {
-        overlay.remove();
-      }
+    setupOverlayClose(overlay, 'acu-map-overlay', () => {
+      overlay.remove();
     });
 
     overlay.on('click', '.acu-map-thumbnail', function () {
@@ -15202,9 +15301,7 @@ import { MAIN_STYLES } from './styles';
       overlay.remove();
     };
     overlay.find('.acu-graph-close').click(closeGraph);
-    overlay.on('click', function (e) {
-      if ($(e.target).hasClass('acu-relation-graph-overlay')) closeGraph();
-    });
+    setupOverlayClose(overlay, 'acu-relation-graph-overlay', closeGraph);
   };
   // ========================================
   // 头像裁剪弹窗 - 统一PC/移动端体验
@@ -15275,7 +15372,7 @@ import { MAIN_STYLES } from './styles';
       display: 'flex',
       'align-items': 'center',
       'justify-content': 'center',
-      'z-index': '2147483658',
+      'z-index': '31310',
     });
 
     const $image = $modal.find('.acu-crop-image');
@@ -15457,10 +15554,8 @@ import { MAIN_STYLES } from './styles';
     });
 
     // 点击遮罩关闭
-    $modal.on('click', e => {
-      if ($(e.target).hasClass('acu-crop-modal-overlay')) {
-        $modal.remove();
-      }
+    setupOverlayClose($modal, 'acu-crop-modal-overlay', () => {
+      $modal.remove();
     });
   };
   // 头像管理弹窗（简化版 - 使用裁剪弹窗）
@@ -15865,9 +15960,7 @@ import { MAIN_STYLES } from './styles';
       // 关闭
       const closeManager = () => $manager.remove();
       $manager.on('click', '.acu-avatar-close', closeManager);
-      $manager.on('click', function (e) {
-        if ($(e.target).hasClass('acu-avatar-manager-overlay')) closeManager();
-      });
+      setupOverlayClose($manager, 'acu-avatar-manager-overlay', closeManager);
     } catch (error) {
       console.error('头像管理器错误:', error);
       if (window.toastr) {
@@ -15964,7 +16057,7 @@ import { MAIN_STYLES } from './styles';
             width: 100vw !important;
             height: 100vh !important;
             background: rgba(0,0,0,0.6) !important;
-            z-index: 2147483655 !important;
+            z-index: 31300 !important;
             display: flex;
             justify-content: center !important;
             align-items: center !important;
@@ -15975,9 +16068,7 @@ import { MAIN_STYLES } from './styles';
     const closeDialog = () => $dialog.remove();
 
     $dialog.find('.acu-import-cancel-btn').click(closeDialog);
-    $dialog.on('click', function (e) {
-      if ($(e.target).hasClass('acu-import-confirm-overlay')) closeDialog();
-    });
+    setupOverlayClose($dialog, 'acu-import-confirm-overlay', closeDialog);
 
     $dialog.find('.acu-import-confirm-btn').click(function () {
       const overwrite = $dialog.find('input[name="conflict-mode"]:checked').val() !== 'skip';
@@ -16060,7 +16151,7 @@ import { MAIN_STYLES } from './styles';
     const closeDialog = () => dialog.remove();
     dialog.find('#dlg-card-cancel').click(closeDialog);
 
-    // 保存逻辑：复用 v8.4 的 saveDataToDatabase
+    // 保存逻辑：使用即时保存 + 单行快照更新（保留其他行的AI变更高亮）
     dialog.find('#dlg-card-save').click(async () => {
       let rawData = cachedRawData || getTableData() || loadSnapshot();
       if (rawData && rawData[tableKey]) {
@@ -16080,7 +16171,8 @@ import { MAIN_STYLES } from './styles';
         });
         if (hasChanges) {
           try {
-            await saveDataToDatabase(rawData, false, true); // 触发 v8.4 的保存流程
+            // 使用 saveRowInstantly 执行即时保存 + 单行快照更新
+            await saveRowInstantly(tableKey, rowIndex, [...currentRow]);
             renderInterface();
           } catch (e) {
             console.error('[DICE]ACU 保存失败:', e);
@@ -16091,13 +16183,10 @@ import { MAIN_STYLES } from './styles';
       }
       closeDialog();
     });
+    // 点击遮罩层关闭
+    setupOverlayClose(dialog, 'acu-edit-overlay', closeDialog);
+    // 点击关闭按钮（双重保险）
     dialog.on('click', function (e) {
-      // 点击遮罩层关闭
-      if ($(e.target).hasClass('acu-edit-overlay')) {
-        closeDialog();
-        return;
-      }
-      // 点击关闭按钮（双重保险）
       if ($(e.target).closest('#dlg-close-x, #dlg-close, .acu-close-btn').length) {
         closeDialog();
       }
@@ -16126,7 +16215,9 @@ import { MAIN_STYLES } from './styles';
       const oldSheet = lastData[sheetId];
       if (!newSheet || !newSheet.name) continue;
       const tableName = newSheet.name;
+
       if (!oldSheet) {
+        // 整个表是新的
         if (newSheet.content) {
           newSheet.content.forEach((row, rIdx) => {
             if (rIdx > 0) diffSet.add(`${tableName}-row-${rIdx - 1}`);
@@ -16134,18 +16225,67 @@ import { MAIN_STYLES } from './styles';
         }
         continue;
       }
+
       const newRows = newSheet.content || [];
       const oldRows = oldSheet.content || [];
+
+      // [优化] 构建快照的标题映射表
+      // 格式: { 标题 -> [{index, row}, ...] } (数组用于处理重复标题)
+      const oldRowMap = new Map();
+      oldRows.forEach((row, rIdx) => {
+        if (rIdx === 0) return; // 跳过表头
+        const title = String(row[1] ?? '').trim();
+        if (title) {
+          if (!oldRowMap.has(title)) {
+            oldRowMap.set(title, []);
+          }
+          oldRowMap.get(title).push({ index: rIdx, row: row });
+        }
+      });
+
+      // 记录哪些旧行索引被匹配了（用于空标题时的索引回退）
+      const matchedOldIndices = new Set();
+
+      // 遍历当前数据
       newRows.forEach((row, rIdx) => {
-        if (rIdx === 0) return;
-        const oldRow = oldRows[rIdx];
-        if (!oldRow) {
+        if (rIdx === 0) return; // 跳过表头
+        const title = String(row[1] ?? '').trim();
+
+        let matchedOldRow = null;
+
+        if (title && oldRowMap.has(title)) {
+          // 标题匹配模式：从队列中取出第一个
+          const candidates = oldRowMap.get(title);
+          if (candidates.length > 0) {
+            const matched = candidates.shift(); // 消耗一个
+            matchedOldRow = matched.row;
+            matchedOldIndices.add(matched.index);
+            if (candidates.length === 0) {
+              oldRowMap.delete(title);
+            }
+          }
+        }
+
+        if (!matchedOldRow && !title) {
+          // 空标题时回退到索引匹配
+          const oldRow = oldRows[rIdx];
+          if (oldRow && !matchedOldIndices.has(rIdx)) {
+            matchedOldRow = oldRow;
+            matchedOldIndices.add(rIdx);
+          }
+        }
+
+        if (!matchedOldRow) {
+          // 在快照中找不到匹配的行，标记整行为新增
           diffSet.add(`${tableName}-row-${rIdx - 1}`);
         } else {
+          // 找到匹配，对比每个单元格
           row.forEach((cell, cIdx) => {
-            if (cIdx === 0) return;
-            const oldCell = oldRow[cIdx];
-            if (String(cell) !== String(oldCell)) diffSet.add(`${tableName}-${rIdx - 1}-${cIdx}`);
+            if (cIdx === 0) return; // 跳过索引列
+            const oldCell = matchedOldRow[cIdx];
+            if (String(cell ?? '') !== String(oldCell ?? '')) {
+              diffSet.add(`${tableName}-${rIdx - 1}-${cIdx}`);
+            }
           });
         }
       });
@@ -16290,7 +16430,6 @@ import { MAIN_STYLES } from './styles';
               });
           }
         });
-        savePendingDeletions({});
       }
 
       // 3. 验证数据并序列化
@@ -16373,66 +16512,114 @@ import { MAIN_STYLES } from './styles';
   };
 
   // [新增] 轻量级保存：只保存数据到数据库，不更新快照
+  // 使用队列模式确保快速连续编辑时所有修改都能保存成功
   const saveDataOnly = async tableData => {
-    try {
-      const dataToSave = {};
-      if (!tableData.mate) dataToSave.mate = { type: 'chatSheets', version: 1 };
-      else dataToSave.mate = tableData.mate;
+    // 将保存操作加入队列，确保按顺序执行
+    const saveOperation = saveQueue
+      .then(async () => {
+        try {
+          const dataToSave = {};
+          if (!tableData.mate) dataToSave.mate = { type: 'chatSheets', version: 1 };
+          else dataToSave.mate = tableData.mate;
 
-      Object.keys(tableData).forEach(k => {
-        if (k.startsWith('sheet_')) {
-          dataToSave[k] = tableData[k];
+          Object.keys(tableData).forEach(k => {
+            if (k.startsWith('sheet_')) {
+              dataToSave[k] = tableData[k];
+            }
+          });
+
+          // 验证数据并序列化
+          let jsonString;
+          try {
+            jsonString = JSON.stringify(dataToSave);
+            // 检查数据大小（约 10MB 限制）
+            const sizeInMB = new Blob([jsonString]).size / (1024 * 1024);
+            if (sizeInMB > 10) {
+              throw new Error(`数据太大 (${sizeInMB.toFixed(2)}MB)，超过 10MB 限制`);
+            }
+          } catch (stringifyError) {
+            console.error('[DICE]ACU JSON 序列化失败:', stringifyError);
+            throw new Error(`数据序列化失败: ${stringifyError.message || stringifyError}`);
+          }
+
+          const api = getCore().getDB();
+          if (!api || !api.importTableAsJson) {
+            throw new Error('数据库 API 不可用');
+          }
+
+          try {
+            // 调用 importTableAsJson，它内部会调用 saveChat()
+            const result = await api.importTableAsJson(jsonString);
+            // 检查返回值，某些实现可能返回 false 表示失败
+            if (result === false) {
+              throw new Error('数据导入失败（返回 false）');
+            }
+          } catch (apiError) {
+            console.error('[DICE]ACU API 保存失败:', apiError);
+            // 检查是否是 "Settings could not be saved" 相关的错误
+            const errorMsg = apiError.message || String(apiError);
+            if (
+              errorMsg.includes('Settings could not be saved') ||
+              errorMsg.includes('server connection') ||
+              errorMsg.includes('data loss')
+            ) {
+              throw new Error('保存失败：服务器连接问题或数据过大，请检查网络连接或减少数据量');
+            }
+            throw new Error(`保存到数据库失败: ${errorMsg}`);
+          }
+
+          cachedRawData = dataToSave;
+          // 注意：不调用 saveSnapshot()，不更新 hasUnsavedChanges
+        } catch (e) {
+          console.error('[DICE]ACU saveDataOnly error:', e);
+          // 重新抛出错误以便上层处理
+          throw e;
         }
+      })
+      .catch(e => {
+        // 队列中的错误不应阻塞后续保存操作
+        console.error('[DICE]ACU saveDataOnly queue error:', e);
       });
 
-      // 验证数据并序列化
-      let jsonString;
-      try {
-        jsonString = JSON.stringify(dataToSave);
-        // 检查数据大小（约 10MB 限制）
-        const sizeInMB = new Blob([jsonString]).size / (1024 * 1024);
-        if (sizeInMB > 10) {
-          throw new Error(`数据太大 (${sizeInMB.toFixed(2)}MB)，超过 10MB 限制`);
-        }
-      } catch (stringifyError) {
-        console.error('[DICE]ACU JSON 序列化失败:', stringifyError);
-        throw new Error(`数据序列化失败: ${stringifyError.message || stringifyError}`);
+    // 更新队列引用，确保下一个保存操作等待当前操作完成
+    saveQueue = saveOperation;
+    return saveOperation;
+  };
+
+  // [新增] 即时保存单行数据并只更新该行快照
+  // 用途：弹窗编辑后立即保存，同时保留其他行的AI变更高亮
+  // 注意：不调用 saveDataToDatabase（它会更新完整快照），只更新指定行的快照
+  const saveRowInstantly = async (tableKey: string, rowIndex: number, newRowData: unknown[]): Promise<void> => {
+    try {
+      // 1. 获取当前数据
+      const rawData = cachedRawData || getTableData();
+      if (!rawData || !rawData[tableKey]) {
+        throw new Error(`表格 "${tableKey}" 不存在`);
+      }
+      if (!rawData[tableKey].content) {
+        throw new Error(`表格 "${tableKey}" 内容为空`);
       }
 
-      const api = getCore().getDB();
-      if (!api || !api.importTableAsJson) {
-        throw new Error('数据库 API 不可用');
-      }
+      // 2. 更新该行数据（rowIndex 是从0开始的行索引，content[0] 是表头）
+      rawData[tableKey].content[rowIndex + 1] = newRowData;
 
-      try {
-        // 调用 importTableAsJson，它内部会调用 saveChat()
-        const result = await api.importTableAsJson(jsonString);
-        // 检查返回值，某些实现可能返回 false 表示失败
-        if (result === false) {
-          throw new Error('数据导入失败（返回 false）');
-        }
-      } catch (apiError) {
-        console.error('[DICE]ACU API 保存失败:', apiError);
-        // 检查是否是 "Settings could not be saved" 相关的错误
-        const errorMsg = apiError.message || String(apiError);
-        if (
-          errorMsg.includes('Settings could not be saved') ||
-          errorMsg.includes('server connection') ||
-          errorMsg.includes('data loss')
-        ) {
-          throw new Error('保存失败：服务器连接问题或数据过大，请检查网络连接或减少数据量');
-        }
-        throw new Error(`保存到数据库失败: ${errorMsg}`);
-      }
+      // 3. 保存到数据库（不更新完整快照）
+      await saveDataOnly(rawData);
 
-      cachedRawData = dataToSave;
-      // 注意：不调用 saveSnapshot()，不更新 hasUnsavedChanges
+      // 4. 只更新快照中这一行（关键：保留其他行的变更高亮）
+      const snapshot = loadSnapshot();
+      if (snapshot && snapshot[tableKey] && snapshot[tableKey].content) {
+        snapshot[tableKey].content[rowIndex + 1] = [...newRowData];
+        saveSnapshot(snapshot);
+      }
     } catch (e) {
-      console.error('[DICE]ACU saveDataOnly error:', e);
-      // 重新抛出错误以便上层处理
+      const errorMsg = e instanceof Error ? e.message : String(e);
+      console.error('[DICE]ACU saveRowInstantly error:', e);
+      toastr.error(`保存失败: ${errorMsg}`);
       throw e;
     }
   };
+
   const processJsonData = json => {
     const tables = {};
     if (!json || typeof json !== 'object') return tables;
@@ -16969,11 +17156,8 @@ import { MAIN_STYLES } from './styles';
       e.stopPropagation(); // 阻止事件冒泡到设置面板
       closeDialog();
     });
-    dialog.on('click', function (e) {
-      if ($(e.target).hasClass('acu-validation-modal-overlay')) {
-        e.stopPropagation(); // 阻止事件冒泡到设置面板
-        closeDialog();
-      }
+    setupOverlayClose(dialog, 'acu-validation-modal-overlay', () => {
+      closeDialog();
     });
 
     // 保存
@@ -17701,6 +17885,7 @@ import { MAIN_STYLES } from './styles';
           <div class="acu-dialog-btns">
             <button class="acu-dialog-btn" id="smart-fix-cancel"><i class="fa-solid fa-times"></i> 取消</button>
             ${hasSnapshotValue ? `<button class="acu-dialog-btn acu-btn-revert" id="smart-fix-revert"><i class="fa-solid fa-rotate-left"></i> 恢复快照值</button>` : ''}
+            <button class="acu-dialog-btn acu-btn-clear" id="smart-fix-clear"><i class="fa-solid fa-eraser"></i> 清空当前值</button>
             <button class="acu-dialog-btn acu-btn-confirm" id="smart-fix-confirm"><i class="fa-solid fa-check"></i> 保存</button>
           </div>
         </div>
@@ -17798,12 +17983,15 @@ import { MAIN_STYLES } from './styles';
       dialog.find('#smart-fix-value').val(snapshotValue);
     });
 
+    // 清空当前值
+    dialog.on('click', '#smart-fix-clear', function () {
+      dialog.find('#smart-fix-value').val('').trigger('input');
+    });
+
     // 关闭
     const closeDialog = () => dialog.remove();
     dialog.on('click', '#smart-fix-close, #smart-fix-cancel', closeDialog);
-    dialog.on('click', function (e) {
-      if ($(e.target).hasClass('acu-validation-modal-overlay')) closeDialog();
-    });
+    setupOverlayClose(dialog, 'acu-validation-modal-overlay', closeDialog);
 
     // 确认修改
     dialog.find('#smart-fix-confirm').on('click', async function () {
@@ -18543,9 +18731,7 @@ import { MAIN_STYLES } from './styles';
     // 关闭
     const closeDialog = () => dialog.remove();
     dialog.on('click', '#smart-fix-cancel', closeDialog);
-    dialog.on('click', function (e) {
-      if ($(e.target).hasClass('acu-validation-modal-overlay')) closeDialog();
-    });
+    setupOverlayClose(dialog, 'acu-validation-modal-overlay', closeDialog);
 
     // 恢复整表
     dialog.on('click', '#smart-fix-restore-table', async function () {
@@ -18805,7 +18991,7 @@ import { MAIN_STYLES } from './styles';
       width: '100vw',
       height: '100vh',
       background: 'rgba(0,0,0,0.6)',
-      'z-index': '2147483655',
+      'z-index': '31300',
       display: 'flex',
       'align-items': 'center',
       'justify-content': 'center',
@@ -18906,9 +19092,7 @@ import { MAIN_STYLES } from './styles';
     };
 
     $modal.find('#blacklist-close-btn, .acu-close-btn').click(closeModal);
-    $modal.on('click', function (e) {
-      if ($(e.target).hasClass('acu-blacklist-manager-overlay')) closeModal();
-    });
+    setupOverlayClose($modal, 'acu-blacklist-manager-overlay', closeModal);
   };
 
   const showAttributePresetManager = () => {
@@ -19178,11 +19362,9 @@ import { MAIN_STYLES } from './styles';
     });
 
     // 点击遮罩关闭
-    overlay.on('click', function (e) {
-      if ($(e.target).hasClass('acu-edit-overlay')) {
-        overlay.remove();
-        showSettingsModal();
-      }
+    setupOverlayClose(overlay, 'acu-edit-overlay', () => {
+      overlay.remove();
+      showSettingsModal();
     });
   };
 
@@ -19331,11 +19513,9 @@ import { MAIN_STYLES } from './styles';
     });
 
     // 点击遮罩关闭
-    overlay.on('click', function (e) {
-      if ($(e.target).hasClass('acu-edit-overlay')) {
-        overlay.remove();
-        showAttributePresetManager();
-      }
+    setupOverlayClose(overlay, 'acu-edit-overlay', () => {
+      overlay.remove();
+      showSettingsModal();
     });
   };
 
@@ -19552,11 +19732,9 @@ import { MAIN_STYLES } from './styles';
     });
 
     // 点击遮罩关闭
-    overlay.on('click', function (e) {
-      if ($(e.target).hasClass('acu-edit-overlay')) {
-        overlay.remove();
-        showSettingsModal();
-      }
+    setupOverlayClose(overlay, 'acu-edit-overlay', () => {
+      overlay.remove();
+      showSettingsModal();
     });
   };
 
@@ -19695,16 +19873,11 @@ import { MAIN_STYLES } from './styles';
     });
 
     // 点击遮罩关闭
-    overlay.on('click', function (e) {
-      if ($(e.target).hasClass('acu-edit-overlay')) {
-        overlay.remove();
-        showActionPresetManager();
-      }
+    setupOverlayClose(overlay, 'acu-edit-overlay', () => {
+      overlay.remove();
+      showActionPresetManager();
     });
   };
-
-  // ========================================
-  // Debug控制台窗口
   // ========================================
   const showDebugConsoleModal = () => {
     const { $ } = getCore();
@@ -20181,11 +20354,7 @@ import { MAIN_STYLES } from './styles';
     });
 
     // 点击遮罩层关闭
-    dialog.on('click', function (e) {
-      if ($(e.target).hasClass('acu-edit-overlay')) {
-        closeDialog();
-      }
-    });
+    setupOverlayClose(dialog, 'acu-edit-overlay', closeDialog);
 
     // ESC 键关闭
     $(document).on('keydown.regex-rule-modal', function (e) {
@@ -20601,7 +20770,7 @@ import { MAIN_STYLES } from './styles';
                                 <button class="acu-action-btn" id="btn-regex-preset-del" title="删除预设" style="flex:1;height:28px;"><i class="fa-solid fa-trash"></i></button>
                                 <button class="acu-action-btn" id="btn-regex-preset-export" title="导出" style="flex:1;height:28px;"><i class="fa-solid fa-file-export"></i></button>
                                 <button class="acu-action-btn" id="btn-regex-preset-import" title="导入" style="flex:1;height:28px;"><i class="fa-solid fa-file-import"></i></button>
-                                <button class="acu-action-btn" id="btn-execute-regex-now" title="立即对所有表格应用已启用的规则" style="flex:1;height:28px;background:var(--acu-btn-accent, #4a9eff);color:white;"><i class="fa-solid fa-play"></i></button>
+                                <button class="acu-action-btn" id="btn-execute-regex-now" title="立即对所有表格应用已启用的规则" style="flex:1;height:28px;background:var(--acu-btn-accent, #4a9eff);color:var(--acu-btn-active-text);"><i class="fa-solid fa-play"></i></button>
                             </div>
                             <div class="acu-validation-hint" style="font-size:11px;color:var(--acu-text-sub);margin-bottom:8px;padding:0 4px;">
                                 <i class="fa-solid fa-info-circle"></i> 正则转换规则用于自动修改数据格式
@@ -20661,12 +20830,12 @@ import { MAIN_STYLES } from './styles';
                                 <div class="acu-setting-info">
                                     <span class="acu-setting-label"><i class="fa-solid fa-fire"></i> 疯狂模式</span>
                                 </div>
-                                <select id="cfg-crazy-mode" class="acu-setting-select" style="width: 90px; min-width: 90px;">
-                                    <option value="0">关闭</option>
-                                    <option value="25">低</option>
-                                    <option value="50">中</option>
-                                    <option value="75">高</option>
-                                    <option value="100">极限</option>
+                                <select id="cfg-crazy-mode" class="acu-setting-select" style="width: 90px; min-width: 90px; text-align: center; text-align-last: center;">
+                                    <option value="0">○ 关闭</option>
+                                    <option value="25">◔ 低</option>
+                                    <option value="50">◑ 中</option>
+                                    <option value="75">◕ 高</option>
+                                    <option value="100">● 极限</option>
                                 </select>
                             </div>
                             <div class="acu-setting-row">
@@ -20810,7 +20979,6 @@ import { MAIN_STYLES } from './styles';
         const value = parseInt($(this).val() as string, 10);
         if (value === 0) {
           saveCrazyModeConfig({ enabled: false, crazyLevel: 50 });
-          toastr.info('疯狂模式已关闭');
         } else {
           saveCrazyModeConfig({ enabled: true, crazyLevel: value });
         }
@@ -21672,9 +21840,7 @@ import { MAIN_STYLES } from './styles';
       e.stopPropagation();
       window.open('https://jerryzmtz.github.io/DiceSystemManual//', '_blank');
     });
-    dialog.on('click', function (e) {
-      if ($(e.target).hasClass('acu-edit-overlay')) closeDialog();
-    });
+    setupOverlayClose(dialog, 'acu-edit-overlay', closeDialog);
   };
 
   // [优化] 渲染防抖：避免短时间内多次渲染导致重复日志
@@ -22068,18 +22234,63 @@ import { MAIN_STYLES } from './styles';
             if (!newSheet?.content) continue;
             const newRows = newSheet.content.slice(1);
             const oldRows = oldSheet?.content?.slice(1) || [];
-            newRows.forEach((row, rowIdx) => {
-              const oldRow = oldRows[rowIdx];
-              if (!oldRow) {
-                changesCount++;
-                return;
+
+            // [优化] 使用标题匹配计算变更数量（与detectChanges保持一致）
+            const oldRowsByTitle = new Map<string, Array<{ index: number; row: (typeof oldRows)[0] }>>();
+            oldRows.forEach((row, rIdx) => {
+              const title = String(row[1] ?? '').trim();
+              if (!oldRowsByTitle.has(title)) {
+                oldRowsByTitle.set(title, []);
               }
-              row.forEach((cell, colIdx) => {
-                if (colIdx === 0) return;
-                if (String(cell ?? '') !== String(oldRow[colIdx] ?? '')) changesCount++;
-              });
+              oldRowsByTitle.get(title)!.push({ index: rIdx, row });
             });
-            if (oldRows.length > newRows.length) changesCount += oldRows.length - newRows.length;
+
+            newRows.forEach((row, rowIdx) => {
+              const title = String(row[1] ?? '').trim();
+              let oldRow: (typeof oldRows)[0] | undefined;
+
+              if (title && oldRowsByTitle.has(title)) {
+                const queue = oldRowsByTitle.get(title)!;
+                if (queue.length > 0) {
+                  const matched = queue.shift()!;
+                  oldRow = matched.row;
+                }
+              } else if (!title) {
+                oldRow = oldRows[rowIdx];
+              }
+
+              if (!oldRow) {
+                changesCount++; // 新增行
+              } else {
+                // 检查是否有字段变化
+                let hasChange = false;
+                row.forEach((cell, colIdx) => {
+                  if (colIdx === 0) return;
+                  if (String(cell ?? '') !== String(oldRow![colIdx] ?? '')) hasChange = true;
+                });
+                if (hasChange) changesCount++;
+              }
+            });
+
+            // 计算删除的行数（使用标题计数差值）
+            const newTitleCounts = new Map<string, number>();
+            const oldTitleCounts = new Map<string, number>();
+            newRows.forEach(row => {
+              const title = String(row[1] ?? '').trim();
+              if (title) newTitleCounts.set(title, (newTitleCounts.get(title) || 0) + 1);
+            });
+            oldRows.forEach(row => {
+              const title = String(row[1] ?? '').trim();
+              if (title) oldTitleCounts.set(title, (oldTitleCounts.get(title) || 0) + 1);
+            });
+            oldTitleCounts.forEach((oldCount, title) => {
+              const newCount = newTitleCounts.get(title) || 0;
+              if (oldCount > newCount) changesCount += oldCount - newCount;
+            });
+            // 空标题行的删除
+            const emptyOldCount = oldRows.filter(r => !String(r[1] ?? '').trim()).length;
+            const emptyNewCount = newRows.filter(r => !String(r[1] ?? '').trim()).length;
+            if (emptyOldCount > emptyNewCount) changesCount += emptyOldCount - emptyNewCount;
           }
           for (const sheetId in snapshot) {
             if (sheetId.startsWith('sheet_') && !rawData[sheetId]) changesCount++;
@@ -22542,9 +22753,36 @@ import { MAIN_STYLES } from './styles';
       const newRows = newSheet.content.slice(1);
       const oldRows = oldSheet?.content?.slice(1) || [];
 
-      // 检测修改和新增
+      // [优化] 使用标题匹配检测修改和新增
+      // 构建快照数据的标题映射表（队列模式处理重复标题）
+      const oldRowsByTitle = new Map<string, Array<{ index: number; row: (typeof oldRows)[0] }>>();
+      oldRows.forEach((row, rIdx) => {
+        const title = String(row[1] ?? '').trim();
+        if (!oldRowsByTitle.has(title)) {
+          oldRowsByTitle.set(title, []);
+        }
+        oldRowsByTitle.get(title)!.push({ index: rIdx, row });
+      });
+
       newRows.forEach((row, rowIdx) => {
-        const oldRow = oldRows[rowIdx];
+        const title = String(row[1] ?? '').trim();
+
+        // 尝试通过标题匹配找到对应的旧行
+        let oldRow: (typeof oldRows)[0] | undefined;
+        let oldRowIndex: number | undefined;
+
+        if (title && oldRowsByTitle.has(title)) {
+          const queue = oldRowsByTitle.get(title)!;
+          if (queue.length > 0) {
+            const matched = queue.shift()!; // 队列消耗模式
+            oldRow = matched.row;
+            oldRowIndex = matched.index;
+          }
+        } else if (!title) {
+          // 空标题回退到索引匹配
+          oldRow = oldRows[rowIdx];
+          oldRowIndex = rowIdx;
+        }
 
         if (!oldRow) {
           // 整行新增
@@ -22559,10 +22797,15 @@ import { MAIN_STYLES } from './styles';
           });
         } else {
           // 检查单元格变化，收集同一行的所有修改
-          const rowChanges = [];
+          const rowChanges: Array<{
+            colIndex: number;
+            header: string;
+            oldValue: string;
+            newValue: string;
+          }> = [];
           row.forEach((cell, colIdx) => {
             if (colIdx === 0) return; // 跳过索引列
-            const oldVal = String(oldRow[colIdx] ?? '');
+            const oldVal = String(oldRow![colIdx] ?? '');
             const newVal = String(cell ?? '');
             if (oldVal !== newVal) {
               rowChanges.push({
@@ -22605,21 +22848,70 @@ import { MAIN_STYLES } from './styles';
         }
       });
 
-      // 检测删除的行
-      if (oldRows.length > newRows.length) {
-        for (let i = newRows.length; i < oldRows.length; i++) {
-          const oldRow = oldRows[i];
-          changes.push({
-            type: 'row_deleted',
-            tableName,
-            tableKey: sheetId,
-            rowIndex: i,
-            headers,
-            row: oldRow,
-            title: oldRow[1] || `行 ${i + 1}`,
-          });
+      // [优化] 使用标题匹配检测删除的行
+      // 构建当前数据的标题计数
+      const newTitleCounts = new Map();
+      newRows.forEach((row, rIdx) => {
+        const title = String(row[1] ?? '').trim();
+        if (title) {
+          newTitleCounts.set(title, (newTitleCounts.get(title) || 0) + 1);
         }
-      }
+      });
+
+      // 构建快照数据的标题计数
+      const oldTitleCounts = new Map();
+      oldRows.forEach((row, rIdx) => {
+        const title = String(row[1] ?? '').trim();
+        if (title) {
+          oldTitleCounts.set(title, (oldTitleCounts.get(title) || 0) + 1);
+        }
+      });
+
+      // 找出被删除的行：在快照中存在但在当前数据中不存在（或数量减少）
+      const processedTitles = new Set();
+      oldRows.forEach((oldRow, rIdx) => {
+        const title = String(oldRow[1] ?? '').trim();
+
+        if (!title) {
+          // 空标题：用索引判断
+          if (rIdx >= newRows.length) {
+            changes.push({
+              type: 'row_deleted',
+              tableName,
+              tableKey: sheetId,
+              rowIndex: rIdx,
+              headers,
+              row: oldRow,
+              title: `行 ${rIdx + 1}`,
+            });
+          }
+        } else if (!processedTitles.has(title)) {
+          processedTitles.add(title);
+          const oldCount = oldTitleCounts.get(title) || 0;
+          const newCount = newTitleCounts.get(title) || 0;
+          const deletedCount = oldCount - newCount;
+
+          if (deletedCount > 0) {
+            // 找到该标题在快照中的所有行，取最后deletedCount个作为删除
+            const matchingOldRows = oldRows
+              .map((r, i) => ({ row: r, index: i }))
+              .filter(item => String(item.row[1] ?? '').trim() === title);
+
+            const deletedRows = matchingOldRows.slice(-deletedCount);
+            deletedRows.forEach(item => {
+              changes.push({
+                type: 'row_deleted',
+                tableName,
+                tableKey: sheetId,
+                rowIndex: item.index,
+                headers,
+                row: item.row,
+                title: title,
+              });
+            });
+          }
+        }
+      });
     }
 
     // 检测整个表被删除
@@ -23432,18 +23724,63 @@ import { MAIN_STYLES } from './styles';
         if (!newSheet?.content) continue;
         const newRows = newSheet.content.slice(1);
         const oldRows = oldSheet?.content?.slice(1) || [];
-        newRows.forEach((row, rowIdx) => {
-          const oldRow = oldRows[rowIdx];
-          if (!oldRow) {
-            changesCount++;
-            return;
+
+        // [优化] 使用标题匹配计算变更数量（与detectChanges保持一致）
+        const oldRowsByTitle = new Map<string, Array<{ index: number; row: (typeof oldRows)[0] }>>();
+        oldRows.forEach((row, rIdx) => {
+          const title = String(row[1] ?? '').trim();
+          if (!oldRowsByTitle.has(title)) {
+            oldRowsByTitle.set(title, []);
           }
-          row.forEach((cell, colIdx) => {
-            if (colIdx === 0) return;
-            if (String(cell ?? '') !== String(oldRow[colIdx] ?? '')) changesCount++;
-          });
+          oldRowsByTitle.get(title)!.push({ index: rIdx, row });
         });
-        if (oldRows.length > newRows.length) changesCount += oldRows.length - newRows.length;
+
+        newRows.forEach((row, rowIdx) => {
+          const title = String(row[1] ?? '').trim();
+          let oldRow: (typeof oldRows)[0] | undefined;
+
+          if (title && oldRowsByTitle.has(title)) {
+            const queue = oldRowsByTitle.get(title)!;
+            if (queue.length > 0) {
+              const matched = queue.shift()!;
+              oldRow = matched.row;
+            }
+          } else if (!title) {
+            oldRow = oldRows[rowIdx];
+          }
+
+          if (!oldRow) {
+            changesCount++; // 新增行
+          } else {
+            // 检查是否有字段变化
+            let hasChange = false;
+            row.forEach((cell, colIdx) => {
+              if (colIdx === 0) return;
+              if (String(cell ?? '') !== String(oldRow![colIdx] ?? '')) hasChange = true;
+            });
+            if (hasChange) changesCount++;
+          }
+        });
+
+        // 计算删除的行数（使用标题计数差值）
+        const newTitleCounts = new Map<string, number>();
+        const oldTitleCounts = new Map<string, number>();
+        newRows.forEach(row => {
+          const title = String(row[1] ?? '').trim();
+          if (title) newTitleCounts.set(title, (newTitleCounts.get(title) || 0) + 1);
+        });
+        oldRows.forEach(row => {
+          const title = String(row[1] ?? '').trim();
+          if (title) oldTitleCounts.set(title, (oldTitleCounts.get(title) || 0) + 1);
+        });
+        oldTitleCounts.forEach((oldCount, title) => {
+          const newCount = newTitleCounts.get(title) || 0;
+          if (oldCount > newCount) changesCount += oldCount - newCount;
+        });
+        // 空标题行的删除
+        const emptyOldCount = oldRows.filter(r => !String(r[1] ?? '').trim()).length;
+        const emptyNewCount = newRows.filter(r => !String(r[1] ?? '').trim()).length;
+        if (emptyOldCount > emptyNewCount) changesCount += emptyOldCount - emptyNewCount;
       }
       for (const sheetId in snapshot) {
         if (sheetId.startsWith('sheet_') && !rawData[sheetId]) changesCount++;
@@ -23538,9 +23875,7 @@ import { MAIN_STYLES } from './styles';
       dialog.remove();
     };
     dialog.find('#dlg-change-cancel').click(closeDialog);
-    dialog.on('click', function (e) {
-      if ($(e.target).hasClass('acu-edit-overlay')) closeDialog();
-    });
+    setupOverlayClose(dialog, 'acu-edit-overlay', closeDialog);
 
     dialog.find('#dlg-change-save').click(async () => {
       let rawData = cachedRawData || getTableData();
@@ -23696,9 +24031,7 @@ import { MAIN_STYLES } from './styles';
 
     const closeDialog = () => dialog.remove();
     dialog.find('#dlg-single-cancel').click(closeDialog);
-    dialog.on('click', function (e) {
-      if ($(e.target).hasClass('acu-edit-overlay')) closeDialog();
-    });
+    setupOverlayClose(dialog, 'acu-edit-overlay', closeDialog);
 
     // [新增] 恢复原值按钮
     dialog.find('#dlg-single-revert').click(function () {
@@ -23795,9 +24128,7 @@ import { MAIN_STYLES } from './styles';
 
     const closeDialog = () => dialog.remove();
     dialog.find('#dlg-row-cancel').click(closeDialog);
-    dialog.on('click', function (e) {
-      if ($(e.target).hasClass('acu-edit-overlay')) closeDialog();
-    });
+    setupOverlayClose(dialog, 'acu-edit-overlay', closeDialog);
 
     // 全部恢复
     dialog.find('#dlg-row-revert').click(function () {
@@ -23969,13 +24300,12 @@ import { MAIN_STYLES } from './styles';
         progress: q.progress || '',
         _rowIndex: q._rowIndex,
       }))
-      .sort((a, b) => questTypeOrder(a.type) - questTypeOrder(b.type))
-      .slice(0, 5);
+      .sort((a, b) => questTypeOrder(a.type) - questTypeOrder(b.type));
     // [重构] 背包物品数据 - 使用新解析器
     const bagTableName = bagResult?.name || '背包物品表';
 
     const bagParsed = DashboardDataParser.parseRows(bagResult, 'bag');
-    let bagItems = bagParsed.slice(0, 6).map(item => ({
+    let bagItems = bagParsed.map(item => ({
       name: item.name || '未知物品',
       count: item.count || '1',
       type: item.type || '',
@@ -23985,7 +24315,7 @@ import { MAIN_STYLES } from './styles';
     const skillTableName = skillResult?.name || '主角技能表';
 
     const skillParsed = DashboardDataParser.parseRows(skillResult, 'skill');
-    let skills = skillParsed.slice(0, 6).map(s => ({
+    let skills = skillParsed.map(s => ({
       name: s.name || '未知技能',
       level: s.level || '',
       type: s.type || '',
@@ -23997,7 +24327,7 @@ import { MAIN_STYLES } from './styles';
     const equipParsed = DashboardDataParser.parseRows(equipResult, 'equip');
     const equippedParsed = DashboardDataParser.applyFilter(equipParsed, 'equipped', 'equip');
 
-    let equippedItems = equippedParsed.slice(0, 4).map(e => ({
+    let equippedItems = equippedParsed.map(e => ({
       name: e.name || '未知装备',
       type: e.type || '',
       part: e.part || '',
@@ -24034,15 +24364,37 @@ import { MAIN_STYLES } from './styles';
                         <span><i class="fa-solid fa-user-circle"></i> ${escapeHtml(replaceUserPlaceholders(player.name))}</span>
                         <span style="font-size:11px;font-weight:normal;color:var(--acu-text-main);background:var(--acu-badge-bg);padding:2px 8px;border-radius:10px;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(player.status)}">${escapeHtml(player.status.length > 6 ? player.status.substring(0, 6) + '..' : player.status)}</span>
                     </h3>
-                    <div class="acu-player-status" style="margin-bottom:8px;">
+                    <div class="acu-player-status" style="min-height:110px;max-height:110px;overflow-y:auto;margin-bottom:10px;">
                         ${(() => {
                           // 解析资源数据
                           const resourcesStr = player.resources || player.money || '';
                           const parsedResources = parseAttributeString(resourcesStr);
+
+                          // 收集所有属性列的数据
+                          let allAttrs = [];
+                          if (playerRows.length > 0 && playerHeaders.length > 0) {
+                            const row = playerRows[0];
+                            playerHeaders.forEach((h, idx) => {
+                              if (h && h.includes('属性')) {
+                                const parsed = parseAttributeString(row[idx] || '');
+                                parsed.forEach(attr => {
+                                  if (!allAttrs.some(a => a.name === attr.name)) {
+                                    allAttrs.push(attr);
+                                  }
+                                });
+                              }
+                            });
+                          }
+
+                          // 如果资源和属性都为空，显示空状态
+                          if (parsedResources.length === 0 && allAttrs.length === 0) {
+                            return '<div class="acu-empty-hint">暂无主角信息</div>';
+                          }
+
+                          let html = '';
                           if (parsedResources.length > 0) {
-                            return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 6px;max-height:52px;overflow-y:auto;margin-bottom:6px;padding-bottom:6px;border-bottom:1px dashed var(--acu-border);">
+                            html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 6px;max-height:52px;overflow-y:auto;margin-bottom:6px;padding-bottom:6px;border-bottom:1px dashed var(--acu-border);">
                                     ${parsedResources
-                                      .slice(0, 4)
                                       .map(
                                         res => `
                                         <div style="display:flex;justify-content:space-between;align-items:center;padding:2px 3px;">
@@ -24057,48 +24409,31 @@ import { MAIN_STYLES } from './styles';
                                       .join('')}
                                 </div>`;
                           }
-                          return '';
-                        })()}
-        ${(() => {
-          // 收集所有属性列的数据
-          let allAttrs = [];
-          if (playerRows.length > 0 && playerHeaders.length > 0) {
-            const row = playerRows[0];
-            playerHeaders.forEach((h, idx) => {
-              if (h && h.includes('属性')) {
-                const parsed = parseAttributeString(row[idx] || '');
-                parsed.forEach(attr => {
-                  if (!allAttrs.some(a => a.name === attr.name)) {
-                    allAttrs.push(attr);
-                  }
-                });
-              }
-            });
-          }
 
-          if (allAttrs.length > 0) {
-            // 三列网格布局，最大3行（约78px），超出滚动
-            return `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px 6px;max-height:78px;overflow-y:auto;overflow-x:hidden;">
-                    ${allAttrs
-                      .map(
-                        attr => `
-                        <div style="display:flex;justify-content:space-between;align-items:center;padding:2px 3px;border-bottom:1px dashed var(--acu-border);min-width:0;">
-                            <span style="color:var(--acu-text-sub);font-size:10px;white-space:nowrap;" title="${escapeHtml(attr.name)}">${escapeHtml(attr.name.substring(0, 2))}</span>
-                            <div style="display:flex;align-items:center;gap:2px;flex-shrink:0;">
-                                <span style="color:var(--acu-text-main);font-size:11px;font-weight:bold;">${attr.value}</span>
-                                <i class="fa-solid fa-dice-d20 acu-dash-dice-btn" data-target="${attr.value}" data-name="${escapeHtml(attr.name)}" style="cursor:pointer;color:var(--acu-text-sub);opacity:0.4;font-size:10px;" title="以${attr.name}(${attr.value})进行检定"></i>
-                            </div>
-                        </div>
-                    `,
-                      )
-                      .join('')}
-                </div>`;
-          }
-          return '';
-        })()}
+                          if (allAttrs.length > 0) {
+                            // 三列网格布局，最大5行（约98px），超出滚动
+                            html += `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px 6px;max-height:98px;overflow-y:auto;overflow-x:hidden;">
+                                    ${allAttrs
+                                      .map(
+                                        attr => `
+                                        <div style="display:flex;justify-content:space-between;align-items:center;padding:2px 3px;border-bottom:1px dashed var(--acu-border);min-width:0;">
+                                            <span style="color:var(--acu-text-sub);font-size:10px;white-space:nowrap;" title="${escapeHtml(attr.name)}">${escapeHtml(attr.name.substring(0, 2))}</span>
+                                            <div style="display:flex;align-items:center;gap:2px;flex-shrink:0;">
+                                                <span style="color:var(--acu-text-main);font-size:11px;font-weight:bold;">${attr.value}</span>
+                                                <i class="fa-solid fa-dice-d20 acu-dash-dice-btn" data-target="${attr.value}" data-name="${escapeHtml(attr.name)}" style="cursor:pointer;color:var(--acu-text-sub);opacity:0.4;font-size:10px;" title="以${attr.name}(${attr.value})进行检定"></i>
+                                            </div>
+                                        </div>
+                                    `,
+                                      )
+                                      .join('')}
+                                </div>`;
+                          }
+
+                          return html;
+                        })()}
                     </div>
 
-                    <h4 class="acu-dash-table-link" data-table="${escapeHtml(skillTableName)}" style="font-size:12px;color:var(--acu-accent);margin:10px 0 6px 0;"><i class="fa-solid fa-bolt"></i> 技能 (${skillParsed.length})</h4>
+                    <h4 class="acu-dash-table-link" data-table="${escapeHtml(skillTableName)}" style="font-size:14px;color:var(--acu-accent);margin:10px 0 6px 0;"><i class="fa-solid fa-bolt"></i> 技能 (${skillParsed.length})</h4>
                     <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:2px 6px;max-height:78px;overflow-y:auto;overflow-x:hidden;">
                     ${
                       skills.length > 0
@@ -24124,7 +24459,7 @@ import { MAIN_STYLES } from './styles';
                         </div>`;
                             })
                             .join('')
-                        : '<div style="grid-column:1/-1;text-align:center;color:var(--acu-text-sub);padding:8px;font-size:11px;">暂无技能</div>'
+                        : '<div class="acu-empty-hint">暂无技能</div>'
                     }
                     </div>
                 </div>
@@ -24135,7 +24470,7 @@ import { MAIN_STYLES } from './styles';
                         <span><i class="fa-solid fa-map"></i> 地点 (${locationParsed.length})</span>
                         <i class="fa-solid fa-map acu-dash-map-btn" title="地图可视化" style="cursor:pointer;color:var(--acu-text-sub);opacity:0.6;font-size:12px;padding:4px;"></i>
                     </h3>
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 6px;max-height:100px;overflow-y:auto;overflow-x:hidden;margin-bottom:10px;">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 6px;min-height:110px;max-height:110px;overflow-y:auto;overflow-x:hidden;margin-bottom:10px;">
                     ${
                       locationParsed.length > 0
                         ? locationParsed
@@ -24167,14 +24502,13 @@ import { MAIN_STYLES } from './styles';
                             <i class="fa-solid fa-user-circle acu-dash-avatar-manager-btn" title="头像管理" style="cursor:pointer;color:var(--acu-text-sub);opacity:0.6;font-size:12px;padding:4px;"></i>
                         </span>
                     </h3>
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 6px;max-height:150px;overflow-y:auto;overflow-x:hidden;">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 6px;min-height:100px;max-height:150px;overflow-y:auto;overflow-x:hidden;">
                     ${
                       allNPCs.length > 0
                         ? allNPCs
-                            .slice(0, 12)
                             .map((npc, npcIdx) => {
                               const isInScene = inSceneNPCs.some(n => n.name === npc.name);
-                              const isLastNpc = npcIdx === Math.min(allNPCs.length, 12) - 1;
+                              const isLastNpc = npcIdx === allNPCs.length - 1;
                               const npcAvatar = AvatarManager.get(npc.name);
                               const avatarOffsetX = AvatarManager.getOffsetX(npc.name);
                               const avatarOffsetY = AvatarManager.getOffsetY(npc.name);
@@ -24198,7 +24532,7 @@ import { MAIN_STYLES } from './styles';
                                     <span title="${escapeHtml(npc.name)}" style="${isInScene ? '' : 'opacity:0.6;'}">${escapeHtml(npc.name.length > 4 ? npc.name.substring(0, 4) + '..' : npc.name)}</span>
                                 </span>
                                 <div style="display:flex;align-items:center;">
-                                    <i class="fa-solid fa-people-arrows acu-dash-contest-btn" data-npc="${escapeHtml(npc.name)}" style="cursor:pointer;color:var(--acu-text-sub);opacity:0.4;font-size:10px;" title="与${npc.name}进行对抗检定"></i>
+                                    <i class="fa-solid fa-people-arrows acu-dash-contest-btn" data-npc="${escapeHtml(npc.name)}" style="cursor:pointer;color:var(--acu-text-sub);opacity:0.4;font-size:8px;" title="与${npc.name}进行对抗检定"></i>
                                 </div>
                             </div>
                         </div>`;
@@ -24212,7 +24546,7 @@ import { MAIN_STYLES } from './styles';
                 <!-- 右列：背包 + 技能 + 任务 -->
                 <div class="acu-dash-intel">
                     <h3 class="acu-dash-table-link" data-table="${escapeHtml(bagTableName)}"><i class="fa-solid fa-bag-shopping"></i> 物品 (${bagParsed.length})</h3>
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 6px;max-height:80px;overflow-y:auto;margin-bottom:10px;">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 6px;max-height:90px;overflow-y:auto;margin-bottom:10px;">
                     ${
                       bagItems.length > 0
                         ? bagItems
@@ -24231,7 +24565,7 @@ import { MAIN_STYLES } from './styles';
                         </div>`;
                             })
                             .join('')
-                        : '<div class="acu-empty-hint">背包为空</div>'
+                        : '<div class="acu-empty-hint">暂无物品</div>'
                     }
                     </div>
 
@@ -24252,11 +24586,12 @@ import { MAIN_STYLES } from './styles';
                         </div>`;
                             })
                             .join('')
-                        : '<div class="acu-empty-hint">无装备</div>'
+                        : '<div class="acu-empty-hint">暂无装备</div>'
                     }
                     </div>
 
                     <h3 class="acu-dash-table-link" data-table="${escapeHtml(questTableName)}" style="margin-top:10px;"><i class="fa-solid fa-clipboard-list"></i> 任务 (${activeTasks.length})</h3>
+                    <div style="max-height:50px;overflow-y:auto;">
                     ${
                       activeTasks.length > 0
                         ? activeTasks
@@ -24284,8 +24619,9 @@ import { MAIN_STYLES } from './styles';
                         </div>`;
                             })
                             .join('')
-                        : '<div class="acu-empty-hint">无进行中任务</div>'
+                        : '<div class="acu-empty-hint">暂无任务</div>'
                     }
+                    </div>
                 </div>
             </div>
     `;
@@ -24313,7 +24649,6 @@ import { MAIN_STYLES } from './styles';
             <div class="acu-panel-content"><div style="text-align:center;color:var(--acu-text-sub);padding:20px;">暂无数据</div></div>`;
 
     const config = getConfig();
-    const pendingDeletions = getPendingDeletions()[tableData.key] || [];
     const headers = (tableData.headers || []).slice(1);
 
     // 获取当前表格的视图模式 (默认 list)
@@ -24425,7 +24760,6 @@ import { MAIN_STYLES } from './styles';
       .map(item => {
         const realRowIdx = item.originalIndex;
         const row = item.data;
-        const isPending = pendingDeletions.includes(realRowIdx);
         const cardTitle = row[titleColIndex] || '未命名';
         const showDefaultIndex = titleColIndex === 1;
         const titleCellId = `${tableData.key}-${realRowIdx}-${titleColIndex}`;
@@ -24723,7 +25057,7 @@ import { MAIN_STYLES } from './styles';
           ? `<i class="${isBookmarked ? 'fa-solid' : 'fa-regular'} fa-bookmark acu-bookmark-icon ${isBookmarked ? 'bookmarked' : ''}" data-table="${escapeHtml(tableName)}" data-row-key="${escapeHtml(cardBookmarkRowKey)}" title="${isBookmarked ? '取消书签' : '添加书签'}"></i>`
           : '';
 
-        return `<div class="acu-data-card ${isPending ? 'pending-deletion' : ''}"><div class="acu-card-header"><span class="acu-card-index">${showDefaultIndex ? '#' + (realRowIdx + 1) : ''}</span><span class="acu-cell acu-editable-title ${rowClass}" data-key="${escapeHtml(tableData.key)}" data-tname="${escapeHtml(tableName)}" data-row="${realRowIdx}" data-col="${titleColIndex}" data-val="${encodeURIComponent(cardTitle ?? '')}" title="点击编辑标题">${escapeHtml(cardTitle)}${cardLockIcon}</span>${bookmarkIcon}</div><div class="acu-card-body ${isGridMode ? 'view-grid' : 'view-list'}">${cardBody}</div>${actionsHtml}</div>`;
+        return `<div class="acu-data-card"><div class="acu-card-header"><span class="acu-card-index">${showDefaultIndex ? '#' + (realRowIdx + 1) : ''}</span><span class="acu-cell acu-editable-title ${rowClass}" data-key="${escapeHtml(tableData.key)}" data-tname="${escapeHtml(tableName)}" data-row="${realRowIdx}" data-col="${titleColIndex}" data-val="${encodeURIComponent(cardTitle ?? '')}" title="点击编辑标题">${escapeHtml(cardTitle)}${cardLockIcon}</span>${bookmarkIcon}</div><div class="acu-card-body ${isGridMode ? 'view-grid' : 'view-list'}">${cardBody}</div>${actionsHtml}</div>`;
       })
       .join('');
     html += `</div></div>`;
@@ -25187,13 +25521,10 @@ import { MAIN_STYLES } from './styles';
         // $icon.addClass('fa-spin'); // 注释掉旋转动画，追求视觉上的“瞬变”
 
         // 2. 【核心】彻底清除所有未保存状态 (瞬间丢弃脏数据)
-        // (1) 清空待删除记录
-        savePendingDeletions({});
-
-        // (2) 清空内存缓存 -> 丢弃未保存的修改
+        // (1) 清空内存缓存 -> 丢弃未保存的修改
         cachedRawData = null;
 
-        // (3) 重置状态标记
+        // (2) 重置状态标记
         hasUnsavedChanges = false;
         currentDiffMap.clear();
         if (window.acuModifiedSet) window.acuModifiedSet.clear();
@@ -25522,7 +25853,8 @@ import { MAIN_STYLES } from './styles';
         }
       });
 
-    $('.acu-close-btn')
+    $wrapper
+      .find('.acu-close-btn')
       .off('click')
       .on('click', function (e) {
         e.stopPropagation();
@@ -25660,7 +25992,7 @@ import { MAIN_STYLES } from './styles';
               const t = getThemeColors();
 
               const overlay = $(`
-                        <div class="acu-msg-overlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:2147483647;display:flex;justify-content:center;align-items:center;">
+                        <div class="acu-msg-overlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:31200;display:flex;justify-content:center;align-items:center;">
                             <div style="background:${t.bgPanel};border:1px solid ${t.border};border-radius:12px;padding:16px;width:90%;max-width:320px;box-shadow:0 10px 40px rgba(0,0,0,0.4);">
                                 <div style="font-size:14px;font-weight:bold;color:${t.accent};margin-bottom:12px;display:flex;align-items:center;gap:6px;">
                                     <i class="fa-solid fa-comment"></i> 发送消息给 ${escapeHtml(npcName)}
@@ -25687,7 +26019,7 @@ import { MAIN_STYLES } from './styles';
               overlayEl.style.setProperty('display', 'flex', 'important');
               overlayEl.style.setProperty('justify-content', 'center', 'important');
               overlayEl.style.setProperty('align-items', 'center', 'important');
-              overlayEl.style.setProperty('z-index', '2147483650', 'important');
+              overlayEl.style.setProperty('z-index', '31100', 'important');
               setTimeout(() => overlay.find('#acu-msg-input').focus(), 50);
 
               const sendMessage = () => {
@@ -25708,9 +26040,7 @@ import { MAIN_STYLES } from './styles';
                 }
               });
               overlay.find('#acu-msg-cancel').click(() => overlay.remove());
-              overlay.on('click', function (ev) {
-                if ($(ev.target).hasClass('acu-msg-overlay')) overlay.remove();
-              });
+              setupOverlayClose(overlay, 'acu-msg-overlay', () => overlay.remove());
               return;
             }
 
@@ -25949,7 +26279,7 @@ import { MAIN_STYLES } from './styles';
         const t = getThemeColors();
 
         const overlay = $(`
-            <div class="acu-msg-overlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:2147483647;display:flex;justify-content:center;align-items:center;">
+            <div class="acu-msg-overlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:31200;display:flex;justify-content:center;align-items:center;">
                 <div class="acu-msg-dialog" style="background:${t.bgPanel};border:1px solid ${t.border};border-radius:12px;padding:16px;width:90%;max-width:320px;box-shadow:0 10px 40px rgba(0,0,0,0.4);">
                     <div style="font-size:14px;font-weight:bold;color:${t.accent};margin-bottom:12px;display:flex;align-items:center;gap:6px;">
                         <i class="fa-solid fa-comment"></i> 发送消息给 ${escapeHtml(npcName)}
@@ -25975,7 +26305,7 @@ import { MAIN_STYLES } from './styles';
         overlayEl.style.setProperty('display', 'flex', 'important');
         overlayEl.style.setProperty('justify-content', 'center', 'important');
         overlayEl.style.setProperty('align-items', 'center', 'important');
-        overlayEl.style.setProperty('z-index', '2147483650', 'important');
+        overlayEl.style.setProperty('z-index', '31100', 'important');
         setTimeout(() => overlay.find('#acu-msg-input').focus(), 50);
 
         const sendMessage = () => {
@@ -26001,9 +26331,7 @@ import { MAIN_STYLES } from './styles';
 
         // 点击取消或背景关闭
         overlay.find('#acu-msg-cancel').click(() => overlay.remove());
-        overlay.on('click', function (ev) {
-          if ($(ev.target).hasClass('acu-msg-overlay')) overlay.remove();
-        });
+        setupOverlayClose(overlay, 'acu-msg-overlay', () => overlay.remove());
       });
     // [新增] NPC对抗检定按钮
     $('body')
@@ -26071,6 +26399,38 @@ import { MAIN_STYLES } from './styles';
           diceType: '1d100',
         });
       });
+
+    // [新增] 弹窗内单元格点击菜单支持（全局委托）
+    // 使用 $('body') 而非 $(document)，确保在 iframe 环境下正确工作
+    $('body')
+      .off('click.acu_preview_cell_menu')
+      .on('click.acu_preview_cell_menu', '.acu-preview-overlay .acu-cell', function (e) {
+        console.log('[DICE] preview cell click triggered', this, $(this).data());
+        // 排除关闭按钮
+        if ($(e.target).closest('.acu-preview-close').length) return;
+
+        const $this = $(this);
+        const existingMenu = $('.acu-cell-menu');
+
+        // [修复] Toggle 行为：同一单元格再次点击则关闭菜单
+        if (existingMenu.length) {
+          const menuCellId = existingMenu.data('cell-id');
+          const thisCellId = `${$this.data('key')}-${$this.data('row')}-${$this.data('col')}`;
+          if (menuCellId === thisCellId) {
+            $('.acu-cell-menu, .acu-menu-backdrop').remove();
+            return;
+          }
+        }
+
+        e.stopPropagation();
+        e.preventDefault();
+        showCellMenu(e, this);
+
+        // 记录当前菜单对应的单元格ID，用于 toggle 判断
+        const cellId = `${$this.data('key')}-${$this.data('row')}-${$this.data('col')}`;
+        $('.acu-cell-menu').data('cell-id', cellId);
+      });
+
     // [重构] 仪表盘预览功能：复用表格卡片渲染，完整功能
     $('body')
       .off('click.acu_dash_preview')
@@ -26233,12 +26593,14 @@ import { MAIN_STYLES } from './styles';
           overlayEl.style.setProperty('display', 'flex', 'important');
           overlayEl.style.setProperty('justify-content', 'center', 'important');
           overlayEl.style.setProperty('align-items', 'center', 'important');
-          overlayEl.style.setProperty('z-index', '2147483650', 'important');
+          overlayEl.style.setProperty('z-index', '31100', 'important');
         }
 
         // 关闭事件
-        $('.acu-preview-overlay').on('click', function (ev) {
-          if ($(ev.target).hasClass('acu-preview-overlay') || $(ev.target).closest('.acu-preview-close').length) {
+        const $previewOverlay = $('.acu-preview-overlay');
+        setupOverlayClose($previewOverlay, 'acu-preview-overlay', () => $previewOverlay.remove());
+        $previewOverlay.on('click', function (ev) {
+          if ($(ev.target).closest('.acu-preview-close').length) {
             $(this).remove();
           }
         });
@@ -26630,11 +26992,6 @@ import { MAIN_STYLES } from './styles';
     // 状态检查
     const isModified = window.acuModifiedSet.has(cellId);
 
-    // 获取当前表格的待删除列表
-    const pendingDeletionsMap = getPendingDeletions();
-    const tableDeletions = pendingDeletionsMap[tableKey] || [];
-    const isPending = tableDeletions.includes(rowIdx);
-
     // 计算锁定状态
     const headers = cachedRawData?.[tableKey]?.content?.[0] || [];
     const rowData = cachedRawData?.[tableKey]?.content?.[rowIdx + 1] || [];
@@ -26676,7 +27033,7 @@ import { MAIN_STYLES } from './styles';
                 <div class="acu-cell-menu-item" id="act-copy"><i class="fa-solid fa-copy"></i> 复制内容</div>
                 ${lockMenuHtml}
                 ${isModified ? '<div class="acu-cell-menu-item" id="act-undo" style="color:#e67e22; border-top:1px solid #eee;"><i class="fa-solid fa-undo"></i> 撤销本次修改</div>' : ''}
-                ${isPending ? '<div class="acu-cell-menu-item" id="act-restore" style="color:#27ae60"><i class="fa-solid fa-undo"></i> 恢复整行</div>' : '<div class="acu-cell-menu-item" id="act-delete" style="color:#e74c3c"><i class="fa-solid fa-trash"></i> 删除整行</div>'}
+                <div class="acu-cell-menu-item" id="act-delete" style="color:#e74c3c"><i class="fa-solid fa-trash"></i> 删除整行</div>
                 <div class="acu-cell-menu-item" id="act-close"><i class="fa-solid fa-times"></i> 关闭菜单</div>
             </div>
         `);
@@ -26877,59 +27234,83 @@ import { MAIN_STYLES } from './styles';
       closeAll();
     });
 
-    // [优化] 删除逻辑 (支持即时模式 & 视觉秒删)
+    // [优化] 删除逻辑 (统一即时删除)
     menu.find('#act-delete').click(async () => {
+      // [修复] 在任何DOM操作之前保存滚动位置
+      const $panelContent = $('.acu-panel-content');
+      const savedScrollTop = $panelContent.length ? $panelContent.scrollTop() : 0;
+      const savedScrollLeft = $panelContent.length ? $panelContent.scrollLeft() : 0;
+
+      // 关闭右键菜单
       closeAll();
 
-      let actOrd = Store.get(STORAGE_KEY_ACTION_ORDER);
-      if (!actOrd || !Array.isArray(actOrd))
-        actOrd = ['acu-btn-save-global', 'acu-btn-collapse', 'acu-btn-refresh', 'acu-btn-settings'];
-      const isInstantMode = !actOrd.includes('acu-btn-save-global');
+      // [Bug 1 修复] 只关闭preview card，保留地图overlay
+      const $mapOverlay = $('.acu-map-overlay');
+      const isFromMap = $mapOverlay.length > 0;
 
-      if (isInstantMode) {
-        // --- 视觉优化：前端直接移除 DOM，不等待后台 ---
-        const $card = $(cell).closest('.acu-data-card');
+      // 只移除preview card overlay
+      $('.acu-preview-overlay').remove();
+
+      // --- 视觉优化：前端直接移除 DOM ---
+      if (isFromMap) {
+        // 地图中的元素chip有 data-table-key 和 data-row-index 属性
+        $mapOverlay.find(`.acu-map-element-chip[data-table-key="${tableKey}"][data-row-index="${rowIdx}"]`).remove();
+        $mapOverlay.find(`.acu-map-thumbnail[data-table-key="${tableKey}"][data-row-index="${rowIdx}"]`).remove();
+      }
+
+      // 主面板中的卡片动画移除
+      const $card = $(cell).closest('.acu-data-card');
+      if ($card.length && !isFromMap) {
         $card.css('transition', 'all 0.2s ease').css('opacity', '0').css('transform', 'scale(0.9)');
         setTimeout(() => $card.slideUp(200, () => $card.remove()), 200);
-
-        // --- 数据操作 ---
-        if (!cachedRawData) cachedRawData = getTableData() || loadSnapshot();
-        if (cachedRawData && cachedRawData[tableKey]?.content) {
-          cachedRawData[tableKey].content.splice(rowIdx + 1, 1);
-
-          // 【关键】手动更新快照，并告诉保存函数 skipRender=true (跳过重绘)
-          saveSnapshot(cachedRawData);
-          await saveDataToDatabase(cachedRawData, true, true);
-        }
-      } else {
-        // --- 默认模式 (手动保存) ---
-        const dels = getPendingDeletions();
-        if (!dels[tableKey]) dels[tableKey] = [];
-        if (!dels[tableKey].includes(rowIdx)) {
-          dels[tableKey].push(rowIdx);
-          savePendingDeletions(dels);
-        }
-
-        // 视觉变灰
-        $(cell).closest('.acu-data-card').addClass('pending-deletion');
-
-        // 刷新按钮状态
-        updateSaveButtonState();
-      }
-    });
-
-    // 恢复逻辑
-    menu.find('#act-restore').click(() => {
-      const dels = getPendingDeletions();
-      if (dels[tableKey]) {
-        dels[tableKey] = dels[tableKey].filter(i => i !== rowIdx);
-        if (dels[tableKey].length === 0) delete dels[tableKey];
-        savePendingDeletions(dels);
       }
 
-      $(cell).closest('.acu-data-card').removeClass('pending-deletion');
-      updateSaveButtonState();
-      closeAll();
+      // --- 数据操作 ---
+      if (!cachedRawData) cachedRawData = getTableData() || loadSnapshot();
+      if (cachedRawData && cachedRawData[tableKey]?.content) {
+        cachedRawData[tableKey].content.splice(rowIdx + 1, 1);
+
+        try {
+          // 保存到数据库
+          await saveDataOnly(cachedRawData);
+
+          // [Bug 3 修复] 立即同步更新diffMap，避免闪烁
+          currentDiffMap = generateDiffMap(cachedRawData);
+
+          // 刷新界面
+          renderInterface();
+
+          // [修复] 如果地图overlay存在，刷新地图数据（重建viewModel）
+          if (isFromMap) {
+            const refreshMapData = $mapOverlay.data('refreshMapData');
+            if (typeof refreshMapData === 'function') {
+              await refreshMapData();
+            }
+          }
+
+          // [修复] 恢复滚动位置（在renderInterface防抖完成后）
+          setTimeout(() => {
+            const $newContent = $('.acu-panel-content');
+            if ($newContent.length && (savedScrollTop > 0 || savedScrollLeft > 0)) {
+              $newContent.scrollTop(savedScrollTop);
+              $newContent.scrollLeft(savedScrollLeft);
+            }
+          }, 60);
+        } catch (e) {
+          console.error('[DICE]ACU 删除保存失败:', e);
+          toastr.error('删除保存失败: ' + (e instanceof Error ? e.message : String(e)));
+          renderInterface();
+
+          // [修复] 即使失败也恢复滚动位置
+          setTimeout(() => {
+            const $newContent = $('.acu-panel-content');
+            if ($newContent.length && (savedScrollTop > 0 || savedScrollLeft > 0)) {
+              $newContent.scrollTop(savedScrollTop);
+              $newContent.scrollLeft(savedScrollLeft);
+            }
+          }, 60);
+        }
+      }
     });
 
     // [新增] 插入新行功能 (修复版：增加立即重绘指令)
@@ -27011,33 +27392,18 @@ import { MAIN_STYLES } from './styles';
           $displayTarget.text(newVal);
         }
 
-        // 4. 判断模式：即时保存 vs 手动保存
-        let actOrd = Store.get(STORAGE_KEY_ACTION_ORDER);
-        if (!actOrd || !Array.isArray(actOrd))
-          actOrd = ['acu-btn-save-global', 'acu-btn-collapse', 'acu-btn-refresh', 'acu-btn-settings'];
-        const isInstantMode = !actOrd.includes('acu-btn-save-global');
+        // 4. 统一使用即时保存 + 单行快照更新（保留其他行的AI变更高亮）
+        // 移除高亮 (因为马上就保存了)
+        $displayTarget.removeClass('acu-highlight-manual acu-highlight-diff');
+        if ($cell.hasClass('acu-editable-title')) $cell.removeClass('acu-highlight-manual acu-highlight-diff');
 
-        if (isInstantMode) {
-          // --- A. 即时模式 ---
-          // 移除高亮 (因为马上就保存了)
-          $displayTarget.removeClass('acu-highlight-manual acu-highlight-diff');
-          if ($cell.hasClass('acu-editable-title')) $cell.removeClass('acu-highlight-manual acu-highlight-diff');
-
-          // 立即保存 (后台)
-          saveSnapshot(cachedRawData);
-          await saveDataToDatabase(cachedRawData, true, true);
-        } else {
-          // --- B. 普通模式 (关键修复点) ---
-          // 必须手动加上高亮类，否则用户不知道改了哪里
-          $displayTarget.removeClass('acu-highlight-diff').addClass('acu-highlight-manual');
-          if ($cell.hasClass('acu-editable-title'))
-            $cell.removeClass('acu-highlight-diff').addClass('acu-highlight-manual');
-
-          // 标记为未保存
-          if (!window.acuModifiedSet) window.acuModifiedSet = new Set();
-          window.acuModifiedSet.add(cellId);
-          hasUnsavedChanges = true;
-          updateSaveButtonState();
+        // 使用 saveRowInstantly 执行即时保存 + 单行快照更新
+        try {
+          const currentRow = cachedRawData[tableKey].content[rowIdx + 1];
+          await saveRowInstantly(tableKey, rowIdx, [...currentRow]);
+        } catch (e) {
+          console.error('[DICE]ACU 单元格保存失败:', e);
+          toastr.error('保存失败: ' + (e instanceof Error ? e.message : String(e)));
         }
       });
     });
@@ -27072,9 +27438,7 @@ import { MAIN_STYLES } from './styles';
 
     dialog.find('#dlg-cancel').click(() => dialog.remove());
     // 点击遮罩层也可以关闭
-    dialog.on('click', function (e) {
-      if ($(e.target).hasClass('acu-edit-overlay')) dialog.remove();
-    });
+    setupOverlayClose(dialog, 'acu-edit-overlay', () => dialog.remove());
 
     dialog.find('#dlg-save').click(() => {
       onSave(dialog.find('textarea').val());
@@ -27169,7 +27533,7 @@ import { MAIN_STYLES } from './styles';
         height: 100vh;
         background: rgba(0, 0, 0, 0.75);
         backdrop-filter: blur(4px);
-        z-index: 2147483647;
+        z-index: 31200;
         display: flex;
         justify-content: center;
         align-items: center;
@@ -27290,12 +27654,11 @@ import { MAIN_STYLES } from './styles';
     });
 
     // 点击背景关闭
-    $('.dice-conflict-dialog-overlay').on('click', function (e) {
-      if ($(e.target).hasClass('dice-conflict-dialog-overlay')) {
-        $(this).fadeOut(200, function () {
-          $(this).remove();
-        });
-      }
+    const $conflictOverlay = $('.dice-conflict-dialog-overlay');
+    setupOverlayClose($conflictOverlay, 'dice-conflict-dialog-overlay', () => {
+      $conflictOverlay.fadeOut(200, function () {
+        $(this).remove();
+      });
     });
 
     // 使用 toastr 作为补充提示（如果可用）
@@ -28006,7 +28369,7 @@ import { MAIN_STYLES } from './styles';
       sheet.content
         .slice(1)
         .map(r => r[0])
-        .filter(c => c && String(c).match(new RegExp(`^${prefix}\\d+$`)));
+        .filter(c => c && String(c).match(new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\d+$`)));
 
     const codes1 = getValidCodes(table1Sheet);
     const codes2 = getValidCodes(table2Sheet);
@@ -28014,10 +28377,10 @@ import { MAIN_STYLES } from './styles';
     // 检查空白行是否保持原数据
     const emptyRows1 = table1Sheet.content
       .slice(1)
-      .filter(r => !r[0] || !String(r[0]).match(new RegExp(`^${prefix}\\d+$`)));
+      .filter(r => !r[0] || !String(r[0]).match(new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\d+$`)));
     const emptyRows2 = table2Sheet.content
       .slice(1)
-      .filter(r => !r[0] || !String(r[0]).match(new RegExp(`^${prefix}\\d+$`)));
+      .filter(r => !r[0] || !String(r[0]).match(new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\d+$`)));
 
     // 验证编码是否严格递增
     const validateSequence = (codes, prefix, startFrom) => {
