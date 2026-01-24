@@ -794,7 +794,7 @@ import { MAIN_STYLES } from './styles';
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.4.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v3.50'; // 脚本版本号
+  const SCRIPT_VERSION = 'v3.60'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -1274,6 +1274,88 @@ import { MAIN_STYLES } from './styles';
   const STORAGE_KEY_REGEX_PRESETS = 'acu_regex_presets_v1';
   const STORAGE_KEY_REGEX_ACTIVE_PRESET = 'acu_regex_active_preset_v1';
   const STORAGE_KEY_REGEX_ENABLED = 'acu_regex_enabled_v1';
+
+  // ========================================
+  // 酒馆原生正则格式兼容 (Tavern Regex Import)
+  // ========================================
+
+  /**
+   * 酒馆原生正则格式
+   * @see https://docs.sillytavern.app/usage/core-concepts/regex/
+   */
+  interface TavernRegex {
+    id?: string;
+    scriptName: string;
+    findRegex: string;
+    replaceString: string;
+    trimStrings?: string[];
+    placement?: number[];
+    disabled?: boolean;
+    markdownOnly?: boolean;
+    promptOnly?: boolean;
+    runOnEdit?: boolean;
+    substituteRegex?: number;
+    minDepth?: number | null;
+    maxDepth?: number | null;
+  }
+
+  /**
+   * 解析酒馆正则的 findRegex 字段
+   * 格式: /pattern/flags
+   */
+  function parseTavernFindRegex(findRegex: string): { pattern: string; flags: RegexFlags } {
+    // 匹配 /pattern/flags 格式，使用惰性匹配和末尾锚定
+    const match = findRegex.match(/^\/(.+)\/([gimsuy]*)$/s);
+    if (match) {
+      const [, pattern, flagStr] = match;
+      return {
+        pattern,
+        flags: {
+          global: flagStr.includes('g'),
+          caseInsensitive: flagStr.includes('i'),
+          multiline: flagStr.includes('m'),
+          unicode: flagStr.includes('u'),
+          sticky: flagStr.includes('y'),
+        },
+      };
+    }
+    // 非标准格式，直接作为pattern，默认全局匹配
+    return { pattern: findRegex, flags: { global: true } };
+  }
+
+  /**
+   * 将酒馆正则格式转换为本系统的 RegexTransformationRule
+   */
+  function convertTavernRegexToRule(tavernRegex: TavernRegex): RegexTransformationRule {
+    const { pattern, flags } = parseTavernFindRegex(tavernRegex.findRegex);
+
+    // 构建额外信息描述，保留酒馆正则的原始配置供参考
+    const extraInfo: string[] = [];
+    if (tavernRegex.placement?.length) extraInfo.push(`placement: [${tavernRegex.placement.join(',')}]`);
+    if (tavernRegex.markdownOnly) extraInfo.push('markdownOnly');
+    if (tavernRegex.promptOnly) extraInfo.push('promptOnly');
+    if (tavernRegex.minDepth != null) extraInfo.push(`minDepth: ${tavernRegex.minDepth}`);
+    if (tavernRegex.maxDepth != null) extraInfo.push(`maxDepth: ${tavernRegex.maxDepth}`);
+
+    const description = extraInfo.length > 0 ? `[从酒馆正则导入] ${extraInfo.join(', ')}` : '[从酒馆正则导入]';
+
+    return {
+      id: `tavern_import_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      name: tavernRegex.scriptName,
+      description,
+      operation: 'replace',
+      pattern,
+      flags,
+      replacement: tavernRegex.replaceString || '',
+      scope: { type: 'global' },
+      enabled: !tavernRegex.disabled,
+      priority: 50,
+      executeMode: tavernRegex.runOnEdit ? 'auto' : 'manual',
+      security: { maxMatchTime: 100, maxMatches: 1000, maxInputLength: 10000 },
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+  }
 
   // ========================================
   // 内置正则转换规则 (Phase 2.2)
@@ -4895,7 +4977,7 @@ import { MAIN_STYLES } from './styles';
           'delta_data',
         ];
 
-        // 过滤黑名单
+        // 变量过滤黑名单
         const filteredParts = parts.filter(p => !blacklist.includes(p));
 
         // 提取可能的发起者（通常是倒数第二或第三层，排除黑名单后）
@@ -16503,6 +16585,99 @@ import { MAIN_STYLES } from './styles';
     }
   };
 
+  // 清理骰子系统脚本缓存
+  const clearDiceSystemCache = async (): Promise<void> => {
+    if (!('caches' in window)) {
+      console.log('[DICE] Cache API 不可用，直接刷新');
+      return;
+    }
+
+    try {
+      const cacheNames = await caches.keys();
+      const urlPatterns = ['jsdelivr.net/gh/jerryzmtz/my-tavern-scripts', '/dist/骰子系统/'];
+
+      for (const cacheName of cacheNames) {
+        const cache = await caches.open(cacheName);
+        const requests = await cache.keys();
+
+        for (const request of requests) {
+          const url = request.url;
+          // 匹配 jsDelivr 上的骰子系统脚本
+          if (urlPatterns.some(pattern => url.includes(pattern))) {
+            await cache.delete(request);
+            console.log('[DICE] 已清理缓存:', url);
+          }
+        }
+      }
+      console.log('[DICE] 脚本缓存清理完成');
+    } catch (err) {
+      console.warn('[DICE] 缓存清理失败:', err);
+    }
+  };
+
+  // 手动更新确认弹窗
+  const showManualUpdateConfirmDialog = (): void => {
+    const { $ } = getCore();
+    $('.acu-manual-update-overlay').remove();
+
+    const config = getConfig();
+    const t = getThemeColors();
+
+    const dialogHtml = `
+    <div class="acu-manual-update-overlay acu-theme-${config.theme}">
+      <div class="acu-manual-update-dialog" style="background:${t.bgPanel};border-color:${t.border};">
+        <div class="acu-manual-update-header" style="background:${t.tableHead};color:${t.textMain};border-color:${t.border};">
+          <i class="fa-solid fa-rotate"></i> 手动更新
+        </div>
+        <div class="acu-manual-update-body" style="color:${t.textMain};">
+          <p style="color:${t.textMain};">将清理脚本缓存并刷新页面，以获取最新版本。</p>
+          <div class="acu-manual-update-safe-box" style="background:${t.btnBg};border:1px solid ${t.border};">
+            <i class="fa-solid fa-shield-check" style="color:${t.accent};"></i>
+            <div class="safe-text">
+              <strong style="color:${t.textMain};">数据安全</strong>
+              <span style="color:${t.textSub};">您的自定义规则、预设、正则转换、黑名单等数据存储在本地游览器中，不会受到影响。</span>
+            </div>
+          </div>
+        </div>
+        <div class="acu-manual-update-footer" style="background:${t.tableHead};border-color:${t.border};">
+          <button class="acu-manual-update-cancel-btn" style="background:${t.btnBg};color:${t.textSub};border-color:${t.border};">取消</button>
+          <button class="acu-manual-update-confirm-btn" style="background:${t.accent};color:${t.btnActiveText};">立即更新</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+    const $dialog = $(dialogHtml);
+    $('body').append($dialog);
+
+    const overlayEl = $dialog[0];
+
+    // 事件绑定
+    $dialog.find('.acu-manual-update-cancel-btn').on('click', () => {
+      $dialog.remove();
+    });
+
+    $dialog.find('.acu-manual-update-confirm-btn').on('click', async () => {
+      const $btn = $dialog.find('.acu-manual-update-confirm-btn');
+      $btn.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i> 更新中...');
+
+      await clearDiceSystemCache();
+      // 刷新整个酒馆页面并绕过缓存（相当于 Ctrl+Shift+R）
+      if (window.parent !== window) {
+        window.parent.location.reload();
+      } else {
+        window.location.reload();
+      }
+    });
+
+    // 点击遮罩关闭
+    $dialog.on('click', e => {
+      if (e.target === overlayEl) {
+        $dialog.remove();
+      }
+    });
+  };
+
   // 导入确认弹窗
   const showImportConfirmDialog = (jsonData, analysis, onComplete) => {
     const { $ } = getCore();
@@ -19479,7 +19654,7 @@ import { MAIN_STYLES } from './styles';
       <div class="acu-blacklist-manager-overlay">
         <div class="acu-edit-dialog acu-theme-${config.theme}" style="max-width: 600px; width: 90%;">
           <div class="acu-edit-title" style="position: relative;">
-            <i class="fa-solid fa-filter"></i> 过滤黑名单管理
+            <i class="fa-solid fa-filter"></i> 变量过滤黑名单管理
             <button class="acu-close-btn" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); background: none; border: none; color: ${t.textMain}; cursor: pointer; font-size: 18px; z-index: 10;">
               <i class="fa-solid fa-times"></i>
             </button>
@@ -21767,6 +21942,7 @@ import { MAIN_STYLES } from './styles';
       { key: '__dice__', name: '投骰', icon: 'fa-dice-d20' },
       { key: '__changes__', name: '变更审核', icon: 'fa-code-compare' },
       { key: '__mvu__', name: 'MVU变量', icon: 'fa-code-branch' },
+      { key: '__favorites__', name: '收藏夹', icon: 'fa-star' },
     ];
 
     const tableManagerHtml = (() => {
@@ -21839,7 +22015,7 @@ import { MAIN_STYLES } from './styles';
                     <div class="acu-settings-title">
                         <span class="acu-settings-text">
                             <i class="fa-solid fa-cog"></i> 设置
-                            <span class="acu-version-badge">${SCRIPT_VERSION}</span>
+                            <span class="acu-version-badge">${SCRIPT_VERSION}</span><button class="acu-manual-update-btn" id="acu-manual-update-btn" title="清理缓存并刷新以获取最新版本"><i class="fa-solid fa-rotate"></i></button>
                         </span>
                     </div>
                     <div class="acu-header-actions">
@@ -22138,10 +22314,9 @@ import { MAIN_STYLES } from './styles';
                                 <button class="acu-action-btn" id="btn-regex-preset-del" title="删除预设" style="flex:1;height:28px;"><i class="fa-solid fa-trash"></i></button>
                                 <button class="acu-action-btn" id="btn-regex-preset-export" title="导出" style="flex:1;height:28px;"><i class="fa-solid fa-file-export"></i></button>
                                 <button class="acu-action-btn" id="btn-regex-preset-import" title="导入" style="flex:1;height:28px;"><i class="fa-solid fa-file-import"></i></button>
-                                <button class="acu-action-btn" id="btn-execute-regex-now" title="立即对所有表格应用已启用的规则" style="flex:1;height:28px;background:var(--acu-btn-accent, #4a9eff);color:var(--acu-btn-active-text);"><i class="fa-solid fa-play"></i></button>
                             </div>
                             <div class="acu-validation-hint" style="font-size:11px;color:var(--acu-text-sub);margin-bottom:8px;padding:0 4px;">
-                                <i class="fa-solid fa-info-circle"></i> 正则转换规则用于自动修改数据格式
+                                <i class="fa-solid fa-info-circle"></i> 正则转换规则用于自动修改数据库表格内容
                             </div>
                             <!-- 规则列表 -->
                             <div class="acu-validation-rules-list" id="regex-rules-list">
@@ -22181,6 +22356,9 @@ import { MAIN_STYLES } from './styles';
                             <div style="display:flex;gap:8px;margin-top:8px;">
                                 <button class="acu-add-rule-btn" id="btn-add-regex-rule" style="flex:1;">
                                     <i class="fa-solid fa-plus"></i> 添加转换规则
+                                </button>
+                                <button class="acu-add-rule-btn" id="btn-import-tavern-regex" style="flex:1;">
+                                    <i class="fa-solid fa-file-import"></i> 导入酒馆正则
                                 </button>
                             </div>
                         </div>
@@ -22224,7 +22402,7 @@ import { MAIN_STYLES } from './styles';
                             </div>
                             <div class="acu-setting-row">
                                 <div class="acu-setting-info">
-                                    <span class="acu-setting-label"><i class="fa-solid fa-filter"></i> 过滤黑名单</span>
+                                    <span class="acu-setting-label"><i class="fa-solid fa-filter"></i> 变量过滤黑名单</span>
                                 </div>
                                 <button id="cfg-blacklist-manage" class="acu-setting-action-btn" style="width: 90px; padding: 6px 12px; font-size: 12px; margin-bottom: 0;">
                                     <i class="fa-solid fa-cog"></i> 管理
@@ -22354,7 +22532,7 @@ import { MAIN_STYLES } from './styles';
     };
     initCrazyModeUI();
 
-    // 管理过滤黑名单按钮
+    // 管理变量过滤黑名单按钮
     dialog.find('#cfg-blacklist-manage').on('click', function (e) {
       e.preventDefault();
       e.stopPropagation();
@@ -23121,64 +23299,103 @@ import { MAIN_STYLES } from './styles';
       showAddRegexRuleModal();
     });
 
-    // === [新增] 正则转换规则:立即执行 ===
-    dialog.find('#btn-execute-regex-now').on('click', async function () {
-      const $btn = $(this);
-      const originalHtml = $btn.html();
+    // === 正则转换规则:导入酒馆正则 ===
+    dialog.find('#btn-import-tavern-regex').on('click', function () {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.json,application/json';
+      input.onchange = async e => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (!file) return;
 
-      try {
-        // 禁用按钮并显示加载状态
-        $btn.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i> 执行中...');
+        try {
+          const text = await file.text();
+          if (!text?.trim()) return;
 
-        // 获取数据
-        let tableData = cachedRawData || getTableData();
+          let parsed;
+          try {
+            parsed = JSON.parse(text.trim());
+          } catch {
+            toastr.error('JSON格式无效');
+            return;
+          }
 
-        if (!tableData) {
-          toastr.error('无法获取表格数据');
-          return;
+          // 支持单个对象或数组
+          const tavernRegexList: TavernRegex[] = Array.isArray(parsed) ? parsed : [parsed];
+
+          // 验证格式：必须有 scriptName 和 findRegex
+          if (!tavernRegexList.every(r => r.scriptName && r.findRegex)) {
+            toastr.error('不是有效的酒馆正则格式（需要 scriptName 和 findRegex 字段）');
+            return;
+          }
+
+          const existingRules = RegexTransformationManager.getAllRules();
+          const existingNames = existingRules.map(r => r.name);
+
+          let importedCount = 0;
+          let skippedCount = 0;
+
+          // 逐条处理导入
+          const processNext = (index: number): void => {
+            if (index >= tavernRegexList.length) {
+              // 全部处理完成
+              refreshRegexRulesList();
+              if (skippedCount > 0) {
+                toastr.info(`导入完成: ${importedCount} 条成功, ${skippedCount} 条跳过`);
+              } else if (importedCount > 0) {
+                toastr.success(`成功导入 ${importedCount} 条酒馆正则规则`);
+              }
+              return;
+            }
+
+            const tavernRegex = tavernRegexList[index];
+            const convertedRule = convertTavernRegexToRule(tavernRegex);
+            const hasConflict = existingNames.includes(convertedRule.name);
+
+            if (hasConflict) {
+              // 有冲突，弹窗询问
+              showPresetConflictDialog({
+                presetName: convertedRule.name,
+                presetType: '酒馆正则规则',
+                existingNames,
+                onOverwrite: () => {
+                  // 删除旧规则
+                  const oldRule = RegexTransformationManager.getAllRules().find(r => r.name === convertedRule.name);
+                  if (oldRule) RegexTransformationManager.removeRule(oldRule.id);
+                  RegexTransformationManager.addCustomRule(convertedRule);
+                  existingNames.push(convertedRule.name);
+                  importedCount++;
+                  processNext(index + 1);
+                },
+                onRename: newName => {
+                  convertedRule.name = newName;
+                  convertedRule.id = `tavern_import_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                  RegexTransformationManager.addCustomRule(convertedRule);
+                  existingNames.push(newName);
+                  importedCount++;
+                  processNext(index + 1);
+                },
+                onCancel: () => {
+                  skippedCount++;
+                  processNext(index + 1);
+                },
+              });
+            } else {
+              // 无冲突，直接添加
+              RegexTransformationManager.addCustomRule(convertedRule);
+              existingNames.push(convertedRule.name);
+              importedCount++;
+              processNext(index + 1);
+            }
+          };
+
+          // 开始处理
+          processNext(0);
+        } catch (err) {
+          toastr.error('导入失败: ' + (err as Error).message);
         }
-
-        // 确保数据格式正确
-        if (typeof tableData !== 'object' || Array.isArray(tableData)) {
-          toastr.error('数据格式不正确');
-          console.error('[DICE]数据格式错误:', typeof tableData, Array.isArray(tableData));
-          return;
-        }
-
-        // 获取启用的规则
-        const enabledRules = RegexTransformationManager.getEnabledRules();
-
-        if (enabledRules.length === 0) {
-          toastr.warning('没有启用的规则');
-          return;
-        }
-
-        console.info(`[DICE]手动执行 ${enabledRules.length} 条规则...`);
-
-        // 应用转换规则
-        const { totalApplied, errors } = RegexTransformationEngine.applyToTable(tableData, enabledRules);
-
-        // 更新缓存
-        cachedRawData = tableData;
-
-        // 保存到数据库
-        await saveDataToDatabase(tableData, false, false);
-
-        if (errors.length > 0) {
-          toastr.warning(`已应用 ${totalApplied} 处转换，${errors.length} 个错误`);
-          console.warn('[DICE]正则转换错误:', errors);
-        } else {
-        }
-
-        console.info('[DICE]正则转换执行完成');
-      } catch (e) {
-        const errorMsg = e instanceof Error ? e.message : String(e);
-        console.error('[DICE]执行正则转换失败:', e);
-        toastr.error(`执行失败: ${errorMsg}`);
-      } finally {
-        // 恢复按钮状态
-        $btn.prop('disabled', false).html(originalHtml);
-      }
+      };
+      input.click();
     });
 
     // === 验证规则:添加自定义规则 ===
@@ -23207,6 +23424,12 @@ import { MAIN_STYLES } from './styles';
     dialog.on('click', '#acu-help-btn', function (e) {
       e.stopPropagation();
       window.open('https://jerryzmtz.github.io/DiceSystemManual//', '_blank');
+    });
+
+    // 手动更新按钮点击事件
+    dialog.on('click', '#acu-manual-update-btn', function (e) {
+      e.stopPropagation();
+      showManualUpdateConfirmDialog();
     });
     setupOverlayClose(dialog, 'acu-edit-overlay', closeDialog);
   };
@@ -23593,6 +23816,7 @@ import { MAIN_STYLES } from './styles';
 
       // === 计算变更数量 + 验证错误数量（供审核按钮显示） ===
       const isChangesActive = Store.get('acu_changes_panel_active', false);
+      const isFavoritesActive = Store.get('acu_favorites_panel_active', false);
       const isSimpleModeNav = Store.get(STORAGE_KEY_VALIDATION_MODE, false);
       let changesCount = 0;
       let validationErrorCount = 0;
@@ -23701,6 +23925,14 @@ import { MAIN_STYLES } from './styles';
           extraClass: 'acu-mvu-btn',
           isActive: getActiveTabState() === MvuModule.MODULE_ID,
         },
+        {
+          key: '__favorites__',
+          icon: 'fa-star',
+          label: '收藏夹',
+          id: 'acu-btn-favorites',
+          extraClass: 'acu-favorites-btn',
+          isActive: isFavoritesActive,
+        },
       ];
 
       // 构建完整的导航项列表
@@ -23770,12 +24002,6 @@ import { MAIN_STYLES } from './styles';
                     </button>`;
         }
       });
-
-      // [新增] 收藏夹按钮 (在变量面板之后，表格标签之后)
-      const isFavoritesActive = Store.get('acu_favorites_panel_active', false);
-      html += `<button class="acu-nav-btn acu-favorites-btn ${isFavoritesActive ? 'active' : ''}" id="acu-btn-favorites" style="order: ${allNavItems.length + 10};" title="收藏夹">
-                <i class="fa-solid fa-star"></i><span>收藏夹</span>
-            </button>`;
 
       // 渲染固定功能按钮（order 设为最大值，确保在最后）
       html += `<div class="acu-actions-group" id="acu-active-actions" style="order: 9999;">`;
@@ -24334,13 +24560,6 @@ import { MAIN_STYLES } from './styles';
                     <button class="acu-close-btn" title="关闭"><i class="fa-solid fa-times"></i></button>
                 </div>
             </div>`;
-
-    // === 数据验证模式：在内容区域之前添加提示（不参与横向滚动） ===
-    if (isValidationMode) {
-      html += `<div class="acu-validation-mode-hint">
-        <i class="fa-solid fa-info-circle"></i>即使回滚，不合法的数据仍会显示警告
-      </div>`;
-    }
 
     html += `<div class="acu-panel-content acu-changes-content ${config.layout === 'horizontal' ? 'acu-changes-horizontal' : ''}">`;
 
@@ -26116,18 +26335,24 @@ import { MAIN_STYLES } from './styles';
           <div class="acu-title-sub">(共${allFavorites.length}项)</div>
         </div>
         <div class="acu-header-actions">
-          <select id="acu-fav-tag-filter" class="acu-fav-select">
-            <option value="">全部标签</option>
-            ${allTags.map(tag => `<option value="${escapeHtml(tag)}">${escapeHtml(tag)}</option>`).join('')}
-          </select>
-          <button class="acu-view-btn" id="acu-fav-new" title="新建"><i class="fa-solid fa-plus"></i></button>
           <button class="acu-view-btn" id="acu-fav-import" title="导入"><i class="fa-solid fa-file-import"></i></button>
           <button class="acu-view-btn" id="acu-fav-export" title="导出"><i class="fa-solid fa-file-export"></i></button>
           <div class="acu-search-wrapper"><i class="fa-solid fa-search acu-search-icon"></i><input type="text" class="acu-search-input" id="acu-fav-search" placeholder="搜索..." /></div>
+          <div class="acu-height-control"><i class="fa-solid fa-arrows-up-down acu-height-drag-handle" data-table="收藏夹"></i></div>
           <button class="acu-close-btn" title="关闭"><i class="fa-solid fa-times"></i></button>
         </div>
       </div>
       <div class="acu-fav-panel-content">
+        <div class="acu-fav-tag-filter-collapsible collapsed">
+          <div class="acu-fav-tag-filter-header">
+            <span>标签过滤</span>
+            <i class="fa-solid fa-chevron-down acu-fav-tag-toggle-icon"></i>
+          </div>
+          <div class="acu-fav-tag-filter-body">
+            ${untagged.length > 0 ? '<button class="acu-fav-tag-btn active" data-tag="__untagged__">未分类</button>' : ''}
+            ${allTags.map(tag => `<button class="acu-fav-tag-btn active" data-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`).join('')}
+          </div>
+        </div>
         ${contentHtml}
       </div>
       </div>
@@ -26140,22 +26365,156 @@ import { MAIN_STYLES } from './styles';
     const rawData = cachedRawData || getTableData();
     const currentTables = rawData || {};
 
-    // 解绑旧事件，防止重复绑定导致事件累积
-    $panel.off();
+    // 只解绑收藏夹相关的事件，防止影响其他功能的事件绑定（如标签页切换）
+    $panel.off('.favEvents');
 
-    // 标签筛选
-    $panel.find('#acu-fav-tag-filter').on('change', async function () {
-      const tag = $(this).val() as string;
-      const html = await renderFavoritesPanel();
-      $panel.html(html);
-      bindFavoritesEvents($panel);
-      if (tag) {
-        $panel.find('#acu-fav-tag-filter').val(tag);
-        // 隐藏不匹配的分组
+    // === [修复] 收藏夹面板：阻止水平滑动冒泡，防止触发 ST 的 swipe regenerate ===
+    (function () {
+      const panelEl = $panel[0];
+      if (!panelEl) return;
+
+      // 清理旧的事件监听器（通过标记）
+      if ((panelEl as any)._favSwipeFixApplied) return;
+      (panelEl as any)._favSwipeFixApplied = true;
+
+      let touchStartX = 0;
+      let touchStartY = 0;
+      let isHorizontalSwipe = false;
+
+      const onTouchStart = (e: TouchEvent) => {
+        if (e.touches.length === 1) {
+          touchStartX = e.touches[0].clientX;
+          touchStartY = e.touches[0].clientY;
+          isHorizontalSwipe = false;
+        }
+      };
+
+      const onTouchMove = (e: TouchEvent) => {
+        if (e.touches.length !== 1) return;
+
+        const touch = e.touches[0];
+        const deltaX = Math.abs(touch.clientX - touchStartX);
+        const deltaY = Math.abs(touch.clientY - touchStartY);
+
+        // 判断是否为水平滑动：deltaY很小时降低阈值，否则使用标准判断
+        const isHorizontal = deltaY < 5 ? deltaX > 5 && deltaX > deltaY * 2 : deltaX > deltaY * 1.5 && deltaX > 10;
+
+        if (isHorizontal) {
+          isHorizontalSwipe = true;
+          e.stopImmediatePropagation();
+          e.stopPropagation();
+        }
+      };
+
+      const onTouchEnd = (e: TouchEvent) => {
+        if (isHorizontalSwipe) {
+          e.stopImmediatePropagation();
+          e.stopPropagation();
+          isHorizontalSwipe = false;
+        }
+        touchStartX = 0;
+        touchStartY = 0;
+      };
+
+      // 在捕获阶段监听，优先于 ST 的事件处理
+      panelEl.addEventListener('touchstart', onTouchStart, true);
+      panelEl.addEventListener('touchmove', onTouchMove, true);
+      panelEl.addEventListener('touchend', onTouchEnd, true);
+
+      // 清理函数（页面卸载时）
+      $(window).on('pagehide.favSwipeFix', () => {
+        panelEl.removeEventListener('touchstart', onTouchStart, true);
+        panelEl.removeEventListener('touchmove', onTouchMove, true);
+        panelEl.removeEventListener('touchend', onTouchEnd, true);
+      });
+    })();
+
+    // 关闭按钮
+    $panel.on('click.favEvents', '.acu-close-btn', function (e) {
+      e.stopPropagation();
+      Store.set('acu_favorites_panel_active', false);
+      // [修复] 实际隐藏面板
+      $panel.html('');
+      $('#acu-btn-favorites').removeClass('active');
+    });
+
+    // [修复] 高度拖拽 - 收藏夹面板
+    $panel.on('pointerdown.favEvents', '.acu-height-drag-handle', function (e) {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const handle = this;
+      handle.setPointerCapture(e.pointerId);
+      $(handle).addClass('active');
+      const $dataArea = $('#acu-data-area');
+      const startHeight = $dataArea.height() || 400;
+      const startY = e.clientY;
+      const tableName = $(handle).data('table');
+
+      handle.onpointermove = function (moveE: PointerEvent) {
+        const dy = moveE.clientY - startY;
+        let newHeight = startHeight - dy;
+        if (newHeight < MIN_PANEL_HEIGHT) newHeight = MIN_PANEL_HEIGHT;
+        if (newHeight > MAX_PANEL_HEIGHT) newHeight = MAX_PANEL_HEIGHT;
+        $dataArea.css('height', newHeight + 'px');
+      };
+      handle.onpointerup = function (upE: PointerEvent) {
+        $(handle).removeClass('active');
+        handle.releasePointerCapture(upE.pointerId);
+        handle.onpointermove = null;
+        handle.onpointerup = null;
+        if (tableName) {
+          const heights = getTableHeights();
+          heights[tableName] = parseInt($dataArea.css('height'));
+          saveTableHeights(heights);
+          $dataArea.addClass('acu-manual-mode');
+        }
+      };
+    });
+
+    // [修复] 双击重置高度 - 收藏夹面板
+    $panel.on('dblclick.favEvents', '.acu-height-drag-handle', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      const tableName = $(this).data('table');
+      if (tableName) {
+        const heights = getTableHeights();
+        delete heights[tableName];
+        saveTableHeights(heights);
+        $('#acu-data-area').css('height', '').removeClass('acu-manual-mode');
+      }
+    });
+
+    // 标签过滤折叠/展开
+    $panel.on('click.favEvents', '.acu-fav-tag-filter-header', function () {
+      const $collapsible = $(this).closest('.acu-fav-tag-filter-collapsible');
+      $collapsible.toggleClass('collapsed');
+    });
+
+    // 标签按钮toggle
+    $panel.on('click.favEvents', '.acu-fav-tag-btn', function () {
+      const $btn = $(this);
+      const tag = $btn.data('tag') as string;
+      const isActive = $btn.hasClass('active');
+
+      // 切换按钮状态
+      $btn.toggleClass('active');
+
+      // 过滤对应分组
+      if (tag === '__untagged__') {
+        // 未分类分组：找标题包含"未分类"的分组
         $panel.find('.acu-fav-group').each(function () {
           const groupTitle = $(this).find('.acu-fav-group-title').text();
-          if (!groupTitle.includes(tag) && !groupTitle.includes('未分类')) {
-            $(this).hide();
+          if (groupTitle.includes('未分类')) {
+            $(this).toggle(!isActive);
+          }
+        });
+      } else {
+        // 普通标签分组：找标题匹配的分组
+        $panel.find('.acu-fav-group').each(function () {
+          const groupTitle = $(this).find('.acu-fav-group-title').text();
+          if (groupTitle.includes(tag) && !groupTitle.includes('未分类')) {
+            $(this).toggle(!isActive);
           }
         });
       }
@@ -26163,7 +26522,7 @@ import { MAIN_STYLES } from './styles';
 
     // 搜索
     $panel.find('#acu-fav-search').on(
-      'input',
+      'input.favEvents',
       _.debounce(function () {
         const searchTerm = ($(this).val() as string).toLowerCase().trim();
         $panel.find('.acu-fav-card').each(function () {
@@ -26250,7 +26609,7 @@ import { MAIN_STYLES } from './styles';
     };
 
     // 单击卡片显示菜单
-    $panel.on('click', '.acu-fav-card', function (e) {
+    $panel.on('click.favEvents', '.acu-fav-card', function (e) {
       e.stopPropagation();
       const $card = $(this);
       const cardId = $card.data('id');
@@ -26265,16 +26624,8 @@ import { MAIN_STYLES } from './styles';
       showFavCardMenu(e, cardId);
     });
 
-    // 新建
-    $panel.on('click', '#acu-fav-new', function () {
-      showNewFavoriteModal(async () => {
-        $panel.html(await renderFavoritesPanel());
-        bindFavoritesEvents($panel);
-      });
-    });
-
     // 导入
-    $panel.on('click', '#acu-fav-import', async function () {
+    $panel.on('click.favEvents', '#acu-fav-import', async function () {
       const input = document.createElement('input');
       input.type = 'file';
       input.accept = '.json';
@@ -26282,9 +26633,10 @@ import { MAIN_STYLES } from './styles';
         const file = (e.target as HTMLInputElement).files?.[0];
         if (file) {
           const text = await file.text();
-          const count = await FavoritesManager.importFavorites(text);
-          if (count > 0) {
-            if (window.toastr) window.toastr.success(`导入成功: ${count}条`);
+          const result = await FavoritesManager.importFavorites(text);
+          // [修复] importFavorites 返回 { added, updated } 对象，不是数字
+          if (result && (result.added > 0 || result.updated > 0)) {
+            if (window.toastr) window.toastr.success(`导入成功: 新增${result.added}条, 更新${result.updated}条`);
             $panel.html(await renderFavoritesPanel());
             bindFavoritesEvents($panel);
           } else {
@@ -26296,7 +26648,7 @@ import { MAIN_STYLES } from './styles';
     });
 
     // 导出
-    $panel.on('click', '#acu-fav-export', async function () {
+    $panel.on('click.favEvents', '#acu-fav-export', async function () {
       const json = await FavoritesManager.exportFavorites();
       const blob = new Blob([json], { type: 'application/json' });
       const url = URL.createObjectURL(blob);

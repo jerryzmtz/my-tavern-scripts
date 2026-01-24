@@ -2977,6 +2977,136 @@ export const MAIN_STYLES = `
                 color: var(--acu-text-main);
                 background: var(--acu-table-hover) !important;
             }
+            /* 手动更新按钮 - 纯图标，透明背景，与版本号大小一致 */
+            .acu-manual-update-btn {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                background: transparent;
+                color: var(--acu-text-sub);
+                border: none;
+                padding: 0;
+                margin-left: 6px;
+                font-size: 11px;
+                opacity: 0.6;
+                cursor: pointer;
+                transition: all 0.2s;
+                vertical-align: middle;
+                line-height: 1;
+            }
+            .acu-manual-update-btn:hover {
+                opacity: 1;
+                color: var(--acu-accent, #3b82f6);
+                background: transparent;
+            }
+            /* 手动更新确认弹窗样式 */
+            .acu-manual-update-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.6);
+                z-index: 31400;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                padding: 16px;
+                box-sizing: border-box;
+            }
+            .acu-manual-update-dialog {
+                background: var(--acu-panel-bg, #ffffff);
+                border: 1px solid var(--acu-border);
+                border-radius: 12px;
+                width: 100%;
+                max-width: 360px;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+                overflow: hidden;
+                position: relative;
+                z-index: 1;
+            }
+            .acu-manual-update-header {
+                padding: 14px 16px;
+                font-size: 14px;
+                font-weight: 600;
+                color: var(--acu-text-main);
+                background: var(--acu-table-head);
+                border-bottom: 1px solid var(--acu-border);
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+            .acu-manual-update-body {
+                padding: 16px;
+                color: var(--acu-text-main) !important;
+                font-size: 13px;
+                line-height: 1.6;
+            }
+            .acu-manual-update-body p {
+                margin: 0 0 12px 0;
+                color: var(--acu-text-main) !important;
+            }
+            .acu-manual-update-safe-box {
+                background: var(--acu-card-bg, rgba(34, 197, 94, 0.1));
+                border: 1px solid var(--acu-border);
+                border-radius: 6px;
+                padding: 10px 12px;
+                display: flex;
+                align-items: flex-start;
+                gap: 8px;
+            }
+            .acu-manual-update-safe-box i {
+                color: var(--acu-accent, #22c55e);
+                margin-top: 2px;
+            }
+            .acu-manual-update-safe-box .safe-text {
+                color: var(--acu-text-sub);
+                font-size: 12px;
+                line-height: 1.5;
+            }
+            .acu-manual-update-safe-box .safe-text strong {
+                color: var(--acu-text-main);
+                display: block;
+                margin-bottom: 2px;
+            }
+            .acu-manual-update-footer {
+                padding: 12px 16px;
+                display: flex;
+                justify-content: flex-end;
+                gap: 8px;
+                border-top: 1px solid var(--acu-border);
+                background: var(--acu-table-head);
+            }
+            .acu-manual-update-cancel-btn,
+            .acu-manual-update-confirm-btn {
+                padding: 8px 16px;
+                border-radius: 6px;
+                font-size: 13px;
+                font-weight: 500;
+                cursor: pointer;
+                transition: all 0.15s;
+                border: none;
+            }
+            .acu-manual-update-cancel-btn {
+                background: var(--acu-card-bg);
+                color: var(--acu-text-sub);
+                border: 1px solid var(--acu-border);
+            }
+            .acu-manual-update-cancel-btn:hover {
+                background: var(--acu-table-hover);
+                color: var(--acu-text-main);
+            }
+            .acu-manual-update-confirm-btn {
+                background: var(--acu-accent, #3b82f6);
+                color: #fff;
+            }
+            .acu-manual-update-confirm-btn:hover {
+                filter: brightness(1.1);
+            }
+            .acu-manual-update-confirm-btn:disabled {
+                opacity: 0.7;
+                cursor: not-allowed;
+            }
             .acu-settings-body {
                 flex: 1;
                 min-height: 0;
@@ -4587,6 +4717,82 @@ export const MAIN_STYLES = `
                 color: #27ae60;
             }
 
+            /* ========== 收藏夹标签过滤可折叠区域 ========== */
+            .acu-fav-tag-filter-collapsible {
+                border-bottom: 1px solid var(--acu-border);
+            }
+            .acu-fav-tag-filter-header {
+                position: sticky;
+                top: 0;
+                z-index: 1;
+                padding: 6px 12px;
+                background: var(--acu-table-head);
+                border-bottom: 1px solid var(--acu-border);
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                user-select: none;
+            }
+            .acu-fav-tag-filter-header span {
+                font-size: calc(var(--acu-font-size, 13px) * 0.85);
+                color: var(--acu-text-sub);
+                font-weight: 500;
+            }
+            .acu-fav-tag-toggle-icon {
+                font-size: 10px;
+                color: var(--acu-text-sub);
+                transition: transform 0.2s;
+            }
+            .acu-fav-tag-filter-body {
+                padding: 8px 12px;
+                background: var(--acu-table-head);
+                display: flex;
+                flex-wrap: wrap;
+                gap: 6px;
+                align-items: center;
+            }
+            .acu-fav-tag-filter-body.horizontal {
+                display: grid;
+                grid-auto-flow: column;
+                grid-template-rows: repeat(auto-fill, minmax(28px, 1fr));
+                gap: 6px;
+                overflow-x: auto;
+            }
+            .acu-fav-tag-filter-collapsible.collapsed .acu-fav-tag-filter-body {
+                display: none;
+            }
+            .acu-fav-tag-filter-collapsible.collapsed .acu-fav-tag-toggle-icon {
+                transform: rotate(-90deg);
+            }
+            .acu-fav-tag-btn {
+                padding: 0 10px;
+                height: 28px;
+                background: transparent;
+                border: 1px solid var(--acu-border);
+                border-radius: 6px;
+                color: var(--acu-text-sub);
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: calc(var(--acu-font-size, 13px) * 0.85);
+                transition: all 0.2s ease;
+                opacity: 0.5;
+                white-space: nowrap;
+            }
+            .acu-fav-tag-btn:hover {
+                opacity: 0.8;
+                border-color: var(--acu-accent);
+                color: var(--acu-accent);
+            }
+            .acu-fav-tag-btn.active {
+                background: var(--acu-accent);
+                color: var(--acu-btn-active-text);
+                border-color: var(--acu-accent);
+                opacity: 1;
+            }
+
             /* 编辑弹窗 */
             .acu-fav-edit-modal,
             .acu-fav-new-modal,
@@ -4814,11 +5020,20 @@ export const MAIN_STYLES = `
             }
 
             /* ========== 收藏夹面板样式 (新增) ========== */
+            /* [修复] 收藏夹外层容器必须限制高度和溢出，防止卡片超出面板范围 */
+            .acu-fav-wrapper {
+                display: flex;
+                flex-direction: column;
+                height: 100%;
+                max-height: 100%;
+                overflow: hidden;
+            }
             .acu-fav-panel-content {
                 padding: 12px;
                 overflow-y: auto;
-                max-height: calc(85vh - 60px);
+                overflow-x: hidden;
                 flex: 1;
+                min-height: 0; /* 关键：允许 flex 子元素收缩 */
             }
             /* [已废弃] 工具栏已移至Header，保留样式以防回退 */
             /*
