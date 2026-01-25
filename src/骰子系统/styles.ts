@@ -79,6 +79,7 @@ export const MAIN_STYLES = `
     .acu-dice-config-dialog input:not([type]),
     .acu-dice-config-dialog select {
         width: 100%;
+        text-align: center;
         padding: 6px;
         background: var(--acu-input-bg) !important;
         border: 1px solid var(--acu-border) !important;
@@ -108,6 +109,10 @@ export const MAIN_STYLES = `
     .acu-dice-config-dialog input::placeholder {
         color: var(--acu-text-sub) !important;
         opacity: 0.7;
+        text-align: center;
+    }
+    .acu-dice-input {
+        text-align: center;
     }
     .acu-dice-panel input:focus,
     .acu-dice-panel select:focus,
@@ -127,12 +132,14 @@ export const MAIN_STYLES = `
     /* 投骰面板下拉框统一样式 */
     .acu-dice-select {
         width: 100%;
-        padding: 6px 4px;
+        padding: 4px 4px;
         background: var(--acu-input-bg) !important;
         border: 1px solid var(--acu-border) !important;
         border-radius: 4px;
         color: var(--acu-text-main) !important;
-        font-size: 11px;
+        font-size: 10px;
+        line-height: 1.2;
+        min-height: 24px;
         box-sizing: border-box;
         cursor: pointer;
         -webkit-appearance: none;
@@ -294,6 +301,246 @@ export const MAIN_STYLES = `
         flex-direction: column;
     }
 
+    /* ========== 骰子面板专用样式 ========== */
+    .acu-dice-panel,
+    .acu-contest-panel {
+        position: relative;
+        z-index: 31011;
+        width: 340px;
+        max-width: calc(100vw - 32px);
+        max-height: calc(100vh - 32px);
+        max-height: calc(100dvh - 32px);
+    }
+    .acu-dice-panel-header {
+        padding: 12px 15px;
+        background: var(--acu-table-head);
+        border-bottom: 1px solid var(--acu-border);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .acu-dice-panel-title {
+        font-size: 15px;
+        font-weight: bold;
+        color: var(--acu-accent);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .acu-dice-panel-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .acu-dice-panel-actions button {
+        background: none;
+        border: none;
+        color: var(--acu-text-sub);
+        cursor: pointer;
+        font-size: 14px;
+        padding: 4px;
+        transition: all 0.2s;
+    }
+    .acu-dice-panel-actions button:hover {
+        color: var(--acu-accent);
+    }
+    .acu-dice-panel-body {
+        padding: 15px;
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+    }
+    .acu-dice-presets {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+        align-items: center;
+    }
+    .acu-dice-preset {
+        padding: 4px 10px;
+        background: var(--acu-btn-bg);
+        border: 1px solid var(--acu-border);
+        border-radius: 4px;
+        color: var(--acu-text-main);
+        font-size: 11px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .acu-dice-preset:hover {
+        background: var(--acu-btn-hover);
+    }
+    .acu-dice-preset.active {
+        background: var(--acu-accent);
+        color: var(--acu-button-text-on-accent, #fff);
+        border-color: var(--acu-accent);
+    }
+    .acu-dice-preset.active:hover {
+        background: var(--acu-accent);
+        color: var(--acu-button-text-on-accent, #fff);
+        filter: brightness(1.1);
+    }
+    .acu-dice-form-row {
+        display: grid;
+        gap: 6px;
+        margin-bottom: 6px;
+    }
+    .acu-dice-form-row.cols-2 { grid-template-columns: 1fr 1fr; }
+    .acu-dice-form-row.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+    .acu-dice-form-label {
+        font-size: 10px;
+        color: var(--acu-text-sub);
+        margin-bottom: 2px;
+        min-height: 18px;
+        display: flex;
+        align-items: center;
+    }
+    .acu-dice-form-label.center { justify-content: center; }
+    /* Section Title (Party A/B, Quick Select) */
+    .acu-dice-section-title {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        margin-bottom: 6px;
+        min-height: 24px;
+    }
+    .acu-dice-section-title > span {
+        font-size: 12px;
+        font-weight: bold;
+        color: var(--acu-accent);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+    }
+    .acu-dice-quick-section {
+        margin-bottom: 10px;
+    }
+    .acu-dice-quick-title {
+        font-size: 10px;
+        color: var(--acu-text-sub);
+        font-weight: bold;
+        margin-bottom: 4px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .acu-dice-quick-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        max-height: 60px;
+        overflow-y: auto;
+    }
+    .acu-dice-quick-inline {
+        display: flex;
+        gap: 4px;
+        margin-left: 0;
+        margin-top: 4px;
+        flex: 1 1 100%;
+        align-content: flex-start;
+        min-width: 0;
+        max-width: 100%;
+        max-height: 84px;
+        overflow-x: hidden;
+        overflow-y: auto;
+        white-space: normal;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        -webkit-overflow-scrolling: touch;
+    }
+    .acu-dice-quick-inline::-webkit-scrollbar { width: 6px; }
+    .acu-dice-quick-compact {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 3px;
+        margin-bottom: 8px;
+        max-height: 84px;
+        overflow-y: auto;
+        align-content: flex-start;
+    }
+    .acu-dice-panel .acu-dice-char-btn,
+    .acu-contest-panel .acu-dice-char-btn,
+    .acu-dice-panel .acu-dice-attr-btn,
+    .acu-contest-panel .acu-dice-attr-btn,
+    .acu-dice-panel .acu-dice-gen-attr-btn,
+    .acu-dice-panel .acu-dice-clear-attr-btn,
+    .acu-contest-panel .acu-contest-attr-btn,
+    .acu-contest-panel .acu-contest-gen-attr-btn,
+    .acu-contest-panel .acu-contest-clear-attr-btn {
+        padding: 1px 5px;
+        background: var(--acu-btn-bg);
+        border: 1px solid var(--acu-border);
+        border-radius: 4px;
+        color: var(--acu-text-main);
+        font-size: 10px;
+        cursor: pointer;
+        transition: all 0.2s;
+        white-space: nowrap;
+        flex-shrink: 0;
+        line-height: 1.3;
+    }
+    .acu-dice-panel .acu-dice-char-btn:hover,
+    .acu-contest-panel .acu-dice-char-btn:hover,
+    .acu-dice-panel .acu-dice-attr-btn:hover,
+    .acu-contest-panel .acu-dice-attr-btn:hover,
+    .acu-dice-panel .acu-dice-gen-attr-btn:hover,
+    .acu-dice-panel .acu-dice-clear-attr-btn:hover,
+    .acu-contest-panel .acu-contest-attr-btn:hover,
+    .acu-contest-panel .acu-contest-gen-attr-btn:hover,
+    .acu-contest-panel .acu-contest-clear-attr-btn:hover {
+        background: var(--acu-btn-hover);
+    }
+    .acu-dice-panel .acu-dice-char-btn.active,
+    .acu-contest-panel .acu-dice-char-btn.active,
+    .acu-dice-panel .acu-dice-attr-btn.active,
+    .acu-contest-panel .acu-dice-attr-btn.active {
+        background: var(--acu-accent);
+        color: var(--acu-button-text-on-accent, #fff);
+        border-color: var(--acu-accent);
+    }
+    .acu-dice-roll-btn {
+        width: 100%;
+        padding: 12px;
+        background: var(--acu-accent);
+        border: none;
+        border-radius: 8px;
+        color: var(--acu-button-text, #fff);
+        font-size: 15px;
+        font-weight: bold;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        transition: all 0.2s;
+    }
+    .acu-dice-roll-btn:hover {
+        filter: brightness(1.1);
+    }
+    .acu-random-skill-btn {
+        width: 18px;
+        height: 18px;
+        padding: 0;
+        background: transparent;
+        border: 1px dashed var(--acu-accent);
+        border-radius: 4px;
+        color: var(--acu-accent);
+        font-size: 9px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s;
+    }
+    .acu-random-skill-btn:hover {
+        background: var(--acu-accent);
+        color: var(--acu-button-text-on-accent, #fff);
+    }
+
     /* 弹窗头部基类 - 统一使用 .acu-panel-header */
     .acu-panel-header {
         display: flex;
@@ -312,13 +559,13 @@ export const MAIN_STYLES = `
         color: var(--acu-text-sub);
         cursor: pointer;
         font-size: 16px;
-        padding: 4px 8px;
+        padding: 4px;
         border-radius: 4px;
         transition: all 0.2s;
     }
     .acu-close-btn:hover {
-        background: var(--acu-error-bg, rgba(231, 76, 60, 0.15));
-        color: var(--acu-error-text, #e74c3c);
+        background: none;
+        color: var(--acu-accent);
     }
 
     /* 滚动条全局隐藏 */
@@ -326,12 +573,12 @@ export const MAIN_STYLES = `
     [class^="acu-"] *::-webkit-scrollbar { display: none !important; }
 
     /* ========== 主题变量定义 ========== */
-    .acu-theme-retro { --acu-bg-nav: #e6e2d3; --acu-bg-panel: #e6e2d3; --acu-border: #dcd0c0; --acu-text-main: #5e4b35; --acu-text-sub: #999; --acu-btn-bg: #dcd0c0; --acu-btn-hover: #cbbba8; --acu-btn-active-bg: #8d7b6f; --acu-btn-active-text: #fdfaf5; --acu-accent: #7a695f; --acu-table-head: #efebe4; --acu-table-hover: #f0ebe0; --acu-opt-hover: #f7f3ed; --acu-opt-bg: #fffef9; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #fffef9; --acu-badge-bg: #efebe4; --acu-menu-bg: #fff; --acu-menu-text: #333; --acu-success-text: #27ae60; --acu-success-bg: rgba(39, 174, 96, 0.15); --acu-scrollbar-track: #e6e2d3; --acu-scrollbar-thumb: #cbbba8; --acu-input-bg: #f5f2eb;--acu-hl-manual: #d35400; --acu-hl-manual-bg: rgba(211, 84, 0, 0.15); --acu-hl-diff: #2980b9; --acu-hl-diff-bg: rgba(41, 128, 185, 0.15); --acu-error-text: #e74c3c; --acu-error-bg: rgba(231, 76, 60, 0.15); --acu-error-border: rgba(231, 76, 60, 0.5); --acu-warning-icon: #e67e22; --acu-failure-text: #e74c3c; --acu-failure-bg: rgba(231, 76, 60, 0.15); --acu-warning-text: #f39c12; --acu-warning-bg: rgba(243, 156, 18, 0.15); --acu-crit-success-text: #9b59b6; --acu-crit-success-bg: rgba(155, 89, 182, 0.15); --acu-crit-failure-text: #c0392b; --acu-crit-failure-bg: rgba(192, 57, 43, 0.15); --acu-extreme-success-text: #2980b9; --acu-extreme-success-bg: rgba(41, 128, 185, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(0,0,0,0.1); --acu-very-light-bg: rgba(0,0,0,0.02); --acu-button-text: #5e4b35; --acu-gray-bg: rgba(128,128,128,0.1); }
-    .acu-theme-dark { --acu-bg-nav: #2b2b2b; --acu-bg-panel: #252525; --acu-border: #444; --acu-text-main: #eee; --acu-text-sub: #aaa; --acu-btn-bg: #3a3a3a; --acu-btn-hover: #4a4a4a; --acu-btn-active-bg: #6a5acd; --acu-btn-active-text: #fff; --acu-accent: #9b8cd9; --acu-table-head: #333333; --acu-table-hover: #3a3a3a; --acu-opt-hover: rgba(255, 255, 255, 0.1); --acu-opt-bg: rgba(255, 255, 255, 0.05); --acu-shadow: rgba(0,0,0,0.6); --acu-card-bg: #2d3035; --acu-badge-bg: #3a3f4b; --acu-menu-bg: #333; --acu-menu-text: #eee; --acu-success-text: #4cd964; --acu-success-bg: rgba(76, 217, 100, 0.2); --acu-scrollbar-track: #2b2b2b; --acu-scrollbar-thumb: #555; --acu-hl-manual: #ff6b81; --acu-hl-manual-bg: rgba(255, 107, 129, 0.2); --acu-hl-diff: #00d2d3; --acu-hl-diff-bg: rgba(0, 210, 211, 0.2); --acu-error-text: #ff6b6b; --acu-error-bg: rgba(255, 107, 107, 0.2); --acu-error-border: rgba(255, 107, 107, 0.5); --acu-warning-icon: #ffa726; --acu-failure-text: #ff6b6b; --acu-failure-bg: rgba(255, 107, 107, 0.2); --acu-warning-text: #ffa726; --acu-warning-bg: rgba(255, 167, 38, 0.2); --acu-crit-success-text: #ba68c8; --acu-crit-success-bg: rgba(186, 104, 200, 0.2); --acu-crit-failure-text: #d32f2f; --acu-crit-failure-bg: rgba(211, 47, 47, 0.2); --acu-extreme-success-text: #42a5f5; --acu-extreme-success-bg: rgba(66, 165, 245, 0.2); --acu-overlay-bg: rgba(0,0,0,0.75); --acu-overlay-bg-light: rgba(0,0,0,0.65); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(255,255,255,0.05); --acu-very-light-bg: rgba(255,255,255,0.02); --acu-button-text: #fff; --acu-gray-bg: rgba(255,255,255,0.1); }
-    .acu-theme-modern { --acu-bg-nav: #ffffff; --acu-bg-panel: #f8f9fa; --acu-border: #e0e0e0; --acu-text-main: #333; --acu-text-sub: #666; --acu-btn-bg: #f1f3f5; --acu-btn-hover: #e9ecef; --acu-btn-active-bg: #007bff; --acu-btn-active-text: #fff; --acu-accent: #007bff; --acu-table-head: #f8f9fa; --acu-table-hover: #f1f3f5; --acu-opt-hover: #f1f3f5; --acu-opt-bg: #ffffff; --acu-shadow: rgba(0,0,0,0.1); --acu-card-bg: #ffffff; --acu-badge-bg: #f1f3f5; --acu-menu-bg: #fff; --acu-menu-text: #333; --acu-success-text: #28a745; --acu-success-bg: rgba(40, 167, 69, 0.15); --acu-scrollbar-track: #fff; --acu-scrollbar-thumb: #ccc; --acu-hl-manual: #fd7e14; --acu-hl-manual-bg: rgba(253, 126, 20, 0.15); --acu-hl-diff: #0d6efd; --acu-hl-diff-bg: rgba(13, 110, 253, 0.15); --acu-error-text: #dc3545; --acu-error-bg: rgba(220, 53, 69, 0.15); --acu-error-border: rgba(220, 53, 69, 0.5); --acu-warning-icon: #fd7e14; --acu-failure-text: #dc3545; --acu-failure-bg: rgba(220, 53, 69, 0.15); --acu-warning-text: #ffc107; --acu-warning-bg: rgba(255, 193, 7, 0.15); --acu-crit-success-text: #6f42c1; --acu-crit-success-bg: rgba(111, 66, 193, 0.15); --acu-crit-failure-text: #c82333; --acu-crit-failure-bg: rgba(200, 35, 51, 0.15); --acu-extreme-success-text: #17a2b8; --acu-extreme-success-bg: rgba(23, 162, 184, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(0,0,0,0.1); --acu-very-light-bg: rgba(0,0,0,0.02); --acu-button-text: #333; --acu-gray-bg: rgba(128,128,128,0.1); }
-    .acu-theme-forest { --acu-bg-nav: #e8f5e9; --acu-bg-panel: #e8f5e9; --acu-border: #c8e6c9; --acu-text-main: #2e7d32; --acu-text-sub: #81c784; --acu-btn-bg: #c8e6c9; --acu-btn-hover: #a5d6a7; --acu-btn-active-bg: #43a047; --acu-btn-active-text: #fff; --acu-accent: #4caf50; --acu-table-head: #dcedc8; --acu-table-hover: #f1f8e9; --acu-opt-hover: #f1f8e9; --acu-opt-bg: #ffffff; --acu-shadow: rgba(0,0,0,0.1); --acu-card-bg: #ffffff; --acu-badge-bg: #dcedc8; --acu-menu-bg: #fff; --acu-menu-text: #2e7d32; --acu-success-text: #2e7d32; --acu-success-bg: rgba(46, 125, 50, 0.2); --acu-scrollbar-track: #e8f5e9; --acu-scrollbar-thumb: #a5d6a7; --acu-hl-manual: #e67e22; --acu-hl-manual-bg: rgba(230, 126, 34, 0.15); --acu-hl-diff: #1e8449; --acu-hl-diff-bg: rgba(30, 132, 73, 0.2); --acu-button-text: #2e7d32; }
-    .acu-theme-ocean { --acu-bg-nav: #e3f2fd; --acu-bg-panel: #e3f2fd; --acu-border: #90caf9; --acu-text-main: #1565c0; --acu-text-sub: #64b5f6; --acu-btn-bg: #bbdefb; --acu-btn-hover: #90caf9; --acu-btn-active-bg: #1976d2; --acu-btn-active-text: #fff; --acu-accent: #2196f3; --acu-table-head: #bbdefb; --acu-table-hover: #e1f5fe; --acu-opt-hover: #e1f5fe; --acu-opt-bg: #ffffff; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #e3f2fd; --acu-menu-bg: #fff; --acu-menu-text: #1565c0; --acu-success-text: #0288d1; --acu-success-bg: rgba(2, 136, 209, 0.15); --acu-scrollbar-track: #e3f2fd; --acu-scrollbar-thumb: #90caf9; --acu-hl-manual: #ff4757; --acu-hl-manual-bg: rgba(255, 71, 87, 0.15); --acu-hl-diff: #0277bd; --acu-hl-diff-bg: rgba(2, 119, 189, 0.2); --acu-error-text: #d32f2f; --acu-error-bg: rgba(211, 47, 47, 0.15); --acu-error-border: rgba(211, 47, 47, 0.5); --acu-warning-icon: #f57c00; --acu-failure-text: #d32f2f; --acu-failure-bg: rgba(211, 47, 47, 0.15); --acu-warning-text: #f57c00; --acu-warning-bg: rgba(245, 124, 0, 0.15); --acu-crit-success-text: #7b1fa2; --acu-crit-success-bg: rgba(123, 31, 162, 0.15); --acu-crit-failure-text: #b71c1c; --acu-crit-failure-bg: rgba(183, 28, 28, 0.15); --acu-extreme-success-text: #0277bd; --acu-extreme-success-bg: rgba(2, 119, 189, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(0,0,0,0.1); --acu-very-light-bg: rgba(0,0,0,0.02); --acu-button-text: #1565c0; --acu-gray-bg: rgba(128,128,128,0.1); }
-    .acu-theme-cyber { --acu-bg-nav: #000000; --acu-bg-panel: #0a0a0a; --acu-border: #333; --acu-text-main: #00ffcc; --acu-text-sub: #ff00ff; --acu-btn-bg: #111; --acu-btn-hover: #222; --acu-btn-active-bg: #ff00ff; --acu-btn-active-text: #000; --acu-accent: #00ffcc; --acu-table-head: #050505; --acu-table-hover: #111; --acu-opt-hover: rgba(0, 255, 204, 0.15); --acu-opt-bg: rgba(0, 255, 204, 0.08); --acu-shadow: 0 0 15px rgba(0,255,204,0.15); --acu-card-bg: #050505; --acu-badge-bg: #1a1a1a; --acu-menu-bg: #111; --acu-menu-text: #00ffcc; --acu-success-text: #0f0; --acu-success-bg: rgba(0, 255, 0, 0.15); --acu-scrollbar-track: #000; --acu-scrollbar-thumb: #333; --acu-hl-manual: #ff9f43; --acu-hl-manual-bg: rgba(255, 159, 67, 0.2); --acu-hl-diff: #0abde3; --acu-hl-diff-bg: rgba(10, 189, 227, 0.2); }
+    .acu-theme-retro { --acu-bg-nav: #e6e2d3; --acu-bg-panel: #e6e2d3; --acu-border: #dcd0c0; --acu-text-main: #5e4b35; --acu-text-sub: #999; --acu-btn-bg: #dcd0c0; --acu-btn-hover: #cbbba8; --acu-btn-active-bg: #8d7b6f; --acu-btn-active-text: #fdfaf5; --acu-accent: #7a695f; --acu-table-head: #efebe4; --acu-table-hover: #f0ebe0; --acu-opt-hover: #f7f3ed; --acu-opt-bg: #fffef9; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #fffef9; --acu-badge-bg: #efebe4; --acu-menu-bg: #fff; --acu-menu-text: #333; --acu-success-text: #27ae60; --acu-success-bg: rgba(39, 174, 96, 0.15); --acu-scrollbar-track: #e6e2d3; --acu-scrollbar-thumb: #cbbba8; --acu-input-bg: #f5f2eb;--acu-hl-manual: #d35400; --acu-hl-manual-bg: rgba(211, 84, 0, 0.15); --acu-hl-diff: #2980b9; --acu-hl-diff-bg: rgba(41, 128, 185, 0.15); --acu-error-text: #e74c3c; --acu-error-bg: rgba(231, 76, 60, 0.15); --acu-error-border: rgba(231, 76, 60, 0.5); --acu-warning-icon: #e67e22; --acu-failure-text: #e74c3c; --acu-failure-bg: rgba(231, 76, 60, 0.15); --acu-warning-text: #f39c12; --acu-warning-bg: rgba(243, 156, 18, 0.15); --acu-crit-success-text: #9b59b6; --acu-crit-success-bg: rgba(155, 89, 182, 0.15); --acu-crit-failure-text: #c0392b; --acu-crit-failure-bg: rgba(192, 57, 43, 0.15); --acu-extreme-success-text: #2980b9; --acu-extreme-success-bg: rgba(41, 128, 185, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(0,0,0,0.1); --acu-very-light-bg: rgba(0,0,0,0.02); --acu-button-text: #5e4b35; --acu-gray-bg: rgba(128,128,128,0.1); --acu-button-text-on-accent: #fff; }
+    .acu-theme-dark { --acu-bg-nav: #2b2b2b; --acu-bg-panel: #252525; --acu-border: #444; --acu-text-main: #eee; --acu-text-sub: #aaa; --acu-btn-bg: #3a3a3a; --acu-btn-hover: #4a4a4a; --acu-btn-active-bg: #6a5acd; --acu-btn-active-text: #fff; --acu-accent: #9b8cd9; --acu-table-head: #333333; --acu-table-hover: #3a3a3a; --acu-opt-hover: rgba(255, 255, 255, 0.1); --acu-opt-bg: rgba(255, 255, 255, 0.05); --acu-shadow: rgba(0,0,0,0.6); --acu-card-bg: #2d3035; --acu-badge-bg: #3a3f4b; --acu-menu-bg: #333; --acu-menu-text: #eee; --acu-success-text: #4cd964; --acu-success-bg: rgba(76, 217, 100, 0.2); --acu-scrollbar-track: #2b2b2b; --acu-scrollbar-thumb: #555; --acu-hl-manual: #ff6b81; --acu-hl-manual-bg: rgba(255, 107, 129, 0.2); --acu-hl-diff: #00d2d3; --acu-hl-diff-bg: rgba(0, 210, 211, 0.2); --acu-error-text: #ff6b6b; --acu-error-bg: rgba(255, 107, 107, 0.2); --acu-error-border: rgba(255, 107, 107, 0.5); --acu-warning-icon: #ffa726; --acu-failure-text: #ff6b6b; --acu-failure-bg: rgba(255, 107, 107, 0.2); --acu-warning-text: #ffa726; --acu-warning-bg: rgba(255, 167, 38, 0.2); --acu-crit-success-text: #ba68c8; --acu-crit-success-bg: rgba(186, 104, 200, 0.2); --acu-crit-failure-text: #d32f2f; --acu-crit-failure-bg: rgba(211, 47, 47, 0.2); --acu-extreme-success-text: #42a5f5; --acu-extreme-success-bg: rgba(66, 165, 245, 0.2); --acu-overlay-bg: rgba(0,0,0,0.75); --acu-overlay-bg-light: rgba(0,0,0,0.65); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(255,255,255,0.05); --acu-very-light-bg: rgba(255,255,255,0.02); --acu-button-text: #fff; --acu-gray-bg: rgba(255,255,255,0.1); --acu-button-text-on-accent: #fff; }
+    .acu-theme-modern { --acu-bg-nav: #ffffff; --acu-bg-panel: #f8f9fa; --acu-border: #e0e0e0; --acu-text-main: #333; --acu-text-sub: #666; --acu-btn-bg: #f1f3f5; --acu-btn-hover: #e9ecef; --acu-btn-active-bg: #007bff; --acu-btn-active-text: #fff; --acu-accent: #007bff; --acu-table-head: #f8f9fa; --acu-table-hover: #f1f3f5; --acu-opt-hover: #f1f3f5; --acu-opt-bg: #ffffff; --acu-shadow: rgba(0,0,0,0.1); --acu-card-bg: #ffffff; --acu-badge-bg: #f1f3f5; --acu-menu-bg: #fff; --acu-menu-text: #333; --acu-success-text: #28a745; --acu-success-bg: rgba(40, 167, 69, 0.15); --acu-scrollbar-track: #fff; --acu-scrollbar-thumb: #ccc; --acu-hl-manual: #fd7e14; --acu-hl-manual-bg: rgba(253, 126, 20, 0.15); --acu-hl-diff: #0d6efd; --acu-hl-diff-bg: rgba(13, 110, 253, 0.15); --acu-error-text: #dc3545; --acu-error-bg: rgba(220, 53, 69, 0.15); --acu-error-border: rgba(220, 53, 69, 0.5); --acu-warning-icon: #fd7e14; --acu-failure-text: #dc3545; --acu-failure-bg: rgba(220, 53, 69, 0.15); --acu-warning-text: #ffc107; --acu-warning-bg: rgba(255, 193, 7, 0.15); --acu-crit-success-text: #6f42c1; --acu-crit-success-bg: rgba(111, 66, 193, 0.15); --acu-crit-failure-text: #c82333; --acu-crit-failure-bg: rgba(200, 35, 51, 0.15); --acu-extreme-success-text: #17a2b8; --acu-extreme-success-bg: rgba(23, 162, 184, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(0,0,0,0.1); --acu-very-light-bg: rgba(0,0,0,0.02); --acu-button-text: #333; --acu-gray-bg: rgba(128,128,128,0.1); --acu-button-text-on-accent: #fff; }
+    .acu-theme-forest { --acu-bg-nav: #e8f5e9; --acu-bg-panel: #e8f5e9; --acu-border: #c8e6c9; --acu-text-main: #2e7d32; --acu-text-sub: #81c784; --acu-btn-bg: #c8e6c9; --acu-btn-hover: #a5d6a7; --acu-btn-active-bg: #43a047; --acu-btn-active-text: #fff; --acu-accent: #4caf50; --acu-table-head: #dcedc8; --acu-table-hover: #f1f8e9; --acu-opt-hover: #f1f8e9; --acu-opt-bg: #ffffff; --acu-shadow: rgba(0,0,0,0.1); --acu-card-bg: #ffffff; --acu-badge-bg: #dcedc8; --acu-menu-bg: #fff; --acu-menu-text: #2e7d32; --acu-success-text: #2e7d32; --acu-success-bg: rgba(46, 125, 50, 0.2); --acu-scrollbar-track: #e8f5e9; --acu-scrollbar-thumb: #a5d6a7; --acu-hl-manual: #e67e22; --acu-hl-manual-bg: rgba(230, 126, 34, 0.15); --acu-hl-diff: #1e8449; --acu-hl-diff-bg: rgba(30, 132, 73, 0.2); --acu-button-text: #2e7d32; --acu-button-text-on-accent: #fff; }
+    .acu-theme-ocean { --acu-bg-nav: #e3f2fd; --acu-bg-panel: #e3f2fd; --acu-border: #90caf9; --acu-text-main: #1565c0; --acu-text-sub: #64b5f6; --acu-btn-bg: #bbdefb; --acu-btn-hover: #90caf9; --acu-btn-active-bg: #1976d2; --acu-btn-active-text: #fff; --acu-accent: #2196f3; --acu-table-head: #bbdefb; --acu-table-hover: #e1f5fe; --acu-opt-hover: #e1f5fe; --acu-opt-bg: #ffffff; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #e3f2fd; --acu-menu-bg: #fff; --acu-menu-text: #1565c0; --acu-success-text: #0288d1; --acu-success-bg: rgba(2, 136, 209, 0.15); --acu-scrollbar-track: #e3f2fd; --acu-scrollbar-thumb: #90caf9; --acu-hl-manual: #ff4757; --acu-hl-manual-bg: rgba(255, 71, 87, 0.15); --acu-hl-diff: #0277bd; --acu-hl-diff-bg: rgba(2, 119, 189, 0.2); --acu-error-text: #d32f2f; --acu-error-bg: rgba(211, 47, 47, 0.15); --acu-error-border: rgba(211, 47, 47, 0.5); --acu-warning-icon: #f57c00; --acu-failure-text: #d32f2f; --acu-failure-bg: rgba(211, 47, 47, 0.15); --acu-warning-text: #f57c00; --acu-warning-bg: rgba(245, 124, 0, 0.15); --acu-crit-success-text: #7b1fa2; --acu-crit-success-bg: rgba(123, 31, 162, 0.15); --acu-crit-failure-text: #b71c1c; --acu-crit-failure-bg: rgba(183, 28, 28, 0.15); --acu-extreme-success-text: #0277bd; --acu-extreme-success-bg: rgba(2, 119, 189, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(0,0,0,0.1); --acu-very-light-bg: rgba(0,0,0,0.02); --acu-button-text: #1565c0; --acu-gray-bg: rgba(128,128,128,0.1); --acu-button-text-on-accent: #fff; }
+    .acu-theme-cyber { --acu-bg-nav: #000000; --acu-bg-panel: #0a0a0a; --acu-border: #333; --acu-text-main: #00ffcc; --acu-text-sub: #ff00ff; --acu-btn-bg: #111; --acu-btn-hover: #222; --acu-btn-active-bg: #ff00ff; --acu-btn-active-text: #000; --acu-accent: #00ffcc; --acu-table-head: #050505; --acu-table-hover: #111; --acu-opt-hover: rgba(0, 255, 204, 0.15); --acu-opt-bg: rgba(0, 255, 204, 0.08); --acu-shadow: 0 0 15px rgba(0,255,204,0.15); --acu-card-bg: #050505; --acu-badge-bg: #1a1a1a; --acu-menu-bg: #111; --acu-menu-text: #00ffcc; --acu-success-text: #0f0; --acu-success-bg: rgba(0, 255, 0, 0.15); --acu-scrollbar-track: #000; --acu-scrollbar-thumb: #333; --acu-hl-manual: #ff9f43; --acu-hl-manual-bg: rgba(255, 159, 67, 0.2); --acu-hl-diff: #0abde3; --acu-hl-diff-bg: rgba(10, 189, 227, 0.2); --acu-button-text-on-accent: #000; }
     .acu-theme-cyber .acu-nav-btn { border-color: #222; }
     .acu-theme-cyber .acu-data-card { border-color: #222; }
     .acu-theme-cyber .acu-dice-panel input::placeholder,
@@ -347,13 +594,13 @@ export const MAIN_STYLES = `
     .acu-theme-cyber .acu-contest-panel input:not([type]) {
         color: #ff00ff !important;
     }
-    .acu-theme-nightowl { --acu-bg-nav: #0a2133; --acu-bg-panel: #011627; --acu-border: #132e45; --acu-text-main: #e0e6f2; --acu-text-sub: #a6b8cc; --acu-btn-bg: #1f3a52; --acu-btn-hover: #2a4a68; --acu-btn-active-bg: #7fdbca; --acu-btn-active-text: #011627; --acu-accent: #7fdbca; --acu-table-head: #0a2133; --acu-table-hover: #01294a; --acu-opt-hover: rgba(127, 219, 202, 0.15); --acu-opt-bg: rgba(127, 219, 202, 0.08); --acu-shadow: rgba(0,0,0,0.5); --acu-card-bg: #0a2133; --acu-badge-bg: #1f3a52; --acu-menu-bg: #011627; --acu-menu-text: #e0e6f2; --acu-success-text: #addb67; --acu-success-bg: rgba(173, 219, 103, 0.15); --acu-scrollbar-track: #011627; --acu-scrollbar-thumb: #1f3a52; --acu-hl-manual: #ff8f66; --acu-hl-manual-bg: rgba(255, 143, 102, 0.2); --acu-hl-diff: #82aaff; --acu-hl-diff-bg: rgba(130, 170, 255, 0.2); }
-    .acu-theme-sakura { --acu-bg-nav: #F9F0EF; --acu-bg-panel: #F9F0EF; --acu-border: #EBDCD9; --acu-text-main: #6B5552; --acu-text-sub: #C08D8D; --acu-btn-bg: #EBDCD9; --acu-btn-hover: #D8C7C4; --acu-btn-active-bg: #C08D8D; --acu-btn-active-text: #F9F0EF; --acu-accent: #C08D8D; --acu-table-head: #F9F0EF; --acu-table-hover: #F5EAE8; --acu-opt-hover: #F5EAE8; --acu-opt-bg: #ffffff; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #F9F0EF; --acu-menu-bg: #fff; --acu-menu-text: #6B5552; --acu-success-text: #6B5552; --acu-success-bg: rgba(192, 141, 141, 0.12); --acu-scrollbar-track: #F9F0EF; --acu-scrollbar-thumb: #EBDCD9; --acu-hl-manual: #A68A7A; --acu-hl-manual-bg: rgba(166, 138, 122, 0.12); --acu-hl-diff: #9B7A7A; --acu-hl-diff-bg: rgba(155, 122, 122, 0.2); --acu-error-text: #9B7A7A; --acu-error-bg: rgba(155, 122, 122, 0.12); --acu-error-border: rgba(155, 122, 122, 0.4); --acu-warning-icon: #A68A7A; --acu-failure-text: #9B7A7A; --acu-failure-bg: rgba(155, 122, 122, 0.12); --acu-warning-text: #A68A7A; --acu-warning-bg: rgba(166, 138, 122, 0.12); --acu-crit-success-text: #8B7A7A; --acu-crit-success-bg: rgba(139, 122, 122, 0.12); --acu-crit-failure-text: #8B6F6F; --acu-crit-failure-bg: rgba(139, 111, 111, 0.12); --acu-extreme-success-text: #9B8A8A; --acu-extreme-success-bg: rgba(155, 138, 138, 0.12); --acu-overlay-bg: rgba(107, 85, 82, 0.6); --acu-overlay-bg-light: rgba(107, 85, 82, 0.5); --acu-shadow-bg: rgba(107, 85, 82, 0.3); --acu-light-bg: rgba(192, 141, 141, 0.08); --acu-very-light-bg: rgba(192, 141, 141, 0.02); --acu-button-text: #6B5552; --acu-gray-bg: rgba(192, 141, 141, 0.08); }
-    .acu-theme-minepink { --acu-bg-nav: #1a1a1a; --acu-bg-panel: #1a1a1a; --acu-border: #333333; --acu-text-main: #ffb3d9; --acu-text-sub: #ff80c1; --acu-btn-bg: #2a2a2a; --acu-btn-hover: #3a3a3a; --acu-btn-active-bg: #ff80c1; --acu-btn-active-text: #1a1a1a; --acu-accent: #ff80c1; --acu-table-head: #252525; --acu-table-hover: #2a2a2a; --acu-opt-hover: rgba(255, 128, 193, 0.15); --acu-opt-bg: rgba(255, 128, 193, 0.08); --acu-shadow: rgba(0,0,0,0.6); --acu-card-bg: #222222; --acu-badge-bg: #2a2a2a; --acu-menu-bg: #1a1a1a; --acu-menu-text: #ffb3d9; --acu-success-text: #ff80c1; --acu-success-bg: rgba(255, 128, 193, 0.2); --acu-scrollbar-track: #1a1a1a; --acu-scrollbar-thumb: #333333; --acu-hl-manual: #ffa726; --acu-hl-manual-bg: rgba(255, 167, 38, 0.2); --acu-hl-diff: #ff80c1; --acu-hl-diff-bg: rgba(255, 128, 193, 0.2); --acu-error-text: #ff6b6b; --acu-error-bg: rgba(255, 107, 107, 0.2); --acu-error-border: rgba(255, 107, 107, 0.5); --acu-warning-icon: #ffa726; --acu-failure-text: #ff6b6b; --acu-failure-bg: rgba(255, 107, 107, 0.2); --acu-warning-text: #ffa726; --acu-warning-bg: rgba(255, 167, 38, 0.2); --acu-crit-success-text: #ff80c1; --acu-crit-success-bg: rgba(255, 128, 193, 0.2); --acu-crit-failure-text: #ff4444; --acu-crit-failure-bg: rgba(255, 68, 68, 0.2); --acu-extreme-success-text: #ffb3d9; --acu-extreme-success-bg: rgba(255, 179, 217, 0.2); --acu-overlay-bg: rgba(0,0,0,0.8); --acu-overlay-bg-light: rgba(0,0,0,0.7); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(255, 128, 193, 0.1); --acu-very-light-bg: rgba(255, 128, 193, 0.02); --acu-button-text: #1a1a1a; --acu-gray-bg: rgba(255, 128, 193, 0.1); }
-    .acu-theme-purple { --acu-bg-nav: #f3e5f5; --acu-bg-panel: #f3e5f5; --acu-border: #ce93d8; --acu-text-main: #6a1b9a; --acu-text-sub: #9c27b0; --acu-btn-bg: #e1bee7; --acu-btn-hover: #ce93d8; --acu-btn-active-bg: #9c27b0; --acu-btn-active-text: #fff; --acu-accent: #9c27b0; --acu-table-head: #f8e1f5; --acu-table-hover: #fce4ec; --acu-opt-hover: #fce4ec; --acu-opt-bg: #ffffff; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #f8e1f5; --acu-menu-bg: #fff; --acu-menu-text: #6a1b9a; --acu-success-text: #6a1b9a; --acu-success-bg: rgba(106, 27, 154, 0.15); --acu-scrollbar-track: #f3e5f5; --acu-scrollbar-thumb: #ce93d8; --acu-hl-manual: #f57c00; --acu-hl-manual-bg: rgba(245, 124, 0, 0.15); --acu-hl-diff: #6a1b9a; --acu-hl-diff-bg: rgba(106, 27, 154, 0.2); --acu-error-text: #d32f2f; --acu-error-bg: rgba(211, 47, 47, 0.15); --acu-error-border: rgba(211, 47, 47, 0.5); --acu-warning-icon: #f57c00; --acu-failure-text: #d32f2f; --acu-failure-bg: rgba(211, 47, 47, 0.15); --acu-warning-text: #f57c00; --acu-warning-bg: rgba(245, 124, 0, 0.15); --acu-crit-success-text: #7b1fa2; --acu-crit-success-bg: rgba(123, 31, 162, 0.15); --acu-crit-failure-text: #b71c1c; --acu-crit-failure-bg: rgba(183, 28, 28, 0.15); --acu-extreme-success-text: #6a1b9a; --acu-extreme-success-bg: rgba(106, 27, 154, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(156, 39, 176, 0.1); --acu-very-light-bg: rgba(156, 39, 176, 0.02); --acu-button-text: #6a1b9a; --acu-gray-bg: rgba(156, 39, 176, 0.1); }
-    .acu-theme-wechat { --acu-bg-nav: #F7F7F7; --acu-bg-panel: #F7F7F7; --acu-border: #E5E5E5; --acu-text-main: #333333; --acu-text-sub: #666666; --acu-btn-bg: #E5E5E5; --acu-btn-hover: #D5D5D5; --acu-btn-active-bg: #09B83E; --acu-btn-active-text: #FFFFFF; --acu-accent: #09B83E; --acu-table-head: #F0F0F0; --acu-table-hover: #EBEBEB; --acu-opt-hover: #EBEBEB; --acu-opt-bg: #ffffff; --acu-shadow: rgba(0,0,0,0.1); --acu-card-bg: #ffffff; --acu-badge-bg: #F0F0F0; --acu-menu-bg: #fff; --acu-menu-text: #333333; --acu-success-text: #09B83E; --acu-success-bg: rgba(9, 184, 62, 0.12); --acu-scrollbar-track: #F7F7F7; --acu-scrollbar-thumb: #E5E5E5; --acu-hl-manual: #FF9500; --acu-hl-manual-bg: rgba(255, 149, 0, 0.12); --acu-hl-diff: #09B83E; --acu-hl-diff-bg: rgba(9, 184, 62, 0.2); --acu-error-text: #E53E3E; --acu-error-bg: rgba(229, 62, 62, 0.12); --acu-error-border: rgba(229, 62, 62, 0.5); --acu-warning-icon: #FF9500; --acu-failure-text: #E53E3E; --acu-failure-bg: rgba(229, 62, 62, 0.12); --acu-warning-text: #FF9500; --acu-warning-bg: rgba(255, 149, 0, 0.12); --acu-crit-success-text: #07A832; --acu-crit-success-bg: rgba(7, 168, 50, 0.15); --acu-crit-failure-text: #C53030; --acu-crit-failure-bg: rgba(197, 48, 48, 0.15); --acu-extreme-success-text: #09B83E; --acu-extreme-success-bg: rgba(9, 184, 62, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.2); --acu-light-bg: rgba(9, 184, 62, 0.08); --acu-very-light-bg: rgba(9, 184, 62, 0.02); --acu-button-text: #333333; --acu-gray-bg: rgba(9, 184, 62, 0.08); }
-    .acu-theme-educational { --acu-bg-nav: #000000; --acu-bg-panel: #000000; --acu-border: #1B1B1B; --acu-text-main: #FFFFFF; --acu-text-sub: #CCCCCC; --acu-btn-bg: #1B1B1B; --acu-btn-hover: #2B2B2B; --acu-btn-active-bg: #FF9900; --acu-btn-active-text: #000000; --acu-accent: #FF9900; --acu-table-head: #1B1B1B; --acu-table-hover: #2B2B2B; --acu-opt-hover: rgba(255, 153, 0, 0.18); --acu-opt-bg: rgba(255, 153, 0, 0.1); --acu-shadow: rgba(0,0,0,0.6); --acu-card-bg: #1B1B1B; --acu-badge-bg: #1B1B1B; --acu-menu-bg: #000000; --acu-menu-text: #FFFFFF; --acu-success-text: #FF9900; --acu-success-bg: rgba(255, 153, 0, 0.15); --acu-scrollbar-track: #000000; --acu-scrollbar-thumb: #1B1B1B; --acu-input-bg: #1B1B1B; --acu-hl-manual: #FF9900; --acu-hl-manual-bg: rgba(255, 153, 0, 0.15); --acu-hl-diff: #FFB84D; --acu-hl-diff-bg: rgba(255, 184, 77, 0.2); --acu-error-text: #FF6B6B; --acu-error-bg: rgba(255, 107, 107, 0.2); --acu-error-border: rgba(255, 107, 107, 0.5); --acu-warning-icon: #FFAA00; --acu-failure-text: #FF6B6B; --acu-failure-bg: rgba(255, 107, 107, 0.2); --acu-warning-text: #FFAA00; --acu-warning-bg: rgba(255, 170, 0, 0.2); --acu-crit-success-text: #FF9900; --acu-crit-success-bg: rgba(255, 153, 0, 0.2); --acu-crit-failure-text: #FF4444; --acu-crit-failure-bg: rgba(255, 68, 68, 0.2); --acu-extreme-success-text: #FFB84D; --acu-extreme-success-bg: rgba(255, 184, 77, 0.2); --acu-overlay-bg: rgba(0,0,0,0.8); --acu-overlay-bg-light: rgba(0,0,0,0.7); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(255, 153, 0, 0.1); --acu-very-light-bg: rgba(255, 153, 0, 0.02); --acu-button-text: #FFFFFF; --acu-gray-bg: rgba(255, 255, 255, 0.1); }
-    .acu-theme-vaporwave { --acu-bg-nav: #191970; --acu-bg-panel: #191970; --acu-border: rgba(0, 255, 255, 0.3); --acu-text-main: #00FFFF; --acu-text-sub: #FF00FF; --acu-btn-bg: rgba(25, 25, 112, 0.8); --acu-btn-hover: rgba(0, 255, 255, 0.2); --acu-btn-active-bg: #FF00FF; --acu-btn-active-text: #191970; --acu-accent: #00FFFF; --acu-table-head: rgba(25, 25, 112, 0.9); --acu-table-hover: rgba(0, 255, 255, 0.1); --acu-opt-hover: rgba(0, 255, 255, 0.18); --acu-opt-bg: rgba(0, 255, 255, 0.1); --acu-shadow: 0 0 15px rgba(0, 255, 255, 0.3); --acu-card-bg: rgba(25, 25, 112, 0.95); --acu-badge-bg: rgba(25, 25, 112, 0.8); --acu-menu-bg: #191970; --acu-menu-text: #00FFFF; --acu-success-text: #00FFFF; --acu-success-bg: rgba(0, 255, 255, 0.15); --acu-scrollbar-track: #191970; --acu-scrollbar-thumb: rgba(0, 255, 255, 0.3); --acu-input-bg: rgba(25, 25, 112, 0.6); --acu-hl-manual: #00FFFF; --acu-hl-manual-bg: rgba(0, 255, 255, 0.2); --acu-hl-diff: #FF00FF; --acu-hl-diff-bg: rgba(255, 0, 255, 0.2); --acu-error-text: #FF00FF; --acu-error-bg: rgba(255, 0, 255, 0.2); --acu-error-border: rgba(255, 0, 255, 0.5); --acu-warning-icon: #FF00FF; --acu-failure-text: #FF00FF; --acu-failure-bg: rgba(255, 0, 255, 0.2); --acu-warning-text: #FF00FF; --acu-warning-bg: rgba(255, 0, 255, 0.15); --acu-crit-success-text: #00FFFF; --acu-crit-success-bg: rgba(0, 255, 255, 0.2); --acu-crit-failure-text: #FF00FF; --acu-crit-failure-bg: rgba(255, 0, 255, 0.25); --acu-extreme-success-text: #00FFFF; --acu-extreme-success-bg: rgba(0, 255, 255, 0.2); --acu-overlay-bg: rgba(25, 25, 112, 0.85); --acu-overlay-bg-light: rgba(25, 25, 112, 0.75); --acu-shadow-bg: rgba(0, 255, 255, 0.3); --acu-light-bg: rgba(0, 255, 255, 0.05); --acu-very-light-bg: rgba(0, 255, 255, 0.02); --acu-button-text: #F0F8FF; --acu-gray-bg: rgba(0, 255, 255, 0.1); }
+    .acu-theme-nightowl { --acu-bg-nav: #0a2133; --acu-bg-panel: #011627; --acu-border: #132e45; --acu-text-main: #e0e6f2; --acu-text-sub: #a6b8cc; --acu-btn-bg: #1f3a52; --acu-btn-hover: #2a4a68; --acu-btn-active-bg: #7fdbca; --acu-btn-active-text: #011627; --acu-accent: #7fdbca; --acu-table-head: #0a2133; --acu-table-hover: #01294a; --acu-opt-hover: rgba(127, 219, 202, 0.15); --acu-opt-bg: rgba(127, 219, 202, 0.08); --acu-shadow: rgba(0,0,0,0.5); --acu-card-bg: #0a2133; --acu-badge-bg: #1f3a52; --acu-menu-bg: #011627; --acu-menu-text: #e0e6f2; --acu-success-text: #addb67; --acu-success-bg: rgba(173, 219, 103, 0.15); --acu-scrollbar-track: #011627; --acu-scrollbar-thumb: #1f3a52; --acu-hl-manual: #ff8f66; --acu-hl-manual-bg: rgba(255, 143, 102, 0.2); --acu-hl-diff: #82aaff; --acu-hl-diff-bg: rgba(130, 170, 255, 0.2); --acu-button-text-on-accent: #011627; }
+    .acu-theme-sakura { --acu-bg-nav: #F9F0EF; --acu-bg-panel: #F9F0EF; --acu-border: #EBDCD9; --acu-text-main: #6B5552; --acu-text-sub: #C08D8D; --acu-btn-bg: #EBDCD9; --acu-btn-hover: #D8C7C4; --acu-btn-active-bg: #C08D8D; --acu-btn-active-text: #F9F0EF; --acu-accent: #C08D8D; --acu-table-head: #F9F0EF; --acu-table-hover: #F5EAE8; --acu-opt-hover: #F5EAE8; --acu-opt-bg: #ffffff; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #F9F0EF; --acu-menu-bg: #fff; --acu-menu-text: #6B5552; --acu-success-text: #6B5552; --acu-success-bg: rgba(192, 141, 141, 0.12); --acu-scrollbar-track: #F9F0EF; --acu-scrollbar-thumb: #EBDCD9; --acu-hl-manual: #A68A7A; --acu-hl-manual-bg: rgba(166, 138, 122, 0.12); --acu-hl-diff: #9B7A7A; --acu-hl-diff-bg: rgba(155, 122, 122, 0.2); --acu-error-text: #9B7A7A; --acu-error-bg: rgba(155, 122, 122, 0.12); --acu-error-border: rgba(155, 122, 122, 0.4); --acu-warning-icon: #A68A7A; --acu-failure-text: #9B7A7A; --acu-failure-bg: rgba(155, 122, 122, 0.12); --acu-warning-text: #A68A7A; --acu-warning-bg: rgba(166, 138, 122, 0.12); --acu-crit-success-text: #8B7A7A; --acu-crit-success-bg: rgba(139, 122, 122, 0.12); --acu-crit-failure-text: #8B6F6F; --acu-crit-failure-bg: rgba(139, 111, 111, 0.12); --acu-extreme-success-text: #9B8A8A; --acu-extreme-success-bg: rgba(155, 138, 138, 0.12); --acu-overlay-bg: rgba(107, 85, 82, 0.6); --acu-overlay-bg-light: rgba(107, 85, 82, 0.5); --acu-shadow-bg: rgba(107, 85, 82, 0.3); --acu-light-bg: rgba(192, 141, 141, 0.08); --acu-very-light-bg: rgba(192, 141, 141, 0.02); --acu-button-text: #6B5552; --acu-gray-bg: rgba(192, 141, 141, 0.08); --acu-button-text-on-accent: #F9F0EF; }
+    .acu-theme-minepink { --acu-bg-nav: #1a1a1a; --acu-bg-panel: #1a1a1a; --acu-border: #333333; --acu-text-main: #ffb3d9; --acu-text-sub: #ff80c1; --acu-btn-bg: #2a2a2a; --acu-btn-hover: #3a3a3a; --acu-btn-active-bg: #ff80c1; --acu-btn-active-text: #1a1a1a; --acu-accent: #ff80c1; --acu-table-head: #252525; --acu-table-hover: #2a2a2a; --acu-opt-hover: rgba(255, 128, 193, 0.15); --acu-opt-bg: rgba(255, 128, 193, 0.08); --acu-shadow: rgba(0,0,0,0.6); --acu-card-bg: #222222; --acu-badge-bg: #2a2a2a; --acu-menu-bg: #1a1a1a; --acu-menu-text: #ffb3d9; --acu-success-text: #ff80c1; --acu-success-bg: rgba(255, 128, 193, 0.2); --acu-scrollbar-track: #1a1a1a; --acu-scrollbar-thumb: #333333; --acu-hl-manual: #ffa726; --acu-hl-manual-bg: rgba(255, 167, 38, 0.2); --acu-hl-diff: #ff80c1; --acu-hl-diff-bg: rgba(255, 128, 193, 0.2); --acu-error-text: #ff6b6b; --acu-error-bg: rgba(255, 107, 107, 0.2); --acu-error-border: rgba(255, 107, 107, 0.5); --acu-warning-icon: #ffa726; --acu-failure-text: #ff6b6b; --acu-failure-bg: rgba(255, 107, 107, 0.2); --acu-warning-text: #ffa726; --acu-warning-bg: rgba(255, 167, 38, 0.2); --acu-crit-success-text: #ff80c1; --acu-crit-success-bg: rgba(255, 128, 193, 0.2); --acu-crit-failure-text: #ff4444; --acu-crit-failure-bg: rgba(255, 68, 68, 0.2); --acu-extreme-success-text: #ffb3d9; --acu-extreme-success-bg: rgba(255, 179, 217, 0.2); --acu-overlay-bg: rgba(0,0,0,0.8); --acu-overlay-bg-light: rgba(0,0,0,0.7); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(255, 128, 193, 0.1); --acu-very-light-bg: rgba(255, 128, 193, 0.02); --acu-button-text: #1a1a1a; --acu-gray-bg: rgba(255, 128, 193, 0.1); --acu-button-text-on-accent: #1a1a1a; }
+    .acu-theme-purple { --acu-bg-nav: #f3e5f5; --acu-bg-panel: #f3e5f5; --acu-border: #ce93d8; --acu-text-main: #6a1b9a; --acu-text-sub: #9c27b0; --acu-btn-bg: #e1bee7; --acu-btn-hover: #ce93d8; --acu-btn-active-bg: #9c27b0; --acu-btn-active-text: #fff; --acu-accent: #9c27b0; --acu-table-head: #f8e1f5; --acu-table-hover: #fce4ec; --acu-opt-hover: #fce4ec; --acu-opt-bg: #ffffff; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #f8e1f5; --acu-menu-bg: #fff; --acu-menu-text: #6a1b9a; --acu-success-text: #6a1b9a; --acu-success-bg: rgba(106, 27, 154, 0.15); --acu-scrollbar-track: #f3e5f5; --acu-scrollbar-thumb: #ce93d8; --acu-hl-manual: #f57c00; --acu-hl-manual-bg: rgba(245, 124, 0, 0.15); --acu-hl-diff: #6a1b9a; --acu-hl-diff-bg: rgba(106, 27, 154, 0.2); --acu-error-text: #d32f2f; --acu-error-bg: rgba(211, 47, 47, 0.15); --acu-error-border: rgba(211, 47, 47, 0.5); --acu-warning-icon: #f57c00; --acu-failure-text: #d32f2f; --acu-failure-bg: rgba(211, 47, 47, 0.15); --acu-warning-text: #f57c00; --acu-warning-bg: rgba(245, 124, 0, 0.15); --acu-crit-success-text: #7b1fa2; --acu-crit-success-bg: rgba(123, 31, 162, 0.15); --acu-crit-failure-text: #b71c1c; --acu-crit-failure-bg: rgba(183, 28, 28, 0.15); --acu-extreme-success-text: #6a1b9a; --acu-extreme-success-bg: rgba(106, 27, 154, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(156, 39, 176, 0.1); --acu-very-light-bg: rgba(156, 39, 176, 0.02); --acu-button-text: #6a1b9a; --acu-gray-bg: rgba(156, 39, 176, 0.1); --acu-button-text-on-accent: #fff; }
+    .acu-theme-wechat { --acu-bg-nav: #F7F7F7; --acu-bg-panel: #F7F7F7; --acu-border: #E5E5E5; --acu-text-main: #333333; --acu-text-sub: #666666; --acu-btn-bg: #E5E5E5; --acu-btn-hover: #D5D5D5; --acu-btn-active-bg: #09B83E; --acu-btn-active-text: #FFFFFF; --acu-accent: #09B83E; --acu-table-head: #F0F0F0; --acu-table-hover: #EBEBEB; --acu-opt-hover: #EBEBEB; --acu-opt-bg: #ffffff; --acu-shadow: rgba(0,0,0,0.1); --acu-card-bg: #ffffff; --acu-badge-bg: #F0F0F0; --acu-menu-bg: #fff; --acu-menu-text: #333333; --acu-success-text: #09B83E; --acu-success-bg: rgba(9, 184, 62, 0.12); --acu-scrollbar-track: #F7F7F7; --acu-scrollbar-thumb: #E5E5E5; --acu-hl-manual: #FF9500; --acu-hl-manual-bg: rgba(255, 149, 0, 0.12); --acu-hl-diff: #09B83E; --acu-hl-diff-bg: rgba(9, 184, 62, 0.2); --acu-error-text: #E53E3E; --acu-error-bg: rgba(229, 62, 62, 0.12); --acu-error-border: rgba(229, 62, 62, 0.5); --acu-warning-icon: #FF9500; --acu-failure-text: #E53E3E; --acu-failure-bg: rgba(229, 62, 62, 0.12); --acu-warning-text: #FF9500; --acu-warning-bg: rgba(255, 149, 0, 0.12); --acu-crit-success-text: #07A832; --acu-crit-success-bg: rgba(7, 168, 50, 0.15); --acu-crit-failure-text: #C53030; --acu-crit-failure-bg: rgba(197, 48, 48, 0.15); --acu-extreme-success-text: #09B83E; --acu-extreme-success-bg: rgba(9, 184, 62, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.2); --acu-light-bg: rgba(9, 184, 62, 0.08); --acu-very-light-bg: rgba(9, 184, 62, 0.02); --acu-button-text: #333333; --acu-gray-bg: rgba(9, 184, 62, 0.08); --acu-button-text-on-accent: #fff; }
+    .acu-theme-educational { --acu-bg-nav: #000000; --acu-bg-panel: #000000; --acu-border: #1B1B1B; --acu-text-main: #FFFFFF; --acu-text-sub: #CCCCCC; --acu-btn-bg: #1B1B1B; --acu-btn-hover: #2B2B2B; --acu-btn-active-bg: #FF9900; --acu-btn-active-text: #000000; --acu-accent: #FF9900; --acu-table-head: #1B1B1B; --acu-table-hover: #2B2B2B; --acu-opt-hover: rgba(255, 153, 0, 0.18); --acu-opt-bg: rgba(255, 153, 0, 0.1); --acu-shadow: rgba(0,0,0,0.6); --acu-card-bg: #1B1B1B; --acu-badge-bg: #1B1B1B; --acu-menu-bg: #000000; --acu-menu-text: #FFFFFF; --acu-success-text: #FF9900; --acu-success-bg: rgba(255, 153, 0, 0.15); --acu-scrollbar-track: #000000; --acu-scrollbar-thumb: #1B1B1B; --acu-input-bg: #1B1B1B; --acu-hl-manual: #FF9900; --acu-hl-manual-bg: rgba(255, 153, 0, 0.15); --acu-hl-diff: #FFB84D; --acu-hl-diff-bg: rgba(255, 184, 77, 0.2); --acu-error-text: #FF6B6B; --acu-error-bg: rgba(255, 107, 107, 0.2); --acu-error-border: rgba(255, 107, 107, 0.5); --acu-warning-icon: #FFAA00; --acu-failure-text: #FF6B6B; --acu-failure-bg: rgba(255, 107, 107, 0.2); --acu-warning-text: #FFAA00; --acu-warning-bg: rgba(255, 170, 0, 0.2); --acu-crit-success-text: #FF9900; --acu-crit-success-bg: rgba(255, 153, 0, 0.2); --acu-crit-failure-text: #FF4444; --acu-crit-failure-bg: rgba(255, 68, 68, 0.2); --acu-extreme-success-text: #FFB84D; --acu-extreme-success-bg: rgba(255, 184, 77, 0.2); --acu-overlay-bg: rgba(0,0,0,0.8); --acu-overlay-bg-light: rgba(0,0,0,0.7); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(255, 153, 0, 0.1); --acu-very-light-bg: rgba(255, 153, 0, 0.02); --acu-button-text: #FFFFFF; --acu-gray-bg: rgba(255, 255, 255, 0.1); --acu-button-text-on-accent: #000; }
+    .acu-theme-vaporwave { --acu-bg-nav: #191970; --acu-bg-panel: #191970; --acu-border: rgba(0, 255, 255, 0.3); --acu-text-main: #00FFFF; --acu-text-sub: #FF00FF; --acu-btn-bg: rgba(25, 25, 112, 0.8); --acu-btn-hover: rgba(0, 255, 255, 0.2); --acu-btn-active-bg: #FF00FF; --acu-btn-active-text: #191970; --acu-accent: #00FFFF; --acu-table-head: rgba(25, 25, 112, 0.9); --acu-table-hover: rgba(0, 255, 255, 0.1); --acu-opt-hover: rgba(0, 255, 255, 0.18); --acu-opt-bg: rgba(0, 255, 255, 0.1); --acu-shadow: 0 0 15px rgba(0, 255, 255, 0.3); --acu-card-bg: rgba(25, 25, 112, 0.95); --acu-badge-bg: rgba(25, 25, 112, 0.8); --acu-menu-bg: #191970; --acu-menu-text: #00FFFF; --acu-success-text: #00FFFF; --acu-success-bg: rgba(0, 255, 255, 0.15); --acu-scrollbar-track: #191970; --acu-scrollbar-thumb: rgba(0, 255, 255, 0.3); --acu-input-bg: rgba(25, 25, 112, 0.6); --acu-hl-manual: #00FFFF; --acu-hl-manual-bg: rgba(0, 255, 255, 0.2); --acu-hl-diff: #FF00FF; --acu-hl-diff-bg: rgba(255, 0, 255, 0.2); --acu-error-text: #FF00FF; --acu-error-bg: rgba(255, 0, 255, 0.2); --acu-error-border: rgba(255, 0, 255, 0.5); --acu-warning-icon: #FF00FF; --acu-failure-text: #FF00FF; --acu-failure-bg: rgba(255, 0, 255, 0.2); --acu-warning-text: #FF00FF; --acu-warning-bg: rgba(255, 0, 255, 0.15); --acu-crit-success-text: #00FFFF; --acu-crit-success-bg: rgba(0, 255, 255, 0.2); --acu-crit-failure-text: #FF00FF; --acu-crit-failure-bg: rgba(255, 0, 255, 0.25); --acu-extreme-success-text: #00FFFF; --acu-extreme-success-bg: rgba(0, 255, 255, 0.2); --acu-overlay-bg: rgba(25, 25, 112, 0.85); --acu-overlay-bg-light: rgba(25, 25, 112, 0.75); --acu-shadow-bg: rgba(0, 255, 255, 0.3); --acu-light-bg: rgba(0, 255, 255, 0.05); --acu-very-light-bg: rgba(0, 255, 255, 0.02); --acu-button-text: #F0F8FF; --acu-gray-bg: rgba(0, 255, 255, 0.1); --acu-button-text-on-accent: #191970; }
     .acu-theme-vaporwave .acu-nav-btn { border-color: rgba(0, 255, 255, 0.3); }
     .acu-theme-vaporwave .acu-data-card { border-color: rgba(0, 255, 255, 0.3); }
     .acu-theme-vaporwave .acu-dice-panel input::placeholder,
@@ -369,7 +616,7 @@ export const MAIN_STYLES = `
     .acu-theme-vaporwave .acu-contest-panel input:not([type]) {
         color: #00FFFF !important;
     }
-    .acu-theme-classicpackaging { --acu-bg-nav: #000000; --acu-bg-panel: #000000; --acu-border: #FFFF00; --acu-text-main: #FFFF00; --acu-text-sub: #CCCC00; --acu-btn-bg: #FF0000; --acu-btn-hover: #CC0000; --acu-btn-active-bg: #0000FF; --acu-btn-active-text: #FFFF00; --acu-accent: #FF0000; --acu-table-head: #1a1a1a; --acu-table-hover: #2a2a2a; --acu-opt-hover: rgba(255, 255, 0, 0.15); --acu-opt-bg: rgba(255, 255, 0, 0.08); --acu-shadow: rgba(255,255,0,0.3); --acu-card-bg: #1a1a1a; --acu-badge-bg: #FF0000; --acu-menu-bg: #000000; --acu-menu-text: #FFFF00; --acu-success-text: #0000FF; --acu-success-bg: rgba(0, 0, 255, 0.2); --acu-scrollbar-track: #000000; --acu-scrollbar-thumb: #FFFF00; --acu-input-bg: #1a1a1a; --acu-hl-manual: #FF0000; --acu-hl-manual-bg: rgba(255, 0, 0, 0.2); --acu-hl-diff: #0000FF; --acu-hl-diff-bg: rgba(0, 0, 255, 0.2); --acu-error-text: #FF0000; --acu-error-bg: rgba(255, 0, 0, 0.2); --acu-error-border: rgba(255, 0, 0, 0.8); --acu-warning-icon: #FF0000; --acu-failure-text: #FF0000; --acu-failure-bg: rgba(255, 0, 0, 0.2); --acu-warning-text: #FF0000; --acu-warning-bg: rgba(255, 0, 0, 0.15); --acu-crit-success-text: #0000FF; --acu-crit-success-bg: rgba(0, 0, 255, 0.2); --acu-crit-failure-text: #FF0000; --acu-crit-failure-bg: rgba(255, 0, 0, 0.25); --acu-extreme-success-text: #0000FF; --acu-extreme-success-bg: rgba(0, 0, 255, 0.2); --acu-overlay-bg: rgba(0,0,0,0.9); --acu-overlay-bg-light: rgba(0,0,0,0.8); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(255,255,0,0.1); --acu-very-light-bg: rgba(255,255,0,0.02); --acu-button-text: #FFFF00; --acu-gray-bg: rgba(255,255,0,0.1); }
+    .acu-theme-classicpackaging { --acu-bg-nav: #000000; --acu-bg-panel: #000000; --acu-border: #FFFF00; --acu-text-main: #FFFF00; --acu-text-sub: #CCCC00; --acu-btn-bg: #FF0000; --acu-btn-hover: #CC0000; --acu-btn-active-bg: #0000FF; --acu-btn-active-text: #FFFF00; --acu-accent: #FF0000; --acu-table-head: #1a1a1a; --acu-table-hover: #2a2a2a; --acu-opt-hover: rgba(255, 255, 0, 0.15); --acu-opt-bg: rgba(255, 255, 0, 0.08); --acu-shadow: rgba(255,255,0,0.3); --acu-card-bg: #1a1a1a; --acu-badge-bg: #FF0000; --acu-menu-bg: #000000; --acu-menu-text: #FFFF00; --acu-success-text: #0000FF; --acu-success-bg: rgba(0, 0, 255, 0.2); --acu-scrollbar-track: #000000; --acu-scrollbar-thumb: #FFFF00; --acu-input-bg: #1a1a1a; --acu-hl-manual: #FF0000; --acu-hl-manual-bg: rgba(255, 0, 0, 0.2); --acu-hl-diff: #0000FF; --acu-hl-diff-bg: rgba(0, 0, 255, 0.2); --acu-error-text: #FF0000; --acu-error-bg: rgba(255, 0, 0, 0.2); --acu-error-border: rgba(255, 0, 0, 0.8); --acu-warning-icon: #FF0000; --acu-failure-text: #FF0000; --acu-failure-bg: rgba(255, 0, 0, 0.2); --acu-warning-text: #FF0000; --acu-warning-bg: rgba(255, 0, 0, 0.15); --acu-crit-success-text: #0000FF; --acu-crit-success-bg: rgba(0, 0, 255, 0.2); --acu-crit-failure-text: #FF0000; --acu-crit-failure-bg: rgba(255, 0, 0, 0.25); --acu-extreme-success-text: #0000FF; --acu-extreme-success-bg: rgba(0, 0, 255, 0.2); --acu-overlay-bg: rgba(0,0,0,0.9); --acu-overlay-bg-light: rgba(0,0,0,0.8); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(255,255,0,0.1); --acu-very-light-bg: rgba(255,255,0,0.02); --acu-button-text: #FFFF00; --acu-gray-bg: rgba(255,255,0,0.1); --acu-button-text-on-accent: #FFFF00; }
     .acu-theme-classicpackaging .acu-nav-btn { border-color: #FFFF00; border-width: 2px; font-weight: bold; }
     .acu-theme-classicpackaging .acu-data-card { border-color: #FFFF00; border-width: 2px; }
     .acu-theme-classicpackaging .acu-dice-panel input::placeholder,
@@ -391,7 +638,7 @@ export const MAIN_STYLES = `
     .acu-theme-galgame .acu-data-card { border-radius: 12px; box-shadow: 0 4px 12px rgba(232, 180, 217, 0.15); transition: all 0.3s ease; }
     .acu-theme-galgame .acu-data-card:hover { box-shadow: 0 6px 20px rgba(232, 180, 217, 0.25); transform: translateY(-2px); }
     .acu-theme-galgame .acu-nav-btn:hover { box-shadow: 0 2px 8px rgba(232, 180, 217, 0.2); }
-    .acu-theme-terminal { --acu-bg-nav: #0c0c0c; --acu-bg-panel: #0c0c0c; --acu-border: #00ff00; --acu-text-main: #00ff00; --acu-text-sub: #00cc00; --acu-btn-bg: #1a1a1a; --acu-btn-hover: #2a2a2a; --acu-btn-active-bg: #00ff00; --acu-btn-active-text: #0c0c0c; --acu-accent: #00ff00; --acu-table-head: #0a0a0a; --acu-table-hover: #1a1a1a; --acu-opt-hover: rgba(0, 255, 0, 0.12); --acu-opt-bg: rgba(0, 255, 0, 0.06); --acu-shadow: rgba(0,255,0,0.2); --acu-card-bg: #0c0c0c; --acu-badge-bg: #1a1a1a; --acu-menu-bg: #0c0c0c; --acu-menu-text: #00ff00; --acu-success-text: #00ff00; --acu-success-bg: rgba(0, 255, 0, 0.15); --acu-scrollbar-track: #0c0c0c; --acu-scrollbar-thumb: #00ff00; --acu-input-bg: #0c0c0c; --acu-hl-manual: #ffff00; --acu-hl-manual-bg: rgba(255, 255, 0, 0.15); --acu-hl-diff: #00ffff; --acu-hl-diff-bg: rgba(0, 255, 255, 0.15); --acu-error-text: #ff0000; --acu-error-bg: rgba(255, 0, 0, 0.15); --acu-error-border: rgba(255, 0, 0, 0.5); --acu-warning-icon: #ffff00; --acu-failure-text: #ff0000; --acu-failure-bg: rgba(255, 0, 0, 0.15); --acu-warning-text: #ffff00; --acu-warning-bg: rgba(255, 255, 0, 0.15); --acu-crit-success-text: #00ffff; --acu-crit-success-bg: rgba(0, 255, 255, 0.15); --acu-crit-failure-text: #ff00ff; --acu-crit-failure-bg: rgba(255, 0, 255, 0.15); --acu-extreme-success-text: #00ff00; --acu-extreme-success-bg: rgba(0, 255, 0, 0.2); --acu-overlay-bg: rgba(0,0,0,0.9); --acu-overlay-bg-light: rgba(0,0,0,0.8); --acu-shadow-bg: rgba(0,0,0,0.7); --acu-light-bg: rgba(0,255,0,0.05); --acu-very-light-bg: rgba(0,255,0,0.02); --acu-button-text: #0c0c0c; --acu-gray-bg: rgba(0,255,0,0.05); font-family: 'Courier New', 'Consolas', 'Monaco', monospace; }
+    .acu-theme-terminal { --acu-bg-nav: #0c0c0c; --acu-bg-panel: #0c0c0c; --acu-border: #00ff00; --acu-text-main: #00ff00; --acu-text-sub: #00cc00; --acu-btn-bg: #1a1a1a; --acu-btn-hover: #2a2a2a; --acu-btn-active-bg: #00ff00; --acu-btn-active-text: #0c0c0c; --acu-accent: #00ff00; --acu-table-head: #0a0a0a; --acu-table-hover: #1a1a1a; --acu-opt-hover: rgba(0, 255, 0, 0.12); --acu-opt-bg: rgba(0, 255, 0, 0.06); --acu-shadow: rgba(0,255,0,0.2); --acu-card-bg: #0c0c0c; --acu-badge-bg: #1a1a1a; --acu-menu-bg: #0c0c0c; --acu-menu-text: #00ff00; --acu-success-text: #00ff00; --acu-success-bg: rgba(0, 255, 0, 0.15); --acu-scrollbar-track: #0c0c0c; --acu-scrollbar-thumb: #00ff00; --acu-input-bg: #0c0c0c; --acu-hl-manual: #ffff00; --acu-hl-manual-bg: rgba(255, 255, 0, 0.15); --acu-hl-diff: #00ffff; --acu-hl-diff-bg: rgba(0, 255, 255, 0.15); --acu-error-text: #ff0000; --acu-error-bg: rgba(255, 0, 0, 0.15); --acu-error-border: rgba(255, 0, 0, 0.5); --acu-warning-icon: #ffff00; --acu-failure-text: #ff0000; --acu-failure-bg: rgba(255, 0, 0, 0.15); --acu-warning-text: #ffff00; --acu-warning-bg: rgba(255, 255, 0, 0.15); --acu-crit-success-text: #00ffff; --acu-crit-success-bg: rgba(0, 255, 255, 0.15); --acu-crit-failure-text: #ff00ff; --acu-crit-failure-bg: rgba(255, 0, 255, 0.15); --acu-extreme-success-text: #00ff00; --acu-extreme-success-bg: rgba(0, 255, 0, 0.2); --acu-overlay-bg: rgba(0,0,0,0.9); --acu-overlay-bg-light: rgba(0,0,0,0.8); --acu-shadow-bg: rgba(0,0,0,0.7); --acu-light-bg: rgba(0,255,0,0.05); --acu-very-light-bg: rgba(0,255,0,0.02); --acu-button-text: #0c0c0c; --acu-gray-bg: rgba(0,255,0,0.05); --acu-button-text-on-accent: #0c0c0c; font-family: 'Courier New', 'Consolas', 'Monaco', monospace; }
     .acu-theme-terminal .acu-nav-btn { border-color: #00ff00; text-shadow: 0 0 5px rgba(0,255,0,0.5); }
     .acu-theme-terminal .acu-data-card { border-color: #00ff00; text-shadow: 0 0 2px rgba(0,255,0,0.3); }
     .acu-theme-terminal .acu-dice-panel input::placeholder,
@@ -407,34 +654,34 @@ export const MAIN_STYLES = `
     .acu-theme-terminal .acu-contest-panel input:not([type]) {
         color: #00ff00 !important;
     }
-    .acu-theme-dreamcore { --acu-bg-nav: #F4F1EA; --acu-bg-panel: #F4F1EA; --acu-border: #D6D2C4; --acu-text-main: #5C5869; --acu-text-sub: #9490A0; --acu-btn-bg: #E6E1D5; --acu-btn-hover: #DBD8CC; --acu-btn-active-bg: #8A9AC6; --acu-btn-active-text: #FFFFFF; --acu-accent: #8A9AC6; --acu-table-head: #EBE7DE; --acu-table-hover: #F8F6F0; --acu-opt-hover: #F8F6F0; --acu-opt-bg: #FFFFFF; --acu-shadow: rgba(92, 88, 105, 0.15); --acu-card-bg: #FFFFFF; --acu-badge-bg: #EBE7DE; --acu-menu-bg: #FCFAF5; --acu-menu-text: #5C5869; --acu-success-text: #4A7A68; --acu-success-bg: rgba(74, 122, 104, 0.18); --acu-scrollbar-track: #F4F1EA; --acu-scrollbar-thumb: #D6D2C4; --acu-input-bg: #FFFFFF; --acu-hl-manual: #8A7040; --acu-hl-manual-bg: rgba(138, 112, 64, 0.18); --acu-hl-diff: #8A9AC6; --acu-hl-diff-bg: rgba(138, 154, 198, 0.18); --acu-error-text: #B85C5C; --acu-error-bg: rgba(184, 92, 92, 0.15); --acu-error-border: rgba(184, 92, 92, 0.4); --acu-warning-icon: #E0C080; --acu-failure-text: #8F5E5E; --acu-failure-bg: rgba(143, 94, 94, 0.18); --acu-warning-text: #8A7040; --acu-warning-bg: rgba(138, 112, 64, 0.18); --acu-crit-success-text: #2D6E58; --acu-crit-success-bg: rgba(45, 110, 88, 0.25); --acu-crit-failure-text: #7A3E3E; --acu-crit-failure-bg: rgba(122, 62, 62, 0.25); --acu-extreme-success-text: #5C5228; --acu-extreme-success-bg: rgba(92, 82, 40, 0.2); --acu-overlay-bg: rgba(244, 241, 234, 0.85); --acu-overlay-bg-light: rgba(255, 255, 255, 0.4); --acu-shadow-bg: rgba(92, 88, 105, 0.15); --acu-light-bg: rgba(138, 154, 198, 0.08); --acu-very-light-bg: rgba(138, 154, 198, 0.03); --acu-button-text: #5C5869; --acu-gray-bg: rgba(92, 88, 105, 0.08); }
+    .acu-theme-dreamcore { --acu-bg-nav: #F4F1EA; --acu-bg-panel: #F4F1EA; --acu-border: #D6D2C4; --acu-text-main: #5C5869; --acu-text-sub: #9490A0; --acu-btn-bg: #E6E1D5; --acu-btn-hover: #DBD8CC; --acu-btn-active-bg: #8A9AC6; --acu-btn-active-text: #FFFFFF; --acu-accent: #8A9AC6; --acu-table-head: #EBE7DE; --acu-table-hover: #F8F6F0; --acu-opt-hover: #F8F6F0; --acu-opt-bg: #FFFFFF; --acu-shadow: rgba(92, 88, 105, 0.15); --acu-card-bg: #FFFFFF; --acu-badge-bg: #EBE7DE; --acu-menu-bg: #FCFAF5; --acu-menu-text: #5C5869; --acu-success-text: #4A7A68; --acu-success-bg: rgba(74, 122, 104, 0.18); --acu-scrollbar-track: #F4F1EA; --acu-scrollbar-thumb: #D6D2C4; --acu-input-bg: #FFFFFF; --acu-hl-manual: #8A7040; --acu-hl-manual-bg: rgba(138, 112, 64, 0.18); --acu-hl-diff: #8A9AC6; --acu-hl-diff-bg: rgba(138, 154, 198, 0.18); --acu-error-text: #B85C5C; --acu-error-bg: rgba(184, 92, 92, 0.15); --acu-error-border: rgba(184, 92, 92, 0.4); --acu-warning-icon: #E0C080; --acu-failure-text: #8F5E5E; --acu-failure-bg: rgba(143, 94, 94, 0.18); --acu-warning-text: #8A7040; --acu-warning-bg: rgba(138, 112, 64, 0.18); --acu-crit-success-text: #2D6E58; --acu-crit-success-bg: rgba(45, 110, 88, 0.25); --acu-crit-failure-text: #7A3E3E; --acu-crit-failure-bg: rgba(122, 62, 62, 0.25); --acu-extreme-success-text: #5C5228; --acu-extreme-success-bg: rgba(92, 82, 40, 0.2); --acu-overlay-bg: rgba(244, 241, 234, 0.85); --acu-overlay-bg-light: rgba(255, 255, 255, 0.4); --acu-shadow-bg: rgba(92, 88, 105, 0.15); --acu-light-bg: rgba(138, 154, 198, 0.08); --acu-very-light-bg: rgba(138, 154, 198, 0.03); --acu-button-text: #5C5869; --acu-gray-bg: rgba(92, 88, 105, 0.08); --acu-button-text-on-accent: #fff; }
     .acu-theme-dreamcore .acu-nav-btn { border-color: #D6D2C4; }
     /* 极光幻境 (Aurora) 主题：深邃星空与极光渐变 */
     .acu-theme-aurora {
-        --acu-bg-nav: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.9));
-        --acu-bg-panel: linear-gradient(180deg, rgba(15, 23, 42, 0.95) 0%, rgba(51, 65, 85, 0.9) 100%);
-        --acu-border: rgba(56, 189, 248, 0.6);
+        --acu-bg-nav: linear-gradient(135deg, #0f172a, #1e293b);
+        --acu-bg-panel: linear-gradient(180deg, #0f172a 0%, #334155 100%);
+        --acu-border: #38bdf8;
         --acu-text-main: #e2e8f0;
         --acu-text-sub: #94a3b8;
-        --acu-btn-bg: linear-gradient(135deg, rgba(56, 189, 248, 0.15), rgba(168, 85, 247, 0.15));
-        --acu-btn-hover: linear-gradient(135deg, rgba(56, 189, 248, 0.25), rgba(168, 85, 247, 0.25));
+        --acu-btn-bg: linear-gradient(135deg, #162a3d, #25224d);
+        --acu-btn-hover: linear-gradient(135deg, #1e3a5f, #312e81);
         --acu-btn-active-bg: linear-gradient(135deg, #38bdf8, #a855f7);
         --acu-btn-active-text: #fff;
         --acu-accent: #38bdf8;
-        --acu-table-head: linear-gradient(90deg, rgba(56, 189, 248, 0.1), rgba(168, 85, 247, 0.1));
+        --acu-table-head: linear-gradient(90deg, #0f172a, #1e293b);
         --acu-table-hover: rgba(56, 189, 248, 0.08);
         --acu-opt-hover: rgba(56, 189, 248, 0.15);
         --acu-opt-bg: rgba(56, 189, 248, 0.08);
         --acu-shadow: 0 8px 32px rgba(56, 189, 248, 0.15), 0 4px 16px rgba(168, 85, 247, 0.1);
-        --acu-card-bg: linear-gradient(145deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.98));
+        --acu-card-bg: linear-gradient(145deg, #1e293b, #0f172a);
         --acu-badge-bg: rgba(56, 189, 248, 0.2);
         --acu-menu-bg: #1e293b;
         --acu-menu-text: #e2e8f0;
         --acu-success-text: #4ade80;
         --acu-success-bg: rgba(74, 222, 128, 0.15);
-        --acu-scrollbar-track: rgba(15, 23, 42, 0.5);
-        --acu-scrollbar-thumb: rgba(56, 189, 248, 0.4);
-        --acu-input-bg: rgba(15, 23, 42, 0.5);
+        --acu-scrollbar-track: #0f172a;
+        --acu-scrollbar-thumb: #38bdf8;
+        --acu-input-bg: #0f172a;
         --acu-hl-manual: #f97316;
         --acu-hl-manual-bg: rgba(249, 115, 22, 0.2);
         --acu-hl-diff: #38bdf8;
@@ -453,13 +700,14 @@ export const MAIN_STYLES = `
         --acu-crit-failure-bg: rgba(239, 68, 68, 0.25);
         --acu-extreme-success-text: #22d3ee;
         --acu-extreme-success-bg: rgba(34, 211, 238, 0.2);
-        --acu-overlay-bg: rgba(15, 23, 42, 0.8);
-        --acu-overlay-bg-light: rgba(30, 41, 59, 0.7);
+        --acu-overlay-bg: rgba(15, 23, 42, 0.98);
+        --acu-overlay-bg-light: rgba(30, 41, 59, 0.95);
         --acu-shadow-bg: rgba(56, 189, 248, 0.2);
         --acu-light-bg: rgba(56, 189, 248, 0.08);
         --acu-very-light-bg: rgba(56, 189, 248, 0.03);
         --acu-button-text: #e2e8f0;
         --acu-gray-bg: rgba(148, 163, 184, 0.1);
+        --acu-button-text-on-accent: #fff;
     }
     .acu-theme-aurora .acu-nav-btn { border-color: rgba(56, 189, 248, 0.3); }
     .acu-theme-aurora .acu-data-card { border-color: rgba(56, 189, 248, 0.3); box-shadow: 0 4px 20px rgba(56, 189, 248, 0.1), 0 2px 10px rgba(168, 85, 247, 0.08); }
@@ -478,10 +726,9 @@ export const MAIN_STYLES = `
     }
     /* 极光幻境：导航栏 - 极光渐变光效 */
     .acu-theme-aurora .acu-nav-container {
-        background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.9) 50%, rgba(51, 65, 85, 0.85) 100%) !important;
-        border: 1px solid rgba(56, 189, 248, 0.4) !important;
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%) !important;
+        border: 1px solid #38bdf8 !important;
         box-shadow: 0 0 30px rgba(56, 189, 248, 0.1), 0 0 60px rgba(168, 85, 247, 0.05), inset 0 0 20px rgba(56, 189, 248, 0.05) !important;
-        backdrop-filter: blur(12px);
         overflow: visible !important;
     }
     /* 极光顶部渐变光条 */
@@ -610,6 +857,7 @@ export const MAIN_STYLES = `
     .acu-theme-minepink { --acu-opt-bright-bg: rgba(255, 128, 193, 0.08); }
     .acu-theme-educational { --acu-opt-bright-bg: rgba(255, 153, 0, 0.1); }
     .acu-theme-vaporwave { --acu-opt-bright-bg: rgba(0, 255, 255, 0.1); }
+    .acu-theme-aurora { --acu-opt-bright-bg: rgba(56, 189, 248, 0.1); }
     .acu-theme-classicpackaging { --acu-opt-bright-bg: rgba(255, 255, 0, 0.08); }
     .acu-theme-terminal { --acu-opt-bright-bg: rgba(0, 255, 0, 0.06); }
     .acu-theme-chouten { --acu-opt-bright-bg: transparent; }
@@ -823,6 +1071,35 @@ export const MAIN_STYLES = `
             .acu-nav-btn.has-validation-errors { border-color: rgba(231, 76, 60, 0.5); }
             .acu-nav-btn .acu-nav-warning-icon { color: var(--acu-error-text, #e74c3c); font-size: 10px; margin-left: 2px; animation: pulse 1.5s infinite; }
             @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+            /* ========== 主题切换波纹扩散动画 ========== */
+            /* View Transitions API 动画定义 */
+            ::view-transition-old(root),
+            ::view-transition-new(root) {
+                animation: none;
+                mix-blend-mode: normal;
+            }
+            ::view-transition-old(root) {
+                z-index: 1;
+            }
+            ::view-transition-new(root) {
+                z-index: 9999;
+            }
+            /* 波纹扩散动画 - 使用 clip-path 实现圆形扩展 */
+            @keyframes acu-theme-ripple-in {
+                from {
+                    clip-path: circle(0% at var(--acu-ripple-x, 50%) var(--acu-ripple-y, 50%));
+                }
+                to {
+                    clip-path: circle(150% at var(--acu-ripple-x, 50%) var(--acu-ripple-y, 50%));
+                }
+            }
+            /* 当 View Transitions 被触发时应用动画 */
+            .acu-theme-transitioning::view-transition-new(root) {
+                animation: acu-theme-ripple-in 450ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+            }
+            .acu-theme-transitioning::view-transition-old(root) {
+                animation: none;
+            }
             .acu-action-btn { flex: 1; height: 36px; display: flex; align-items: center; justify-content: center; background: var(--acu-btn-bg); border-radius: 8px; color: var(--acu-text-sub); cursor: pointer; border: 1px solid transparent; transition: all 0.2s; margin: 0; }
             .acu-action-btn:hover { background: var(--acu-btn-hover); color: var(--acu-text-main); transform: translateY(-2px); box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
             .acu-action-btn:focus, .acu-action-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--acu-accent) !important; }
@@ -1094,7 +1371,14 @@ export const MAIN_STYLES = `
             .acu-edit-dialog { background: var(--acu-bg-panel); width: 95%; max-width: 500px; max-height: 95vh; padding: 16px; border-radius: 12px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 15px 50px rgba(0,0,0,0.6); color: var(--acu-text-main); border: 1px solid var(--acu-border); overflow: hidden; flex-shrink: 0; }
             @media (min-width: 768px) { .acu-edit-dialog { max-width: 900px; width: 90%; } .acu-edit-dialog.acu-settings-dialog { max-width: 400px; width: 400px; } }
             .acu-edit-title { margin: 0; font-size: 16px; font-weight: bold; color: var(--acu-text-main); padding-bottom: 8px; border-bottom: 1px solid var(--acu-border); }
+            .acu-edit-icon-muted { opacity: 0.7; }
             .acu-edit-content { background: var(--acu-bg-panel); }
+            .acu-settings-content-scroll { flex: 1; overflow-y: auto; padding: 15px; }
+            .acu-card-edit-field { margin-bottom: 10px; }
+            .acu-card-edit-label { display: block; font-size: 12px; color: var(--acu-accent); font-weight: bold; margin-bottom: 4px; }
+            .acu-card-edit-input { width: 100%; padding: 10px; border: 1px solid var(--acu-border); border-radius: 6px; background: var(--acu-input-bg); color: var(--acu-text-main); box-sizing: border-box; font-size: 14px; line-height: 1.5; }
+            .acu-card-edit-input:focus { outline: none; border-color: var(--acu-accent); }
+            .acu-card-edit-textarea { min-height: 40px; max-height: 500px; resize: none; overflow-y: hidden; }
             .acu-edit-textarea { width: 100%; height: auto; padding: 12px; border: 1px solid var(--acu-border) !important; background: var(--acu-input-bg) !important; color: var(--acu-text-main) !important; border-radius: 6px; resize: vertical; box-sizing: border-box; font-size: 14px; line-height: 1.6; overflow-y: auto !important; }
             .acu-edit-textarea:focus { outline: none; border-color: var(--acu-accent) !important; }
             .acu-edit-textarea::placeholder { color: var(--acu-text-sub) !important; opacity: 0.7; }
@@ -1203,6 +1487,10 @@ export const MAIN_STYLES = `
             /* [优化] 小眼睛图标悬停效果 */
             .acu-nav-toggle-btn:hover { opacity: 1 !important; transform: translateY(-50%) scale(1.2); color: var(--acu-accent); }
             .acu-align-right { margin-left: auto; align-self: flex-end; }
+            .acu-align-center { 
+                margin-left: auto !important; 
+                margin-right: auto !important; 
+            }
             .acu-align-left { margin-right: auto; margin-left: 0; align-self: flex-start; }
             .acu-nav-container.acu-left-mode .acu-actions-group { order: -1; margin-left: 0; margin-right: 10px; }
             #acu-btn-collapse { color: var(--acu-text-sub); }
@@ -1232,22 +1520,18 @@ export const MAIN_STYLES = `
             /* === 移动端投骰面板适配 === */
             @media (max-width: 768px) {
                 .acu-dice-panel, .acu-contest-panel {
-                    position: fixed !important;
-                    top: 5% !important;
-                    left: 50% !important;
-                    transform: translateX(-50%) !important;
+                    position: relative !important;
+                    top: auto !important;
+                    left: auto !important;
+                    transform: none !important;
                     width: 92vw !important;
                     max-width: 400px !important;
-                    max-height: 88vh !important;
-                    overflow-y: auto !important;
-                }
-                .acu-dice-panel > div:last-child, .acu-contest-panel > div:last-child {
-                    max-height: none !important;
-                    overflow-y: visible !important;
+                    max-height: calc(100vh - 32px) !important;
+                    max-height: calc(100dvh - 32px) !important;
                 }
                 .acu-dice-overlay, .acu-contest-overlay {
-                    align-items: flex-start !important;
-                    padding-top: 5vh !important;
+                    align-items: center !important;
+                    padding: 16px !important;
                 }
             }
                 /* === 仪表盘新增样式：可展开地点列表 === */
@@ -1659,7 +1943,8 @@ export const MAIN_STYLES = `
                 right: 0;
                 max-height: 150px;
                 overflow-y: auto;
-                border: 1px solid;
+                background: var(--acu-bg-panel);
+                border: 1px solid var(--acu-border);
                 border-radius: 4px;
                 box-shadow: 0 4px 12px rgba(0,0,0,0.15);
                 z-index: 31105;
@@ -1674,19 +1959,258 @@ export const MAIN_STYLES = `
                 overflow: hidden;
                 text-overflow: ellipsis;
                 background: transparent;
+                color: var(--acu-text-main);
                 transition: background 0.1s;
+            }
+            .acu-dropdown-item:hover {
+                background: var(--acu-table-head);
             }
             .acu-dropdown-empty {
                 padding: 8px 10px;
                 font-size: 12px;
                 text-align: center;
+                color: var(--acu-text-sub);
                 opacity: 0.7;
             }
             /* === 输入框清除按钮样式 === */
             .acu-input-wrapper { position: relative; display: flex; align-items: center; width: 100%; }
             .acu-input-wrapper input { padding-right: 24px !important; }
-            .acu-clear-btn { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: transparent !important; border: none !important; font-size: 12px; cursor: pointer; padding: 4px; line-height: 1; opacity: 0.5; transition: opacity 0.2s; z-index: 5; }
-            .acu-clear-btn:hover { background: transparent !important; border: none !important; opacity: 1 !important; }
+            .acu-clear-btn { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: transparent !important; border: none !important; font-size: 12px; cursor: pointer; padding: 4px; line-height: 1; opacity: 0.5; transition: opacity 0.2s, color 0.2s; z-index: 5; color: var(--acu-text-sub); }
+            .acu-clear-btn:hover { background: transparent !important; border: none !important; opacity: 1 !important; color: var(--acu-accent) !important; }
+
+            /* === 结果徽章样式 === */
+            .acu-result-badge {
+                padding: 3px 8px;
+                border-radius: 6px;
+                font-size: 11px;
+                font-weight: bold;
+                white-space: nowrap;
+                display: inline-flex;
+                align-items: center;
+                border: 1px solid transparent;
+            }
+            .acu-result-badge-crit-success { background-color: var(--acu-crit-success-bg); color: var(--acu-crit-success-text); border-color: var(--acu-crit-success-bg); }
+            .acu-result-badge-extreme-success { background-color: var(--acu-extreme-success-bg); color: var(--acu-extreme-success-text); border-color: var(--acu-extreme-success-bg); }
+            .acu-result-badge-success { background-color: var(--acu-success-bg); color: var(--acu-success-text); border-color: var(--acu-success-bg); }
+            .acu-result-badge-warning { background-color: var(--acu-warning-bg); color: var(--acu-warning-text); border-color: var(--acu-warning-bg); }
+            .acu-result-badge-failure { background-color: var(--acu-failure-bg); color: var(--acu-failure-text); border-color: var(--acu-failure-bg); }
+            .acu-result-badge-crit-failure { background-color: var(--acu-crit-failure-bg); color: var(--acu-crit-failure-text); border-color: var(--acu-crit-failure-bg); }
+
+            /* === 预设按钮样式 === */
+            .acu-dice-preset, .acu-contest-preset {
+                background: var(--acu-btn-bg);
+                color: var(--acu-text-main);
+                border: 1px solid var(--acu-border);
+                padding: 4px 8px;
+                border-radius: 4px;
+                font-size: 11px;
+                cursor: pointer;
+                transition: all 0.15s;
+            }
+            .acu-dice-preset:hover, .acu-contest-preset:hover {
+                background: var(--acu-btn-hover);
+            }
+            .acu-dice-preset.active, .acu-contest-preset.active {
+                background: var(--acu-accent);
+                color: var(--acu-button-text-on-accent, #fff);
+                border-color: var(--acu-accent);
+            }
+            .acu-dice-preset.active:hover, .acu-contest-preset.active:hover {
+                background: var(--acu-accent);
+                color: var(--acu-button-text-on-accent, #fff);
+                filter: brightness(1.1);
+            }
+
+            /* === 骰子结果显示区域 === */
+            .acu-dice-result-display {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 100%;
+                gap: 8px;
+            }
+            .acu-dice-result-value {
+                font-size: 22px;
+                font-weight: bold;
+                color: var(--acu-text-main);
+            }
+            .acu-dice-result-target {
+                font-size: 11px;
+                color: var(--acu-text-sub);
+                opacity: 0.9;
+            }
+            .acu-dice-retry-btn {
+                background: transparent !important;
+                border: none !important;
+                color: var(--acu-text-main);
+                cursor: pointer;
+                padding: 4px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                opacity: 0.8;
+                transition: opacity 0.2s;
+            }
+            .acu-dice-retry-btn:hover {
+                opacity: 1;
+                color: var(--acu-accent);
+            }
+
+            /* === 对战结果显示区域 === */
+            .acu-contest-result-display {
+                display: none;
+                margin-bottom: 10px;
+            }
+            .acu-contest-result-container {
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+                cursor: pointer;
+            }
+            .acu-contest-result-row {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 12px;
+                padding: 12px 16px;
+                background: var(--acu-light-bg);
+                border: 1px solid var(--acu-border);
+                border-radius: 8px;
+                transition: all 0.2s;
+            }
+            .acu-contest-result-row:hover {
+                background: var(--acu-btn-hover);
+                border-color: var(--acu-accent);
+            }
+            .acu-contest-result-winner-row {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+                padding: 10px 16px;
+                background: var(--acu-light-bg);
+                border: 1px solid var(--acu-border);
+                border-radius: 8px;
+                transition: all 0.2s;
+            }
+            .acu-contest-result-winner-row:hover {
+                background: var(--acu-btn-hover);
+                border-color: var(--acu-accent);
+            }
+            .acu-contest-reroll-icon {
+                font-size: 14px;
+                color: var(--acu-text-sub);
+                transition: all 0.2s;
+            }
+            .acu-contest-result-winner-row:hover .acu-contest-reroll-icon {
+                color: var(--acu-accent);
+                transform: rotate(90deg);
+            }
+            .acu-contest-result-inner {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 12px;
+                flex: 1;
+            }
+            .acu-contest-result-side {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+            }
+            .acu-contest-result-side.right {
+                flex-direction: row-reverse;
+            }
+            .acu-contest-vs {
+                font-size: 12px;
+                font-weight: bold;
+                color: var(--acu-text-sub);
+                padding: 0 4px;
+            }
+            .acu-contest-result-name {
+                font-size: 10px;
+                color: var(--acu-text-main);
+                opacity: 0.9;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                max-width: 4em;
+                text-align: center;
+            }
+            .acu-contest-result-value {
+                font-size: 14px;
+                font-weight: bold;
+                color: var(--acu-text-main);
+            }
+            .acu-contest-winner-text {
+                font-size: 14px;
+                font-weight: bold;
+            }
+            .acu-contest-winner-success { color: var(--acu-success-text); }
+            .acu-contest-winner-warning { color: var(--acu-warning-text); }
+            .acu-contest-winner-failure { color: var(--acu-failure-text); }
+
+            /* === 关系图滑块容器 === */
+            .acu-node-size-slider-container {
+                background: var(--acu-bg-panel);
+                border: 1px solid var(--acu-border);
+            }
+            .acu-node-size-slider-container .acu-slider-label {
+                font-size: 11px;
+                color: var(--acu-text-sub);
+                white-space: nowrap;
+            }
+            .acu-node-size-slider-container .acu-slider-value {
+                font-size: 11px;
+                color: var(--acu-accent);
+                font-weight: bold;
+                min-width: 35px;
+                text-align: right;
+            }
+            .acu-node-size-slider-container input[type="range"] {
+                background: var(--acu-btn-bg);
+            }
+
+            /* === 关系图过滤按钮 === */
+            .acu-graph-filter-btn {
+                transition: all 0.15s;
+            }
+            .acu-graph-filter-btn.active {
+                background: var(--acu-accent) !important;
+                color: var(--acu-button-text-on-accent, #fff) !important;
+                border-color: var(--acu-accent) !important;
+            }
+
+            /* === 关系图箭头标记 - 使用 CSS 变量 === */
+            .acu-graph-svg #arrowhead-end polygon,
+            .acu-graph-svg #arrowhead-start polygon {
+                fill: var(--acu-text-sub);
+            }
+            .acu-graph-svg #arrowhead-end-hl polygon,
+            .acu-graph-svg #arrowhead-start-hl polygon {
+                fill: var(--acu-accent);
+            }
+
+            /* === 导入提示样式 === */
+            .acu-import-empty {
+                text-align: center;
+                padding: 20px;
+                color: var(--acu-text-sub);
+            }
+            .acu-import-warning {
+                font-size: 12px;
+                font-weight: bold;
+                color: var(--acu-text-main);
+                margin-bottom: 4px;
+            }
+            .acu-import-warning i {
+                color: var(--acu-warning-icon, #f39c12);
+            }
+            .acu-import-success {
+                text-align: center;
+                padding: 10px;
+                color: var(--acu-success-text);
+            }
 
             /* ========== 人物关系图样式 ========== */
             .acu-relation-graph-overlay {
@@ -2349,11 +2873,20 @@ export const MAIN_STYLES = `
                 align-items: center;
                 gap: 6px;
             }
+            .acu-avatar-header-actions {
+                display: flex;
+                gap: 4px;
+                align-items: center;
+            }
             .acu-avatar-list {
                 flex: 1;
                 overflow-y: auto;
                 padding: 12px;
                 min-height: 0;
+            }
+            .acu-avatar-file-input,
+            #acu-avatar-file-input {
+                display: none;
             }
             .acu-avatar-item {
                 display: flex;
@@ -2377,6 +2910,12 @@ export const MAIN_STYLES = `
                 flex-shrink: 0;
                 position: relative;
                 cursor: pointer;
+            }
+            .acu-avatar-preview.has-image {
+                background-image: var(--acu-avatar-image);
+                background-position: var(--acu-avatar-x, 50%) var(--acu-avatar-y, 50%);
+                background-size: var(--acu-avatar-scale, 150%);
+                background-repeat: no-repeat;
             }
             .acu-avatar-preview span {
                 font-size: 18px;
@@ -3120,6 +3659,7 @@ export const MAIN_STYLES = `
                 border: 1px solid var(--acu-border);
                 border-radius: 8px;
                 margin-bottom: 8px;
+                overflow: hidden;
             }
             .acu-settings-group-title {
                 display: flex;
@@ -4398,6 +4938,9 @@ export const MAIN_STYLES = `
             .acu-crop-modal-overlay {
                 z-index: 31330;
             }
+            .acu-crop-file-input {
+                display: none;
+            }
             .acu-crop-modal {
                 background: var(--acu-bg-panel);
                 border: 1px solid var(--acu-border);
@@ -5211,4 +5754,205 @@ export const MAIN_STYLES = `
                 height: auto !important;
                 box-shadow: none !important;
             }
+
+    /* Cleaned up Inline Styles */
+    #dice-custom-input { width: 60px; }
+    #contest-custom-dice {
+        width: 60px;
+        flex: 0 0 auto;
+    }
+    
+    .acu-mvu-dice-icon {
+        cursor: pointer;
+        color: var(--acu-accent);
+        opacity: 0.6;
+        font-size: calc(var(--acu-font-size, 13px) * 0.85);
+        flex-shrink: 0;
+    }
+    
+    .acu-mvu-level-toggle {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: calc(var(--acu-font-size, 13px) * 0.85);
+        cursor: pointer;
+        padding: 2px 6px;
+        border-radius: 4px;
+        border: 1px solid var(--acu-border);
+        transition: all 0.2s;
+        background: transparent;
+        color: var(--acu-text-sub);
+        opacity: 0.5;
+    }
+    .acu-mvu-level-toggle.active {
+        background: var(--acu-accent);
+        color: var(--acu-btn-active-text);
+        border-color: var(--acu-accent);
+        opacity: 1;
+    }
+    
+    .acu-mvu-header {
+        padding: 6px 8px;
+        background: var(--acu-table-head);
+        border-bottom: 1px solid var(--acu-border);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        user-select: none;
+    }
+    
+    .acu-mvu-body {
+        padding: 8px;
+        background: var(--acu-table-head);
+        border-bottom: 1px solid var(--acu-border);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+    }
+    
+    .acu-mvu-item {
+        display: flex;
+        align-items: center;
+        padding: 6px 8px;
+        margin-bottom: 4px;
+        background: var(--acu-table-hover);
+        border-radius: 4px;
+        border-left: 3px solid var(--acu-accent);
+    }
+    
+    .acu-mvu-path {
+        font-size: calc(var(--acu-font-size, 13px) * 0.77);
+        color: var(--acu-text-sub);
+        margin-bottom: 2px;
+    }
+    
+    .acu-mvu-val {
+        font-size: var(--acu-font-size, 13px);
+        color: var(--acu-accent);
+        font-weight: bold;
+        cursor: pointer;
+    }
+    
+    .acu-mvu-list {
+        padding: 0 8px;
+    }
+
+    .acu-mvu-toggle-icon {
+        font-size: 10px;
+        color: var(--acu-text-sub);
+        transition: transform 0.2s;
+    }
+    .acu-mvu-header-text {
+        font-size: calc(var(--acu-font-size, 13px) * 0.85);
+        color: var(--acu-text-sub);
+    }
+    .acu-mvu-item-content {
+        flex: 1;
+        min-width: 0;
+    }
+    .acu-mvu-item-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .acu-mvu-attr-name {
+        font-size: calc(var(--acu-font-size, 13px) * 0.92);
+        color: var(--acu-text-main);
+        font-weight: bold;
+    }
+    .acu-order-first {
+        order: -1;
+    }
+    .acu-text-sub-small {
+        font-size: calc(var(--acu-font-size, 13px) * 0.85);
+        color: var(--acu-text-sub);
+    }
+    .acu-ml-6 {
+        margin-left: 6px;
+    }
+
+    /* Graph & Node Size Controls */
+    .acu-graph-filter-btn {
+        padding: 4px 6px;
+        font-size: 12px;
+    }
+    .acu-graph-filter-btn.ml-8 {
+        margin-left: 8px;
+    }
+    .acu-node-size-slider-container {
+        position: absolute;
+        display: none;
+        width: 200px;
+        padding: 10px;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        z-index: 10;
+        background: var(--acu-bg-panel);
+        border: 1px solid var(--acu-border);
+    }
+    .acu-slider-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+    }
+    .acu-range-input {
+        width: 100%;
+        height: 8px;
+        border-radius: 4px;
+        outline: none;
+        cursor: pointer;
+        -webkit-appearance: none;
+        background: var(--acu-input-bg);
+        margin: 0;
+    }
+    .acu-range-input::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: var(--acu-accent);
+        cursor: pointer;
+        margin-top: -4px; /* Adjust for track height if needed, usually 0 or negative for center */
+    }
+    .acu-range-input::-webkit-slider-runnable-track {
+        width: 100%;
+        height: 8px;
+        cursor: pointer;
+        background: var(--acu-input-bg);
+        border-radius: 4px;
+    }
+    .acu-graph-reset-btn {
+        width: auto;
+        height: auto;
+        padding: 4px 10px;
+        font-size: 11px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+    .acu-node-size-wrapper {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+    }
+    .acu-stepper-container {
+        display: flex;
+        align-items: center;
+    }
+    .acu-stepper-value-display {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .acu-zoom-info {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        color: var(--acu-text-sub);
+        font-size: 11px;
+    }
 `;

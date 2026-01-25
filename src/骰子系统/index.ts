@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
 import { MAIN_STYLES } from './styles';
+import { injectDatabaseStyles } from './database-ui-override';
 
 (function () {
   'use strict';
@@ -480,7 +481,6 @@ import { MAIN_STYLES } from './styles';
     const { $ } = getCore();
     $('.acu-import-confirm-overlay').remove();
 
-    const t = getThemeColors();
     const config = getConfig();
     const suggestedName = generateUniqueName(options.presetName, options.existingNames);
 
@@ -794,7 +794,7 @@ import { MAIN_STYLES } from './styles';
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.4.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v3.60'; // 脚本版本号
+  const SCRIPT_VERSION = 'v3.61'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -5264,11 +5264,11 @@ import { MAIN_STYLES } from './styles';
             }
             .acu-mvu-panel .mvu-header-btn {
                 background: transparent;
-                border: 1px solid var(--acu-border);
+                border: none;
                 color: var(--acu-text-sub);
                 cursor: pointer;
-                padding: 5px 10px;
-                font-size: 13px;
+                padding: 4px;
+                font-size: 14px;
                 border-radius: 4px;
                 transition: all 0.2s;
                 display: flex;
@@ -5276,14 +5276,13 @@ import { MAIN_STYLES } from './styles';
                 gap: 4px;
             }
             .acu-mvu-panel .mvu-header-btn:hover {
-                background: var(--acu-table-hover);
+                background: transparent;
                 color: var(--acu-accent);
-                border-color: var(--acu-accent);
             }
             .acu-mvu-panel .mvu-header-btn.active {
-                background: var(--acu-accent);
-                color: var(--acu-btn-active-text);
-                border-color: var(--acu-accent);
+                background: transparent;
+                color: var(--acu-accent);
+                font-weight: bold;
             }
             /* [新增] 数值模式样式 */
             .mvu-numeric-mode {
@@ -6071,7 +6070,7 @@ import { MAIN_STYLES } from './styles';
                 attrName = lastPart;
               }
             }
-            diceIconHtml = `<i class="fa-solid fa-dice-d20 mvu-dice-icon" data-path="${escapeHtml(path)}" data-attr-name="${escapeHtml(attrName)}" data-attr-value="${numericValue}" style="cursor:pointer;color:var(--acu-accent);opacity:0.6;font-size:calc(var(--acu-font-size, 13px) * 0.85);flex-shrink:0;" title="快捷投骰"></i>`;
+            diceIconHtml = `<i class="fa-solid fa-dice-d20 mvu-dice-icon acu-mvu-dice-icon" data-path="${escapeHtml(path)}" data-attr-name="${escapeHtml(attrName)}" data-attr-value="${numericValue}" title="快捷投骰"></i>`;
           }
         }
       } catch (e) {
@@ -6328,27 +6327,22 @@ import { MAIN_STYLES } from './styles';
       // 生成层级 toggle 控制区域（可折叠）
       let levelTogglesHtml = '';
       if (levelNamesArray.length > 0) {
-        const theme = getThemeColors();
-        const buttonTextColor = theme.buttonTextOnAccent || theme.textMain || '#6B4A5A';
-
         // 生成层级按钮内容
         let levelButtonsHtml = '';
         levelNamesArray.forEach(levelName => {
           const isVisible = visibleLevels[levelName] !== false; // 默认显示
-          const activeStyle = isVisible
-            ? `background:var(--acu-accent);color:${buttonTextColor};border-color:var(--acu-accent);opacity:1;`
-            : 'background:transparent;color:var(--acu-text-sub);border-color:var(--acu-border);opacity:0.5;';
-          levelButtonsHtml += `<button class="mvu-level-toggle" data-level="${escapeHtml(levelName)}" data-visible="${isVisible}" style="display:flex;align-items:center;gap:4px;font-size:calc(var(--acu-font-size, 13px) * 0.85);cursor:pointer;padding:2px 6px;border-radius:4px;border:1px solid;${activeStyle}transition:all 0.2s;" title="${isVisible ? '隐藏' : '显示'}层级: ${escapeHtml(levelName)}"><span>${escapeHtml(levelName)}</span></button>`;
+          const activeClass = isVisible ? 'active' : '';
+          levelButtonsHtml += `<button class="mvu-level-toggle acu-mvu-level-toggle ${activeClass}" data-level="${escapeHtml(levelName)}" data-visible="${isVisible}" title="${isVisible ? '隐藏' : '显示'}层级: ${escapeHtml(levelName)}"><span>${escapeHtml(levelName)}</span></button>`;
         });
 
         // 包装为可折叠结构，默认折叠
         levelTogglesHtml = `
           <div class="mvu-level-controls-collapsible collapsed">
-            <div class="mvu-level-controls-header" style="padding:6px 8px;background:var(--acu-table-head);border-bottom:1px solid var(--acu-border);cursor:pointer;display:flex;align-items:center;justify-content:space-between;user-select:none;">
-              <span style="font-size:calc(var(--acu-font-size, 13px) * 0.85);color:var(--acu-text-sub);">显示层级</span>
-              <i class="fa-solid fa-chevron-down mvu-level-controls-toggle-icon" style="font-size:10px;color:var(--acu-text-sub);transition:transform 0.2s;"></i>
+            <div class="mvu-level-controls-header acu-mvu-header">
+              <span class="acu-mvu-header-text">显示层级</span>
+              <i class="fa-solid fa-chevron-down mvu-level-controls-toggle-icon acu-mvu-toggle-icon"></i>
             </div>
-            <div class="mvu-level-controls-body" style="padding:8px;background:var(--acu-table-head);border-bottom:1px solid var(--acu-border);display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
+            <div class="mvu-level-controls-body acu-mvu-body">
               ${levelButtonsHtml}
             </div>
           </div>
@@ -6409,7 +6403,7 @@ import { MAIN_STYLES } from './styles';
         }
 
         // 生成骰子图标
-        const diceIconHtml = `<i class="fa-solid fa-dice-d20 mvu-dice-icon" data-path="${escapeHtml(item.path)}" data-attr-name="${escapeHtml(finalAttrName)}" data-attr-value="${item.numericValue}" style="cursor:pointer;color:var(--acu-accent);opacity:0.6;font-size:calc(var(--acu-font-size, 13px) * 0.85);flex-shrink:0;" title="快捷投骰"></i>`;
+        const diceIconHtml = `<i class="fa-solid fa-dice-d20 mvu-dice-icon acu-mvu-dice-icon" data-path="${escapeHtml(item.path)}" data-attr-name="${escapeHtml(finalAttrName)}" data-attr-value="${item.numericValue}" title="快捷投骰"></i>`;
 
         // 使用智能提取函数，只显示数值部分
         let displayValue = extractNumericDisplayValue(item.value, false);
@@ -6422,12 +6416,12 @@ import { MAIN_STYLES } from './styles';
         const levelsJson = JSON.stringify(hierarchyLevels);
 
         itemsHtml += `
-          <div class="mvu-numeric-item" data-levels='${escapeHtml(levelsJson)}' style="${displayStyle}display:flex;align-items:center;padding:6px 8px;margin-bottom:4px;background:var(--acu-table-hover);border-radius:4px;border-left:3px solid var(--acu-accent);">
-            <div style="flex:1;min-width:0;">
-              <div class="mvu-path-display" style="font-size:calc(var(--acu-font-size, 13px) * 0.77);color:var(--acu-text-sub);margin-bottom:2px;">${escapeHtml(pathDisplay)}</div>
-              <div style="display:flex;align-items:center;gap:6px;">
-                <span style="font-size:calc(var(--acu-font-size, 13px) * 0.92);color:var(--acu-text-main);font-weight:bold;">${escapeHtml(finalAttrName)}</span>
-                <span class="mvu-value" data-path="${escapeHtml(item.path)}" style="font-size:var(--acu-font-size, 13px);color:var(--acu-accent);font-weight:bold;cursor:pointer;" title="点击编辑">${escapeHtml(displayValue)}</span>
+          <div class="mvu-numeric-item acu-mvu-item" data-levels='${escapeHtml(levelsJson)}' style="${displayStyle}">
+            <div class="acu-mvu-item-content">
+              <div class="mvu-path-display acu-mvu-path">${escapeHtml(pathDisplay)}</div>
+              <div class="acu-mvu-item-row">
+                <span class="acu-mvu-attr-name">${escapeHtml(finalAttrName)}</span>
+                <span class="mvu-value acu-mvu-val" data-path="${escapeHtml(item.path)}" title="点击编辑">${escapeHtml(displayValue)}</span>
                 ${diceIconHtml}
               </div>
             </div>
@@ -6435,7 +6429,7 @@ import { MAIN_STYLES } from './styles';
         `;
       });
 
-      return levelTogglesHtml + '<div class="mvu-numeric-items" style="padding:0 8px;">' + itemsHtml + '</div>';
+      return levelTogglesHtml + '<div class="mvu-numeric-items acu-mvu-list">' + itemsHtml + '</div>';
     }
 
     // ===== 公开 API =====
@@ -6797,13 +6791,11 @@ import { MAIN_STYLES } from './styles';
             localStorage.setItem('acu_mvu_numeric_mode_visible_levels', JSON.stringify(visibleLevels));
 
             // 更新按钮样式和状态
-            const theme = getThemeColors();
-            const buttonTextColor = theme.buttonTextOnAccent || theme.textMain || '#6B4A5A';
             $button.data('visible', isVisible);
             if (isVisible) {
               $button.css({
                 background: 'var(--acu-accent)',
-                color: buttonTextColor,
+                color: 'var(--acu-btn-active-text)',
                 borderColor: 'var(--acu-accent)',
                 opacity: '1',
               });
@@ -7150,7 +7142,7 @@ import { MAIN_STYLES } from './styles';
                     <div class="mvu-edit-overlay acu-edit-overlay acu-theme-${currentTheme}">
                         <div class="mvu-edit-dialog acu-edit-dialog">
                             <div class="acu-edit-title">
-                                <i class="fa-solid fa-edit" style="opacity:0.7;"></i>
+                                <i class="fa-solid fa-edit acu-edit-icon-muted"></i>
                                 <span>编辑变量</span>
                             </div>
                             <div class="mvu-edit-path">${escapeHtml(path)}</div>
@@ -8706,850 +8698,6 @@ import { MAIN_STYLES } from './styles';
       },
     ],
   };
-  // [新增] 统一主题颜色定义
-  const THEME_COLORS = {
-    retro: {
-      bgPanel: '#e6e2d3',
-      border: '#dcd0c0',
-      textMain: '#5e4b35',
-      textSub: '#8a7a6a',
-      btnBg: '#dcd0c0',
-      btnHover: '#cbbba8',
-      accent: '#7a695f',
-      tableHead: '#efebe4',
-      successText: '#27ae60',
-      successBg: 'rgba(39, 174, 96, 0.15)',
-      inputBg: '#f5f2eb',
-      inputText: '#5e4b35',
-      placeholderText: '#a09080',
-      btnActiveBg: '#8d7b6f',
-      btnActiveText: '#fdfaf5',
-      // 检定结果相关
-      failureText: '#e74c3c',
-      failureBg: 'rgba(231, 76, 60, 0.15)',
-      warningText: '#f39c12',
-      warningBg: 'rgba(243, 156, 18, 0.15)',
-      critSuccessText: '#9b59b6',
-      critSuccessBg: 'rgba(155, 89, 182, 0.15)',
-      critFailureText: '#c0392b',
-      critFailureBg: 'rgba(192, 57, 43, 0.15)',
-      extremeSuccessText: '#2980b9',
-      extremeSuccessBg: 'rgba(41, 128, 185, 0.15)',
-      // UI通用颜色
-      overlayBg: 'rgba(0,0,0,0.6)',
-      overlayBgLight: 'rgba(0,0,0,0.5)',
-      shadowBg: 'rgba(0,0,0,0.4)',
-      lightBg: 'rgba(0,0,0,0.1)',
-      veryLightBg: 'rgba(0,0,0,0.02)',
-      buttonText: '#fff',
-      grayBg: 'rgba(128,128,128,0.1)',
-      // 警告/错误相关
-      errorText: '#e74c3c',
-      errorBg: 'rgba(231, 76, 60, 0.15)',
-      errorBorder: 'rgba(231, 76, 60, 0.5)',
-      warningIcon: '#e67e22',
-      buttonTextOnAccent: '#fff',
-    },
-    dark: {
-      bgPanel: 'rgba(30, 30, 30, 0.98)',
-      border: '#444',
-      textMain: '#eee',
-      textSub: '#999',
-      btnBg: 'rgba(60, 60, 60, 0.9)',
-      btnHover: '#505050',
-      accent: '#9b8cd9',
-      tableHead: 'rgba(45, 45, 45, 0.95)',
-      successText: '#4cd964',
-      successBg: 'rgba(76, 217, 100, 0.2)',
-      inputBg: 'rgba(50, 50, 50, 0.95)',
-      inputText: '#eee',
-      placeholderText: '#777',
-      btnActiveBg: '#6a5acd',
-      btnActiveText: '#fff',
-      // 检定结果相关
-      failureText: '#ff6b6b',
-      failureBg: 'rgba(255, 107, 107, 0.2)',
-      warningText: '#ffa726',
-      warningBg: 'rgba(255, 167, 38, 0.2)',
-      critSuccessText: '#ba68c8',
-      critSuccessBg: 'rgba(186, 104, 200, 0.2)',
-      critFailureText: '#d32f2f',
-      critFailureBg: 'rgba(211, 47, 47, 0.2)',
-      extremeSuccessText: '#42a5f5',
-      extremeSuccessBg: 'rgba(66, 165, 245, 0.2)',
-      // UI通用颜色
-      overlayBg: 'rgba(0,0,0,0.75)',
-      overlayBgLight: 'rgba(0,0,0,0.65)',
-      shadowBg: 'rgba(0,0,0,0.6)',
-      lightBg: 'rgba(255,255,255,0.05)',
-      veryLightBg: 'rgba(255,255,255,0.02)',
-      buttonText: '#fff',
-      grayBg: 'rgba(255,255,255,0.1)',
-      // 警告/错误相关
-      errorText: '#ff6b6b',
-      errorBg: 'rgba(255, 107, 107, 0.2)',
-      errorBorder: 'rgba(255, 107, 107, 0.5)',
-      warningIcon: '#ffa726',
-      buttonTextOnAccent: '#fff',
-    },
-    modern: {
-      bgPanel: '#f8f9fa',
-      border: '#e0e0e0',
-      textMain: '#333',
-      textSub: '#666',
-      btnBg: '#e9ecef',
-      btnHover: '#dee2e6',
-      accent: '#007bff',
-      tableHead: '#f1f3f5',
-      successText: '#28a745',
-      successBg: 'rgba(40, 167, 69, 0.15)',
-      inputBg: '#fff',
-      inputText: '#333',
-      placeholderText: '#999',
-      btnActiveBg: '#007bff',
-      btnActiveText: '#fff',
-      // 检定结果相关
-      failureText: '#dc3545',
-      failureBg: 'rgba(220, 53, 69, 0.15)',
-      warningText: '#ffc107',
-      warningBg: 'rgba(255, 193, 7, 0.15)',
-      critSuccessText: '#6f42c1',
-      critSuccessBg: 'rgba(111, 66, 193, 0.15)',
-      critFailureText: '#c82333',
-      critFailureBg: 'rgba(200, 35, 51, 0.15)',
-      extremeSuccessText: '#17a2b8',
-      extremeSuccessBg: 'rgba(23, 162, 184, 0.15)',
-      // UI通用颜色
-      overlayBg: 'rgba(0,0,0,0.6)',
-      overlayBgLight: 'rgba(0,0,0,0.5)',
-      shadowBg: 'rgba(0,0,0,0.4)',
-      lightBg: 'rgba(0,0,0,0.1)',
-      veryLightBg: 'rgba(0,0,0,0.02)',
-      buttonText: '#fff',
-      grayBg: 'rgba(128,128,128,0.1)',
-      // 警告/错误相关
-      errorText: '#dc3545',
-      errorBg: 'rgba(220, 53, 69, 0.15)',
-      errorBorder: 'rgba(220, 53, 69, 0.5)',
-      warningIcon: '#fd7e14',
-      buttonTextOnAccent: '#fff',
-    },
-    forest: {
-      bgPanel: '#e8f5e9',
-      border: '#a5d6a7',
-      textMain: '#2e7d32',
-      textSub: '#66bb6a',
-      btnBg: '#c8e6c9',
-      btnHover: '#a5d6a7',
-      accent: '#43a047',
-      tableHead: '#dcedc8',
-      successText: '#2e7d32',
-      successBg: 'rgba(46, 125, 50, 0.2)',
-      inputBg: '#f1f8e9',
-      inputText: '#2e7d32',
-      placeholderText: '#81c784',
-      btnActiveBg: '#43a047',
-      btnActiveText: '#fff',
-      // 检定结果相关
-      failureText: '#c62828',
-      failureBg: 'rgba(198, 40, 40, 0.15)',
-      warningText: '#f57c00',
-      warningBg: 'rgba(245, 124, 0, 0.15)',
-      critSuccessText: '#7b1fa2',
-      critSuccessBg: 'rgba(123, 31, 162, 0.15)',
-      critFailureText: '#b71c1c',
-      critFailureBg: 'rgba(183, 28, 28, 0.15)',
-      extremeSuccessText: '#0277bd',
-      extremeSuccessBg: 'rgba(2, 119, 189, 0.15)',
-      // UI通用颜色
-      overlayBg: 'rgba(0,0,0,0.6)',
-      overlayBgLight: 'rgba(0,0,0,0.5)',
-      shadowBg: 'rgba(0,0,0,0.4)',
-      lightBg: 'rgba(0,0,0,0.1)',
-      veryLightBg: 'rgba(0,0,0,0.02)',
-      buttonText: '#fff',
-      grayBg: 'rgba(128,128,128,0.1)',
-      // 警告/错误相关
-      errorText: '#c62828',
-      errorBg: 'rgba(198, 40, 40, 0.15)',
-      errorBorder: 'rgba(198, 40, 40, 0.5)',
-      warningIcon: '#e67e22',
-      buttonTextOnAccent: '#fff',
-    },
-    ocean: {
-      bgPanel: '#e3f2fd',
-      border: '#90caf9',
-      textMain: '#1565c0',
-      textSub: '#42a5f5',
-      btnBg: '#bbdefb',
-      btnHover: '#90caf9',
-      accent: '#1976d2',
-      tableHead: '#bbdefb',
-      successText: '#0288d1',
-      successBg: 'rgba(2, 136, 209, 0.15)',
-      inputBg: '#e1f5fe',
-      inputText: '#1565c0',
-      placeholderText: '#64b5f6',
-      btnActiveBg: '#1976d2',
-      btnActiveText: '#fff',
-      // 检定结果相关
-      failureText: '#d32f2f',
-      failureBg: 'rgba(211, 47, 47, 0.15)',
-      warningText: '#f57c00',
-      warningBg: 'rgba(245, 124, 0, 0.15)',
-      critSuccessText: '#7b1fa2',
-      critSuccessBg: 'rgba(123, 31, 162, 0.15)',
-      critFailureText: '#b71c1c',
-      critFailureBg: 'rgba(183, 28, 28, 0.15)',
-      extremeSuccessText: '#0277bd',
-      extremeSuccessBg: 'rgba(2, 119, 189, 0.15)',
-      // UI通用颜色
-      overlayBg: 'rgba(0,0,0,0.6)',
-      overlayBgLight: 'rgba(0,0,0,0.5)',
-      shadowBg: 'rgba(0,0,0,0.4)',
-      lightBg: 'rgba(0,0,0,0.1)',
-      veryLightBg: 'rgba(0,0,0,0.02)',
-      buttonText: '#fff',
-      grayBg: 'rgba(128,128,128,0.1)',
-      // 警告/错误相关
-      errorText: '#d32f2f',
-      errorBg: 'rgba(211, 47, 47, 0.15)',
-      errorBorder: 'rgba(211, 47, 47, 0.5)',
-      warningIcon: '#f57c00',
-      buttonTextOnAccent: '#fff',
-    },
-    cyber: {
-      bgPanel: '#0a0a0a',
-      border: '#00ffcc33',
-      textMain: '#00ffcc',
-      textSub: '#00cc99',
-      btnBg: 'rgba(0, 255, 204, 0.1)',
-      btnHover: 'rgba(0, 255, 204, 0.2)',
-      accent: '#00ffcc',
-      tableHead: 'rgba(0, 255, 204, 0.05)',
-      successText: '#0f0',
-      successBg: 'rgba(0, 255, 0, 0.15)',
-      inputBg: 'rgba(0, 0, 0, 0.6)',
-      inputText: '#00ffcc',
-      placeholderText: '#006655',
-      btnActiveBg: '#ff00ff',
-      btnActiveText: '#fff',
-      // 检定结果相关
-      failureText: '#ff0066',
-      failureBg: 'rgba(255, 0, 102, 0.2)',
-      warningText: '#ffaa00',
-      warningBg: 'rgba(255, 170, 0, 0.2)',
-      critSuccessText: '#ff00ff',
-      critSuccessBg: 'rgba(255, 0, 255, 0.2)',
-      critFailureText: '#ff0000',
-      critFailureBg: 'rgba(255, 0, 0, 0.2)',
-      extremeSuccessText: '#00ffff',
-      extremeSuccessBg: 'rgba(0, 255, 255, 0.2)',
-      // UI通用颜色
-      overlayBg: 'rgba(0,0,0,0.8)',
-      overlayBgLight: 'rgba(0,0,0,0.7)',
-      shadowBg: 'rgba(0,255,204,0.3)',
-      lightBg: 'rgba(0,255,204,0.05)',
-      veryLightBg: 'rgba(0,255,204,0.02)',
-      buttonText: '#fff',
-      grayBg: 'rgba(0,255,204,0.1)',
-      // 按钮专用颜色（更暗，提高可读性）
-      buttonBg: 'rgba(0, 200, 150, 0.6)',
-      buttonBgActive: 'rgba(0, 180, 130, 0.7)',
-      presetButtonBg: 'rgba(0, 200, 150, 0.3)',
-      presetButtonBgActive: 'rgba(0, 200, 150, 0.6)',
-      // 警告/错误相关
-      errorText: '#ff0066',
-      errorBg: 'rgba(255, 0, 102, 0.2)',
-      errorBorder: 'rgba(255, 0, 102, 0.5)',
-      warningIcon: '#ffaa00',
-      buttonTextOnAccent: '#000',
-    },
-    nightowl: {
-      bgPanel: '#011627',
-      border: '#132e45',
-      textMain: '#e0e6f2',
-      textSub: '#a6b8cc',
-      btnBg: '#1f3a52',
-      btnHover: '#2a4a68',
-      accent: '#7fdbca',
-      tableHead: '#0a2133',
-      successText: '#addb67',
-      successBg: 'rgba(173, 219, 103, 0.15)',
-      inputBg: '#00101c',
-      inputText: '#e0e6f2',
-      placeholderText: '#6a8090',
-      btnActiveBg: '#7fdbca',
-      btnActiveText: '#011627',
-      // 检定结果相关
-      failureText: '#ff6b6b',
-      failureBg: 'rgba(255, 107, 107, 0.2)',
-      warningText: '#ffa726',
-      warningBg: 'rgba(255, 167, 38, 0.2)',
-      critSuccessText: '#c792ea',
-      critSuccessBg: 'rgba(199, 146, 234, 0.2)',
-      critFailureText: '#ef5350',
-      critFailureBg: 'rgba(239, 83, 80, 0.2)',
-      extremeSuccessText: '#82aaff',
-      extremeSuccessBg: 'rgba(130, 170, 255, 0.2)',
-      // UI通用颜色
-      overlayBg: 'rgba(0,0,0,0.75)',
-      overlayBgLight: 'rgba(0,0,0,0.65)',
-      shadowBg: 'rgba(0,0,0,0.6)',
-      lightBg: 'rgba(255,255,255,0.05)',
-      veryLightBg: 'rgba(255,255,255,0.02)',
-      buttonText: '#fff',
-      grayBg: 'rgba(255,255,255,0.1)',
-      // 按钮专用颜色（更暗，提高可读性）
-      buttonBg: 'rgba(127, 219, 202, 0.4)',
-      buttonBgActive: 'rgba(127, 219, 202, 0.5)',
-      presetButtonBg: 'rgba(127, 219, 202, 0.2)',
-      presetButtonBgActive: 'rgba(127, 219, 202, 0.4)',
-      // 警告/错误相关
-      errorText: '#ff6b6b',
-      errorBg: 'rgba(255, 107, 107, 0.2)',
-      errorBorder: 'rgba(255, 107, 107, 0.5)',
-      warningIcon: '#ffa726',
-      buttonTextOnAccent: '#000',
-    },
-    sakura: {
-      bgPanel: '#F9F0EF',
-      border: '#EBDCD9',
-      textMain: '#6B5552',
-      textSub: '#C08D8D',
-      btnBg: '#EBDCD9',
-      btnHover: '#D8C7C4',
-      accent: '#C08D8D',
-      tableHead: '#F9F0EF',
-      successText: '#6B5552',
-      successBg: 'rgba(192, 141, 141, 0.12)',
-      inputBg: '#F9F0EF',
-      inputText: '#6B5552',
-      placeholderText: '#C08D8D',
-      btnActiveBg: '#C08D8D',
-      btnActiveText: '#F9F0EF',
-      // 检定结果相关
-      failureText: '#9B7A7A',
-      failureBg: 'rgba(155, 122, 122, 0.12)',
-      warningText: '#A68A7A',
-      warningBg: 'rgba(166, 138, 122, 0.12)',
-      critSuccessText: '#8B7A7A',
-      critSuccessBg: 'rgba(139, 122, 122, 0.12)',
-      critFailureText: '#8B6F6F',
-      critFailureBg: 'rgba(139, 111, 111, 0.12)',
-      extremeSuccessText: '#9B8A8A',
-      extremeSuccessBg: 'rgba(155, 138, 138, 0.12)',
-      // UI通用颜色
-      overlayBg: 'rgba(0,0,0,0.6)',
-      overlayBgLight: 'rgba(0,0,0,0.5)',
-      shadowBg: 'rgba(107, 85, 82, 0.3)',
-      lightBg: 'rgba(192, 141, 141, 0.08)',
-      veryLightBg: 'rgba(192, 141, 141, 0.02)',
-      buttonText: '#F9F0EF',
-      grayBg: 'rgba(192, 141, 141, 0.08)',
-      // 按钮专用颜色（更暗，提高可读性）
-      buttonBg: 'rgba(192, 141, 141, 0.4)',
-      buttonBgActive: 'rgba(192, 141, 141, 0.5)',
-      presetButtonBg: 'rgba(192, 141, 141, 0.2)',
-      presetButtonBgActive: 'rgba(192, 141, 141, 0.4)',
-      // 警告/错误相关
-      errorText: '#9B7A7A',
-      errorBg: 'rgba(155, 122, 122, 0.12)',
-      errorBorder: 'rgba(155, 122, 122, 0.4)',
-      warningIcon: '#A68A7A',
-      buttonTextOnAccent: '#fff',
-    },
-    minepink: {
-      bgPanel: '#1a1a1a',
-      border: '#333333',
-      textMain: '#ffb3d9',
-      textSub: '#ff80c1',
-      btnBg: '#2a2a2a',
-      btnHover: '#3a3a3a',
-      accent: '#ff80c1',
-      tableHead: '#252525',
-      successText: '#ff80c1',
-      successBg: 'rgba(255, 128, 193, 0.2)',
-      inputBg: '#222222',
-      inputText: '#ffb3d9',
-      placeholderText: '#666666',
-      btnActiveBg: '#ff80c1',
-      btnActiveText: '#1a1a1a',
-      // 检定结果相关
-      failureText: '#ff6b6b',
-      failureBg: 'rgba(255, 107, 107, 0.2)',
-      warningText: '#ffa726',
-      warningBg: 'rgba(255, 167, 38, 0.2)',
-      critSuccessText: '#ff80c1',
-      critSuccessBg: 'rgba(255, 128, 193, 0.2)',
-      critFailureText: '#ff4444',
-      critFailureBg: 'rgba(255, 68, 68, 0.2)',
-      extremeSuccessText: '#ffb3d9',
-      extremeSuccessBg: 'rgba(255, 179, 217, 0.2)',
-      // UI通用颜色
-      overlayBg: 'rgba(0,0,0,0.8)',
-      overlayBgLight: 'rgba(0,0,0,0.7)',
-      shadowBg: 'rgba(0,0,0,0.6)',
-      lightBg: 'rgba(255, 128, 193, 0.1)',
-      veryLightBg: 'rgba(255, 128, 193, 0.02)',
-      buttonText: '#1a1a1a',
-      grayBg: 'rgba(255, 128, 193, 0.1)',
-      // 按钮专用颜色（更暗，提高可读性）
-      buttonBg: 'rgba(255, 128, 193, 0.7)',
-      buttonBgActive: 'rgba(255, 128, 193, 0.8)',
-      presetButtonBg: 'rgba(255, 128, 193, 0.2)',
-      presetButtonBgActive: 'rgba(255, 128, 193, 0.4)',
-      // 警告/错误相关
-      errorText: '#ff6b6b',
-      errorBg: 'rgba(255, 107, 107, 0.2)',
-      errorBorder: 'rgba(255, 107, 107, 0.5)',
-      warningIcon: '#ffa726',
-      buttonTextOnAccent: '#000',
-    },
-    purple: {
-      bgPanel: '#f3e5f5',
-      border: '#ce93d8',
-      textMain: '#6a1b9a',
-      textSub: '#9c27b0',
-      btnBg: '#e1bee7',
-      btnHover: '#ce93d8',
-      accent: '#9c27b0',
-      tableHead: '#f8e1f5',
-      successText: '#6a1b9a',
-      successBg: 'rgba(106, 27, 154, 0.15)',
-      inputBg: '#fce4ec',
-      inputText: '#6a1b9a',
-      placeholderText: '#ba68c8',
-      btnActiveBg: '#9c27b0',
-      btnActiveText: '#fff',
-      // 检定结果相关
-      failureText: '#d32f2f',
-      failureBg: 'rgba(211, 47, 47, 0.15)',
-      warningText: '#f57c00',
-      warningBg: 'rgba(245, 124, 0, 0.15)',
-      critSuccessText: '#7b1fa2',
-      critSuccessBg: 'rgba(123, 31, 162, 0.15)',
-      critFailureText: '#b71c1c',
-      critFailureBg: 'rgba(183, 28, 28, 0.15)',
-      extremeSuccessText: '#6a1b9a',
-      extremeSuccessBg: 'rgba(106, 27, 154, 0.15)',
-      // UI通用颜色
-      overlayBg: 'rgba(0,0,0,0.6)',
-      overlayBgLight: 'rgba(0,0,0,0.5)',
-      shadowBg: 'rgba(0,0,0,0.4)',
-      lightBg: 'rgba(156, 39, 176, 0.1)',
-      veryLightBg: 'rgba(156, 39, 176, 0.02)',
-      buttonText: '#fff',
-      grayBg: 'rgba(156, 39, 176, 0.1)',
-      // 按钮专用颜色（更暗，提高可读性）
-      buttonBg: 'rgba(156, 39, 176, 0.6)',
-      buttonBgActive: 'rgba(156, 39, 176, 0.7)',
-      presetButtonBg: 'rgba(156, 39, 176, 0.3)',
-      presetButtonBgActive: 'rgba(156, 39, 176, 0.6)',
-      // 警告/错误相关
-      errorText: '#d32f2f',
-      errorBg: 'rgba(211, 47, 47, 0.15)',
-      errorBorder: 'rgba(211, 47, 47, 0.5)',
-      warningIcon: '#f57c00',
-      buttonTextOnAccent: '#fff',
-    },
-    wechat: {
-      bgPanel: '#F7F7F7',
-      border: '#E5E5E5',
-      textMain: '#333333',
-      textSub: '#666666',
-      btnBg: '#E5E5E5',
-      btnHover: '#D5D5D5',
-      accent: '#09B83E',
-      tableHead: '#F0F0F0',
-      successText: '#09B83E',
-      successBg: 'rgba(9, 184, 62, 0.12)',
-      inputBg: '#FFFFFF',
-      inputText: '#333333',
-      placeholderText: '#999999',
-      btnActiveBg: '#09B83E',
-      btnActiveText: '#FFFFFF',
-      // 检定结果相关
-      failureText: '#E53E3E',
-      failureBg: 'rgba(229, 62, 62, 0.12)',
-      warningText: '#FF9500',
-      warningBg: 'rgba(255, 149, 0, 0.12)',
-      critSuccessText: '#07A832',
-      critSuccessBg: 'rgba(7, 168, 50, 0.15)',
-      critFailureText: '#C53030',
-      critFailureBg: 'rgba(197, 48, 48, 0.15)',
-      extremeSuccessText: '#09B83E',
-      extremeSuccessBg: 'rgba(9, 184, 62, 0.15)',
-      // UI通用颜色
-      overlayBg: 'rgba(0,0,0,0.6)',
-      overlayBgLight: 'rgba(0,0,0,0.5)',
-      shadowBg: 'rgba(0,0,0,0.2)',
-      lightBg: 'rgba(9, 184, 62, 0.08)',
-      veryLightBg: 'rgba(9, 184, 62, 0.02)',
-      buttonText: '#FFFFFF',
-      grayBg: 'rgba(9, 184, 62, 0.08)',
-      // 按钮专用颜色（更暗，提高可读性）
-      buttonBg: 'rgba(9, 184, 62, 0.7)',
-      buttonBgActive: 'rgba(9, 184, 62, 0.85)',
-      presetButtonBg: 'rgba(9, 184, 62, 0.3)',
-      presetButtonBgActive: 'rgba(9, 184, 62, 0.6)',
-      // 警告/错误相关
-      errorText: '#E53E3E',
-      errorBg: 'rgba(229, 62, 62, 0.12)',
-      errorBorder: 'rgba(229, 62, 62, 0.5)',
-      warningIcon: '#FF9500',
-      buttonTextOnAccent: '#fff',
-    },
-    educational: {
-      bgPanel: '#000000',
-      border: '#1B1B1B',
-      textMain: '#FFFFFF',
-      textSub: '#CCCCCC',
-      btnBg: '#1B1B1B',
-      btnHover: '#2B2B2B',
-      accent: '#FF9900',
-      tableHead: '#1B1B1B',
-      successText: '#FF9900',
-      successBg: 'rgba(255, 153, 0, 0.15)',
-      inputBg: '#1B1B1B',
-      inputText: '#FFFFFF',
-      placeholderText: '#666666',
-      btnActiveBg: '#FF9900',
-      btnActiveText: '#000000',
-      // 检定结果相关
-      failureText: '#FF6B6B',
-      failureBg: 'rgba(255, 107, 107, 0.2)',
-      warningText: '#FFAA00',
-      warningBg: 'rgba(255, 170, 0, 0.2)',
-      critSuccessText: '#FF9900',
-      critSuccessBg: 'rgba(255, 153, 0, 0.2)',
-      critFailureText: '#FF4444',
-      critFailureBg: 'rgba(255, 68, 68, 0.2)',
-      extremeSuccessText: '#FFB84D',
-      extremeSuccessBg: 'rgba(255, 184, 77, 0.2)',
-      // UI通用颜色
-      overlayBg: 'rgba(0,0,0,0.8)',
-      overlayBgLight: 'rgba(0,0,0,0.7)',
-      shadowBg: 'rgba(0,0,0,0.6)',
-      lightBg: 'rgba(255, 153, 0, 0.1)',
-      veryLightBg: 'rgba(255, 153, 0, 0.02)',
-      buttonText: '#FFFFFF',
-      grayBg: 'rgba(255, 255, 255, 0.1)',
-      // 按钮专用颜色（更暗，提高可读性）
-      buttonBg: 'rgba(255, 153, 0, 0.7)',
-      buttonBgActive: 'rgba(255, 153, 0, 0.85)',
-      presetButtonBg: 'rgba(255, 153, 0, 0.3)',
-      presetButtonBgActive: 'rgba(255, 153, 0, 0.6)',
-      // 警告/错误相关
-      errorText: '#FF6B6B',
-      errorBg: 'rgba(255, 107, 107, 0.2)',
-      errorBorder: 'rgba(255, 107, 107, 0.5)',
-      warningIcon: '#FFAA00',
-      buttonTextOnAccent: '#000000',
-    },
-    galgame: {
-      bgPanel: '#FFF0F5',
-      border: '#F0D4E4',
-      textMain: '#6B4A5A',
-      textSub: '#B08A9A',
-      btnBg: '#FFE4E9',
-      btnHover: '#FFD4E4',
-      accent: '#E8B4D9',
-      tableHead: '#FFF5F9',
-      successText: '#D4A5C8',
-      successBg: 'rgba(212, 165, 200, 0.15)',
-      inputBg: '#FFF8FA',
-      inputText: '#6B4A5A',
-      placeholderText: '#C8A5B0',
-      btnActiveBg: '#E8B4D9',
-      btnActiveText: '#6B4A5A',
-      // 检定结果相关
-      failureText: '#C88A9A',
-      failureBg: 'rgba(200, 138, 154, 0.15)',
-      warningText: '#D4A5A5',
-      warningBg: 'rgba(212, 165, 165, 0.15)',
-      critSuccessText: '#E8B4D9',
-      critSuccessBg: 'rgba(232, 180, 217, 0.2)',
-      critFailureText: '#C88A9A',
-      critFailureBg: 'rgba(200, 138, 154, 0.2)',
-      extremeSuccessText: '#D4A5C8',
-      extremeSuccessBg: 'rgba(212, 165, 200, 0.2)',
-      // UI通用颜色
-      overlayBg: 'rgba(0,0,0,0.6)',
-      overlayBgLight: 'rgba(0,0,0,0.5)',
-      shadowBg: 'rgba(232, 180, 217, 0.25)',
-      lightBg: 'rgba(232, 180, 217, 0.08)',
-      veryLightBg: 'rgba(232, 180, 217, 0.02)',
-      buttonText: '#6B4A5A',
-      grayBg: 'rgba(232, 180, 217, 0.1)',
-      // 按钮专用颜色（更柔和，提高可读性）
-      buttonBg: 'rgba(232, 180, 217, 0.6)',
-      buttonBgActive: 'rgba(232, 180, 217, 0.75)',
-      presetButtonBg: 'rgba(232, 180, 217, 0.3)',
-      presetButtonBgActive: 'rgba(232, 180, 217, 0.6)',
-      // 警告/错误相关
-      errorText: '#C88A9A',
-      errorBg: 'rgba(200, 138, 154, 0.15)',
-      errorBorder: 'rgba(200, 138, 154, 0.4)',
-      warningIcon: '#D4A5A5',
-      buttonTextOnAccent: '#6B4A5A',
-    },
-    vaporwave: {
-      bgPanel: '#191970',
-      border: 'rgba(0, 255, 255, 0.3)',
-      textMain: '#00FFFF',
-      textSub: '#FF00FF',
-      btnBg: 'rgba(25, 25, 112, 0.8)',
-      btnHover: 'rgba(0, 255, 255, 0.2)',
-      accent: '#00FFFF',
-      tableHead: 'rgba(25, 25, 112, 0.9)',
-      successText: '#00FFFF',
-      successBg: 'rgba(0, 255, 255, 0.15)',
-      inputBg: 'rgba(25, 25, 112, 0.6)',
-      inputText: '#00FFFF',
-      placeholderText: '#FF00FF',
-      btnActiveBg: '#FF00FF',
-      btnActiveText: '#F0F8FF',
-      // 检定结果相关
-      failureText: '#FF00FF',
-      failureBg: 'rgba(255, 0, 255, 0.2)',
-      warningText: '#FF00FF',
-      warningBg: 'rgba(255, 0, 255, 0.15)',
-      critSuccessText: '#00FFFF',
-      critSuccessBg: 'rgba(0, 255, 255, 0.2)',
-      critFailureText: '#FF00FF',
-      critFailureBg: 'rgba(255, 0, 255, 0.25)',
-      extremeSuccessText: '#00FFFF',
-      extremeSuccessBg: 'rgba(0, 255, 255, 0.2)',
-      // UI通用颜色
-      overlayBg: 'rgba(25, 25, 112, 0.85)',
-      overlayBgLight: 'rgba(25, 25, 112, 0.75)',
-      shadowBg: 'rgba(0, 255, 255, 0.3)',
-      lightBg: 'rgba(0, 255, 255, 0.05)',
-      veryLightBg: 'rgba(0, 255, 255, 0.02)',
-      buttonText: '#F0F8FF',
-      grayBg: 'rgba(0, 255, 255, 0.1)',
-      // 按钮专用颜色（更暗，提高可读性）
-      buttonBg: 'rgba(0, 255, 255, 0.6)',
-      buttonBgActive: 'rgba(255, 0, 255, 0.7)',
-      presetButtonBg: 'rgba(0, 255, 255, 0.3)',
-      presetButtonBgActive: 'rgba(0, 255, 255, 0.6)',
-      // 警告/错误相关
-      errorText: '#FF00FF',
-      errorBg: 'rgba(255, 0, 255, 0.2)',
-      errorBorder: 'rgba(255, 0, 255, 0.5)',
-      warningIcon: '#FF00FF',
-      buttonTextOnAccent: '#191970',
-    },
-    classicpackaging: {
-      bgPanel: '#000000',
-      border: '#FFFF00',
-      textMain: '#FFFF00',
-      textSub: '#CCCC00',
-      btnBg: '#FF0000',
-      btnHover: '#CC0000',
-      accent: '#FF0000',
-      tableHead: '#1a1a1a',
-      successText: '#0000FF',
-      successBg: 'rgba(0, 0, 255, 0.2)',
-      inputBg: '#1a1a1a',
-      inputText: '#FFFF00',
-      placeholderText: '#666600',
-      btnActiveBg: '#0000FF',
-      btnActiveText: '#FFFF00',
-      // 检定结果相关
-      failureText: '#FF0000',
-      failureBg: 'rgba(255, 0, 0, 0.2)',
-      warningText: '#FF0000',
-      warningBg: 'rgba(255, 0, 0, 0.15)',
-      critSuccessText: '#0000FF',
-      critSuccessBg: 'rgba(0, 0, 255, 0.2)',
-      critFailureText: '#FF0000',
-      critFailureBg: 'rgba(255, 0, 0, 0.25)',
-      extremeSuccessText: '#0000FF',
-      extremeSuccessBg: 'rgba(0, 0, 255, 0.2)',
-      // UI通用颜色
-      overlayBg: 'rgba(0, 0, 0, 0.9)',
-      overlayBgLight: 'rgba(0, 0, 0, 0.8)',
-      shadowBg: 'rgba(0, 0, 0, 0.6)',
-      lightBg: 'rgba(255, 255, 0, 0.1)',
-      veryLightBg: 'rgba(255, 255, 0, 0.02)',
-      buttonText: '#FFFF00',
-      grayBg: 'rgba(255, 255, 0, 0.1)',
-      // 按钮专用颜色（更暗，提高可读性）
-      buttonBg: '#FF0000',
-      buttonBgActive: '#CC0000',
-      presetButtonBg: 'rgba(255, 0, 0, 0.7)',
-      presetButtonBgActive: '#FF0000',
-      // 警告/错误相关
-      errorText: '#FF0000',
-      errorBg: 'rgba(255, 0, 0, 0.2)',
-      errorBorder: 'rgba(255, 0, 0, 0.8)',
-      warningIcon: '#FF0000',
-      buttonTextOnAccent: '#FFFF00',
-    },
-    terminal: {
-      bgPanel: '#0c0c0c',
-      border: '#00ff00',
-      textMain: '#00ff00',
-      textSub: '#00cc00',
-      btnBg: '#1a1a1a',
-      btnHover: '#2a2a2a',
-      accent: '#00ff00',
-      tableHead: '#0a0a0a',
-      successText: '#00ff00',
-      successBg: 'rgba(0, 255, 0, 0.15)',
-      inputBg: '#0c0c0c',
-      inputText: '#00ff00',
-      placeholderText: '#008800',
-      btnActiveBg: '#00ff00',
-      btnActiveText: '#0c0c0c',
-      failureText: '#ff0000',
-      failureBg: 'rgba(255, 0, 0, 0.15)',
-      warningText: '#ffff00',
-      warningBg: 'rgba(255, 255, 0, 0.15)',
-      critSuccessText: '#00ffff',
-      critSuccessBg: 'rgba(0, 255, 255, 0.15)',
-      critFailureText: '#ff00ff',
-      critFailureBg: 'rgba(255, 0, 255, 0.15)',
-      extremeSuccessText: '#00ff00',
-      extremeSuccessBg: 'rgba(0, 255, 0, 0.2)',
-      overlayBg: 'rgba(0, 0, 0, 0.9)',
-      overlayBgLight: 'rgba(0, 0, 0, 0.8)',
-      shadowBg: 'rgba(0, 0, 0, 0.7)',
-      lightBg: 'rgba(0, 255, 0, 0.05)',
-      veryLightBg: 'rgba(0, 255, 0, 0.02)',
-      buttonText: '#0c0c0c',
-      grayBg: 'rgba(0, 255, 0, 0.05)',
-      errorText: '#ff0000',
-      errorBg: 'rgba(255, 0, 0, 0.15)',
-      errorBorder: 'rgba(255, 0, 0, 0.5)',
-      warningIcon: '#ffff00',
-      buttonTextOnAccent: '#0c0c0c',
-    },
-    dreamcore: {
-      // 梦核「永恒下午」：阈限空间、90年代公共场所、VHS失真
-      bgPanel: '#F4F1EA',
-      border: '#D6D2C4',
-      textMain: '#5C5869',
-      textSub: '#9490A0',
-      btnBg: '#E6E1D5',
-      btnHover: '#DBD8CC',
-      accent: '#8A9AC6',
-      tableHead: '#EBE7DE',
-      successText: '#4A7A68',
-      successBg: 'rgba(74, 122, 104, 0.18)',
-      inputBg: '#FFFFFF',
-      inputText: '#4A4652',
-      placeholderText: '#B0ACC0',
-      btnActiveBg: '#8A9AC6',
-      btnActiveText: '#FFFFFF',
-      // 检定结果相关
-      failureText: '#8F5E5E',
-      failureBg: 'rgba(143, 94, 94, 0.18)',
-      warningText: '#8A7040',
-      warningBg: 'rgba(138, 112, 64, 0.18)',
-      critSuccessText: '#2D6E58',
-      critSuccessBg: 'rgba(45, 110, 88, 0.25)',
-      critFailureText: '#7A3E3E',
-      critFailureBg: 'rgba(122, 62, 62, 0.25)',
-      extremeSuccessText: '#5C5228',
-      extremeSuccessBg: 'rgba(92, 82, 40, 0.2)',
-      // UI通用颜色
-      overlayBg: 'rgba(244, 241, 234, 0.85)',
-      overlayBgLight: 'rgba(255, 255, 255, 0.4)',
-      shadowBg: 'rgba(92, 88, 105, 0.15)',
-      lightBg: 'rgba(138, 154, 198, 0.08)',
-      veryLightBg: 'rgba(138, 154, 198, 0.03)',
-      buttonText: '#5C5869',
-      grayBg: 'rgba(92, 88, 105, 0.08)',
-      // 按钮专用颜色
-      buttonBg: 'rgba(138, 154, 198, 0.4)',
-      buttonBgActive: 'rgba(138, 154, 198, 0.6)',
-      presetButtonBg: 'rgba(138, 154, 198, 0.2)',
-      presetButtonBgActive: 'rgba(138, 154, 198, 0.45)',
-      // 警告/错误相关
-      errorText: '#B85C5C',
-      errorBg: 'rgba(184, 92, 92, 0.15)',
-      errorBorder: 'rgba(184, 92, 92, 0.4)',
-      warningIcon: '#E0C080',
-      buttonTextOnAccent: '#FFFFFF',
-    },
-    // 超天酱 (Choutenちゃん) - 電脳カワイイ・オーバードライブ
-    // VTuber偶像风格：糖果色 + 赛博朋克 + 霓虹渐变
-    chouten: {
-      bgPanel: '#1A0A2E', // 深紫夜空
-      border: '#FF6B9D', // 活力粉边框
-      textMain: '#FFE4F0', // 柔粉白文字
-      textSub: '#B388FF', // 薰衣草紫
-      btnBg: 'rgba(255, 107, 157, 0.25)', // 半透明粉
-      btnHover: 'rgba(255, 107, 157, 0.4)', // 悬停加深
-      accent: '#7FFFD4', // 电子薄荷绿（标志色）
-      tableHead: 'rgba(45, 27, 78, 0.95)', // 深紫表头
-      successText: '#7FFFD4', // 薄荷绿成功
-      successBg: 'rgba(127, 255, 212, 0.2)',
-      inputBg: 'rgba(26, 10, 46, 0.9)', // 深紫输入框
-      inputText: '#FFE4F0',
-      placeholderText: '#9370DB', // 中紫占位符
-      btnActiveBg: '#FF6B9D', // 活力粉激活态
-      btnActiveText: '#1A0A2E', // 深紫文字（对比）
-      // 检定结果：霓虹糖果色系
-      failureText: '#FF6B6B', // 珊瑚红
-      failureBg: 'rgba(255, 107, 107, 0.25)',
-      warningText: '#FFD93D', // 柠檬黄
-      warningBg: 'rgba(255, 217, 61, 0.2)',
-      critSuccessText: '#00FFAB', // 霓虹绿
-      critSuccessBg: 'rgba(0, 255, 171, 0.25)',
-      critFailureText: '#FF4757', // 樱桃红
-      critFailureBg: 'rgba(255, 71, 87, 0.25)',
-      extremeSuccessText: '#00D9FF', // 电子蓝
-      extremeSuccessBg: 'rgba(0, 217, 255, 0.2)',
-      // UI通用颜色
-      overlayBg: 'rgba(26, 10, 46, 0.92)',
-      overlayBgLight: 'rgba(45, 27, 78, 0.85)',
-      shadowBg: 'rgba(255, 107, 157, 0.3)', // 粉色光晕阴影
-      lightBg: 'rgba(255, 107, 157, 0.08)',
-      veryLightBg: 'rgba(179, 136, 255, 0.05)',
-      buttonText: '#1A0A2E',
-      grayBg: 'rgba(179, 136, 255, 0.15)',
-      // 按钮专用颜色（霓虹渐变风格）
-      buttonBg: 'rgba(255, 107, 157, 0.6)',
-      buttonBgActive: 'rgba(255, 107, 157, 0.8)',
-      presetButtonBg: 'rgba(127, 255, 212, 0.2)',
-      presetButtonBgActive: 'rgba(127, 255, 212, 0.45)',
-      // 警告/错误相关
-      errorText: '#FF6B6B',
-      errorBg: 'rgba(255, 107, 107, 0.2)',
-      errorBorder: 'rgba(255, 107, 107, 0.5)',
-      warningIcon: '#FFD93D',
-      buttonTextOnAccent: '#1A0A2E',
-    },
-  };
-  const getThemeColors = () => {
-    const theme = THEME_COLORS[getConfig().theme] || THEME_COLORS['retro'];
-    // 为没有定义按钮专用颜色的主题提供默认值
-    if (!theme.buttonBg) {
-      theme.buttonBg = theme.accent;
-      theme.buttonBgActive = theme.accent;
-      theme.presetButtonBg = theme.btnBg;
-      theme.presetButtonBgActive = theme.accent;
-    }
-    // 为没有定义按钮文字颜色的主题提供默认值
-    if (!theme.buttonTextOnAccent) {
-      // 浅色主题使用深色文字，深色主题使用浅色文字
-      // 根据背景色判断：浅色背景用深色文字，深色背景用浅色文字
-      const isLightTheme =
-        theme.bgPanel &&
-        (theme.bgPanel.startsWith('#F') ||
-          theme.bgPanel.startsWith('#f') ||
-          theme.bgPanel.startsWith('#e') ||
-          theme.bgPanel.startsWith('#E') ||
-          theme.bgPanel.includes('255') ||
-          theme.bgPanel.includes('fff'));
-      theme.buttonTextOnAccent = isLightTheme ? theme.textMain || '#333' : '#fff';
-    }
-    return theme;
-  };
   const getGMConfig = () => {
     const baseConfig = Store.get(STORAGE_KEY_GM_CONFIG, DEFAULT_GM_CONFIG);
 
@@ -9586,47 +8734,18 @@ import { MAIN_STYLES } from './styles';
     return baseConfig;
   };
 
-  // 统一的结果标签样式生成函数（融入主题，保证对比度）
-  const getResultBadgeStyle = (resultType, t) => {
+  // 统一的结果标签样式生成函数 - 返回 CSS 类名
+  const getResultBadgeClass = resultType => {
     // resultType: 'critSuccess' | 'extremeSuccess' | 'success' | 'warning' | 'failure' | 'critFailure'
-    const styles = {
-      critSuccess: {
-        bg: t.critSuccessText,
-        text: '#fff',
-      },
-      extremeSuccess: {
-        bg: t.extremeSuccessText,
-        text: '#fff',
-      },
-      success: {
-        bg: t.successText,
-        text: '#fff',
-      },
-      warning: {
-        bg: t.warningText,
-        text: '#fff',
-      },
-      failure: {
-        bg: t.failureText,
-        text: '#fff',
-      },
-      critFailure: {
-        bg: t.critFailureText,
-        text: '#fff',
-      },
+    const classMap = {
+      critSuccess: 'acu-result-badge acu-result-badge-crit-success',
+      extremeSuccess: 'acu-result-badge acu-result-badge-extreme-success',
+      success: 'acu-result-badge acu-result-badge-success',
+      warning: 'acu-result-badge acu-result-badge-warning',
+      failure: 'acu-result-badge acu-result-badge-failure',
+      critFailure: 'acu-result-badge acu-result-badge-crit-failure',
     };
-    const style = styles[resultType] || styles.failure;
-    return {
-      'background-color': style.bg,
-      color: style.text,
-      padding: '3px 8px',
-      'border-radius': '6px',
-      'font-size': '11px',
-      'font-weight': 'bold',
-      'white-space': 'nowrap',
-      display: 'inline-flex',
-      'align-items': 'center',
-    };
+    return classMap[resultType] || classMap.failure;
   };
 
   // [统一] 交互选项的图标映射表，供所有渲染位置共享使用
@@ -10119,6 +9238,45 @@ import { MAIN_STYLES } from './styles';
     { id: 'chouten', name: '幻夜霓虹 (Cyber Kawaii)', icon: 'fa-star' },
   ];
 
+  /**
+   * 主题切换动画 - 使用 View Transitions API 实现波纹扩散效果
+   * @param originX 波纹起点 X 坐标
+   * @param originY 波纹起点 Y 坐标
+   * @param callback 实际执行主题切换的回调函数
+   */
+  async function animateThemeTransition(originX: number, originY: number, callback: () => void): Promise<void> {
+    // 检查浏览器是否支持 View Transitions API
+    if (!document.startViewTransition) {
+      // 降级：直接执行回调
+      callback();
+      return;
+    }
+
+    // 计算波纹最大半径（从起点到最远角的距离）
+    const maxRadius = Math.hypot(
+      Math.max(originX, window.innerWidth - originX),
+      Math.max(originY, window.innerHeight - originY),
+    );
+
+    // 设置 CSS 自定义属性用于动画
+    document.documentElement.style.setProperty('--theme-transition-x', `${originX}px`);
+    document.documentElement.style.setProperty('--theme-transition-y', `${originY}px`);
+    document.documentElement.style.setProperty('--theme-transition-radius', `${maxRadius}px`);
+
+    const transition = document.startViewTransition(() => {
+      callback();
+    });
+
+    try {
+      await transition.finished;
+    } finally {
+      // 清理 CSS 自定义属性
+      document.documentElement.style.removeProperty('--theme-transition-x');
+      document.documentElement.style.removeProperty('--theme-transition-y');
+      document.documentElement.style.removeProperty('--theme-transition-radius');
+    }
+  }
+
   // [优化] 缓存 core 对象 (修复竞态条件 + 增强 ST 穿透查找)
   let _coreCache = null;
   const getCore = () => {
@@ -10244,6 +9402,14 @@ import { MAIN_STYLES } from './styles';
 
   const getActiveTabState = () => Store.get(STORAGE_KEY_ACTIVE_TAB);
   const saveActiveTabState = v => Store.set(STORAGE_KEY_ACTIVE_TAB, v);
+
+  // [修复] 统一清理所有面板状态，避免状态残留导致内容错乱
+  const clearAllPanelStates = () => {
+    Store.set(STORAGE_KEY_DASHBOARD_ACTIVE, false);
+    Store.set('acu_changes_panel_active', false);
+    Store.set('acu_favorites_panel_active', false);
+    saveActiveTabState(null);
+  };
 
   const getSavedTableOrder = () => Store.get(STORAGE_KEY_TABLE_ORDER);
   const saveTableOrder = v => Store.set(STORAGE_KEY_TABLE_ORDER, v);
@@ -11272,9 +10438,8 @@ import { MAIN_STYLES } from './styles';
     return attrs;
   };
   // [新增] 自定义下拉菜单初始化函数
-  const initCustomDropdown = ($input, options, themeColors) => {
+  const initCustomDropdown = ($input, options) => {
     const { $ } = getCore();
-    const t = themeColors || {};
     const inputId = $input.attr('id') || 'dd_' + Math.random().toString(36).substr(2, 9);
     $input.attr('id', inputId);
 
@@ -11286,12 +10451,8 @@ import { MAIN_STYLES } from './styles';
       $input.wrap('<div class="acu-dropdown-wrapper"></div>');
     }
 
-    // 创建下拉列表
+    // 创建下拉列表 - 样式通过 CSS 类控制
     const $dropdown = $(`<div class="acu-dropdown-list" data-for="${inputId}"></div>`);
-    $dropdown.css({
-      background: t.bgPanel || '#fff',
-      'border-color': t.border || '#ccc',
-    });
     $input.after($dropdown);
 
     const renderItems = (filter = '') => {
@@ -11299,14 +10460,11 @@ import { MAIN_STYLES } from './styles';
       const filtered = options.filter(opt => opt.toLowerCase().includes(lowerFilter));
 
       if (filtered.length === 0) {
-        $dropdown.html(`<div class="acu-dropdown-empty" style="color:${t.textSub || '#999'};">无匹配项</div>`);
+        $dropdown.html(`<div class="acu-dropdown-empty">无匹配项</div>`);
       } else {
         $dropdown.html(
           filtered
-            .map(
-              opt =>
-                `<div class="acu-dropdown-item" data-value="${escapeHtml(opt)}" style="color:${t.textMain || '#333'};">${escapeHtml(opt)}</div>`,
-            )
+            .map(opt => `<div class="acu-dropdown-item" data-value="${escapeHtml(opt)}">${escapeHtml(opt)}</div>`)
             .join(''),
         );
       }
@@ -11333,14 +10491,7 @@ import { MAIN_STYLES } from './styles';
       renderItems($(this).val());
     });
 
-    // hover 效果（动态适配主题）
-    $dropdown
-      .on('mouseenter', '.acu-dropdown-item', function () {
-        $(this).css('background', t.tableHead || 'rgba(128,128,128,0.15)');
-      })
-      .on('mouseleave', '.acu-dropdown-item', function () {
-        $(this).css('background', 'transparent');
-      });
+    // hover 效果已通过 CSS :hover 处理，无需 JS
 
     // 选择项目
     $dropdown.on('click', '.acu-dropdown-item', function (e) {
@@ -11367,18 +10518,17 @@ import { MAIN_STYLES } from './styles';
       });
   };
   // [新增] 给输入框添加清除按钮
-  const addClearButton = ($panel, inputSelector, themeColors) => {
+  const addClearButton = ($panel, inputSelector) => {
     const { $ } = getCore();
-    const t = themeColors || {};
     $panel.find(inputSelector).each(function () {
       const $input = $(this);
       // 避免重复添加
       if ($input.parent().hasClass('acu-input-wrapper')) return;
       // 包装输入框
       $input.wrap('<div class="acu-input-wrapper"></div>');
-      // 添加清除按钮 - 使用内联样式跟随主题
+      // 添加清除按钮 - 样式通过 CSS 类控制
       const $clearBtn = $(
-        `<button type="button" class="acu-clear-btn" title="清除" style="color:${t.textSub || '#999'};"><i class="fa-solid fa-times"></i></button>`,
+        `<button type="button" class="acu-clear-btn" title="清除"><i class="fa-solid fa-times"></i></button>`,
       );
       $input.after($clearBtn);
       // 点击清除
@@ -11387,14 +10537,7 @@ import { MAIN_STYLES } from './styles';
         e.stopPropagation();
         $input.val('').trigger('input').trigger('change').focus();
       });
-      // 悬停效果 - 使用主题强调色
-      $clearBtn
-        .on('mouseenter', function () {
-          $(this).css({ color: t.accent || '#7a695f', opacity: '1' });
-        })
-        .on('mouseleave', function () {
-          $(this).css({ color: t.textSub || '#999', opacity: '0.5' });
-        });
+      // hover 效果已通过 CSS :hover 处理，无需 JS
     });
   };
   // [新增] 统一的骰子规则设置面板
@@ -11548,28 +10691,6 @@ import { MAIN_STYLES } from './styles';
       padding: '20px',
       'box-sizing': 'border-box',
     });
-
-    // 统一设置两个按钮的样式，使用主题颜色
-    const theme = getThemeColors();
-    $panel.find('#cfg-reset-dice, #cfg-save-dice').css({
-      background: theme.btnBg,
-      color: theme.textMain,
-      borderColor: theme.border,
-    });
-    $panel.find('#cfg-reset-dice, #cfg-save-dice').hover(
-      function () {
-        $(this).css({
-          background: theme.btnHover,
-          borderColor: theme.btnHover,
-        });
-      },
-      function () {
-        $(this).css({
-          background: theme.btnBg,
-          borderColor: theme.border,
-        });
-      },
-    );
 
     const closePanel = () => $panel.remove();
     $panel.find('.acu-config-close').click(closePanel);
@@ -11732,16 +10853,7 @@ import { MAIN_STYLES } from './styles';
       }
     }
 
-    const t = getThemeColors();
-    const isCyberTheme = getConfig().theme === 'cyber';
-    const inputTextColor = isCyberTheme ? '#ff00ff' : t.inputText;
-    const buttonTextOnAccent = t.buttonTextOnAccent || t.textMain || '#6B4A5A';
-    // 统一的输入框样式字符串
-    const inputStyle = `width:100%;padding:5px;background:${t.inputBg} !important;border:1px solid ${t.border};border-radius:4px;color:${inputTextColor} !important;font-size:12px;text-align:center;box-sizing:border-box;`;
-
-    const overlay = $(
-      `<div class="acu-dice-overlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:${t.overlayBgLight};z-index:31200;"></div>`,
-    );
+    const overlay = $(`<div class="acu-dice-overlay"></div>`);
 
     // [精简] 成功标准选项：只保留 COC 和 DND
     const successCriteriaOptions = [
@@ -11755,81 +10867,70 @@ import { MAIN_STYLES } from './styles';
     else if (diceType === '1d20') defaultCriteria = 'gte';
 
     const panel = $(`
-            <div class="acu-dice-panel acu-theme-${config.theme}" style="
-                position: fixed;
-                top: 50%;
-                left: 50%;
-                transform: translate(-50%, -50%);
-                width: 340px;
-                max-width: 90vw;
-                background: ${t.bgPanel};
-                border: 1px solid ${t.border};
-                border-radius: 12px;
-                box-shadow: 0 20px 60px ${t.shadowBg};
-                z-index: 31201;
-                overflow: hidden;
-            ">
-                <div style="padding: 12px 15px; background: ${t.tableHead}; border-bottom: 1px solid ${t.border}; display: flex; justify-content: space-between; align-items: center;">
-                    <div style="font-size: 15px; font-weight: bold; color: ${t.accent}; display: flex; align-items: center; gap: 8px;">
+            <div class="acu-dice-panel acu-theme-${config.theme}">
+                <div class="acu-dice-panel-header">
+                    <div class="acu-dice-panel-title">
                         <i class="fa-solid fa-dice-d20"></i> 普通检定
                     </div>
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <button id="dice-switch-contest-top" style="background: none; border: none; color: ${t.textSub}; cursor: pointer; font-size: 14px; padding: 4px; transition: all 0.2s;" title="切换到对抗检定"><i class="fa-solid fa-people-arrows"></i></button>
-                        <button class="acu-dice-config-btn" style="background: none; border: none; color: ${t.textSub}; cursor: pointer; font-size: 14px; padding: 4px; transition: all 0.2s;" title="掷骰规则设置">
+                    <div class="acu-dice-panel-actions">
+                        <button id="dice-switch-contest-top" title="切换到对抗检定"><i class="fa-solid fa-people-arrows"></i></button>
+                        <button class="acu-dice-config-btn" title="掷骰规则设置">
                             <i class="fa-solid fa-cog"></i>
                         </button>
-                        <button class="acu-dice-close" style="background: none; border: none; color: ${t.textSub}; cursor: pointer; font-size: 16px; padding: 4px;">
+                        <button class="acu-dice-close">
                             <i class="fa-solid fa-times"></i>
                         </button>
                     </div>
                 </div>
-                <div style="padding: 15px; max-height: 70vh; overflow-y: auto;">
-                    <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; align-items: center;" class="acu-dice-presets">
-                        <button class="acu-dice-preset ${diceType === '1d20' ? 'active' : ''}" data-dice="1d20" data-criteria="gte" style="padding: 4px 10px; background: ${diceType === '1d20' ? t.presetButtonBgActive || t.accent : t.presetButtonBg || t.btnBg}; border: 1px solid ${t.border}; border-radius: 4px; color: ${diceType === '1d20' ? buttonTextOnAccent : t.textMain}; font-size: 11px; cursor: pointer;">1d20</button>
-                        <button class="acu-dice-preset ${diceType === '1d100' ? 'active' : ''}" data-dice="1d100" data-criteria="lte" style="padding: 4px 10px; background: ${diceType === '1d100' ? t.presetButtonBgActive || t.accent : t.presetButtonBg || t.btnBg}; border: 1px solid ${t.border}; border-radius: 4px; color: ${diceType === '1d100' ? buttonTextOnAccent : t.textMain}; font-size: 11px; cursor: pointer;">1d100</button>
-                        <button class="acu-dice-preset acu-dice-custom-btn" data-dice="custom" style="padding: 4px 10px; background: ${!['1d20', '1d100'].includes(diceType) ? t.presetButtonBgActive || t.accent : t.presetButtonBg || t.btnBg}; border: 1px solid ${t.border}; border-radius: 4px; color: ${!['1d20', '1d100'].includes(diceType) ? buttonTextOnAccent : t.textMain}; font-size: 11px; cursor: pointer;">自定义</button>
-                        <input type="text" id="dice-custom-input" placeholder="如2d6" value="${!['1d20', '1d100'].includes(diceType) ? diceType : ''}" style="width:60px;">
+                <div class="acu-dice-panel-body">
+                    <div class="acu-dice-presets">
+                        <button class="acu-dice-preset ${diceType === '1d20' ? 'active' : ''}" data-dice="1d20" data-criteria="gte">1d20</button>
+                        <button class="acu-dice-preset ${diceType === '1d100' ? 'active' : ''}" data-dice="1d100" data-criteria="lte">1d100</button>
+                        <button class="acu-dice-preset acu-dice-custom-btn ${!['1d20', '1d100'].includes(diceType) ? 'active' : ''}" data-dice="custom">自定义</button>
+                        <input type="text" id="dice-custom-input" class="acu-dice-input" placeholder="如2d6" value="${!['1d20', '1d100'].includes(diceType) ? diceType : ''}">
                     </div>
 
                     <!-- 快捷选择角色 -->
-                    <div style="margin-bottom: 10px;">
-                        <div style="font-size: 11px; color: ${t.accent}; font-weight: bold; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;"><i class="fa-solid fa-user"></i> 快捷选择</div>
-                        <div id="dice-char-buttons" style="display: flex; flex-wrap: wrap; gap: 4px; max-height: 60px; overflow-y: auto;"></div>
+                    <div class="acu-dice-quick-section">
+                        <div class="acu-dice-section-title"><span><i class="fa-solid fa-user"></i> 快捷选择</span><div id="dice-char-buttons" class="acu-dice-quick-inline"></div></div>
                     </div>
 
                     <!-- 第1行：名字 + 属性名 -->
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px;">
+                    <div class="acu-dice-form-row cols-2">
                         <div>
-                            <div style="font-size: 10px; color: ${t.textSub}; margin-bottom: 2px; min-height: 18px; display: flex; align-items: center;">名字</div>
-                            <input type="text" id="dice-initiator-name" value="${escapeHtml(initiatorName)}" placeholder="<user>" style="${inputStyle}">
+                            <div class="acu-dice-form-label">名字</div>
+                            <input type="text" id="dice-initiator-name" class="acu-dice-input" value="${escapeHtml(initiatorName)}" placeholder="<user>">
                         </div>
                         <div>
-                            <div style="font-size: 10px; color: ${t.textSub}; margin-bottom: 2px; min-height: 18px; display: flex; align-items: center; gap: 6px;">
+                            <div class="acu-dice-form-label">
                                 属性名
-                                <button type="button" class="acu-random-skill-btn" id="dice-random-skill" title="随机技能" style="width: 18px; height: 18px; padding: 0; background: transparent; border: 1px dashed ${t.accent}; border-radius: 4px; color: ${t.accent}; font-size: 9px; cursor: pointer; display: flex; align-items: center; justify-content: center;">
+                                <button type="button" class="acu-random-skill-btn" id="dice-random-skill" title="随机技能">
                                     <i class="fa-solid fa-dice"></i>
                                 </button>
                             </div>
-                            <input type="text" id="dice-attr-name" value="${escapeHtml(targetName || '')}" placeholder="自由检定" style="${inputStyle}">
+                            <input type="text" id="dice-attr-name" class="acu-dice-input" value="${escapeHtml(targetName || '')}" placeholder="自由检定">
                         </div>
                     </div>
 
                     <!-- 第2行：属性值 + 目标值 -->
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px;">
+                    <div class="acu-dice-form-row cols-2">
                         <div>
-                            <div style="font-size: 10px; color: ${t.textSub}; margin-bottom: 2px; min-height: 18px; display: flex; align-items: center;">属性值</div>
-                            <input type="text" id="dice-attr-value" value="${initialAttrValue !== null ? initialAttrValue : ''}" placeholder="留空=50%最大值" style="${inputStyle}">
+                            <div class="acu-dice-form-label">属性值</div>
+                            <input type="text" id="dice-attr-value" class="acu-dice-input" value="${initialAttrValue !== null ? initialAttrValue : ''}" placeholder="留空=50%最大值">
                         </div>
                         <div>
-                            <div style="font-size: 10px; color: ${t.textSub}; margin-bottom: 2px; min-height: 18px; display: flex; align-items: center;" id="dice-target-label">目标值</div>
-                            <input type="text" id="dice-target" value="${initialTargetValue !== null ? initialTargetValue : ''}" placeholder="留空=属性值" style="${inputStyle}">
+                            <div class="acu-dice-form-label" id="dice-target-label">目标值</div>
+                            <input type="text" id="dice-target" class="acu-dice-input" value="${initialTargetValue !== null ? initialTargetValue : ''}" placeholder="留空=属性值">
                         </div>
                     </div>
 
+                    <!-- 快捷选择属性（紧凑型） -->
+                    <div id="dice-attr-buttons" class="acu-dice-quick-compact"></div>
+
                     <!-- 第3行：成功标准 + 难度等级 + 修正值 -->
-                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 6px;" id="dice-row-3">
+                    <div class="acu-dice-form-row cols-3" id="dice-row-3">
                         <div>
-                            <div style="font-size: 10px; color: ${t.textSub}; margin-bottom: 2px; min-height: 18px; display: flex; align-items: center; justify-content: center;">成功标准</div>
+                            <div class="acu-dice-form-label centered">成功标准</div>
                             <select id="dice-success-criteria" class="acu-dice-select">
                                 ${successCriteriaOptions
                                   .map(
@@ -11840,7 +10941,7 @@ import { MAIN_STYLES } from './styles';
                             </select>
                         </div>
                         <div id="dice-difficulty-wrapper">
-                            <div style="font-size: 10px; color: ${t.textSub}; margin-bottom: 2px; min-height: 18px; display: flex; align-items: center; justify-content: center;">难度等级</div>
+                            <div class="acu-dice-form-label centered">难度等级</div>
                             <select id="dice-difficulty" class="acu-dice-select">
                                 <option value="normal" selected>普通</option>
                                 <option value="hard">困难</option>
@@ -11849,27 +10950,23 @@ import { MAIN_STYLES } from './styles';
                             </select>
                         </div>
                         <div>
-                            <div style="font-size: 10px; color: ${t.textSub}; margin-bottom: 2px; min-height: 18px; display: flex; align-items: center;">修正值</div>
-                            <input type="text" id="dice-modifier" value="0" style="${inputStyle}">
+                            <div class="acu-dice-form-label">修正值</div>
+                            <input type="text" id="dice-modifier" class="acu-dice-input" value="0">
                         </div>
                     </div>
 
-                    <!-- 快捷选择属性 -->
-                    <div style="margin-bottom: 10px;">
-                        <div style="font-size: 10px; color: ${t.textSub}; margin-bottom: 4px;"><i class="fa-solid fa-sliders"></i> 快捷选择属性</div>
-                        <div id="dice-attr-buttons" style="display: flex; flex-wrap: wrap; gap: 4px; max-height: 80px; overflow-y: auto;"></div>
-                    </div>
                     <!-- 隐藏的骰子公式 -->
                     <input type="hidden" id="dice-formula" value="${diceType}">
 
-                    <button id="dice-roll-btn" style="width: 100%; padding: 12px; background: ${t.buttonBg || t.accent}; border: none; border-radius: 8px; color: ${t.buttonText}; font-size: 15px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; position: relative;">
+                    <button id="dice-roll-btn" class="acu-dice-roll-btn">
                         <i class="fa-solid fa-dice"></i> 掷骰！
                     </button>
                 </div>
             </div>
         `);
 
-    $('body').append(overlay).append(panel);
+    overlay.append(panel);
+    $('body').append(overlay);
 
     // [新增] 构建角色快捷按钮
     const buildCharButtons = () => {
@@ -11880,15 +10977,14 @@ import { MAIN_STYLES } from './styles';
       if (fromMvu && mvuParsedInfo && mvuParsedInfo.initiator) {
         const initiator = mvuParsedInfo.initiator;
         const shortName = initiator.length > 4 ? initiator.substring(0, 4) + '..' : initiator;
-        const buttonTextOnAccent = t.buttonTextOnAccent || t.textMain || '#6B4A5A';
-        html += `<button class="acu-dice-char-btn acu-dice-char-btn-mvu" data-char="${escapeHtml(initiator)}" style="padding:3px 8px;background:${t.accent};border:1px solid ${t.accent};border-radius:4px;color:${buttonTextOnAccent};font-size:11px;cursor:pointer;white-space:nowrap;font-weight:bold;" title="从变量路径提取: ${escapeHtml(initiator)}">${escapeHtml(shortName)}</button>`;
+        html += `<button class="acu-dice-char-btn acu-dice-char-btn-mvu" data-char="${escapeHtml(initiator)}" title="从变量路径提取: ${escapeHtml(initiator)}">${escapeHtml(shortName)}</button>`;
       }
 
       // 添加常规角色列表
       diceCharacterList.forEach(name => {
         const displayName = name === '<user>' ? getDisplayPlayerName() : replaceUserPlaceholders(name);
         const shortName = displayName.length > 4 ? displayName.substring(0, 4) + '..' : displayName;
-        html += `<button class="acu-dice-char-btn" data-char="${escapeHtml(name)}" style="padding:3px 8px;background:${t.btnBg};border:1px solid ${t.border};border-radius:4px;color:${t.textMain};font-size:11px;cursor:pointer;white-space:nowrap;" title="${escapeHtml(displayName)}">${escapeHtml(shortName)}</button>`;
+        html += `<button class="acu-dice-char-btn" data-char="${escapeHtml(name)}" title="${escapeHtml(displayName)}">${escapeHtml(shortName)}</button>`;
       });
 
       // [新增] 如果从MVU面板调用，添加其他候选（如果有）
@@ -11897,11 +10993,11 @@ import { MAIN_STYLES } from './styles';
           // 跳过已经添加的发起者
           if (mvuParsedInfo.initiator && candidate === mvuParsedInfo.initiator) return;
           const shortName = candidate.length > 4 ? candidate.substring(0, 4) + '..' : candidate;
-          html += `<button class="acu-dice-char-btn acu-dice-char-btn-mvu-candidate" data-char="${escapeHtml(candidate)}" style="padding:3px 8px;background:${t.inputBg};border:1px dashed ${t.accent};border-radius:4px;color:${t.accent};font-size:11px;cursor:pointer;white-space:nowrap;" title="从变量路径提取: ${escapeHtml(candidate)}">${escapeHtml(shortName)}</button>`;
+          html += `<button class="acu-dice-char-btn acu-dice-char-btn-mvu-candidate" data-char="${escapeHtml(candidate)}" title="从变量路径提取: ${escapeHtml(candidate)}">${escapeHtml(shortName)}</button>`;
         });
       }
 
-      $container.html(html || `<div style="font-size:11px;color:${t.textSub};">无角色数据</div>`);
+      $container.html(html || `<div class="acu-dice-empty-hint">无角色数据</div>`);
       // 绑定点击事件
       $container.find('.acu-dice-char-btn').click(function () {
         const charName = $(this).data('char');
@@ -11925,25 +11021,24 @@ import { MAIN_STYLES } from './styles';
         const attrName = mvuParsedInfo.attrName;
         // 尝试从当前角色获取该属性的值
         const attrValue = getAttributeValue(charName, attrName) || targetValue || '';
-        const buttonTextOnAccent = t.buttonTextOnAccent || t.textMain || '#6B4A5A';
         if (attrValue) {
-          html += `<button class="acu-dice-attr-btn acu-dice-attr-btn-mvu" data-name="${escapeHtml(attrName)}" data-value="${attrValue}" style="padding:3px 8px;background:${t.accent};border:1px solid ${t.accent};border-radius:4px;color:${buttonTextOnAccent};font-size:11px;cursor:pointer;font-weight:bold;" title="从变量路径提取: ${escapeHtml(attrName)}">${escapeHtml(attrName)}:${attrValue}</button>`;
+          html += `<button class="acu-dice-attr-btn acu-dice-attr-btn-mvu" data-name="${escapeHtml(attrName)}" data-value="${attrValue}" title="从变量路径提取: ${escapeHtml(attrName)}">${escapeHtml(attrName)}:${attrValue}</button>`;
         } else {
           // 即使没有值也显示，用户可以手动填入
-          html += `<button class="acu-dice-attr-btn acu-dice-attr-btn-mvu" data-name="${escapeHtml(attrName)}" data-value="" style="padding:3px 8px;background:${t.accent};border:1px solid ${t.accent};border-radius:4px;color:${buttonTextOnAccent};font-size:11px;cursor:pointer;font-weight:bold;" title="从变量路径提取: ${escapeHtml(attrName)}">${escapeHtml(attrName)}</button>`;
+          html += `<button class="acu-dice-attr-btn acu-dice-attr-btn-mvu" data-name="${escapeHtml(attrName)}" data-value="" title="从变量路径提取: ${escapeHtml(attrName)}">${escapeHtml(attrName)}</button>`;
         }
       }
 
       // 现有属性按钮
       attrs.forEach(attr => {
-        html += `<button class="acu-dice-attr-btn" data-name="${escapeHtml(attr.name)}" data-value="${attr.value}" style="padding:3px 8px;background:${t.inputBg};border:1px solid ${t.border};border-radius:4px;color:${t.inputText};font-size:11px;cursor:pointer;">${escapeHtml(attr.name)}:${attr.value}</button>`;
+        html += `<button class="acu-dice-attr-btn" data-name="${escapeHtml(attr.name)}" data-value="${attr.value}">${escapeHtml(attr.name)}:${attr.value}</button>`;
       });
 
       // 生成属性按钮（始终显示）
-      html += `<button class="acu-dice-gen-attr-btn" style="padding:3px 8px;background:transparent;border:1px dashed ${t.accent};border-radius:4px;color:${t.accent};font-size:11px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;" title="为当前角色生成属性"><i class="fa-solid fa-dice"></i></button>`;
+      html += `<button class="acu-dice-gen-attr-btn" title="为当前角色生成属性"><i class="fa-solid fa-dice"></i></button>`;
 
       // 清空属性按钮
-      html += `<button class="acu-dice-clear-attr-btn" style="padding:3px 8px;background:transparent;border:1px dashed ${t.errorText};border-radius:4px;color:${t.errorText};font-size:11px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;margin-left:4px;" title="清空当前规则的属性（保留自定义属性）"><i class="fa-solid fa-trash-alt"></i></button>`;
+      html += `<button class="acu-dice-clear-attr-btn" title="清空当前规则的属性（保留自定义属性）"><i class="fa-solid fa-trash-alt"></i></button>`;
 
       $container.html(html);
 
@@ -12081,16 +11176,16 @@ import { MAIN_STYLES } from './styles';
     });
 
     // 初始化自定义下拉菜单
-    initCustomDropdown(panel.find('#dice-initiator-name'), diceCharacterList, t);
-    initCustomDropdown(panel.find('#dice-attr-name'), diceAttrList, t);
+    initCustomDropdown(panel.find('#dice-initiator-name'), diceCharacterList);
+    initCustomDropdown(panel.find('#dice-attr-name'), diceAttrList);
     // [新增] 添加清除按钮
-    addClearButton(panel, '#dice-initiator-name, #dice-attr-name, #dice-attr-value, #dice-target', t);
+    addClearButton(panel, '#dice-initiator-name, #dice-attr-name, #dice-attr-value, #dice-target');
 
     // [修复] 角色变化时更新属性列表和快捷按钮
     panel.find('#dice-initiator-name').on('change.acuattr input.acuattr', function () {
       const charName = $(this).val().trim() || '<user>';
       const newAttrList = getAttributesForCharacter(charName);
-      initCustomDropdown(panel.find('#dice-attr-name'), newAttrList.length > 0 ? newAttrList : diceAttrList, t);
+      initCustomDropdown(panel.find('#dice-attr-name'), newAttrList.length > 0 ? newAttrList : diceAttrList);
 
       // [新增] 更新属性快捷按钮
       buildAttrButtons(charName);
@@ -12169,8 +11264,8 @@ import { MAIN_STYLES } from './styles';
       // 自定义按钮有单独的处理逻辑，这里跳过
       if (newDice === 'custom') return;
 
-      panel.find('.acu-dice-preset').css({ background: t.presetButtonBg || t.btnBg, color: t.textMain });
-      $(this).css({ background: t.presetButtonBgActive || t.accent, color: t.buttonText });
+      panel.find('.acu-dice-preset').removeClass('active');
+      $(this).addClass('active');
 
       // 保存本次选择的骰子类型
       saveDiceConfig({ lastDiceType: newDice });
@@ -12202,8 +11297,8 @@ import { MAIN_STYLES } from './styles';
     // 自定义骰子按钮点击事件
     panel.find('.acu-dice-custom-btn').click(function () {
       // 立即高亮自定义按钮，取消其他按钮高亮
-      panel.find('.acu-dice-preset').css({ background: t.presetButtonBg || t.btnBg, color: t.textMain });
-      $(this).css({ background: t.presetButtonBgActive || t.accent, color: t.buttonText });
+      panel.find('.acu-dice-preset').removeClass('active');
+      $(this).addClass('active');
 
       const customDice = panel.find('#dice-custom-input').val().trim();
       // 如果输入框为空，聚焦并等待用户输入
@@ -12298,8 +11393,21 @@ import { MAIN_STYLES } from './styles';
       return result;
     };
 
+    let lastDiceRollAt = 0;
     // 投骰逻辑函数（可被按钮点击和重投按钮调用）
     const performDiceRoll = function () {
+      const $btn = panel.find('#dice-roll-btn');
+      const now = Date.now();
+      if (now - lastDiceRollAt < 100) return;
+      lastDiceRollAt = now;
+      if ($btn.prop('disabled')) return;
+
+      // 锁定按钮防止连点
+      $btn.prop('disabled', true).addClass('disabled');
+      setTimeout(() => {
+        $btn.prop('disabled', false).removeClass('disabled');
+      }, 100);
+
       const formula = panel.find('#dice-formula').val().trim() || '1d100';
       const modStr = panel.find('#dice-modifier').val().trim() || '0';
       const mod = parseModifier(modStr);
@@ -12473,19 +11581,16 @@ import { MAIN_STYLES } from './styles';
         resultType = 'failure';
       }
 
-      const badgeStyle = getResultBadgeStyle(resultType, t);
-      const badgeStyleStr = Object.entries(badgeStyle)
-        .map(([k, v]) => `${k}:${v}`)
-        .join(';');
+      const badgeClass = getResultBadgeClass(resultType);
 
       // 将按钮内容替换为结果显示（居中布局，旋转箭头在结果后面）
       const $rollBtn = panel.find('#dice-roll-btn');
       $rollBtn.html(`
-        <div style="display:flex; align-items:center; justify-content:center; width:100%; gap:8px;">
-          <span style="font-size:22px; font-weight:bold; color:${t.buttonText};">${displayValue}</span>
-          <span style="font-size:11px; color:${t.buttonText}; opacity:0.9;">${criteriaSymbol}${requiredTarget}${difficultyLabel ? '(' + difficultyLabel + ')' : ''}</span>
-          ${displayOutcomeText ? `<span style="${badgeStyleStr}">${displayOutcomeText}</span>` : ''}
-          <button class="dice-retry-btn" style="background:transparent; border:none; color:${t.buttonText}; cursor:pointer; padding:4px; display:flex; align-items:center; justify-content:center; opacity:0.8; transition:opacity 0.2s;" title="重新投骰">
+        <div class="acu-dice-result-display">
+          <span class="acu-dice-result-value">${displayValue}</span>
+          <span class="acu-dice-result-target">${criteriaSymbol}${requiredTarget}${difficultyLabel ? '(' + difficultyLabel + ')' : ''}</span>
+          ${displayOutcomeText ? `<span class="${badgeClass}">${displayOutcomeText}</span>` : ''}
+          <button class="dice-retry-btn acu-dice-retry-btn" title="重新投骰">
             <i class="fa-solid fa-rotate-right"></i>
           </button>
         </div>
@@ -12551,17 +11656,31 @@ import { MAIN_STYLES } from './styles';
 
       const diceResultText = `（元叙事：${initiatorName}发起了【${attrName}】检定，掷出${finalValue}，${judgeExpr}，【${outcomeText}】）`;
       smartInsertToTextarea(diceResultText, 'dice');
+
+      // 构建检定结果对象
+      const checkResult: AcuDice.CheckResult = {
+        success: isSuccess,
+        total: finalValue,
+        target,
+        outcomeText,
+        attrName,
+        criteria,
+        isAutoTarget,
+        formula,
+      };
+
+      // 添加到历史记录
+      const checkResultWithTimestamp = { ...checkResult, timestamp: Date.now() };
+      checkHistory.push(checkResultWithTimestamp);
+      if (checkHistory.length > MAX_HISTORY) {
+        checkHistory.shift();
+      }
+
+      // 触发事件
+      emitEvent('check', checkResultWithTimestamp);
+
       if (onResult) {
-        onResult({
-          success: isSuccess,
-          total: finalValue,
-          target,
-          outcomeText,
-          attrName,
-          criteria,
-          isAutoTarget,
-          formula: formulaText,
-        });
+        onResult(checkResult);
       }
     };
 
@@ -12589,6 +11708,9 @@ import { MAIN_STYLES } from './styles';
       overlay.remove();
       panel.remove();
     };
+    panel.on('click', e => {
+      e.stopPropagation();
+    });
     overlay.click(closePanel);
     panel.find('.acu-dice-close').click(closePanel);
     // 齿轮设置按钮点击 - 调用统一设置面板
@@ -12682,12 +11804,6 @@ import { MAIN_STYLES } from './styles';
       }
     }
 
-    const t = getThemeColors();
-    const isCyberTheme = getConfig().theme === 'cyber';
-    const inputTextColor = isCyberTheme ? '#ff00ff' : t.inputText;
-    // 统一的输入框样式字符串
-    const inputStyle = `width:100%;padding:5px;background:${t.inputBg} !important;border:1px solid ${t.border};border-radius:4px;color:${inputTextColor} !important;font-size:12px;text-align:center;box-sizing:border-box;`;
-
     const buildAttrButtons = (attrs, targetType) => {
       let html = '';
       // 现有属性按钮
@@ -12700,13 +11816,7 @@ import { MAIN_STYLES } from './styles';
           escapeHtml(attr.name) +
           '" data-type="' +
           targetType +
-          '" style="padding:3px 8px;background:' +
-          t.inputBg +
-          ';border:1px solid ' +
-          t.border +
-          ';border-radius:4px;color:' +
-          t.inputText +
-          ';font-size:11px;cursor:pointer;margin:2px;">' +
+          '">' +
           escapeHtml(attr.name) +
           ': ' +
           attr.value +
@@ -12716,195 +11826,90 @@ import { MAIN_STYLES } from './styles';
       html +=
         '<button class="acu-contest-gen-attr-btn" data-type="' +
         targetType +
-        '" style="padding:2px 6px;background:transparent;border:1px dashed ' +
-        t.accent +
-        ';border-radius:3px;color:' +
-        t.accent +
-        ';font-size:10px;cursor:pointer;display:inline-flex;align-items:center;gap:3px;margin:2px;" title="生成属性"><i class="fa-solid fa-dice"></i></button>';
+        '" title="生成属性"><i class="fa-solid fa-dice"></i></button>';
       // 清空属性按钮
       html +=
         '<button class="acu-contest-clear-attr-btn" data-type="' +
         targetType +
-        '" style="padding:2px 6px;background:transparent;border:1px dashed ' +
-        t.errorText +
-        ';border-radius:3px;color:' +
-        t.errorText +
-        ';font-size:10px;cursor:pointer;display:inline-flex;align-items:center;gap:3px;margin:2px;" title="清空规则属性"><i class="fa-solid fa-trash-alt" style="font-size:9px;"></i></button>';
+        '" title="清空规则属性"><i class="fa-solid fa-trash-alt"></i></button>';
       return html;
     };
 
-    const overlay = $(
-      '<div class="acu-contest-overlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:' +
-        t.overlayBg +
-        ';z-index:31200;"></div>',
-    );
+    const overlay = $('<div class="acu-contest-overlay"></div>');
     const panelHtml =
       '<div class="acu-contest-panel acu-theme-' +
       config.theme +
-      '" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:360px;max-width:92vw;background:' +
-      t.bgPanel +
-      ';border:1px solid ' +
-      t.border +
-      ';border-radius:12px;box-shadow:0 20px 60px ' +
-      t.shadowBg +
-      ';z-index:31201;overflow:hidden;">' +
-      '<div style="padding:12px 15px;background:' +
-      t.tableHead +
-      ';border-bottom:1px solid ' +
-      t.border +
-      ';display:flex;justify-content:space-between;align-items:center;">' +
-      '<div style="font-size:15px;font-weight:bold;color:' +
-      t.accent +
-      ';display:flex;align-items:center;gap:8px;"><i class="fa-solid fa-people-arrows"></i> 对抗检定</div>' +
-      '<div style="display:flex;align-items:center;gap:8px;">' +
-      '<button id="contest-switch-normal" style="background:none;border:none;color:' +
-      t.textSub +
-      ';cursor:pointer;font-size:14px;padding:4px;transition:all 0.2s;" title="切换到普通检定"><i class="fa-solid fa-dice-d20"></i></button>' +
-      '<button class="acu-contest-config-btn" style="background:none;border:none;color:' +
-      t.textSub +
-      ';cursor:pointer;font-size:14px;padding:4px;transition:all 0.2s;" title="掷骰规则设置"><i class="fa-solid fa-cog"></i></button>' +
-      '<button class="acu-contest-close" style="background:none;border:none;color:' +
-      t.textSub +
-      ';cursor:pointer;font-size:16px;padding:4px;"><i class="fa-solid fa-times"></i></button>' +
+      '">' +
+      '<div class="acu-dice-panel-header">' +
+      '<div class="acu-dice-panel-title"><i class="fa-solid fa-people-arrows"></i> 对抗检定</div>' +
+      '<div class="acu-dice-panel-actions">' +
+      '<button id="contest-switch-normal" class="acu-dice-panel-action-btn" title="切换到普通检定"><i class="fa-solid fa-dice-d20"></i></button>' +
+      '<button class="acu-contest-config-btn acu-dice-panel-action-btn" title="掷骰规则设置"><i class="fa-solid fa-cog"></i></button>' +
+      '<button class="acu-contest-close acu-dice-panel-action-btn"><i class="fa-solid fa-times"></i></button>' +
       '</div>' +
       '</div>' +
-      '<div style="padding:15px;max-height:70vh;overflow-y:auto;">' +
-      '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;align-items:center;">' +
-      '<button class="acu-contest-preset' +
+      '<div class="acu-dice-panel-body">' +
+      '<div class="acu-dice-presets">' +
+      '<button class="acu-dice-preset' +
       (diceType === '1d20' ? ' active' : '') +
-      '" data-dice="1d20" style="padding:4px 10px;background:' +
-      (diceType === '1d20' ? t.presetButtonBgActive || t.accent : t.presetButtonBg || t.btnBg) +
-      ';border:1px solid ' +
-      t.border +
-      ';border-radius:4px;color:' +
-      (diceType === '1d20' ? '#fff' : t.textMain) +
-      ';font-size:11px;cursor:pointer;">1d20</button>' +
-      '<button class="acu-contest-preset' +
+      '" data-dice="1d20">1d20</button>' +
+      '<button class="acu-dice-preset' +
       (diceType === '1d100' ? ' active' : '') +
-      '" data-dice="1d100" style="padding:4px 10px;background:' +
-      (diceType === '1d100' ? t.presetButtonBgActive || t.accent : t.presetButtonBg || t.btnBg) +
-      ';border:1px solid ' +
-      t.border +
-      ';border-radius:4px;color:' +
-      (diceType === '1d100' ? '#fff' : t.textMain) +
-      ';font-size:11px;cursor:pointer;">1d100</button>' +
-      '<button class="acu-contest-preset acu-contest-custom-btn" data-dice="custom" style="padding:4px 10px;background:' +
-      (!['1d20', '1d100'].includes(diceType) ? t.presetButtonBgActive || t.accent : t.presetButtonBg || t.btnBg) +
-      ';border:1px solid ' +
-      t.border +
-      ';border-radius:4px;color:' +
-      (!['1d20', '1d100'].includes(diceType) ? '#fff' : t.textMain) +
-      ';font-size:11px;cursor:pointer;">自定义</button>' +
-      '<input type="text" id="contest-custom-dice" placeholder="如2d6" value="' +
+      '" data-dice="1d100">1d100</button>' +
+      '<button class="acu-dice-preset acu-contest-custom-btn' +
+      (!['1d20', '1d100'].includes(diceType) ? ' active' : '') +
+      '" data-dice="custom">自定义</button>' +
+      '<input type="text" class="acu-dice-custom-input" id="contest-custom-dice" placeholder="如2d6" value="' +
       (!['1d20', '1d100'].includes(diceType) ? diceType : '') +
-      '" style="width:60px;padding:4px 6px;background:' +
-      t.inputBg +
-      ' !important;border:1px solid ' +
-      t.border +
-      ';border-radius:4px;color:' +
-      inputTextColor +
-      ' !important;font-size:11px;text-align:center;box-sizing:border-box;" />' +
+      '" />' +
       '</div>' +
       '<input type="hidden" id="contest-dice-type" value="' +
       diceType +
       '">' +
-      '<div style="font-size:11px;color:' +
-      t.accent +
-      ';font-weight:bold;margin-bottom:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span><i class="fa-solid fa-user"></i> 甲方</span><div id="contest-init-char-buttons" style="display:flex;flex-wrap:wrap;gap:3px;"></div></div>' +
-      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">' +
-      '<div><div style="font-size:10px;color:' +
-      t.textSub +
-      ';margin-bottom:2px;min-height:18px;display:flex;align-items:center;">名字</div><input type="text" id="contest-init-display" value="" placeholder="<user>" style="' +
-      inputStyle +
-      '"></div>' +
-      '<div><div style="font-size:10px;color:' +
-      t.textSub +
-      ';margin-bottom:2px;min-height:18px;display:flex;align-items:center;gap:6px;">属性名<button type="button" class="acu-random-skill-btn" id="contest-init-random-skill" title="随机技能" style="width:18px;height:18px;padding:0;background:transparent;border:1px dashed ' +
-      t.accent +
-      ';border-radius:4px;color:' +
-      t.accent +
-      ';font-size:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-dice"></i></button></div><input type="text" id="contest-init-name" value="" placeholder="自由检定" style="' +
-      inputStyle +
-      '"></div>' +
+      '<div class="acu-dice-section-title"><span><i class="fa-solid fa-user"></i> 甲方</span><div id="contest-init-char-buttons" class="acu-dice-quick-inline"></div></div>' +
+      '<div class="acu-dice-form-row cols-2">' +
+      '<div><div class="acu-dice-form-label">名字</div><input type="text" class="acu-dice-input" id="contest-init-display" value="" placeholder="<user>"></div>' +
+      '<div><div class="acu-dice-form-label">属性名<button type="button" class="acu-random-skill-btn" id="contest-init-random-skill" title="随机技能"><i class="fa-solid fa-dice"></i></button></div><input type="text" class="acu-dice-input" id="contest-init-name" value="" placeholder="自由检定"></div>' +
       '</div>' +
-      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">' +
-      '<div><div style="font-size:10px;color:' +
-      t.textSub +
-      ';margin-bottom:2px;min-height:18px;display:flex;align-items:center;">属性值</div><input type="text" id="contest-init-value" value="' +
+      '<div class="acu-dice-form-row cols-2">' +
+      '<div><div class="acu-dice-form-label">属性值</div><input type="text" class="acu-dice-input" id="contest-init-value" value="' +
       (passedInitiatorValue !== undefined ? passedInitiatorValue : '') +
-      '" placeholder="留空=50%最大值" style="' +
-      inputStyle +
-      '"></div>' +
-      '<div><div style="font-size:10px;color:' +
-      t.textSub +
-      ';margin-bottom:2px;min-height:18px;display:flex;align-items:center;">目标值</div><input type="text" id="contest-init-target" value="" placeholder="自动" style="' +
-      inputStyle +
-      '"></div>' +
+      '" placeholder="留空=50%最大值"></div>' +
+      '<div><div class="acu-dice-form-label">目标值</div><input type="text" class="acu-dice-input" id="contest-init-target" value="" placeholder="自动"></div>' +
       '</div>' +
-      '<div id="init-attr-buttons" style="display:flex;flex-wrap:wrap;gap:2px;margin-bottom:8px;max-height:50px;overflow-y:auto;">' +
+      '<div id="init-attr-buttons" class="acu-dice-quick-compact">' +
       buildAttrButtons(playerAttrs, 'init') +
       '</div>' +
-      '<div style="font-size:11px;color:' +
-      t.accent +
-      ';font-weight:bold;margin-bottom:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span><i class="fa-solid fa-user"></i> 乙方</span><div id="contest-opp-char-buttons" style="display:flex;flex-wrap:wrap;gap:3px;"></div></div>' +
-      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">' +
-      '<div><div style="font-size:10px;color:' +
-      t.textSub +
-      ';margin-bottom:2px;min-height:18px;display:flex;align-items:center;">名字</div><input type="text" id="contest-opponent-display" value="' +
+      '<div class="acu-dice-section-title"><span><i class="fa-solid fa-user"></i> 乙方</span><div id="contest-opp-char-buttons" class="acu-dice-quick-inline"></div></div>' +
+      '<div class="acu-dice-form-row cols-2">' +
+      '<div><div class="acu-dice-form-label">名字</div><input type="text" class="acu-dice-input" id="contest-opponent-display" value="' +
       escapeHtml(opponentName) +
-      '" placeholder="对手" style="' +
-      inputStyle +
-      '"></div>' +
-      '<div><div style="font-size:10px;color:' +
-      t.textSub +
-      ';margin-bottom:2px;min-height:18px;display:flex;align-items:center;gap:6px;">属性名<button type="button" class="acu-random-skill-btn" id="contest-opp-random-skill" title="随机技能" style="width:18px;height:18px;padding:0;background:transparent;border:1px dashed ' +
-      t.accent +
-      ';border-radius:4px;color:' +
-      t.accent +
-      ';font-size:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-dice"></i></button></div><input type="text" id="contest-opp-name" value="" placeholder="同甲方" style="' +
-      inputStyle +
-      '"></div>' +
+      '" placeholder="对手"></div>' +
+      '<div><div class="acu-dice-form-label">属性名<button type="button" class="acu-random-skill-btn" id="contest-opp-random-skill" title="随机技能"><i class="fa-solid fa-dice"></i></button></div><input type="text" class="acu-dice-input" id="contest-opp-name" value="" placeholder="同甲方"></div>' +
       '</div>' +
-      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">' +
-      '<div><div style="font-size:10px;color:' +
-      t.textSub +
-      ';margin-bottom:2px;min-height:18px;display:flex;align-items:center;">属性值</div><input type="text" id="contest-opp-value" value="' +
+      '<div class="acu-dice-form-row cols-2">' +
+      '<div><div class="acu-dice-form-label">属性值</div><input type="text" class="acu-dice-input" id="contest-opp-value" value="' +
       (passedOpponentValue !== undefined ? passedOpponentValue : '') +
-      '" placeholder="留空=50%最大值" style="' +
-      inputStyle +
-      '"></div>' +
-      '<div><div style="font-size:10px;color:' +
-      t.textSub +
-      ';margin-bottom:2px;min-height:18px;display:flex;align-items:center;">目标值</div><input type="text" id="contest-opp-target" value="" placeholder="自动" style="' +
-      inputStyle +
-      '"></div>' +
+      '" placeholder="留空=50%最大值"></div>' +
+      '<div><div class="acu-dice-form-label">目标值</div><input type="text" class="acu-dice-input" id="contest-opp-target" value="" placeholder="自动"></div>' +
       '</div>' +
-      '<div id="opp-attr-buttons" style="display:flex;flex-wrap:wrap;gap:2px;margin-bottom:10px;max-height:50px;overflow-y:auto;">' +
+      '<div id="opp-attr-buttons" class="acu-dice-quick-compact">' +
       buildAttrButtons(opponentAttrs, 'opp') +
       '</div>' +
-      '<div id="contest-result-display" style="display:none;margin-bottom:10px;padding:8px;background:' +
-      t.inputBg +
-      ';border:1px solid ' +
-      t.border +
-      ';border-radius:6px;">' +
-      '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;width:100%;">' +
-      '<div id="contest-result-init" style="display:flex;align-items:center;gap:4px;min-width:0;flex:1;"></div>' +
-      '<span style="color:' +
-      t.textSub +
-      ';opacity:0.9;font-size:11px;font-weight:bold;white-space:nowrap;">VS</span>' +
-      '<div id="contest-result-opp" style="display:flex;align-items:center;gap:4px;min-width:0;flex:1;justify-content:flex-end;"></div>' +
+      '<div id="contest-result-display" class="acu-contest-result-display">' +
+      '<div class="acu-contest-result-inner">' +
+      '<div id="contest-result-init" class="acu-contest-result-side"></div>' +
+      '<span class="acu-contest-vs">VS</span>' +
+      '<div id="contest-result-opp" class="acu-contest-result-side right"></div>' +
       '</div>' +
       '</div>' +
-      '<button id="contest-roll-btn" style="width:100%;padding:12px;background:' +
-      (t.buttonBg || t.accent) +
-      ';border:none;border-radius:8px;color:' +
-      t.buttonText +
-      ';font-size:15px;font-weight:bold;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;position:relative;"><i class="fa-solid fa-dice"></i> 开始对抗！</button>' +
+      '<button id="contest-roll-btn" class="acu-dice-roll-btn"><i class="fa-solid fa-dice"></i> 开始对抗！</button>' +
       '</div>' +
       '</div>';
 
     const panel = $(panelHtml);
-    $('body').append(overlay).append(panel);
+    overlay.append(panel);
+    $('body').append(overlay);
 
     // [新增] 构建角色快捷按钮 - 复用普通检定的样式规格
     const buildCharBtns = targetType => {
@@ -12915,24 +11920,18 @@ import { MAIN_STYLES } from './styles';
         const displayName = name === '<user>' ? getDisplayPlayerName() : replaceUserPlaceholders(name);
         const shortName = displayName.length > 4 ? displayName.substring(0, 4) + '..' : displayName;
         html +=
-          '<button class="acu-contest-char-btn" data-char="' +
+          '<button class="acu-dice-char-btn" data-char="' +
           escapeHtml(name) +
           '" data-type="' +
           targetType +
-          '" style="padding:3px 8px;background:' +
-          t.btnBg +
-          ';border:1px solid ' +
-          t.border +
-          ';border-radius:4px;color:' +
-          t.textMain +
-          ';font-size:11px;cursor:pointer;white-space:nowrap;" title="' +
+          '" title="' +
           escapeHtml(displayName) +
           '">' +
           escapeHtml(shortName) +
           '</button>';
       });
       $container.html(html);
-      $container.find('.acu-contest-char-btn').click(function (e) {
+      $container.find('.acu-dice-char-btn').click(function (e) {
         e.preventDefault();
         e.stopPropagation();
         const charName = $(this).data('char');
@@ -12965,13 +11964,7 @@ import { MAIN_STYLES } from './styles';
             escapeHtml(attr.name) +
             '" data-type="' +
             targetType +
-            '" style="padding:2px 6px;background:' +
-            t.inputBg +
-            ';border:1px solid ' +
-            t.border +
-            ';border-radius:3px;color:' +
-            t.inputText +
-            ';font-size:10px;cursor:pointer;">' +
+            '">' +
             escapeHtml(attr.name) +
             ':' +
             attr.value +
@@ -12983,21 +11976,13 @@ import { MAIN_STYLES } from './styles';
       html +=
         '<button class="acu-contest-gen-attr-btn" data-type="' +
         targetType +
-        '" style="padding:2px 6px;background:transparent;border:1px dashed ' +
-        t.accent +
-        ';border-radius:3px;color:' +
-        t.accent +
-        ';font-size:10px;cursor:pointer;display:inline-flex;align-items:center;gap:3px;" title="生成属性"><i class="fa-solid fa-dice"></i></button>';
+        '" title="生成属性"><i class="fa-solid fa-dice"></i></button>';
 
       // 清空属性按钮
       html +=
         '<button class="acu-contest-clear-attr-btn" data-type="' +
         targetType +
-        '" style="padding:2px 6px;background:transparent;border:1px dashed ' +
-        t.errorText +
-        ';border-radius:3px;color:' +
-        t.errorText +
-        ';font-size:10px;cursor:pointer;display:inline-flex;align-items:center;gap:3px;margin-left:4px;" title="清空规则属性"><i class="fa-solid fa-trash-alt" style="font-size:9px;"></i></button>';
+        '" title="清空规则属性"><i class="fa-solid fa-trash-alt"></i></button>';
 
       $container.html(html);
 
@@ -13166,21 +12151,20 @@ import { MAIN_STYLES } from './styles';
     rebuildAttrBtns(oppAttrs, 'opp');
 
     // 初始化下拉菜单
-    initCustomDropdown(panel.find('#contest-init-display'), characterList, t);
-    initCustomDropdown(panel.find('#contest-opponent-display'), characterList, t);
-    initCustomDropdown(panel.find('#contest-init-name'), contestAttrList, t);
-    initCustomDropdown(panel.find('#contest-opp-name'), contestAttrList, t);
+    initCustomDropdown(panel.find('#contest-init-display'), characterList);
+    initCustomDropdown(panel.find('#contest-opponent-display'), characterList);
+    initCustomDropdown(panel.find('#contest-init-name'), contestAttrList);
+    initCustomDropdown(panel.find('#contest-opp-name'), contestAttrList);
     addClearButton(
       panel,
       '#contest-init-display, #contest-init-name, #contest-init-value, #contest-init-target, #contest-opponent-display, #contest-opp-name, #contest-opp-value, #contest-opp-target',
-      t,
     );
 
     // 甲方角色变化时更新属性
     panel.find('#contest-init-display').on('change.acuattr input.acuattr', function () {
       const charName = $(this).val().trim() || '<user>';
       const newAttrList = getAttributesForCharacter(charName);
-      initCustomDropdown(panel.find('#contest-init-name'), newAttrList.length > 0 ? newAttrList : contestAttrList, t);
+      initCustomDropdown(panel.find('#contest-init-name'), newAttrList.length > 0 ? newAttrList : contestAttrList);
       const fullAttrs = getFullAttributesForCharacter(charName);
       rebuildAttrBtns(fullAttrs, 'init');
     });
@@ -13189,7 +12173,7 @@ import { MAIN_STYLES } from './styles';
     panel.find('#contest-opponent-display').on('change.acuattr input.acuattr', function () {
       const charName = $(this).val().trim();
       const newAttrList = getAttributesForCharacter(charName);
-      initCustomDropdown(panel.find('#contest-opp-name'), newAttrList.length > 0 ? newAttrList : contestAttrList, t);
+      initCustomDropdown(panel.find('#contest-opp-name'), newAttrList.length > 0 ? newAttrList : contestAttrList);
       const fullAttrs = getFullAttributesForCharacter(charName);
       rebuildAttrBtns(fullAttrs, 'opp');
     });
@@ -13215,13 +12199,13 @@ import { MAIN_STYLES } from './styles';
     });
 
     // 骰子预设切换
-    panel.find('.acu-contest-preset').click(function () {
+    panel.find('.acu-dice-preset').click(function () {
       const newDice = $(this).data('dice');
       // 自定义按钮有单独处理，这里跳过
       if (newDice === 'custom') return;
 
-      panel.find('.acu-contest-preset').css({ background: t.presetButtonBg || t.btnBg, color: t.textMain });
-      $(this).css({ background: t.presetButtonBgActive || t.accent, color: t.buttonText });
+      panel.find('.acu-dice-preset').removeClass('active');
+      $(this).addClass('active');
       panel.find('#contest-dice-type').val(newDice);
 
       // 保存骰子类型
@@ -13231,8 +12215,8 @@ import { MAIN_STYLES } from './styles';
     // 自定义骰子按钮点击事件
     panel.find('.acu-contest-custom-btn').click(function () {
       // 立即高亮自定义按钮，取消其他按钮高亮
-      panel.find('.acu-contest-preset').css({ background: t.presetButtonBg || t.btnBg, color: t.textMain });
-      $(this).css({ background: t.presetButtonBgActive || t.accent, color: t.buttonText });
+      panel.find('.acu-dice-preset').removeClass('active');
+      $(this).addClass('active');
 
       var customDice = panel.find('#contest-custom-dice').val().trim();
       // 如果输入框为空，聚焦并等待用户输入
@@ -13280,24 +12264,46 @@ import { MAIN_STYLES } from './styles';
     };
 
     const getSuccessLevel = function (roll, target, sides) {
-      const t = getThemeColors();
       if (sides === 100) {
-        if (roll <= 5) return { level: 3, name: '大成功', color: t.critSuccessText };
-        if (roll >= 96) return { level: -1, name: '大失败', color: t.critFailureText };
-        if (roll <= Math.floor(target / 5)) return { level: 2, name: '极难成功', color: t.extremeSuccessText };
-        if (roll <= Math.floor(target / 2)) return { level: 1, name: '困难成功', color: t.successText };
-        if (roll <= target) return { level: 0, name: '普通成功', color: t.warningText };
-        return { level: -1, name: '失败', color: t.failureText };
+        if (roll <= 5) return { level: 3, name: '大成功', color: 'var(--acu-crit-success-text)' };
+        if (roll >= 96) return { level: -1, name: '大失败', color: 'var(--acu-crit-failure-text)' };
+        if (roll <= Math.floor(target / 5))
+          return { level: 2, name: '极难成功', color: 'var(--acu-extreme-success-text)' };
+        if (roll <= Math.floor(target / 2)) return { level: 1, name: '困难成功', color: 'var(--acu-success-text)' };
+        if (roll <= target) return { level: 0, name: '普通成功', color: 'var(--acu-warning-text)' };
+        return { level: -1, name: '失败', color: 'var(--acu-failure-text)' };
       } else {
-        if (roll === 20) return { level: 3, name: '大成功', color: t.critSuccessText };
-        if (roll === 1) return { level: -1, name: '大失败', color: t.critFailureText };
-        if (roll >= target) return { level: 0, name: '成功', color: t.successText };
-        return { level: -1, name: '失败', color: t.failureText };
+        if (roll === 20) return { level: 3, name: '大成功', color: 'var(--acu-crit-success-text)' };
+        if (roll === 1) return { level: -1, name: '大失败', color: 'var(--acu-crit-failure-text)' };
+        if (roll >= target) return { level: 0, name: '成功', color: 'var(--acu-success-text)' };
+        return { level: -1, name: '失败', color: 'var(--acu-failure-text)' };
       }
     };
 
+    let lastContestRollAt = 0;
     // 对抗检定投骰逻辑函数（可被按钮点击和重投按钮调用）
     const performContestRoll = function () {
+      const $btn = panel.find('#contest-roll-btn');
+      const $row = panel.find('.acu-contest-result-row');
+      const now = Date.now();
+      if (now - lastContestRollAt < 100) return;
+      lastContestRollAt = now;
+
+      // 锁定按钮和结果行防止连点
+      if ($btn.prop('disabled') || $row.hasClass('disabled')) return;
+
+      const lockUI = () => {
+        $btn.prop('disabled', true).addClass('disabled');
+        $row.addClass('disabled').css('pointer-events', 'none');
+      };
+      const unlockUI = () => {
+        $btn.prop('disabled', false).removeClass('disabled');
+        $row.removeClass('disabled').css('pointer-events', '');
+      };
+
+      lockUI();
+      setTimeout(unlockUI, 100);
+
       var formula = panel.find('#contest-dice-type').val() || '1d100';
 
       var initName = panel.find('#contest-init-display').val().trim() || '<user>';
@@ -13350,7 +12356,7 @@ import { MAIN_STYLES } from './styles';
       var initSuccess = getSuccessLevel(initResult.total, initTarget, initResult.sides);
       var oppSuccess = getSuccessLevel(oppResult.total, oppTarget, oppResult.sides);
 
-      var winner, winnerColor, resultDesc;
+      var winner, winnerResultType, resultDesc;
       var diceCfg = getDiceConfig();
       var tieRule = diceCfg.contestTieRule || 'initiator_lose';
       var hideDiceResultFromUser =
@@ -13362,25 +12368,25 @@ import { MAIN_STYLES } from './styles';
 
       if (initSuccess.level > oppSuccess.level) {
         winner = initName + ' 胜利';
-        winnerColor = t.successText;
+        winnerResultType = 'success';
         resultDesc = initSuccess.name + ' 胜过 ' + oppSuccess.name;
       } else if (initSuccess.level < oppSuccess.level) {
         winner = oppName + ' 胜利';
-        winnerColor = t.failureText;
+        winnerResultType = 'failure';
         resultDesc = oppSuccess.name + ' 胜过 ' + initSuccess.name;
       } else {
         // 平手情况，根据配置决定结果
         resultDesc = '双方均为 ' + initSuccess.name;
         if (tieRule === 'initiator_win') {
           winner = '平手，' + initName + ' 判胜';
-          winnerColor = t.successText;
+          winnerResultType = 'success';
         } else if (tieRule === 'tie') {
           winner = '双方平手';
-          winnerColor = t.warningText;
+          winnerResultType = 'warning';
         } else {
           // 默认: initiator_lose
           winner = '平手，' + initName + ' 判负';
-          winnerColor = t.failureText;
+          winnerResultType = 'failure';
         }
       }
 
@@ -13401,22 +12407,16 @@ import { MAIN_STYLES } from './styles';
       const initResultType = getResultTypeFromSuccess(initSuccess);
       const oppResultType = getResultTypeFromSuccess(oppSuccess);
 
-      const initBadgeStyle = getResultBadgeStyle(initResultType, t);
-      const oppBadgeStyle = getResultBadgeStyle(oppResultType, t);
-      const winnerBadgeStyle = getResultBadgeStyle(
-        winnerColor === t.successText ? 'success' : winnerColor === t.warningText ? 'warning' : 'failure',
-        t,
-      );
-
-      const initBadgeStyleStr = Object.entries(initBadgeStyle)
-        .map(([k, v]) => `${k}:${v}`)
-        .join(';');
-      const oppBadgeStyleStr = Object.entries(oppBadgeStyle)
-        .map(([k, v]) => `${k}:${v}`)
-        .join(';');
-      const winnerBadgeStyleStr = Object.entries(winnerBadgeStyle)
-        .map(([k, v]) => `${k}:${v}`)
-        .join(';');
+      const initBadgeClass = getResultBadgeClass(initResultType);
+      const oppBadgeClass = getResultBadgeClass(oppResultType);
+      const winnerBadgeClass = getResultBadgeClass(winnerResultType);
+      // 胜者文字颜色类名
+      const winnerColorClass =
+        winnerResultType === 'success'
+          ? 'acu-contest-winner-success'
+          : winnerResultType === 'warning'
+            ? 'acu-contest-winner-warning'
+            : 'acu-contest-winner-failure';
 
       // 显示结果展示区域
       const $resultDisplay = panel.find('#contest-result-display');
@@ -13425,58 +12425,76 @@ import { MAIN_STYLES } from './styles';
 
       // 显示甲方结果
       $resultInit.html(
-        '<span style="font-size:11px;color:' +
-          t.textMain +
-          ';opacity:0.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:60px;">' +
+        '<span class="acu-contest-result-name">' +
           escapeHtml(initName) +
           '</span>' +
-          '<span style="font-size:16px;font-weight:bold;color:' +
-          t.textMain +
-          ';">' +
+          '<span class="acu-contest-result-value">' +
           displayInitValue +
           '</span>' +
-          (displayInitSuccessName
-            ? '<span style="' + initBadgeStyleStr + '">' + displayInitSuccessName + '</span>'
-            : ''),
+          (displayInitSuccessName ? '<span class="' + initBadgeClass + '">' + displayInitSuccessName + '</span>' : ''),
       );
 
       // 显示乙方结果
       $resultOpp.html(
-        (displayOppSuccessName ? '<span style="' + oppBadgeStyleStr + '">' + displayOppSuccessName + '</span>' : '') +
-          '<span style="font-size:16px;font-weight:bold;color:' +
-          t.textMain +
-          ';">' +
+        (displayOppSuccessName ? '<span class="' + oppBadgeClass + '">' + displayOppSuccessName + '</span>' : '') +
+          '<span class="acu-contest-result-value">' +
           displayOppValue +
           '</span>' +
-          '<span style="font-size:11px;color:' +
-          t.textMain +
-          ';opacity:0.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:60px;">' +
+          '<span class="acu-contest-result-name">' +
           escapeHtml(oppName) +
           '</span>',
       );
 
-      $resultDisplay.show();
-
-      // 将按钮内容替换为最终结果显示（和普通检定统一设计）
-      const $contestBtn = panel.find('#contest-roll-btn');
-      $contestBtn.html(
-        '<div style="display:flex; align-items:center; justify-content:center; width:100%; gap:8px;">' +
-          (displayWinner ? '<span style="' + winnerBadgeStyleStr + '">' + displayWinner + '</span>' : '') +
-          '<button class="contest-retry-btn" style="background:transparent; border:none; color:' +
-          t.buttonText +
-          '; cursor:pointer; padding:4px; display:flex; align-items:center; justify-content:center; opacity:0.8; transition:opacity 0.2s;" title="重新投骰">' +
-          '<i class="fa-solid fa-rotate-right"></i>' +
-          '</button>' +
+      // 将结果显示区域改为两行布局：第一行显示双方信息，第二行显示最终结果和重roll按钮
+      $resultDisplay.html(
+        '<div class="acu-contest-result-container" title="点击重新投骰">' +
+          // 第一行：双方名字、点数、检定结果
+          '<div class="acu-contest-result-row">' +
+          '<div class="acu-contest-result-inner">' +
+          '<div id="contest-result-init" class="acu-contest-result-side">' +
+          '<span class="acu-contest-result-name">' +
+          escapeHtml(initName) +
+          '</span>' +
+          '<span class="acu-contest-result-value">' +
+          displayInitValue +
+          '</span>' +
+          (displayInitSuccessName ? '<span class="' + initBadgeClass + '">' + displayInitSuccessName + '</span>' : '') +
+          '</div>' +
+          '<span class="acu-contest-vs">VS</span>' +
+          '<div id="contest-result-opp" class="acu-contest-result-side right">' +
+          (displayOppSuccessName ? '<span class="' + oppBadgeClass + '">' + displayOppSuccessName + '</span>' : '') +
+          '<span class="acu-contest-result-value">' +
+          displayOppValue +
+          '</span>' +
+          '<span class="acu-contest-result-name">' +
+          escapeHtml(oppName) +
+          '</span>' +
+          '</div>' +
+          '</div>' +
+          '</div>' +
+          // 第二行：最终结果 + 重roll箭头
+          '<div class="acu-contest-result-winner-row">' +
+          '<span class="acu-contest-winner-text ' +
+          winnerColorClass +
+          '">' +
+          winner +
+          '</span>' +
+          '<i class="fa-solid fa-rotate-right acu-contest-reroll-icon"></i>' +
+          '</div>' +
           '</div>',
       );
+      $resultDisplay.show();
 
-      // 绑定重投按钮点击事件
-      $contestBtn.off('click', '.contest-retry-btn').on('click', '.contest-retry-btn', function (e) {
+      // 绑定整行点击事件进行重投
+      $resultDisplay.off('click').on('click', function (e) {
         e.stopPropagation();
         e.preventDefault();
-        // 直接调用投骰逻辑函数
         performContestRoll();
       });
+
+      // 隐藏原按钮
+      const $contestBtn = panel.find('#contest-roll-btn');
+      $contestBtn.hide();
 
       const contestResultText =
         `（元叙事：进行了一次【${initName} ${initAttrName} vs ${oppName} ${oppAttrName}】的对抗检定。` +
@@ -13484,6 +12502,36 @@ import { MAIN_STYLES } from './styles';
         `${oppName} ${oppAttrName} (目标${oppTarget}) 掷出 ${oppResult.total}，判定为【${oppSuccess.name}】。` +
         `最终结果：【${winner}】）`;
       smartInsertToTextarea(contestResultText, 'dice');
+
+      // 构建对抗检定结果对象
+      const contestResult: AcuDice.ContestResult = {
+        left: {
+          name: initName,
+          attribute: initAttrName,
+          roll: initResult.total,
+          target: initTarget,
+          successLevel: initSuccess.level,
+        },
+        right: {
+          name: oppName,
+          attribute: oppAttrName,
+          roll: oppResult.total,
+          target: oppTarget,
+          successLevel: oppSuccess.level,
+        },
+        winner: initSuccess.level > oppSuccess.level ? 'left' : initSuccess.level < oppSuccess.level ? 'right' : 'tie',
+        message: winner,
+      };
+
+      // 添加到历史记录
+      const contestResultWithTimestamp = { ...contestResult, timestamp: Date.now() };
+      contestHistory.push(contestResultWithTimestamp);
+      if (contestHistory.length > MAX_HISTORY) {
+        contestHistory.shift();
+      }
+
+      // 触发事件
+      emitEvent('contest', contestResultWithTimestamp);
     };
 
     // 绑定对抗检定按钮点击事件
@@ -13518,6 +12566,9 @@ import { MAIN_STYLES } from './styles';
       overlay.remove();
       panel.remove();
     };
+    panel.on('click', function (e) {
+      e.stopPropagation();
+    });
     overlay.click(closePanel);
     panel.find('.acu-contest-close').click(closePanel);
   };
@@ -14183,7 +13234,6 @@ import { MAIN_STYLES } from './styles';
     $('.acu-relation-graph-overlay').remove();
 
     const config = getConfig();
-    const t = getThemeColors();
 
     const headers = npcTable.headers || [];
     const rows = npcTable.rows || [];
@@ -14850,8 +13900,8 @@ import { MAIN_STYLES } from './styles';
                     <div class="acu-panel-header">
                         <div class="acu-graph-title">
                             <i class="fa-solid fa-project-diagram"></i>
-                            <button class="acu-graph-btn acu-filter-toggle" id="filter-in-scene" title="只显示主角和在场角色" style="margin-left:8px;padding:4px 6px;font-size:12px;"><i class="fa-solid fa-map-marker-alt"></i></button>
-                            <button class="acu-graph-btn acu-filter-toggle" id="filter-direct-only" title="只显示与主角直接相关" style="padding:4px 6px;font-size:12px;"><i class="fa-solid fa-link"></i></button>
+                            <button class="acu-graph-btn acu-filter-toggle acu-graph-filter-btn ml-8" id="filter-in-scene" title="只显示主角和在场角色"><i class="fa-solid fa-map-marker-alt"></i></button>
+                            <button class="acu-graph-btn acu-filter-toggle acu-graph-filter-btn" id="filter-direct-only" title="只显示与主角直接相关"><i class="fa-solid fa-link"></i></button>
                         </div>
                         <div class="acu-graph-actions">
                             <button class="acu-graph-btn" id="graph-relayout" title="重新布局（清除缓存并重新计算节点位置）"><i class="fa-solid fa-sync"></i></button>
@@ -14863,16 +13913,16 @@ import { MAIN_STYLES } from './styles';
                         <svg class="acu-graph-svg" viewBox="0 0 800 600">
                             <defs>
                                 <marker id="arrowhead-end" markerWidth="6" markerHeight="5" refX="5" refY="2.5" orient="auto" markerUnits="strokeWidth">
-                                    <polygon points="0 0, 6 2.5, 0 5" fill="${t.textSub}" />
+                                    <polygon points="0 0, 6 2.5, 0 5" />
                                 </marker>
                                 <marker id="arrowhead-start" markerWidth="6" markerHeight="5" refX="1" refY="2.5" orient="auto" markerUnits="strokeWidth">
-                                    <polygon points="6 0, 0 2.5, 6 5" fill="${t.textSub}" />
+                                    <polygon points="6 0, 0 2.5, 6 5" />
                                 </marker>
                                 <marker id="arrowhead-end-hl" markerWidth="7" markerHeight="6" refX="6" refY="3" orient="auto" markerUnits="strokeWidth">
-                                    <polygon points="0 0, 7 3, 0 6" fill="${t.accent}" />
+                                    <polygon points="0 0, 7 3, 0 6" />
                                 </marker>
                                 <marker id="arrowhead-start-hl" markerWidth="7" markerHeight="6" refX="1" refY="3" orient="auto" markerUnits="strokeWidth">
-                                    <polygon points="7 0, 0 3, 7 6" fill="${t.accent}" />
+                                    <polygon points="7 0, 0 3, 7 6" />
                                 </marker>
                             </defs>
                             <g class="acu-graph-transform">
@@ -14880,43 +13930,25 @@ import { MAIN_STYLES } from './styles';
                                 <g class="acu-graph-nodes"></g>
                             </g>
                         </svg>
-                        <div class="acu-node-size-slider-container" style="
-                            position: absolute;
-                            display: none;
-                            width: 200px;
-                            padding: 10px;
-                            background: ${t.bgPanel};
-                            border: 1px solid ${t.border};
-                            border-radius: 8px;
-                            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-                            z-index: 10;
-                        ">
-                            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-                                <span style="font-size:11px;color:${t.textSub};white-space:nowrap;">节点大小</span>
-                                <span id="slider-size-display" style="font-size:11px;color:${t.accent};font-weight:bold;min-width:35px;text-align:right;">${Math.round(nodeSizeMultiplier * 100)}%</span>
+                        <div class="acu-node-size-slider-container">
+                            <div class="acu-slider-header">
+                                <span class="acu-slider-label">节点大小</span>
+                                <span id="slider-size-display" class="acu-slider-value">${Math.round(nodeSizeMultiplier * 100)}%</span>
                             </div>
-                            <input type="range" id="node-size-slider" min="0.5" max="2.0" step="0.1" value="${nodeSizeMultiplier}" style="
-                                width: 100%;
-                                height: 8px;
-                                border-radius: 4px;
-                                background: ${t.btnBg};
-                                outline: none;
-                                cursor: pointer;
-                                -webkit-appearance: none;
-                            " />
+                            <input type="range" id="node-size-slider" min="0.5" max="2.0" step="0.1" value="${nodeSizeMultiplier}" class="acu-range-input" />
                         </div>
                     </div>
                     <div class="acu-graph-legend">
-                        <button class="acu-graph-btn" id="graph-zoom-reset" title="重置视图和节点大小" style="width:auto;height:auto;padding:4px 10px;font-size:11px;display:flex;align-items:center;gap:4px;"><i class="fa-solid fa-compress-arrows-alt"></i><span>重置</span></button>
-                        <div class="acu-node-size-stepper-wrapper" style="display:flex;align-items:center;justify-content:center;gap:6px;">
+                        <button class="acu-graph-btn acu-graph-reset-btn" id="graph-zoom-reset" title="重置视图和节点大小"><i class="fa-solid fa-compress-arrows-alt"></i><span>重置</span></button>
+                        <div class="acu-node-size-stepper-wrapper acu-node-size-wrapper">
                             <span style="font-size:11px;color:var(--acu-text-sub);white-space:nowrap;">节点:</span>
-                            <div class="acu-stepper" data-id="graph-node-size" data-min="50" data-max="200" data-step="10" style="display:flex;align-items:center;">
+                            <div class="acu-stepper acu-stepper-container" data-id="graph-node-size" data-min="50" data-max="200" data-step="10">
                                 <button class="acu-stepper-btn acu-stepper-dec"><i class="fa-solid fa-minus"></i></button>
-                                <span class="acu-stepper-value" id="node-size-display" style="display:flex;align-items:center;justify-content:center;">${Math.round(nodeSizeMultiplier * 100)}%</span>
+                                <span class="acu-stepper-value acu-stepper-value-display" id="node-size-display">${Math.round(nodeSizeMultiplier * 100)}%</span>
                                 <button class="acu-stepper-btn acu-stepper-inc"><i class="fa-solid fa-plus"></i></button>
                             </div>
                         </div>
-                        <span class="acu-zoom-display" style="display:flex;align-items:center;gap:4px;color:var(--acu-text-sub);font-size:11px;">
+                        <span class="acu-zoom-display acu-zoom-info">
                             <span>视图:</span>
                             <span>${Math.round(scale * 100)}%</span>
                         </span>
@@ -15786,16 +14818,8 @@ import { MAIN_STYLES } from './styles';
     const $filterDirectOnlyBtn = overlay.find('#filter-direct-only');
 
     const updateFilterToggleStyles = () => {
-      $filterInSceneBtn.css({
-        background: filterInScene ? t.accent : t.btnBg,
-        color: filterInScene ? t.btnActiveText : t.textMain,
-        borderColor: filterInScene ? t.accent : t.border,
-      });
-      $filterDirectOnlyBtn.css({
-        background: filterDirectOnly ? t.accent : t.btnBg,
-        color: filterDirectOnly ? t.btnActiveText : t.textMain,
-        borderColor: filterDirectOnly ? t.accent : t.border,
-      });
+      $filterInSceneBtn.toggleClass('active', filterInScene);
+      $filterDirectOnlyBtn.toggleClass('active', filterDirectOnly);
     };
 
     // 初始化按钮样式
@@ -15925,7 +14949,6 @@ import { MAIN_STYLES } from './styles';
     $('.acu-crop-modal-overlay').remove();
 
     const config = getConfig();
-    const t = getThemeColors();
 
     // 初始参数
     let scale = 150;
@@ -15961,7 +14984,7 @@ import { MAIN_STYLES } from './styles';
                     <div class="acu-crop-footer">
                         <label class="acu-crop-btn acu-crop-reupload" title="重新上传">
                             <i class="fa-solid fa-camera"></i>
-                            <input type="file" accept="image/*" class="acu-crop-file-input" style="display:none;" />
+                            <input type="file" accept="image/*" class="acu-crop-file-input" />
                         </label>
                         <button class="acu-crop-btn acu-crop-cancel">取消</button>
                         <button class="acu-crop-btn acu-crop-confirm"><i class="fa-solid fa-check"></i> 确定</button>
@@ -15972,21 +14995,6 @@ import { MAIN_STYLES } from './styles';
 
     const $modal = $(modalHtml);
     $('body').append($modal);
-
-    // 强制样式确保居中（复用其他弹窗的可靠方式）
-    $modal.css({
-      position: 'fixed',
-      top: '0',
-      left: '0',
-      right: '0',
-      bottom: '0',
-      width: '100vw',
-      height: '100vh',
-      display: 'flex',
-      'align-items': 'center',
-      'justify-content': 'center',
-      'z-index': '31310',
-    });
 
     const $image = $modal.find('.acu-crop-image');
     const $container = $modal.find('.acu-crop-container');
@@ -16178,7 +15186,6 @@ import { MAIN_STYLES } from './styles';
       $('.acu-avatar-manager-overlay').remove();
 
       const config = getConfig();
-      const t = getThemeColors();
       const avatars = AvatarManager.getAll();
 
       // 统一解析用户占位符为{{user}}主键（用于头像管理界面）
@@ -16259,7 +15266,7 @@ import { MAIN_STYLES } from './styles';
           listHtml += `
                     <div class="acu-avatar-item" data-name="${escapeHtml(userNodeForDisplay.name)}" data-has-local="${hasLocal}" data-display-url="${escapeHtml(displayUrl)}">
                         <div class="acu-avatar-preview-wrap">
-                            <div class="acu-avatar-preview ${hasAvatar ? 'has-image' : ''}" style="${hasAvatar ? `background-image: url('${displayUrl}'); background-position: ${data.offsetX ?? 50}% ${data.offsetY ?? 50}%; background-size: ${data.scale ?? 150}%;` : ''}">
+                            <div class="acu-avatar-preview ${hasAvatar ? 'has-image' : ''}" data-avatar-url="${escapeHtml(displayUrl)}" data-avatar-x="${data.offsetX ?? 50}" data-avatar-y="${data.offsetY ?? 50}" data-avatar-scale="${data.scale ?? 150}">
                                 ${!hasAvatar ? `<span>${escapeHtml(userNodeForDisplay.name.charAt(0))}</span><i class="fa-solid fa-camera acu-avatar-camera-hint"></i>` : ''}
                             </div>
                             ${sourceLabel}
@@ -16274,7 +15281,7 @@ import { MAIN_STYLES } from './styles';
                             </div>
                             <input type="text" class="acu-avatar-url" placeholder="粘贴URL..." value="${escapeHtml(currentUrl)}" />
                             <input type="text" class="acu-avatar-aliases" placeholder="别名（逗号分隔）..." value="${escapeHtml(aliases)}" title="例如: 睦, 睦头" />
-                            <input type="file" accept="image/*" class="acu-avatar-file-input" style="display:none;" />
+                            <input type="file" accept="image/*" class="acu-avatar-file-input" />
                         </div>
                     </div>
                 `;
@@ -16304,7 +15311,7 @@ import { MAIN_STYLES } from './styles';
           listHtml += `
                     <div class="acu-avatar-item" data-name="${escapeHtml(node.name)}" data-has-local="${hasLocal}" data-display-url="${escapeHtml(displayUrl)}">
                         <div class="acu-avatar-preview-wrap">
-                            <div class="acu-avatar-preview ${hasAvatar ? 'has-image' : ''}" style="${hasAvatar ? `background-image: url('${displayUrl}'); background-position: ${data.offsetX ?? 50}% ${data.offsetY ?? 50}%; background-size: ${data.scale ?? 150}%;` : ''}">
+                            <div class="acu-avatar-preview ${hasAvatar ? 'has-image' : ''}" data-avatar-url="${escapeHtml(displayUrl)}" data-avatar-x="${data.offsetX ?? 50}" data-avatar-y="${data.offsetY ?? 50}" data-avatar-scale="${data.scale ?? 150}">
                                 ${!hasAvatar ? `<span>${escapeHtml(node.name.charAt(0))}</span><i class="fa-solid fa-camera acu-avatar-camera-hint"></i>` : ''}
                             </div>
                             ${sourceLabel}
@@ -16319,7 +15326,7 @@ import { MAIN_STYLES } from './styles';
                             </div>
                             <input type="text" class="acu-avatar-url" placeholder="粘贴URL..." value="${escapeHtml(currentUrl)}" />
                             <input type="text" class="acu-avatar-aliases" placeholder="别名（逗号分隔）..." value="${escapeHtml(aliases)}" title="例如: 睦, 睦头" />
-                            <input type="file" accept="image/*" class="acu-avatar-file-input" style="display:none;" />
+                            <input type="file" accept="image/*" class="acu-avatar-file-input" />
                         </div>
                     </div>
                 `;
@@ -16328,25 +15335,42 @@ import { MAIN_STYLES } from './styles';
         return listHtml;
       };
 
+      const applyAvatarPreviewStyles = $root => {
+        $root.find('.acu-avatar-preview').each(function () {
+          const $preview = $(this);
+          const url = $preview.attr('data-avatar-url');
+          if (!url) return;
+          const offsetX = Number($preview.attr('data-avatar-x') || 50);
+          const offsetY = Number($preview.attr('data-avatar-y') || 50);
+          const scale = Number($preview.attr('data-avatar-scale') || 150);
+          $preview.css({
+            '--acu-avatar-image': `url('${url}')`,
+            '--acu-avatar-x': `${offsetX}%`,
+            '--acu-avatar-y': `${offsetY}%`,
+            '--acu-avatar-scale': `${scale}%`,
+          });
+        });
+      };
+
       // 先显示加载状态
       const managerHtml = `
             <div class="acu-avatar-manager-overlay acu-theme-${config.theme}">
                 <div class="acu-avatar-manager">
                     <div class="acu-panel-header">
                         <div class="acu-avatar-title"><i class="fa-solid fa-user-circle"></i> 头像管理</div>
-                        <div style="display:flex;gap:4px;align-items:center;">
+                        <div class="acu-avatar-header-actions">
                             <button class="acu-avatar-import-btn" title="导入"><i class="fa-solid fa-file-import"></i></button>
                             <button class="acu-avatar-export-btn" title="导出"><i class="fa-solid fa-file-export"></i></button>
                             <button class="acu-avatar-close"><i class="fa-solid fa-times"></i></button>
                         </div>
                     </div>
                     <div class="acu-avatar-list" id="acu-avatar-list-container">
-                        <div style="text-align:center;padding:20px;color:${t.textSub};">
+                        <div class="acu-import-empty">
                             <i class="fa-solid fa-spinner fa-spin"></i> 加载中...
                         </div>
                     </div>
                 </div>
-                <input type="file" id="acu-avatar-file-input" accept=".json" style="display:none;" />
+                <input type="file" id="acu-avatar-file-input" accept=".json" />
             </div>
         `;
 
@@ -16356,6 +15380,7 @@ import { MAIN_STYLES } from './styles';
       // 异步加载列表
       buildList().then(listHtml => {
         $manager.find('#acu-avatar-list-container').html(listHtml);
+        applyAvatarPreviewStyles($manager);
         bindAvatarEvents();
       });
 
@@ -16383,10 +15408,15 @@ import { MAIN_STYLES } from './styles';
         if (displayUrl) {
           $preview
             .addClass('has-image')
+            .attr('data-avatar-url', displayUrl)
+            .attr('data-avatar-x', data.offsetX ?? 50)
+            .attr('data-avatar-y', data.offsetY ?? 50)
+            .attr('data-avatar-scale', data.scale ?? 150)
             .css({
-              'background-image': `url('${displayUrl}')`,
-              'background-position': `${data.offsetX ?? 50}% ${data.offsetY ?? 50}%`,
-              'background-size': `${data.scale ?? 150}%`,
+              '--acu-avatar-image': `url('${displayUrl}')`,
+              '--acu-avatar-x': `${data.offsetX ?? 50}%`,
+              '--acu-avatar-y': `${data.offsetY ?? 50}%`,
+              '--acu-avatar-scale': `${data.scale ?? 150}%`,
             })
             .find('span')
             .remove();
@@ -16394,7 +15424,16 @@ import { MAIN_STYLES } from './styles';
         } else {
           $preview
             .removeClass('has-image')
-            .css({ 'background-image': '', 'background-position': '', 'background-size': '' })
+            .attr('data-avatar-url', '')
+            .attr('data-avatar-x', 50)
+            .attr('data-avatar-y', 50)
+            .attr('data-avatar-scale', 150)
+            .css({
+              '--acu-avatar-image': '',
+              '--acu-avatar-x': '',
+              '--acu-avatar-y': '',
+              '--acu-avatar-scale': '',
+            })
             .html(
               `<span>${escapeHtml(name.charAt(0))}</span><i class="fa-solid fa-camera acu-avatar-camera-hint"></i>`,
             );
@@ -16616,32 +15655,31 @@ import { MAIN_STYLES } from './styles';
   };
 
   // 手动更新确认弹窗
-  const showManualUpdateConfirmDialog = (): void => {
+  const showManualUpdateDialog = () => {
     const { $ } = getCore();
     $('.acu-manual-update-overlay').remove();
 
     const config = getConfig();
-    const t = getThemeColors();
 
     const dialogHtml = `
     <div class="acu-manual-update-overlay acu-theme-${config.theme}">
-      <div class="acu-manual-update-dialog" style="background:${t.bgPanel};border-color:${t.border};">
-        <div class="acu-manual-update-header" style="background:${t.tableHead};color:${t.textMain};border-color:${t.border};">
+      <div class="acu-manual-update-dialog" style="background:var(--acu-bg-panel);border-color:var(--acu-border);">
+        <div class="acu-manual-update-header" style="background:var(--acu-table-head);color:var(--acu-text-main);border-color:var(--acu-border);">
           <i class="fa-solid fa-rotate"></i> 手动更新
         </div>
-        <div class="acu-manual-update-body" style="color:${t.textMain};">
-          <p style="color:${t.textMain};">将清理脚本缓存并刷新页面，以获取最新版本。</p>
-          <div class="acu-manual-update-safe-box" style="background:${t.btnBg};border:1px solid ${t.border};">
-            <i class="fa-solid fa-shield-check" style="color:${t.accent};"></i>
+        <div class="acu-manual-update-body" style="color:var(--acu-text-main);">
+          <p style="color:var(--acu-text-main);">将清理脚本缓存并刷新页面，以获取最新版本。</p>
+          <div class="acu-manual-update-safe-box" style="background:var(--acu-btn-bg);border:1px solid var(--acu-border);">
+            <i class="fa-solid fa-shield-check" style="color:var(--acu-accent);"></i>
             <div class="safe-text">
-              <strong style="color:${t.textMain};">数据安全</strong>
-              <span style="color:${t.textSub};">您的自定义规则、预设、正则转换、黑名单等数据存储在本地游览器中，不会受到影响。</span>
+              <strong style="color:var(--acu-text-main);">数据安全</strong>
+              <span style="color:var(--acu-text-sub);">您的自定义规则、预设、正则转换、黑名单等数据存储在本地游览器中，不会受到影响。</span>
             </div>
           </div>
         </div>
-        <div class="acu-manual-update-footer" style="background:${t.tableHead};border-color:${t.border};">
-          <button class="acu-manual-update-cancel-btn" style="background:${t.btnBg};color:${t.textSub};border-color:${t.border};">取消</button>
-          <button class="acu-manual-update-confirm-btn" style="background:${t.accent};color:${t.btnActiveText};">立即更新</button>
+        <div class="acu-manual-update-footer" style="background:var(--acu-table-head);border-color:var(--acu-border);">
+          <button class="acu-manual-update-cancel-btn" style="background:var(--acu-btn-bg);color:var(--acu-text-sub);border-color:var(--acu-border);">取消</button>
+          <button class="acu-manual-update-confirm-btn" style="background:var(--acu-accent);color:var(--acu-btn-active-text);">立即更新</button>
         </div>
       </div>
     </div>
@@ -16683,13 +15721,12 @@ import { MAIN_STYLES } from './styles';
     const { $ } = getCore();
     $('.acu-import-confirm-overlay').remove();
 
-    const t = getThemeColors();
     const config = getConfig();
 
     const hasConflicts = analysis.conflicts.length > 0;
     const conflictListHtml =
       analysis.conflicts.length > 0
-        ? `<div style="max-height:80px;overflow-y:auto;background:rgba(0,0,0,0.1);border-radius:4px;padding:6px 8px;margin-top:6px;font-size:11px;color:${t.textSub};">${analysis.conflicts.map(n => escapeHtml(n)).join(', ')}</div>`
+        ? `<div style="max-height:80px;overflow-y:auto;background:rgba(0,0,0,0.1);border-radius:4px;padding:6px 8px;margin-top:6px;font-size:11px;color:var(--acu-text-sub);">${analysis.conflicts.map(n => escapeHtml(n)).join(', ')}</div>`
         : '';
 
     const dialogHtml = `
@@ -16718,8 +15755,8 @@ import { MAIN_STYLES } from './styles';
                           hasConflicts
                             ? `
                             <div class="acu-import-conflict-section">
-                                <div style="font-size:12px;font-weight:bold;color:${t.textMain};margin-bottom:4px;">
-                                    <i class="fa-solid fa-exclamation-triangle" style="color:${t.warningIcon};"></i> 以下角色已存在：
+                                <div class="acu-import-warning">
+                                    <i class="fa-solid fa-exclamation-triangle"></i> 以下角色已存在：
                                 </div>
                                 ${conflictListHtml}
                                 <div class="acu-import-conflict-options">
@@ -16735,7 +15772,7 @@ import { MAIN_STYLES } from './styles';
                             </div>
                         `
                             : `
-                            <div style="text-align:center;padding:10px;color:${t.successText};">
+                            <div class="acu-import-success">
                                 <i class="fa-solid fa-check-circle"></i> 无冲突，可直接导入
                             </div>
                         `
@@ -16807,10 +15844,9 @@ import { MAIN_STYLES } from './styles';
         const val = cell || '';
         // 自动高度的 textarea
         return `
-                <div class="acu-card-edit-field" style="margin-bottom: 10px;">
-                    <label style="display:block;font-size:12px;color:var(--acu-accent);font-weight:bold;margin-bottom:4px;">${escapeHtml(headerName)}</label>
-                    <textarea class="acu-card-edit-input acu-edit-textarea" data-col="${idx}" spellcheck="false" rows="1"
-                    style="width:100%;min-height:40px;max-height:500px;padding:10px;resize:none;overflow-y:hidden;">${escapeHtml(val)}</textarea>
+                <div class="acu-card-edit-field">
+                    <label class="acu-card-edit-label">${escapeHtml(headerName)}</label>
+                    <textarea class="acu-card-edit-input acu-card-edit-textarea" data-col="${idx}" spellcheck="false" rows="1">${escapeHtml(val)}</textarea>
                 </div>`;
       })
       .join('');
@@ -16819,7 +15855,7 @@ import { MAIN_STYLES } from './styles';
             <div class="acu-edit-overlay">
                 <div class="acu-edit-dialog acu-theme-${config.theme}">
                     <div class="acu-edit-title">整体编辑 (#${rowIndex + 1} - ${escapeHtml(tableName)})</div>
-                    <div class="acu-settings-content" style="flex:1; overflow-y:auto; padding:15px;">
+                    <div class="acu-settings-content acu-settings-content-scroll">
                         ${inputsHtml}
                     </div>
                      <div class="acu-dialog-btns">
@@ -16909,6 +15945,7 @@ import { MAIN_STYLES } from './styles';
     _configCache = { ...getConfig(), ...newCfg };
     Store.set(STORAGE_KEY_UI_CONFIG, _configCache);
     applyConfigStyles(_configCache);
+    injectDatabaseStyles(_configCache.theme);
   };
 
   const generateDiffMap = currentData => {
@@ -19643,8 +18680,6 @@ import { MAIN_STYLES } from './styles';
   const showBlacklistManagerModal = () => {
     const { $ } = getCore();
     const config = getConfig();
-    const theme = getThemeColors();
-    const t = theme;
 
     $('.acu-blacklist-manager-overlay').remove();
 
@@ -19655,28 +18690,28 @@ import { MAIN_STYLES } from './styles';
         <div class="acu-edit-dialog acu-theme-${config.theme}" style="max-width: 600px; width: 90%;">
           <div class="acu-edit-title" style="position: relative;">
             <i class="fa-solid fa-filter"></i> 变量过滤黑名单管理
-            <button class="acu-close-btn" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); background: none; border: none; color: ${t.textMain}; cursor: pointer; font-size: 18px; z-index: 10;">
+            <button class="acu-close-btn" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--acu-text-main); cursor: pointer; font-size: 18px; z-index: 10;">
               <i class="fa-solid fa-times"></i>
             </button>
           </div>
           <div class="acu-settings-content" style="flex: 1; overflow-y: auto; padding: 20px;">
             <div style="margin-bottom: 15px;">
-              <div style="margin-bottom: 8px; font-size: 12px; color: ${t.textSub};">
+              <div style="margin-bottom: 8px; font-size: 12px; color: var(--acu-text-sub);">
                 黑名单中的关键词对应的最下层变量名或列名将不会显示快捷骰子图标
               </div>
-              <textarea id="blacklist-textarea" style="width: 100%; min-height: 120px; max-height: 300px; padding: 10px !important; border: 1px solid ${t.border} !important; border-radius: 4px !important; background: ${t.inputBg} !important; color: ${t.textMain} !important; font-size: 13px !important; box-sizing: border-box !important; resize: vertical; font-family: monospace; line-height: 1.5;" placeholder="输入关键词，用逗号分隔（支持中英文逗号）"></textarea>
+              <textarea id="blacklist-textarea" style="width: 100%; min-height: 120px; max-height: 300px; padding: 10px !important; border: 1px solid var(--acu-border) !important; border-radius: 4px !important; background: var(--acu-input-bg) !important; color: var(--acu-text-main) !important; font-size: 13px !important; box-sizing: border-box !important; resize: vertical; font-family: monospace; line-height: 1.5;" placeholder="输入关键词，用逗号分隔（支持中英文逗号）"></textarea>
               <div style="display: flex; gap: 8px; margin-top: 8px; flex-wrap: nowrap;">
-                <input type="text" id="blacklist-input" placeholder="输入关键词..." style="flex: 1; min-width: 0; padding: 8px !important; border: 1px solid ${t.border} !important; border-radius: 4px !important; background: ${t.inputBg} !important; color: ${t.textMain} !important; font-size: 13px !important; box-sizing: border-box !important;">
-                <button id="blacklist-add-btn" style="padding: 8px 16px; background: ${t.accent}; color: ${t.buttonTextOnAccent || t.textMain || '#6B4A5A'}; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; white-space: nowrap; flex-shrink: 0;">
+                <input type="text" id="blacklist-input" placeholder="输入关键词..." style="flex: 1; min-width: 0; padding: 8px !important; border: 1px solid var(--acu-border) !important; border-radius: 4px !important; background: var(--acu-input-bg) !important; color: var(--acu-text-main) !important; font-size: 13px !important; box-sizing: border-box !important;">
+                <button id="blacklist-add-btn" style="padding: 8px 16px; background: var(--acu-accent); color: var(--acu-btn-active-text); border: none; border-radius: 4px; cursor: pointer; font-size: 13px; white-space: nowrap; flex-shrink: 0;">
                   <i class="fa-solid fa-plus"></i> 添加
                 </button>
               </div>
             </div>
             <div style="display: flex; gap: 8px; margin-top: 15px;">
-              <button id="blacklist-reset-btn" style="flex: 1; padding: 10px; background: ${t.btnBg}; color: ${t.textMain}; border: 1px solid ${t.border}; border-radius: 4px; cursor: pointer; font-size: 13px;">
+              <button id="blacklist-reset-btn" style="flex: 1; padding: 10px; background: var(--acu-btn-bg); color: var(--acu-text-main); border: 1px solid var(--acu-border); border-radius: 4px; cursor: pointer; font-size: 13px;">
                 <i class="fa-solid fa-undo"></i> 重置为默认
               </button>
-              <button id="blacklist-close-btn" style="flex: 1; padding: 10px; background: ${t.accent}; color: ${t.buttonTextOnAccent || t.textMain || '#6B4A5A'}; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
+              <button id="blacklist-close-btn" style="flex: 1; padding: 10px; background: var(--acu-accent); color: var(--acu-btn-active-text); border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
                 <i class="fa-solid fa-check"></i> 完成
               </button>
             </div>
@@ -19807,7 +18842,6 @@ import { MAIN_STYLES } from './styles';
     $('.acu-edit-overlay').remove();
 
     const config = getConfig();
-    const t = getThemeColors();
     const presets = AttributePresetManager.getAllPresets();
     const activeId = Store.get(STORAGE_KEY_ACTIVE_ATTR_PRESET, null);
 
@@ -19818,20 +18852,22 @@ import { MAIN_STYLES } from './styles';
         <div class="acu-preset-info">
           <div class="acu-preset-name">
             六维属性百分制
-            <span style="font-size: 10px; color: ${t.textSub}; margin-left: 6px;">(默认)</span>
+            <span style="font-size: 10px; color: var(--acu-text-sub); margin-left: 6px;">(默认)</span>
           </div>
           <div class="acu-preset-desc">使用百分制生成六维基础属性（力量、敏捷、体质、智力、感知、魅力），范围5-95</div>
           <div class="acu-preset-stats">
             基础属性: 6 | 特别属性: 0
           </div>
         </div>
-        <div class="acu-preset-actions" style="display: flex; align-items: center; gap: 8px;">
-          <label class="acu-toggle" style="margin: 0;">
-            <input type="checkbox" class="acu-preset-toggle" data-id="__default__" ${isDefaultActive ? 'checked' : ''}>
-            <span class="acu-toggle-slider"></span>
-          </label>
+<div class="acu-preset-actions" style="display: flex; align-items: center; gap: 8px;">
+            <label class="acu-toggle" style="margin: 0;">
+              <input type="checkbox" class="acu-preset-toggle" data-id="__default__" ${isDefaultActive ? 'checked' : ''}>
+              <span class="acu-toggle-slider"></span>
+            </label>
+            <button class="acu-preset-btn acu-preset-copy" data-id="__default__" title="复制为自定义预设"><i class="fa-solid fa-copy"></i></button>
+            <button class="acu-preset-btn acu-preset-export" data-id="__default__" title="导出"><i class="fa-solid fa-download"></i></button>
+          </div>
         </div>
-      </div>
     `;
 
     // 生成预设列表HTML
@@ -19845,7 +18881,7 @@ import { MAIN_STYLES } from './styles';
           <div class="acu-preset-info">
             <div class="acu-preset-name">
               ${escapeHtml(preset.name)}
-              ${isBuiltin ? `<span style="font-size: 10px; color: ${t.textSub}; margin-left: 6px;">(内置)</span>` : ''}
+              ${isBuiltin ? `<span style="font-size: 10px; color: var(--acu-text-sub); margin-left: 6px;">(内置)</span>` : ''}
             </div>
             ${preset.description ? `<div class="acu-preset-desc">${escapeHtml(preset.description)}</div>` : ''}
             <div class="acu-preset-stats">
@@ -19857,9 +18893,13 @@ import { MAIN_STYLES } from './styles';
               <input type="checkbox" class="acu-preset-toggle" data-id="${preset.id}" ${isActive ? 'checked' : ''}>
               <span class="acu-toggle-slider"></span>
             </label>
-            ${!isBuiltin ? `<button class="acu-preset-btn acu-preset-edit" data-id="${preset.id}" title="编辑"><i class="fa-solid fa-pen"></i></button>` : ''}
+            ${
+              isBuiltin
+                ? `<button class="acu-preset-btn acu-preset-copy" data-id="${preset.id}" title="复制为自定义预设"><i class="fa-solid fa-copy"></i></button>`
+                : `<button class="acu-preset-btn acu-preset-edit" data-id="${preset.id}" title="编辑"><i class="fa-solid fa-pen"></i></button>`
+            }
             <button class="acu-preset-btn acu-preset-export" data-id="${preset.id}" title="导出"><i class="fa-solid fa-download"></i></button>
-            ${!isBuiltin ? `<button class="acu-preset-btn acu-preset-delete" data-id="${preset.id}" title="删除" style="color: #e74c3c;"><i class="fa-solid fa-trash"></i></button>` : ''}
+            ${!isBuiltin ? `<button class="acu-preset-btn acu-preset-delete" data-id="${preset.id}" title="删除" style="color: var(--acu-error-text);"><i class="fa-solid fa-trash"></i></button>` : ''}
           </div>
         </div>
       `;
@@ -19872,27 +18912,27 @@ import { MAIN_STYLES } from './styles';
     const overlay = $(`
       <div class="acu-edit-overlay">
         <div class="acu-edit-dialog acu-theme-${config.theme}" style="width: 600px; max-width: 92vw; max-height: 80vh;">
-          <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px solid ${t.border};">
-            <div style="font-size: 16px; font-weight: bold; color: ${t.textMain};">
-              <i class="fa-solid fa-dice-d20"></i> 属性规则预设管理
+          <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px solid var(--acu-border);">
+            <div style="font-size: 16px; font-weight: bold; color: var(--acu-text-main);">
+              <i class="fa-solid fa-dice-d20"></i> 自定义属性规则管理
             </div>
             <button class="acu-close-btn"><i class="fa-solid fa-times"></i></button>
           </div>
 
           <div style="flex: 1; overflow-y: auto; padding: 12px 0;">
             <div id="acu-presets-list">
-              ${allPresetsHtml || `<div style="text-align: center; padding: 40px; color: ${t.textSub};">暂无预设</div>`}
+              ${allPresetsHtml || `<div style="text-align: center; padding: 40px; color: var(--acu-text-sub);">暂无预设</div>`}
             </div>
           </div>
 
-          <div style="display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid ${t.border};">
-            <button id="acu-preset-new" style="flex: 1; padding: 10px; background: ${t.buttonBg || t.accent}; border: none; border-radius: 6px; color: ${t.buttonText}; cursor: pointer; font-size: 13px;">
+          <div style="display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--acu-border);">
+            <button id="acu-preset-new" style="flex: 1; padding: 10px; background: var(--acu-accent); border: none; border-radius: 6px; color: var(--acu-btn-active-text); cursor: pointer; font-size: 13px;">
               <i class="fa-solid fa-plus"></i> 新建预设
             </button>
-            <button id="acu-preset-import" style="flex: 1; padding: 10px; background: ${t.btnBg}; border: 1px solid ${t.border}; border-radius: 6px; color: ${t.textMain}; cursor: pointer; font-size: 13px;">
+            <button id="acu-preset-import" style="flex: 1; padding: 10px; background: var(--acu-btn-bg); border: 1px solid var(--acu-border); border-radius: 6px; color: var(--acu-text-main); cursor: pointer; font-size: 13px;">
               <i class="fa-solid fa-file-import"></i> 导入
             </button>
-            <button id="acu-preset-back" style="padding: 10px 16px; background: ${t.btnBg}; border: 1px solid ${t.border}; border-radius: 6px; color: ${t.textMain}; cursor: pointer; font-size: 13px;">
+            <button id="acu-preset-back" style="padding: 10px 16px; background: var(--acu-btn-bg); border: 1px solid var(--acu-border); border-radius: 6px; color: var(--acu-text-main); cursor: pointer; font-size: 13px;">
               <i class="fa-solid fa-arrow-left"></i> 返回
             </button>
           </div>
@@ -19945,14 +18985,39 @@ import { MAIN_STYLES } from './styles';
     // 导出预设
     overlay.on('click', '.acu-preset-export', function () {
       const id = $(this).data('id');
-      const json = AttributePresetManager.exportPreset(id);
-      if (!json) {
-        if (window.toastr) window.toastr.error('导出失败');
-        return;
+
+      let json;
+      let filename;
+
+      if (id === '__default__') {
+        // 导出默认预设（六维属性百分制）
+        const STANDARD_ATTRS = ['力量', '敏捷', '体质', '智力', '感知', '魅力'];
+        const defaultPresetData = {
+          format: 'acu_attr_preset_v1',
+          version: PRESET_FORMAT_VERSION,
+          id: 'default_percentile',
+          name: '六维属性百分制',
+          description: '使用百分制生成六维基础属性（力量、敏捷、体质、智力、感知、魅力），范围5-95',
+          baseAttributes: STANDARD_ATTRS.map(name => ({
+            name,
+            formula: '3d6*5',
+            range: [15, 90],
+            modifier: '1d10-5',
+          })),
+          specialAttributes: [],
+        };
+        json = JSON.stringify(defaultPresetData, null, 2);
+        filename = `acu_preset_六维属性百分制_${Date.now()}.json`;
+      } else {
+        json = AttributePresetManager.exportPreset(id);
+        if (!json) {
+          if (window.toastr) window.toastr.error('导出失败');
+          return;
+        }
+        const preset = presets.find(p => p.id === id);
+        filename = `acu_preset_${preset?.name || id}_${Date.now()}.json`;
       }
 
-      const preset = presets.find(p => p.id === id);
-      const filename = `acu_preset_${preset?.name || id}_${Date.now()}.json`;
       const blob = new Blob([json], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -19977,6 +19042,47 @@ import { MAIN_STYLES } from './styles';
         } else {
           if (window.toastr) window.toastr.error('删除失败');
         }
+      }
+    });
+
+    // 复制预设为自定义预设
+    overlay.on('click', '.acu-preset-copy', function () {
+      const id = $(this).data('id');
+
+      let copyData;
+      if (id === '__default__') {
+        // 复制默认预设（六维属性百分制）
+        // 使用与内置预设相同的数据结构：formula + range + modifier
+        const STANDARD_ATTRS = ['力量', '敏捷', '体质', '智力', '感知', '魅力'];
+        copyData = {
+          name: '六维属性百分制 (副本)',
+          description: '使用百分制生成六维基础属性（力量、敏捷、体质、智力、感知、魅力），范围5-95',
+          baseAttributes: STANDARD_ATTRS.map(name => ({
+            name,
+            formula: '3d6*5',
+            range: [15, 90],
+            modifier: '1d10-5',
+          })),
+          specialAttributes: [],
+        };
+      } else {
+        // 复制内置预设
+        const preset = presets.find(p => p.id === id);
+        if (!preset) return;
+
+        copyData = {
+          name: preset.name + ' (副本)',
+          description: preset.description || '',
+          baseAttributes: JSON.parse(JSON.stringify(preset.baseAttributes)),
+          specialAttributes: JSON.parse(JSON.stringify(preset.specialAttributes || [])),
+        };
+      }
+
+      const newPreset = AttributePresetManager.createPreset(copyData);
+      if (newPreset) {
+        if (window.toastr) window.toastr.success(`已创建副本：${newPreset.name}`);
+        overlay.remove();
+        showAttributePresetManager(); // 刷新列表
       }
     });
 
@@ -20081,7 +19187,6 @@ import { MAIN_STYLES } from './styles';
     $('.acu-edit-overlay').remove();
 
     const config = getConfig();
-    const t = getThemeColors();
     const isEdit = !!presetId;
     const existingPreset = isEdit ? AttributePresetManager.getAllPresets().find(p => p.id === presetId) : null;
 
@@ -20103,8 +19208,8 @@ import { MAIN_STYLES } from './styles';
     const overlay = $(`
       <div class="acu-edit-overlay">
         <div class="acu-edit-dialog acu-theme-${config.theme}" style="width: 650px; max-width: 95vw; max-height: 85vh;">
-          <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px solid ${t.border};">
-            <div style="font-size: 16px; font-weight: bold; color: ${t.textMain};">
+          <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px solid var(--acu-border);">
+            <div style="font-size: 16px; font-weight: bold; color: var(--acu-text-main);">
               <i class="fa-solid fa-pen"></i> ${isEdit ? '编辑' : '新建'}规则预设
             </div>
             <button class="acu-close-btn"><i class="fa-solid fa-times"></i></button>
@@ -20112,23 +19217,23 @@ import { MAIN_STYLES } from './styles';
 
           <div style="flex: 1; overflow-y: auto; padding: 12px 0;">
             <div style="margin-bottom: 16px;">
-              <label style="display: block; font-size: 12px; color: ${t.textSub}; margin-bottom: 4px;">预设名称</label>
-              <input id="preset-name" type="text" value="${escapeHtml(defaultData.name)}" class="acu-preset-editor-input" style="width: 100%; padding: 8px; border: 1px solid ${t.border} !important; border-radius: 6px; background: ${t.inputBg} !important; color: ${t.textMain} !important; box-sizing: border-box;" />
+              <label style="display: block; font-size: 12px; color: var(--acu-text-sub); margin-bottom: 4px;">预设名称</label>
+              <input id="preset-name" type="text" value="${escapeHtml(defaultData.name)}" class="acu-preset-editor-input" style="width: 100%; padding: 8px; border: 1px solid var(--acu-border) !important; border-radius: 6px; background: var(--acu-input-bg) !important; color: var(--acu-text-main) !important; box-sizing: border-box;" />
             </div>
 
             <div style="margin-bottom: 16px;">
-              <label style="display: block; font-size: 12px; color: ${t.textSub}; margin-bottom: 4px;">描述</label>
-              <input id="preset-desc" type="text" value="${escapeHtml(defaultData.description)}" placeholder="可选" class="acu-preset-editor-input" style="width: 100%; padding: 8px; border: 1px solid ${t.border} !important; border-radius: 6px; background: ${t.inputBg} !important; color: ${t.textMain} !important; box-sizing: border-box;" />
+              <label style="display: block; font-size: 12px; color: var(--acu-text-sub); margin-bottom: 4px;">描述</label>
+              <input id="preset-desc" type="text" value="${escapeHtml(defaultData.description)}" placeholder="可选" class="acu-preset-editor-input" style="width: 100%; padding: 8px; border: 1px solid var(--acu-border) !important; border-radius: 6px; background: var(--acu-input-bg) !important; color: var(--acu-text-main) !important; box-sizing: border-box;" />
             </div>
 
             <div style="margin-bottom: 16px;">
-              <label style="display: block; font-size: 12px; color: ${t.textSub}; margin-bottom: 8px;">
-                JSON配置 <span style="font-size: 10px; color: ${t.textSub};">(支持直接编辑或导入)</span>
+              <label style="display: block; font-size: 12px; color: var(--acu-text-sub); margin-bottom: 8px;">
+                JSON配置 <span style="font-size: 10px; color: var(--acu-text-sub);">(支持直接编辑或导入)</span>
               </label>
-              <textarea id="preset-json" class="acu-preset-editor-textarea" style="width: 100%; height: 320px; padding: 10px; border: 1px solid ${t.border} !important; border-radius: 6px; background: ${t.inputBg} !important; color: ${t.textMain} !important; font-family: 'Consolas', 'Monaco', monospace !important; font-size: 12px; resize: vertical; box-sizing: border-box;"></textarea>
+              <textarea id="preset-json" class="acu-preset-editor-textarea" style="width: 100%; height: 320px; padding: 10px; border: 1px solid var(--acu-border) !important; border-radius: 6px; background: var(--acu-input-bg) !important; color: var(--acu-text-main) !important; font-family: 'Consolas', 'Monaco', monospace !important; font-size: 12px; resize: vertical; box-sizing: border-box;"></textarea>
             </div>
 
-            <div style="font-size: 11px; color: ${t.textSub}; padding: 8px; background: var(--acu-table-head); border-radius: 6px; line-height: 1.6;">
+            <div style="font-size: 11px; color: var(--acu-text-sub); padding: 8px; background: var(--acu-table-head); border-radius: 6px; line-height: 1.6;">
               <strong>配置格式说明：</strong><br/>
               • baseAttributes: 基本属性数组，每项包含 name、formula、range、modifier(可选)<br/>
               • specialAttributes: 特别属性数组，每项包含 name、formula、range(可选)<br/>
@@ -20136,11 +19241,11 @@ import { MAIN_STYLES } from './styles';
             </div>
           </div>
 
-          <div style="display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid ${t.border};">
-            <button id="preset-save" style="flex: 1; padding: 10px; background: ${t.buttonBg || t.accent}; border: none; border-radius: 6px; color: ${t.buttonText}; cursor: pointer; font-size: 13px; font-weight: bold;">
+          <div style="display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--acu-border);">
+            <button id="preset-save" style="flex: 1; padding: 10px; background: var(--acu-accent); border: none; border-radius: 6px; color: var(--acu-btn-active-text); cursor: pointer; font-size: 13px; font-weight: bold;">
               <i class="fa-solid fa-check"></i> 保存
             </button>
-            <button id="preset-cancel" style="padding: 10px 16px; background: ${t.btnBg}; border: 1px solid ${t.border}; border-radius: 6px; color: ${t.textMain}; cursor: pointer; font-size: 13px;">
+            <button id="preset-cancel" style="padding: 10px 16px; background: var(--acu-btn-bg); border: 1px solid var(--acu-border); border-radius: 6px; color: var(--acu-text-main); cursor: pointer; font-size: 13px;">
               <i class="fa-solid fa-times"></i> 取消
             </button>
           </div>
@@ -20234,14 +19339,13 @@ import { MAIN_STYLES } from './styles';
     $('.acu-edit-overlay').remove();
 
     const config = getConfig();
-    const t = getThemeColors();
     const presets = ActionPresetManager.getAllPresets();
     const activeId = ActionPresetManager.getActivePresetId();
 
     // 生成预设列表HTML
     const presetsHtml =
       presets.length === 0
-        ? `<div style="text-align: center; padding: 40px; color: ${t.textSub};">暂无自定义规则，点击下方按钮创建</div>`
+        ? `<div style="text-align: center; padding: 40px; color: var(--acu-text-sub);">暂无自定义规则，点击下方按钮创建</div>`
         : presets
             .map(preset => {
               const isActive = preset.id === activeId;
@@ -20260,9 +19364,9 @@ import { MAIN_STYLES } from './styles';
               return `
           <div class="acu-preset-item" data-id="${preset.id}">
             <div class="acu-preset-info">
-              <div class="acu-preset-name">${escapeHtml(preset.name)}${isBuiltin ? `<span style="font-size: 10px; color: ${t.textSub}; margin-left: 6px;">(内置)</span>` : ''}</div>
+              <div class="acu-preset-name">${escapeHtml(preset.name)}${isBuiltin ? `<span style="font-size: 10px; color: var(--acu-text-sub); margin-left: 6px;">(内置)</span>` : ''}</div>
               ${preset.description ? `<div class="acu-preset-desc">${escapeHtml(preset.description)}</div>` : ''}
-              <div class="acu-preset-stats" style="font-size: 11px; color: ${t.textSub};">
+              <div class="acu-preset-stats" style="font-size: 11px; color: var(--acu-text-sub);">
                 关键词: ${escapeHtml(keywordsSummary)} | 动作: ${escapeHtml(actionsSummary)}
               </div>
             </div>
@@ -20277,7 +19381,7 @@ import { MAIN_STYLES } from './styles';
                   : `<button class="acu-preset-btn acu-action-preset-edit" data-id="${preset.id}" title="编辑"><i class="fa-solid fa-pen"></i></button>`
               }
               <button class="acu-preset-btn acu-action-preset-export" data-id="${preset.id}" title="导出"><i class="fa-solid fa-download"></i></button>
-              ${!isBuiltin ? `<button class="acu-preset-btn acu-action-preset-delete" data-id="${preset.id}" title="删除" style="color: #e74c3c;"><i class="fa-solid fa-trash"></i></button>` : ''}
+              ${!isBuiltin ? `<button class="acu-preset-btn acu-action-preset-delete" data-id="${preset.id}" title="删除" style="color: var(--acu-error-text);"><i class="fa-solid fa-trash"></i></button>` : ''}
             </div>
           </div>
         `;
@@ -20287,8 +19391,8 @@ import { MAIN_STYLES } from './styles';
     const overlay = $(`
       <div class="acu-edit-overlay">
         <div class="acu-edit-dialog acu-theme-${config.theme}" style="width: 600px; max-width: 92vw; max-height: 80vh;">
-          <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px solid ${t.border};">
-            <div style="font-size: 16px; font-weight: bold; color: ${t.textMain};">
+          <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px solid var(--acu-border);">
+            <div style="font-size: 16px; font-weight: bold; color: var(--acu-text-main);">
               <i class="fa-solid fa-wand-magic-sparkles"></i> 自定义交互规则管理
             </div>
             <button class="acu-close-btn"><i class="fa-solid fa-times"></i></button>
@@ -20300,14 +19404,14 @@ import { MAIN_STYLES } from './styles';
             </div>
           </div>
 
-          <div style="display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid ${t.border};">
-            <button id="acu-action-preset-new" style="flex: 1; padding: 10px; background: ${t.buttonBg || t.accent}; border: none; border-radius: 6px; color: ${t.buttonText}; cursor: pointer; font-size: 13px;">
+          <div style="display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--acu-border);">
+            <button id="acu-action-preset-new" style="flex: 1; padding: 10px; background: var(--acu-accent); border: none; border-radius: 6px; color: var(--acu-btn-active-text); cursor: pointer; font-size: 13px;">
               <i class="fa-solid fa-plus"></i> 新建规则
             </button>
-            <button id="acu-action-preset-import" style="flex: 1; padding: 10px; background: ${t.btnBg}; border: 1px solid ${t.border}; border-radius: 6px; color: ${t.textMain}; cursor: pointer; font-size: 13px;">
+            <button id="acu-action-preset-import" style="flex: 1; padding: 10px; background: var(--acu-btn-bg); border: 1px solid var(--acu-border); border-radius: 6px; color: var(--acu-text-main); cursor: pointer; font-size: 13px;">
               <i class="fa-solid fa-file-import"></i> 导入
             </button>
-            <button id="acu-action-preset-back" style="padding: 10px 16px; background: ${t.btnBg}; border: 1px solid ${t.border}; border-radius: 6px; color: ${t.textMain}; cursor: pointer; font-size: 13px;">
+            <button id="acu-action-preset-back" style="padding: 10px 16px; background: var(--acu-btn-bg); border: 1px solid var(--acu-border); border-radius: 6px; color: var(--acu-text-main); cursor: pointer; font-size: 13px;">
               <i class="fa-solid fa-arrow-left"></i> 返回
             </button>
           </div>
@@ -20353,31 +19457,27 @@ import { MAIN_STYLES } from './styles';
       showActionPresetEditor(id);
     });
 
-    // 导出预设
+    // 导出预设 - 下载为JSON文件
     overlay.on('click', '.acu-action-preset-export', function () {
       const id = $(this).data('id');
+      const preset = presets.find(p => p.id === id);
       const json = ActionPresetManager.exportPreset(id);
       if (!json) {
         if (window.toastr) window.toastr.error('导出失败');
         return;
       }
 
-      // 复制到剪贴板
-      navigator.clipboard
-        .writeText(json)
-        .then(() => {
-          if (window.toastr) window.toastr.success('已复制到剪贴板');
-        })
-        .catch(() => {
-          // 回退：创建textarea复制
-          const ta = document.createElement('textarea');
-          ta.value = json;
-          document.body.appendChild(ta);
-          ta.select();
-          document.execCommand('copy');
-          document.body.removeChild(ta);
-          if (window.toastr) window.toastr.success('已复制到剪贴板');
-        });
+      // 下载为JSON文件
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${preset?.name || '交互规则'}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      if (window.toastr) window.toastr.success('已导出文件');
     });
 
     // 复制内置预设为自定义预设
@@ -20423,19 +19523,38 @@ import { MAIN_STYLES } from './styles';
       showActionPresetEditor();
     });
 
-    // 导入预设
+    // 导入预设 - 选择JSON文件上传
     overlay.find('#acu-action-preset-import').on('click', () => {
-      const jsonStr = prompt('请粘贴要导入的JSON数据:');
-      if (!jsonStr?.trim()) return;
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.json,application/json';
+      input.onchange = () => {
+        const file = input.files?.[0];
+        if (!file) return;
 
-      const result = ActionPresetManager.importPreset(jsonStr.trim());
-      if (result) {
-        if (window.toastr) window.toastr.success(`导入成功：${result.name}`);
-        overlay.remove();
-        showActionPresetManager();
-      } else {
-        if (window.toastr) window.toastr.error('导入失败，请检查JSON格式');
-      }
+        const reader = new FileReader();
+        reader.onload = e => {
+          const jsonStr = e.target?.result as string;
+          if (!jsonStr?.trim()) {
+            if (window.toastr) window.toastr.error('文件内容为空');
+            return;
+          }
+
+          const result = ActionPresetManager.importPreset(jsonStr.trim());
+          if (result) {
+            if (window.toastr) window.toastr.success(`导入成功：${result.name}`);
+            overlay.remove();
+            showActionPresetManager();
+          } else {
+            if (window.toastr) window.toastr.error('导入失败，请检查JSON格式');
+          }
+        };
+        reader.onerror = () => {
+          if (window.toastr) window.toastr.error('文件读取失败');
+        };
+        reader.readAsText(file);
+      };
+      input.click();
     });
 
     // 点击遮罩关闭
@@ -20451,7 +19570,6 @@ import { MAIN_STYLES } from './styles';
     $('.acu-edit-overlay').remove();
 
     const config = getConfig();
-    const t = getThemeColors();
     const isEdit = !!presetId;
     const existingPreset = isEdit ? ActionPresetManager.getPresetById(presetId) : null;
 
@@ -20461,8 +19579,31 @@ import { MAIN_STYLES } from './styles';
       description: existingPreset?.description || '',
       rules: existingPreset?.rules || [
         {
-          table_keywords: ['示例表'],
-          actions: [{ label: '交互', template: '<user>对{Name}执行互动:交互。' }],
+          table_keywords: ['地点（输入表格名关键词，表名中包含关键词的表格将应用此规则）', '场所'],
+          actions: [
+            {
+              label: '前往（按钮显示的文字）',
+              template:
+                '<user>对{Name}执行互动:前往。（点击按钮后发送的内容，{Name}会替换为表格第一列的列名，一般为名称）',
+            },
+            {
+              label: '调查',
+              template: '<user>仔细调查了{Name}的情况。',
+            },
+          ],
+        },
+        {
+          table_keywords: ['魔法', '奥术'],
+          actions: [
+            {
+              label: '学习',
+              template: '<user>尝试学习{Name}。',
+            },
+            {
+              label: '释放',
+              template: '<user>释放了{Name}！',
+            },
+          ],
         },
       ],
     };
@@ -20470,8 +19611,8 @@ import { MAIN_STYLES } from './styles';
     const overlay = $(`
       <div class="acu-edit-overlay">
         <div class="acu-edit-dialog acu-theme-${config.theme}" style="width: 700px; max-width: 95vw; max-height: 85vh;">
-          <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px solid ${t.border};">
-            <div style="font-size: 16px; font-weight: bold; color: ${t.textMain};">
+          <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px solid var(--acu-border);">
+            <div style="font-size: 16px; font-weight: bold; color: var(--acu-text-main);">
               <i class="fa-solid fa-wand-magic-sparkles"></i> ${isEdit ? '编辑' : '新建'}交互规则
             </div>
             <button class="acu-close-btn"><i class="fa-solid fa-times"></i></button>
@@ -20479,23 +19620,23 @@ import { MAIN_STYLES } from './styles';
 
           <div style="flex: 1; overflow-y: auto; padding: 12px 0;">
             <div style="margin-bottom: 16px;">
-              <label style="display: block; font-size: 12px; color: ${t.textSub}; margin-bottom: 4px;">预设名称</label>
-              <input id="action-preset-name" type="text" value="${escapeHtml(defaultData.name)}" style="width: 100%; padding: 8px; border: 1px solid ${t.border}; border-radius: 6px; background: ${t.inputBg}; color: ${t.textMain}; box-sizing: border-box;" />
+              <label style="display: block; font-size: 12px; color: var(--acu-text-sub); margin-bottom: 4px;">预设名称</label>
+              <input id="action-preset-name" type="text" value="${escapeHtml(defaultData.name)}" class="acu-preset-editor-input" style="width: 100%; padding: 8px; border: 1px solid var(--acu-border) !important; border-radius: 6px; background: var(--acu-input-bg) !important; color: var(--acu-text-main) !important; box-sizing: border-box;" />
             </div>
 
             <div style="margin-bottom: 16px;">
-              <label style="display: block; font-size: 12px; color: ${t.textSub}; margin-bottom: 4px;">描述</label>
-              <input id="action-preset-desc" type="text" value="${escapeHtml(defaultData.description)}" placeholder="可选" style="width: 100%; padding: 8px; border: 1px solid ${t.border}; border-radius: 6px; background: ${t.inputBg}; color: ${t.textMain}; box-sizing: border-box;" />
+              <label style="display: block; font-size: 12px; color: var(--acu-text-sub); margin-bottom: 4px;">描述</label>
+              <input id="action-preset-desc" type="text" value="${escapeHtml(defaultData.description)}" placeholder="可选" class="acu-preset-editor-input" style="width: 100%; padding: 8px; border: 1px solid var(--acu-border) !important; border-radius: 6px; background: var(--acu-input-bg) !important; color: var(--acu-text-main) !important; box-sizing: border-box;" />
             </div>
 
             <div style="margin-bottom: 16px;">
-              <label style="display: block; font-size: 12px; color: ${t.textSub}; margin-bottom: 8px;">
-                规则配置 <span style="font-size: 10px; color: ${t.textSub};">(JSON格式，支持直接编辑)</span>
+              <label style="display: block; font-size: 12px; color: var(--acu-text-sub); margin-bottom: 8px;">
+                规则配置 <span style="font-size: 10px; color: var(--acu-text-sub);">(JSON格式，支持直接编辑)</span>
               </label>
-              <textarea id="action-preset-json" style="width: 100%; height: 300px; padding: 10px; border: 1px solid ${t.border}; border-radius: 6px; background: ${t.inputBg}; color: ${t.textMain}; font-family: 'Consolas', 'Monaco', monospace; font-size: 12px; resize: vertical; box-sizing: border-box;"></textarea>
+              <textarea id="action-preset-json" class="acu-preset-editor-textarea" style="width: 100%; height: 300px; padding: 10px; border: 1px solid var(--acu-border) !important; border-radius: 6px; background: var(--acu-input-bg) !important; color: var(--acu-text-main) !important; font-family: 'Consolas', 'Monaco', monospace; font-size: 12px; resize: vertical; box-sizing: border-box;"></textarea>
             </div>
 
-            <div style="font-size: 11px; color: ${t.textSub}; padding: 8px; background: var(--acu-table-head); border-radius: 6px; line-height: 1.6;">
+            <div style="font-size: 11px; color: var(--acu-text-sub); padding: 8px; background: var(--acu-table-head); border-radius: 6px; line-height: 1.6;">
               <strong>配置格式说明：</strong><br/>
               • 每个规则包含 table_keywords（表名关键词数组）和 actions（动作数组）<br/>
               • 动作包含 label（按钮文字）和 template（发送模板，{Name}为行名称）<br/>
@@ -20503,11 +19644,11 @@ import { MAIN_STYLES } from './styles';
             </div>
           </div>
 
-          <div style="display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid ${t.border};">
-            <button id="action-preset-save" style="flex: 1; padding: 10px; background: ${t.buttonBg || t.accent}; border: none; border-radius: 6px; color: ${t.buttonText}; cursor: pointer; font-size: 13px; font-weight: bold;">
+          <div style="display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--acu-border);">
+            <button id="action-preset-save" style="flex: 1; padding: 10px; background: var(--acu-accent); border: none; border-radius: 6px; color: var(--acu-btn-active-text); cursor: pointer; font-size: 13px; font-weight: bold;">
               <i class="fa-solid fa-check"></i> 保存
             </button>
-            <button id="action-preset-cancel" style="padding: 10px 16px; background: ${t.btnBg}; border: 1px solid ${t.border}; border-radius: 6px; color: ${t.textMain}; cursor: pointer; font-size: 13px;">
+            <button id="action-preset-cancel" style="padding: 10px 16px; background: var(--acu-btn-bg); border: 1px solid var(--acu-border); border-radius: 6px; color: var(--acu-text-main); cursor: pointer; font-size: 13px;">
               <i class="fa-solid fa-times"></i> 取消
             </button>
           </div>
@@ -20591,7 +19732,6 @@ import { MAIN_STYLES } from './styles';
     $('.acu-edit-overlay').not(':has(.acu-debug-console-dialog)').remove();
     const config = getConfig();
     const currentThemeClass = `acu-theme-${config.theme}`;
-    const t = getThemeColors();
 
     // 获取过滤状态（从localStorage读取）
     const savedFilters = Store.get('acu_debug_filters', { log: true, info: true, warn: true, error: true });
@@ -20611,10 +19751,10 @@ import { MAIN_STYLES } from './styles';
 
       filteredLogs.forEach(log => {
         const typeColors = {
-          error: '#e74c3c',
-          warn: '#f39c12',
-          info: '#3498db',
-          log: '#95a5a6',
+          error: 'var(--acu-error-text)',
+          warn: 'var(--acu-warning-text)',
+          info: 'var(--acu-hl-diff)',
+          log: 'var(--acu-text-sub)',
         };
         const typeIcons = {
           error: 'fa-exclamation-circle',
@@ -21093,6 +20233,73 @@ import { MAIN_STYLES } from './styles';
   // AcuDice 公共 API - 供其他插件和角色卡调用
   // ========================================
 
+  const ACUDICE_READY_EVENT = 'acudice:ready';
+
+  const resolveRootWindow = (): Window => {
+    try {
+      return window.top ?? window;
+    } catch (error) {
+      return window;
+    }
+  };
+
+  const rootWindow = resolveRootWindow();
+  const readyCallbacks: Array<() => void> = [];
+  let isAcuDiceReady = false;
+
+  const runReadyCallback = (callback: () => void) => {
+    try {
+      callback();
+    } catch (error) {
+      console.error('[AcuDice] onReady 回调出错', error);
+    }
+  };
+
+  const notifyReady = () => {
+    if (isAcuDiceReady) return;
+    isAcuDiceReady = true;
+    for (const callback of readyCallbacks) {
+      runReadyCallback(callback);
+    }
+    readyCallbacks.length = 0;
+  };
+
+  const defineAcuDiceOnWindow = (target: Window) => {
+    if ('AcuDice' in target) return;
+    Object.defineProperty(target, 'AcuDice', {
+      value: AcuDiceAPI,
+      writable: false,
+      configurable: false,
+    });
+  };
+
+  const dispatchReadyEvent = (target: Window) => {
+    try {
+      target.dispatchEvent(new CustomEvent(ACUDICE_READY_EVENT));
+    } catch (error) {
+      console.warn('[AcuDice] ready 事件触发失败', error);
+    }
+  };
+
+  // 事件系统
+  const eventHandlers: Map<string, Set<Function>> = new Map();
+  const checkHistory: Array<AcuDice.CheckResult & { timestamp: number }> = [];
+  const contestHistory: Array<AcuDice.ContestResult & { timestamp: number }> = [];
+  const MAX_HISTORY = 100;
+
+  function emitEvent(event: string, data: any) {
+    const handlers = eventHandlers.get(event);
+    if (handlers) {
+      handlers.forEach(handler => {
+        try {
+          handler(data);
+        } catch (e) {
+          console.error('[AcuDice] Event handler error:', e);
+        }
+      });
+    }
+  }
+
   /**
    * AcuDice 公共 API
    * 提供骰子投掷和检定功能给外部插件使用
@@ -21272,32 +20479,328 @@ import { MAIN_STYLES } from './styles';
      * @param callback 回调函数
      */
     onReady(callback: () => void): void {
-      if (typeof callback === 'function') {
-        callback();
+      if (typeof callback !== 'function') {
+        console.warn('[AcuDice] onReady() 需要一个函数');
+        return;
+      }
+
+      if (isAcuDiceReady) {
+        runReadyCallback(callback);
+        return;
+      }
+
+      readyCallbacks.push(callback);
+    },
+
+    /**
+     * 订阅事件
+     * @param event 事件类型 ('check' | 'contest')
+     * @param handler 事件处理函数
+     */
+    on(event: string, handler: Function): void {
+      if (!eventHandlers.has(event)) {
+        eventHandlers.set(event, new Set());
+      }
+      eventHandlers.get(event)!.add(handler);
+    },
+
+    /**
+     * 取消事件订阅
+     * @param event 事件类型 ('check' | 'contest')
+     * @param handler 事件处理函数
+     */
+    off(event: string, handler: Function): void {
+      const handlers = eventHandlers.get(event);
+      if (handlers) {
+        handlers.delete(handler);
       }
     },
 
     /**
-     * 事件订阅（预留接口，暂未实现）
+     * 获取最近一次普通检定结果
      */
-    on(event: string, handler: Function): void {
-      console.warn('[AcuDice] 事件系统尚未实现，event:', event);
+    getLatestCheck(): (AcuDice.CheckResult & { timestamp: number }) | null {
+      return checkHistory.length > 0 ? checkHistory[checkHistory.length - 1] : null;
     },
 
     /**
-     * 取消事件订阅（预留接口，暂未实现）
+     * 获取最近一次对抗检定结果
      */
-    off(event: string, handler: Function): void {
-      console.warn('[AcuDice] 事件系统尚未实现，event:', event);
+    getLatestContest(): (AcuDice.ContestResult & { timestamp: number }) | null {
+      return contestHistory.length > 0 ? contestHistory[contestHistory.length - 1] : null;
+    },
+
+    /**
+     * 获取历史记录
+     * @param options 查询选项
+     * @param options.limit 限制返回数量
+     * @param options.type 筛选类型 ('check' | 'contest')
+     */
+    getHistory(options?: { limit?: number; type?: 'check' | 'contest' }): Array<any> {
+      const limit = options?.limit;
+      const type = options?.type;
+
+      let results: Array<any> = [];
+
+      if (!type || type === 'check') {
+        results = results.concat(checkHistory.map(item => ({ ...item, _type: 'check' })));
+      }
+      if (!type || type === 'contest') {
+        results = results.concat(contestHistory.map(item => ({ ...item, _type: 'contest' })));
+      }
+
+      // 按时间戳倒序排序
+      results.sort((a, b) => b.timestamp - a.timestamp);
+
+      // 应用 limit
+      if (limit && limit > 0) {
+        results = results.slice(0, limit);
+      }
+
+      return results;
+    },
+
+    /**
+     * 获取所有可用角色名列表
+     * @returns 角色名数组，包括 '<user>' 和所有 NPC
+     * @example
+     * AcuDice.listCharacters() // => ['<user>', 'NPC1', 'NPC2']
+     */
+    listCharacters(): string[] {
+      const rawData = cachedRawData || getTableData();
+      if (!rawData) return [];
+
+      const allTables = processJsonData(rawData || {});
+      const characters: string[] = [];
+
+      // 检查是否有主角信息
+      const playerResult = DashboardDataParser.findTable(allTables, 'player');
+      if (playerResult?.data?.rows?.length > 0) {
+        characters.push('<user>');
+      }
+
+      // 获取所有 NPC
+      const npcResult = DashboardDataParser.findTable(allTables, 'npc');
+      if (npcResult) {
+        const npcParsed = DashboardDataParser.parseRows(npcResult, 'npc');
+        npcParsed.forEach(npc => {
+          if (npc.name && typeof npc.name === 'string') {
+            characters.push(npc.name);
+          }
+        });
+      }
+
+      return characters;
+    },
+
+    /**
+     * 获取指定角色的所有属性
+     * @param name 角色名，可以是 '<user>' 或 NPC 名称
+     * @returns 属性数组，每个元素包含 name 和 value
+     * @example
+     * AcuDice.getCharacterAttributes('<user>') // => [{ name: '力量', value: 50 }, { name: '敏捷', value: 60 }]
+     * AcuDice.getCharacterAttributes('张三') // => [{ name: '力量', value: 70 }]
+     */
+    getCharacterAttributes(name: string): Array<{ name: string; value: number }> {
+      if (!name || typeof name !== 'string') {
+        throw new Error('[AcuDice] getCharacterAttributes() 需要一个有效的角色名');
+      }
+      return getFullAttributesForCharacter(name);
+    },
+
+    /**
+     * 获取指定角色的指定属性值
+     * @param name 角色名
+     * @param attribute 属性名
+     * @returns 属性值，如果未找到则返回 null
+     * @example
+     * AcuDice.getAttributeValue('<user>', '力量') // => 50
+     * AcuDice.getAttributeValue('张三', '敏捷') // => 60
+     */
+    getAttributeValue(name: string, attribute: string): number | null {
+      if (!name || typeof name !== 'string') {
+        throw new Error('[AcuDice] getAttributeValue() 需要一个有效的角色名');
+      }
+      if (!attribute || typeof attribute !== 'string') {
+        throw new Error('[AcuDice] getAttributeValue() 需要一个有效的属性名');
+      }
+      return getAttributeValue(name, attribute);
+    },
+
+    /**
+     * 按角色名和属性名进行便捷检定
+     * @param options 检定选项
+     * @returns 检定结果对象
+     * @example
+     * await AcuDice.checkByCharacter({ name: '<user>', attribute: '力量' })
+     * await AcuDice.checkByCharacter({ name: 'NPC1', attribute: '敏捷', modifier: 5 })
+     */
+    async checkByCharacter(options: {
+      name: string;
+      attribute: string;
+      modifier?: number;
+      diceType?: string;
+      successCriteria?: 'lte' | 'gte';
+    }): Promise<{
+      success: boolean;
+      roll: number;
+      target: number;
+      margin: number;
+      criticalSuccess: boolean;
+      criticalFailure: boolean;
+      message: string;
+      diceType: string;
+      rule: 'coc' | 'dnd';
+    }> {
+      if (!options || !options.name || !options.attribute) {
+        throw new Error('[AcuDice] checkByCharacter() 需要 name 和 attribute 参数');
+      }
+
+      // 获取角色属性值
+      const targetValue = getAttributeValue(options.name, options.attribute);
+      if (targetValue === null) {
+        throw new Error(`[AcuDice] 未找到角色 "${options.name}" 的属性 "${options.attribute}"`);
+      }
+
+      // 调用现有的 check 方法
+      return this.check({
+        attribute: options.attribute,
+        targetValue,
+        modifier: options.modifier,
+        diceType: options.diceType,
+        successCriteria: options.successCriteria,
+      });
+    },
+
+    /**
+     * 对抗检定
+     * @param options 对抗检定选项
+     * @returns 对抗检定结果
+     * @example
+     * await AcuDice.contest({
+     *   left: { name: '<user>', attribute: '力量' },
+     *   right: { name: 'NPC1', attribute: '力量' }
+     * })
+     */
+    async contest(options: {
+      left: { name: string; attribute: string };
+      right: { name: string; attribute: string };
+      rule?: 'initiator_win' | 'initiator_lose' | 'tie';
+    }): Promise<{
+      left: { name: string; attribute: string; roll: number; target: number; successLevel: number };
+      right: { name: string; attribute: string; roll: number; target: number; successLevel: number };
+      winner: 'left' | 'right' | 'tie';
+      message: string;
+    }> {
+      if (!options?.left?.name || !options?.left?.attribute) {
+        throw new Error('[AcuDice] contest() 需要 left.name 和 left.attribute 参数');
+      }
+      if (!options?.right?.name || !options?.right?.attribute) {
+        throw new Error('[AcuDice] contest() 需要 right.name 和 right.attribute 参数');
+      }
+
+      // 获取双方属性值
+      const leftTarget = getAttributeValue(options.left.name, options.left.attribute);
+      if (leftTarget === null) {
+        throw new Error(`[AcuDice] 未找到角色 "${options.left.name}" 的属性 "${options.left.attribute}"`);
+      }
+
+      const rightTarget = getAttributeValue(options.right.name, options.right.attribute);
+      if (rightTarget === null) {
+        throw new Error(`[AcuDice] 未找到角色 "${options.right.name}" 的属性 "${options.right.attribute}"`);
+      }
+
+      // 获取骰子配置
+      const diceCfg = getDiceConfig();
+      const formula = diceCfg.lastDiceType || '1d100';
+
+      // 投骰
+      const leftResult = rollDiceExpression(formula);
+      const rightResult = rollDiceExpression(formula);
+
+      // 解析骰子类型获取 sides
+      const sidesMatch = formula.match(/\d+d(\d+)/i);
+      const sides = sidesMatch ? parseInt(sidesMatch[1], 10) : 100;
+
+      // 计算成功等级
+      const leftSuccessLevel = getSuccessLevel(leftResult, leftTarget, sides);
+      const rightSuccessLevel = getSuccessLevel(rightResult, rightTarget, sides);
+
+      // 判定胜负
+      let winner: 'left' | 'right' | 'tie';
+      let message: string;
+
+      if (leftSuccessLevel.level > rightSuccessLevel.level) {
+        winner = 'left';
+        message = `${options.left.name} 胜利！(${leftSuccessLevel.name} 胜过 ${rightSuccessLevel.name})`;
+      } else if (leftSuccessLevel.level < rightSuccessLevel.level) {
+        winner = 'right';
+        message = `${options.right.name} 胜利！(${rightSuccessLevel.name} 胜过 ${leftSuccessLevel.name})`;
+      } else {
+        // 平手情况
+        const tieRule = options.rule || diceCfg.contestTieRule || 'initiator_lose';
+        message = `双方平手！(均为 ${leftSuccessLevel.name})`;
+
+        if (tieRule === 'initiator_win') {
+          winner = 'left';
+          message += ` - ${options.left.name} 判胜`;
+        } else if (tieRule === 'tie') {
+          winner = 'tie';
+        } else {
+          // initiator_lose
+          winner = 'right';
+          message += ` - ${options.left.name} 判负`;
+        }
+      }
+
+      const result = {
+        left: {
+          name: options.left.name,
+          attribute: options.left.attribute,
+          roll: leftResult,
+          target: leftTarget,
+          successLevel: leftSuccessLevel.level,
+        },
+        right: {
+          name: options.right.name,
+          attribute: options.right.attribute,
+          roll: rightResult,
+          target: rightTarget,
+          successLevel: rightSuccessLevel.level,
+        },
+        winner,
+        message,
+      };
+
+      // 触发事件
+      emitEvent('contest', result);
+
+      // 记录到历史
+      contestHistory.push({ ...result, timestamp: Date.now() });
+      if (contestHistory.length > MAX_HISTORY) {
+        contestHistory.shift();
+      }
+
+      return result;
     },
   };
 
   // 使用 Object.defineProperty 防止意外覆盖
-  Object.defineProperty(window, 'AcuDice', {
-    value: AcuDiceAPI,
-    writable: false,
-    configurable: false,
-  });
+  defineAcuDiceOnWindow(window);
+
+  if (rootWindow !== window) {
+    try {
+      defineAcuDiceOnWindow(rootWindow);
+    } catch (error) {
+      console.warn('[AcuDice] 无法写入顶层窗口，可能跨域', error);
+    }
+  }
+
+  notifyReady();
+  dispatchReadyEvent(window);
+  if (rootWindow !== window) {
+    dispatchReadyEvent(rootWindow);
+  }
 
   console.info('[AcuDice] API v1.0.0 已加载');
 
@@ -21312,7 +20815,6 @@ import { MAIN_STYLES } from './styles';
     $('.acu-favorites-overlay').remove();
 
     const config = getConfig();
-    const t = getThemeColors();
 
     // 获取所有收藏和标签
     const allFavorites = await FavoritesManager.getAll();
@@ -21931,7 +21433,6 @@ import { MAIN_STYLES } from './styles';
     isSettingsOpen = true;
     const config = getConfig();
     const currentThemeClass = `acu-theme-${config.theme}`;
-    const t = getThemeColors();
 
     // 分组折叠状态（从存储读取，默认第一组展开）
     const expandedGroups = Store.get('acu_settings_expanded', ['appearance']);
@@ -22166,13 +21667,14 @@ import { MAIN_STYLES } from './styles';
                                     <option value="mini" ${config.collapseStyle === 'mini' ? 'selected' : ''}>圆钮</option>
                                 </select>
                             </div>
-                            <div class="acu-setting-row">
+                            <div class="acu-setting-row" id="cfg-col-align-row" style="${config.collapseStyle === 'bar' ? 'display:none;' : ''}">
                                 <div class="acu-setting-info">
                                     <span class="acu-setting-label">收起位置</span>
                                 </div>
                                 <select id="cfg-col-align" class="acu-setting-select acu-select-short">
-                                    <option value="right" ${config.collapseAlign !== 'left' ? 'selected' : ''}>靠右</option>
+                                    <option value="right" ${config.collapseAlign === 'right' ? 'selected' : ''}>靠右</option>
                                     <option value="left" ${config.collapseAlign === 'left' ? 'selected' : ''}>靠左</option>
+                                    <option value="center" ${config.collapseAlign === 'center' ? 'selected' : ''}>居中</option>
                                 </select>
                             </div>
                         </div>
@@ -22386,7 +21888,7 @@ import { MAIN_STYLES } from './styles';
                             </div>
                             <div class="acu-setting-row">
                                 <div class="acu-setting-info">
-                                    <span class="acu-setting-label"><i class="fa-solid fa-dice-d20"></i> 管理属性规则</span>
+                                    <span class="acu-setting-label"><i class="fa-solid fa-dice-d20"></i> 自定义属性规则</span>
                                 </div>
                                 <button id="cfg-attr-preset-manage" class="acu-setting-action-btn" style="width: 90px; padding: 6px 12px; font-size: 12px; margin-bottom: 0;">
                                     <i class="fa-solid fa-cog"></i> 管理
@@ -22471,23 +21973,19 @@ import { MAIN_STYLES } from './styles';
     // 主题
     dialog.find('#cfg-theme').on('change', function () {
       const newTheme = $(this).val();
-      saveConfig({ theme: newTheme });
-      dialog
-        .find('.acu-edit-dialog')
-        .removeClass(THEMES.map(t => `acu-theme-${t.id}`).join(' '))
-        .addClass(`acu-theme-${newTheme}`);
+      const $select = $(this);
 
-      // 更新按钮的内联样式以实时反映主题变化
-      const t = getThemeColors();
-      dialog.find('#cfg-attr-preset-manage').css({
-        background: t.btnBg,
-        borderColor: t.border,
-        color: t.textMain,
-      });
-      dialog.find('#cfg-action-preset-manage').css({
-        background: t.btnBg,
-        borderColor: t.border,
-        color: t.textMain,
+      // 计算下拉框中心点作为波纹起点
+      const selectRect = $select[0].getBoundingClientRect();
+      const originX = selectRect.left + selectRect.width / 2;
+      const originY = selectRect.top + selectRect.height / 2;
+
+      animateThemeTransition(originX, originY, () => {
+        saveConfig({ theme: newTheme });
+        dialog
+          .find('.acu-edit-dialog')
+          .removeClass(THEMES.map(t => `acu-theme-${t.id}`).join(' '))
+          .addClass(`acu-theme-${newTheme}`);
       });
     });
 
@@ -22558,7 +22056,17 @@ import { MAIN_STYLES } from './styles';
       renderInterface();
     });
     dialog.find('#cfg-col-style').on('change', function () {
-      saveConfig({ collapseStyle: $(this).val() });
+      const newStyle = $(this).val();
+      saveConfig({ collapseStyle: newStyle });
+
+      // 长条样式时隐藏收起位置选项，其他样式显示
+      const $alignRow = dialog.find('#cfg-col-align-row');
+      if (newStyle === 'bar') {
+        $alignRow.hide();
+      } else {
+        $alignRow.show();
+      }
+
       renderInterface();
     });
     dialog.find('#cfg-col-align').on('change', function () {
@@ -23762,6 +23270,7 @@ import { MAIN_STYLES } from './styles';
     }
     lastOptionHash = currentOptionHash; // 更新缓存
 
+    // [修复] 悬浮收起模式需要特殊类，防止 wrapper 坍塌导致按钮消失
     let html = `<div class="acu-wrapper ${positionClass} acu-theme-${config.theme} ${layoutClass}" style="--acu-card-width:${config.cardWidth}px; --acu-font-size:${config.fontSize}px; --acu-opt-font-size:${config.optionFontSize || 12}px; --acu-grid-cols:${finalGridCols}">`;
 
     // [布局核心] 如果是嵌入模式，选项放在 DOM 最前面（因为是 column-reverse，视觉上在最下面）
@@ -23773,6 +23282,7 @@ import { MAIN_STYLES } from './styles';
     if (isCollapsed) {
       const colStyleClass = `acu-col-${config.collapseStyle || 'bar'}`;
       const alignClass = `acu-align-${config.collapseAlign || 'right'}`;
+
       html += `
                 <div class="acu-expand-trigger ${colStyleClass} ${alignClass}" id="acu-btn-expand">
                     <i class="fa-solid fa-table"></i> <span>数据库助手 (${Object.keys(tables).length})</span>
@@ -24112,6 +23622,7 @@ import { MAIN_STYLES } from './styles';
         }
       }
     }, 0);
+
     console.info('[DICE]界面渲染完成');
   };
 
@@ -24322,7 +23833,6 @@ import { MAIN_STYLES } from './styles';
   const renderChangesPanel = rawData => {
     const snapshot = loadSnapshot();
     const config = getConfig();
-    const t = getThemeColors();
 
     // 运行数据验证
     const validationErrors = rawData ? ValidationEngine.validateAllData(rawData) : [];
@@ -25422,10 +24932,10 @@ import { MAIN_STYLES } from './styles';
         const headerName = headers[idx] || `列 ${idx}`;
         const val = cell || '';
         return `
-                <div class="acu-card-edit-field" style="margin-bottom: 10px;">
-                    <label style="display:block;font-size:12px;color:var(--acu-accent);font-weight:bold;margin-bottom:4px;">${escapeHtml(headerName)}</label>
-                    <textarea class="acu-card-edit-input acu-edit-textarea" data-col="${idx}" spellcheck="false" rows="1"
-                                                        style="width:100%;min-height:40px;max-height:500px;padding:10px;resize:none;overflow-y:hidden;">${escapeHtml(val)}</textarea>                            </div>`;
+                <div class="acu-card-edit-field">
+                    <label class="acu-card-edit-label">${escapeHtml(headerName)}</label>
+                    <textarea class="acu-card-edit-input acu-card-edit-textarea" data-col="${idx}" spellcheck="false" rows="1">${escapeHtml(val)}</textarea>
+                </div>`;
       })
       .join('');
 
@@ -25433,7 +24943,7 @@ import { MAIN_STYLES } from './styles';
             <div class="acu-edit-overlay">
                 <div class="acu-edit-dialog acu-theme-${config.theme}">
                     <div class="acu-edit-title">编辑变更 (#${rowIndex + 1} - ${escapeHtml(tableName)})</div>
-                    <div class="acu-settings-content" style="flex:1; overflow-y:auto; padding:15px;">
+                    <div class="acu-settings-content acu-settings-content-scroll">
                         ${inputsHtml}
                     </div>
                     <div class="acu-dialog-btns">
@@ -27419,10 +26929,8 @@ import { MAIN_STYLES } from './styles';
               $('.acu-nav-btn').removeClass('active');
             } else {
               // 打开收藏夹面板
+              clearAllPanelStates(); // [修复] 统一清理所有面板状态
               Store.set('acu_favorites_panel_active', true);
-              Store.set(STORAGE_KEY_DASHBOARD_ACTIVE, false);
-              Store.set('acu_changes_panel_active', false);
-              saveActiveTabState(null);
               $('.acu-nav-btn').removeClass('active');
               $navBtn.addClass('active');
 
@@ -27448,8 +26956,7 @@ import { MAIN_STYLES } from './styles';
               $('.acu-nav-btn').removeClass('active');
             } else {
               // 打开变量面板（使用平滑过渡）
-              Store.set(STORAGE_KEY_DASHBOARD_ACTIVE, false);
-              Store.set('acu_changes_panel_active', false);
+              clearAllPanelStates(); // [修复] 统一清理所有面板状态
               saveActiveTabState(MvuModule.MODULE_ID);
               $('.acu-nav-btn').removeClass('active');
               $navBtn.addClass('active');
@@ -27491,10 +26998,8 @@ import { MAIN_STYLES } from './styles';
             return false;
           }
           e.stopPropagation();
-          // [修复] 点击普通表格时，必须关闭仪表盘和变更面板状态
-          Store.set(STORAGE_KEY_DASHBOARD_ACTIVE, false);
-          Store.set('acu_changes_panel_active', false);
-          Store.set('acu_favorites_panel_active', false);
+          // [修复] 点击普通表格时，清理所有面板状态
+          clearAllPanelStates();
           const tableName = $navBtn.data('table');
           const currentActiveTab = getActiveTabState();
           if (currentActiveTab === tableName && $('#acu-data-area').hasClass('visible')) {
@@ -28041,18 +27546,16 @@ import { MAIN_STYLES } from './styles';
               const config = getConfig();
               $('.acu-msg-overlay').remove();
 
-              const t = getThemeColors();
-
               const overlay = $(`
                         <div class="acu-msg-overlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:31200;display:flex;justify-content:center;align-items:center;">
-                            <div style="background:${t.bgPanel};border:1px solid ${t.border};border-radius:12px;padding:16px;width:90%;max-width:320px;box-shadow:0 10px 40px rgba(0,0,0,0.4);">
-                                <div style="font-size:14px;font-weight:bold;color:${t.accent};margin-bottom:12px;display:flex;align-items:center;gap:6px;">
+                            <div style="background:var(--acu-bg-panel);border:1px solid var(--acu-border);border-radius:12px;padding:16px;width:90%;max-width:320px;box-shadow:0 10px 40px rgba(0,0,0,0.4);">
+                                <div style="font-size:14px;font-weight:bold;color:var(--acu-accent);margin-bottom:12px;display:flex;align-items:center;gap:6px;">
                                     <i class="fa-solid fa-comment"></i> 发送消息给 ${escapeHtml(npcName)}
                                 </div>
-                                <input type="text" id="acu-msg-input" placeholder="输入消息内容..." style="width:100%;padding:10px 12px;background:${t.inputBg} !important;border:1px solid ${t.border};border-radius:6px;color:${t.textMain} !important;font-size:14px;box-sizing:border-box;" autofocus>
+                                <input type="text" id="acu-msg-input" placeholder="输入消息内容..." style="width:100%;padding:10px 12px;background:var(--acu-input-bg) !important;border:1px solid var(--acu-border);border-radius:6px;color:var(--acu-text-main) !important;font-size:14px;box-sizing:border-box;" autofocus>
                                 <div style="display:flex;gap:8px;margin-top:12px;">
-                                    <button id="acu-msg-cancel" style="flex:1;padding:8px;background:${t.inputBg};border:1px solid ${t.border};border-radius:6px;color:${t.textMain};cursor:pointer;">取消</button>
-                                    <button id="acu-msg-send" style="flex:1;padding:8px;background:${t.btnActiveBg};border:none;border-radius:6px;color:${t.btnActiveText};cursor:pointer;font-weight:bold;">发送</button>
+                                    <button id="acu-msg-cancel" style="flex:1;padding:8px;background:var(--acu-input-bg);border:1px solid var(--acu-border);border-radius:6px;color:var(--acu-text-main);cursor:pointer;">取消</button>
+                                    <button id="acu-msg-send" style="flex:1;padding:8px;background:var(--acu-btn-active-bg);border:none;border-radius:6px;color:var(--acu-btn-active-text);cursor:pointer;font-weight:bold;">发送</button>
                                 </div>
                             </div>
                         </div>
@@ -28327,19 +27830,16 @@ import { MAIN_STYLES } from './styles';
         // 移除已有的弹窗
         $('.acu-msg-overlay').remove();
 
-        // 获取当前主题的颜色变量
-        const t = getThemeColors();
-
         const overlay = $(`
             <div class="acu-msg-overlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:31200;display:flex;justify-content:center;align-items:center;">
-                <div class="acu-msg-dialog" style="background:${t.bgPanel};border:1px solid ${t.border};border-radius:12px;padding:16px;width:90%;max-width:320px;box-shadow:0 10px 40px rgba(0,0,0,0.4);">
-                    <div style="font-size:14px;font-weight:bold;color:${t.accent};margin-bottom:12px;display:flex;align-items:center;gap:6px;">
+                <div class="acu-msg-dialog" style="background:var(--acu-bg-panel);border:1px solid var(--acu-border);border-radius:12px;padding:16px;width:90%;max-width:320px;box-shadow:0 10px 40px rgba(0,0,0,0.4);">
+                    <div style="font-size:14px;font-weight:bold;color:var(--acu-accent);margin-bottom:12px;display:flex;align-items:center;gap:6px;">
                         <i class="fa-solid fa-comment"></i> 发送消息给 ${escapeHtml(npcName)}
                     </div>
-                    <input type="text" id="acu-msg-input" placeholder="输入消息内容..." style="width:100%;padding:10px 12px;background:${t.inputBg} !important;border:1px solid ${t.border};border-radius:6px;color:${t.textMain} !important;font-size:14px;box-sizing:border-box;" autofocus>
+                    <input type="text" id="acu-msg-input" placeholder="输入消息内容..." style="width:100%;padding:10px 12px;background:var(--acu-input-bg) !important;border:1px solid var(--acu-border);border-radius:6px;color:var(--acu-text-main) !important;font-size:14px;box-sizing:border-box;" autofocus>
                     <div style="display:flex;gap:8px;margin-top:12px;">
-                        <button id="acu-msg-cancel" style="flex:1;padding:8px;background:${t.inputBg};border:1px solid ${t.border};border-radius:6px;color:${t.textMain};cursor:pointer;">取消</button>
-                        <button id="acu-msg-send" style="flex:1;padding:8px;background:${t.btnActiveBg};border:none;border-radius:6px;color:${t.btnActiveText};cursor:pointer;font-weight:bold;">发送</button>
+                        <button id="acu-msg-cancel" style="flex:1;padding:8px;background:var(--acu-input-bg);border:1px solid var(--acu-border);border-radius:6px;color:var(--acu-text-main);cursor:pointer;">取消</button>
+                        <button id="acu-msg-send" style="flex:1;padding:8px;background:var(--acu-btn-active-bg);border:none;border-radius:6px;color:var(--acu-btn-active-text);cursor:pointer;font-weight:bold;">发送</button>
                     </div>
                 </div>
             </div>
@@ -29812,6 +29312,7 @@ import { MAIN_STYLES } from './styles';
       console.info('[DICE]清理旧的 MutationObserver');
     }
     addStyles();
+    injectDatabaseStyles(getConfig().theme);
     // 2. 保留原有的 SillyTavern 事件监听（使用具名函数防止重复注册）
     if (window.SillyTavern && window.SillyTavern.eventSource) {
       console.info('[DICE]注册 SillyTavern 事件监听器...');
