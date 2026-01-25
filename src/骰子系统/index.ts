@@ -794,7 +794,7 @@ import { injectDatabaseStyles } from './database-ui-override';
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.4.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v3.60'; // 脚本版本号
+  const SCRIPT_VERSION = 'v3.62'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -10884,7 +10884,7 @@ import { injectDatabaseStyles } from './database-ui-override';
                             <input type="text" id="dice-target" class="acu-dice-input" value="${initialTargetValue !== null ? initialTargetValue : ''}" placeholder="留空=属性值">
                         </div>
                     </div>
-                    
+
                     <!-- 快捷选择属性（紧凑型） -->
                     <div id="dice-attr-buttons" class="acu-dice-quick-compact"></div>
 
@@ -26952,14 +26952,14 @@ import { injectDatabaseStyles } from './database-ui-override';
             return false;
           }
           e.stopPropagation();
-          // [修复] 点击普通表格时，清理所有面板状态
-          clearAllPanelStates();
           const tableName = $navBtn.data('table');
           const currentActiveTab = getActiveTabState();
           if (currentActiveTab === tableName && $('#acu-data-area').hasClass('visible')) {
             closePanel();
             return;
           }
+          // [修复] 点击普通表格时，清理所有面板状态
+          clearAllPanelStates();
           $('.acu-nav-btn').removeClass('active');
           $navBtn.addClass('active');
           if ($('.acu-panel-content').length && currentActiveTab) {

@@ -608,6 +608,98 @@ export function injectDatabaseStyles(themeId: string, fontFamily?: string) {
           color: ${t.textMain} !important;
         }
 
+        /* ========== Table Layout & Column Alignment 表格布局与列对齐 ========== */
+        html body .auto-card-updater-popup table,
+        html body #shujuku_v104-popup.auto-card-updater-popup table,
+        html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup table {
+          table-layout: fixed !important;
+          width: 100% !important;
+          border-collapse: collapse !important;
+          max-width: 100% !important;
+          overflow: hidden !important;
+          /* 修复右侧空白：确保表格填满容器 */
+          box-sizing: border-box !important;
+        }
+
+        html body .auto-card-updater-popup table thead,
+        html body .auto-card-updater-popup table tbody,
+        html body .auto-card-updater-popup table tr,
+        html body #shujuku_v104-popup.auto-card-updater-popup table thead,
+        html body #shujuku_v104-popup.auto-card-updater-popup table tbody,
+        html body #shujuku_v104-popup.auto-card-updater-popup table tr,
+        html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup table thead,
+        html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup table tbody,
+        html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup table tr {
+          width: 100% !important;
+          box-sizing: border-box !important;
+        }
+
+        html body .auto-card-updater-popup table th,
+        html body .auto-card-updater-popup table td,
+        html body #shujuku_v104-popup.auto-card-updater-popup table th,
+        html body #shujuku_v104-popup.auto-card-updater-popup table td,
+        html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup table th,
+        html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup table td {
+          text-align: left !important;
+          padding: 5px 8px !important;
+          border: 1px solid ${t.border} !important;
+          overflow: hidden !important;
+          text-overflow: ellipsis !important;
+          white-space: nowrap !important;
+          box-sizing: border-box !important;
+        }
+
+        /* 第一列（名称列）左对齐，自适应宽度 */
+        html body .auto-card-updater-popup table th:first-child,
+        html body .auto-card-updater-popup table td:first-child,
+        html body #shujuku_v104-popup.auto-card-updater-popup table th:first-child,
+        html body #shujuku_v104-popup.auto-card-updater-popup table td:first-child,
+        html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup table th:first-child,
+        html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup table td:first-child {
+          text-align: left !important;
+          width: 25% !important;
+        }
+
+        /* 中间列居中对齐，均分剩余宽度 */
+        html body .auto-card-updater-popup table th:not(:first-child):not(:last-child),
+        html body .auto-card-updater-popup table td:not(:first-child):not(:last-child),
+        html body #shujuku_v104-popup.auto-card-updater-popup table th:not(:first-child):not(:last-child),
+        html body #shujuku_v104-popup.auto-card-updater-popup table td:not(:first-child):not(:last-child),
+        html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup table th:not(:first-child):not(:last-child),
+        html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup table td:not(:first-child):not(:last-child) {
+          text-align: center !important;
+          width: calc((100% - 25%) / 4) !important;
+        }
+
+        /* 最后一列（操作列）居中 */
+        html body .auto-card-updater-popup table th:last-child,
+        html body .auto-card-updater-popup table td:last-child,
+        html body #shujuku_v104-popup.auto-card-updater-popup table th:last-child,
+        html body #shujuku_v104-popup.auto-card-updater-popup table td:last-child,
+        html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup table th:last-child,
+        html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup table td:last-child {
+          text-align: center !important;
+          width: 25% !important;
+        }
+
+        /* ========== Mobile Responsive 移动端适配 ========== */
+        @media (max-width: 768px) {
+          html body .auto-card-updater-popup table,
+          html body #shujuku_v104-popup.auto-card-updater-popup table,
+          html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup table {
+            font-size: 0.8em !important;
+          }
+
+          html body .auto-card-updater-popup table th,
+          html body .auto-card-updater-popup table td,
+          html body #shujuku_v104-popup.auto-card-updater-popup table th,
+          html body #shujuku_v104-popup.auto-card-updater-popup table td,
+          html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup table th,
+          html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup table td {
+            padding: 4px 6px !important;
+          }
+        }
+
         /* ========== Radio group 单选按钮组 ========== */
         #shujuku_v104-popup.auto-card-updater-popup .qrf_radio_group,
         [id^="shujuku"][id$="-popup"].auto-card-updater-popup .qrf_radio_group {
@@ -779,6 +871,64 @@ export function injectDatabaseStyles(themeId: string, fontFamily?: string) {
         html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup .prompt-segment-toolbar .prompt-segment-main-slot:hover,
         html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup .prompt-segment-toolbar .prompt-segment-delete-btn:hover {
           background-color: ${t.btnHover} !important;
+        }
+
+        /* ========== Tabs Navigation 标签页导航 ========== */
+        /* Container */
+        html body #shujuku_v104-popup.auto-card-updater-popup .acu-tabs-nav,
+        html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup .acu-tabs-nav,
+        html body #shujuku_v104-main-window .acu-tabs-nav,
+        html body [id^="shujuku"][id$="-main-window"] .acu-tabs-nav {
+          background-color: ${t.bgPanel} !important;
+          background: ${t.bgPanel} !important;
+          color: ${t.textMain} !important;
+          border-bottom: 1px solid ${t.border} !important;
+        }
+
+        /* Section Title */
+        html body #shujuku_v104-popup.auto-card-updater-popup .acu-nav-section-title,
+        html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup .acu-nav-section-title,
+        html body #shujuku_v104-main-window .acu-nav-section-title,
+        html body [id^="shujuku"][id$="-main-window"] .acu-nav-section-title {
+          color: ${t.textSub} !important;
+          font-size: 11px !important;
+          text-transform: uppercase !important;
+          letter-spacing: 0.5px !important;
+          font-weight: 600 !important;
+        }
+
+        /* Tab Button (default state) */
+        html body #shujuku_v104-popup.auto-card-updater-popup .acu-tab-button,
+        html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup .acu-tab-button,
+        html body #shujuku_v104-main-window .acu-tab-button,
+        html body [id^="shujuku"][id$="-main-window"] .acu-tab-button {
+          background-color: transparent !important;
+          background: transparent !important;
+          color: ${t.textSub} !important;
+          border: 1px solid transparent !important;
+          border-radius: 6px !important;
+          transition: all 0.2s ease !important;
+        }
+
+        /* Tab Button (hover) */
+        html body #shujuku_v104-popup.auto-card-updater-popup .acu-tab-button:hover,
+        html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup .acu-tab-button:hover,
+        html body #shujuku_v104-main-window .acu-tab-button:hover,
+        html body [id^="shujuku"][id$="-main-window"] .acu-tab-button:hover {
+          background-color: ${t.btnBg} !important;
+          background: ${t.btnBg} !important;
+          color: ${t.textMain} !important;
+        }
+
+        /* Tab Button (active state) */
+        html body #shujuku_v104-popup.auto-card-updater-popup .acu-tab-button.active,
+        html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup .acu-tab-button.active,
+        html body #shujuku_v104-main-window .acu-tab-button.active,
+        html body [id^="shujuku"][id$="-main-window"] .acu-tab-button.active {
+          background-color: ${t.btnActiveBg} !important;
+          background: ${t.btnActiveBg} !important;
+          color: ${t.btnActiveText} !important;
+          border-color: ${t.btnActiveBg} !important;
         }
       </style>
     `;
