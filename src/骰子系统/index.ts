@@ -794,7 +794,7 @@ import { injectDatabaseStyles } from './database-ui-override';
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.4.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v3.62'; // 脚本版本号
+  const SCRIPT_VERSION = 'v3.64'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -7284,6 +7284,9 @@ import { injectDatabaseStyles } from './database-ui-override';
               $refreshBtn.find('i').removeClass('fa-spin');
             }
 
+            // [修复] 如果用户已切走到其它面板，不要用异步回调覆盖当前内容
+            if (!canWriteMvuPanel()) return;
+
             // 无论成功失败，都重新渲染面板（简化后的 renderPanel 会处理所有状态）
             $container.html('<div class="acu-mvu-panel">' + this.renderPanel() + '</div>');
             this.bindEvents($container);
@@ -7303,6 +7306,9 @@ import { injectDatabaseStyles } from './database-ui-override';
             if ($refreshBtn.length) {
               $refreshBtn.find('i').removeClass('fa-spin');
             }
+
+            // [修复] 如果用户已切走到其它面板，不要用异步回调覆盖当前内容
+            if (!canWriteMvuPanel()) return;
 
             // 显示错误状态（简化后的 renderPanel 会处理）
             $container.html('<div class="acu-mvu-panel">' + this.renderPanel() + '</div>');
@@ -9371,6 +9377,15 @@ import { injectDatabaseStyles } from './database-ui-override';
     Store.set('acu_favorites_panel_active', false);
     saveActiveTabState(null);
   };
+
+  // [修复] MVU 面板异步回调防竞态：只有当前仍处于 MVU 标签且无更高优先级面板激活时才允许写入
+  function canWriteMvuPanel() {
+    if (getActiveTabState() !== MvuModule.MODULE_ID) return false;
+    if (Store.get('acu_changes_panel_active', false)) return false;
+    if (Store.get('acu_favorites_panel_active', false)) return false;
+    if (Store.get(STORAGE_KEY_DASHBOARD_ACTIVE, false)) return false;
+    return true;
+  }
 
   const getSavedTableOrder = () => Store.get(STORAGE_KEY_TABLE_ORDER);
   const saveTableOrder = v => Store.set(STORAGE_KEY_TABLE_ORDER, v);
@@ -23516,7 +23531,7 @@ import { injectDatabaseStyles } from './database-ui-override';
       bindChangesEvents();
     }
     // [修复] 如果变量面板激活，绑定其事件并尝试获取数据
-    if (getActiveTabState() === MvuModule.MODULE_ID) {
+    if (canWriteMvuPanel()) {
       const $panel = $('#acu-data-area');
       if ($panel.length) {
         // 总是尝试获取数据（带重试，增加重试次数）
@@ -23529,16 +23544,18 @@ import { injectDatabaseStyles } from './database-ui-override';
         MvuModule.getDataWithRetry(5, 800)
           .then(mvuData => {
             // 如果获取到数据，刷新面板显示
-            if (mvuData) {
+            if (mvuData && canWriteMvuPanel()) {
               $panel.html('<div class="acu-mvu-panel">' + MvuModule.renderPanel() + '</div>');
               MvuModule.bindEvents($panel);
             }
           })
           .catch(err => {
             console.error('[DICE]MvuModule Error getting data:', err);
-            // 错误时也刷新面板，显示错误状态
-            $panel.html('<div class="acu-mvu-panel">' + MvuModule.renderPanel() + '</div>');
-            MvuModule.bindEvents($panel);
+            if (canWriteMvuPanel()) {
+              // 错误时也刷新面板，显示错误状态
+              $panel.html('<div class="acu-mvu-panel">' + MvuModule.renderPanel() + '</div>');
+              MvuModule.bindEvents($panel);
+            }
           });
       }
     }
@@ -24049,7 +24066,7 @@ import { injectDatabaseStyles } from './database-ui-override';
                     <div class="acu-changes-group-header acu-validation-group-header" data-table="${escapeHtml(tableName)}" style="cursor:pointer;">
                         <i class="fa-solid fa-chevron-${isCollapsed ? 'right' : 'down'} acu-collapse-icon" style="font-size:10px;width:12px;transition:transform 0.2s;"></i>
                         <i class="fa-solid ${getIconForTableName(tableName)}"></i> ${escapeHtml(tableName)}
-                        <span class="acu-changes-count" style="background:${t.errorText};">${tableErrors.length}</span>
+                        <span class="acu-changes-count" style="background:var(--acu-error-text);">${tableErrors.length}</span>
                     </div>
                     <div class="acu-changes-group-body" style="${isCollapsed ? 'display:none;' : ''}">`;
 
@@ -26854,8 +26871,8 @@ import { injectDatabaseStyles } from './database-ui-override';
               $('.acu-nav-btn').removeClass('active');
             } else {
               // 打开变更面板（使用平滑过渡）
+              clearAllPanelStates(); // [修复] 统一清理所有面板状态
               Store.set('acu_changes_panel_active', true);
-              Store.set(STORAGE_KEY_DASHBOARD_ACTIVE, false);
               saveActiveTabState(null);
               $('.acu-nav-btn').removeClass('active');
               $navBtn.addClass('active');
@@ -26936,16 +26953,18 @@ import { injectDatabaseStyles } from './database-ui-override';
                 MvuModule.getDataWithRetry(5, 800)
                   .then(mvuData => {
                     // 如果获取到数据，刷新面板显示
-                    if (mvuData) {
+                    if (mvuData && canWriteMvuPanel()) {
                       $panel.html('<div class="acu-mvu-panel">' + MvuModule.renderPanel() + '</div>');
                       MvuModule.bindEvents($panel);
                     }
                   })
                   .catch(err => {
                     console.error('[DICE]MvuModule Error getting data:', err);
-                    // 错误时也刷新面板，显示错误状态
-                    $panel.html('<div class="acu-mvu-panel">' + MvuModule.renderPanel() + '</div>');
-                    MvuModule.bindEvents($panel);
+                    if (canWriteMvuPanel()) {
+                      // 错误时也刷新面板，显示错误状态
+                      $panel.html('<div class="acu-mvu-panel">' + MvuModule.renderPanel() + '</div>');
+                      MvuModule.bindEvents($panel);
+                    }
                   });
               });
             }
