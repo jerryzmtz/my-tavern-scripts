@@ -794,7 +794,7 @@ import { injectDatabaseStyles } from './database-ui-override';
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.4.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v3.61'; // 脚本版本号
+  const SCRIPT_VERSION = 'v3.60'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -9238,45 +9238,6 @@ import { injectDatabaseStyles } from './database-ui-override';
     { id: 'chouten', name: '幻夜霓虹 (Cyber Kawaii)', icon: 'fa-star' },
   ];
 
-  /**
-   * 主题切换动画 - 使用 View Transitions API 实现波纹扩散效果
-   * @param originX 波纹起点 X 坐标
-   * @param originY 波纹起点 Y 坐标
-   * @param callback 实际执行主题切换的回调函数
-   */
-  async function animateThemeTransition(originX: number, originY: number, callback: () => void): Promise<void> {
-    // 检查浏览器是否支持 View Transitions API
-    if (!document.startViewTransition) {
-      // 降级：直接执行回调
-      callback();
-      return;
-    }
-
-    // 计算波纹最大半径（从起点到最远角的距离）
-    const maxRadius = Math.hypot(
-      Math.max(originX, window.innerWidth - originX),
-      Math.max(originY, window.innerHeight - originY),
-    );
-
-    // 设置 CSS 自定义属性用于动画
-    document.documentElement.style.setProperty('--theme-transition-x', `${originX}px`);
-    document.documentElement.style.setProperty('--theme-transition-y', `${originY}px`);
-    document.documentElement.style.setProperty('--theme-transition-radius', `${maxRadius}px`);
-
-    const transition = document.startViewTransition(() => {
-      callback();
-    });
-
-    try {
-      await transition.finished;
-    } finally {
-      // 清理 CSS 自定义属性
-      document.documentElement.style.removeProperty('--theme-transition-x');
-      document.documentElement.style.removeProperty('--theme-transition-y');
-      document.documentElement.style.removeProperty('--theme-transition-radius');
-    }
-  }
-
   // [优化] 缓存 core 对象 (修复竞态条件 + 增强 ST 穿透查找)
   let _coreCache = null;
   const getCore = () => {
@@ -10923,7 +10884,7 @@ import { injectDatabaseStyles } from './database-ui-override';
                             <input type="text" id="dice-target" class="acu-dice-input" value="${initialTargetValue !== null ? initialTargetValue : ''}" placeholder="留空=属性值">
                         </div>
                     </div>
-
+                    
                     <!-- 快捷选择属性（紧凑型） -->
                     <div id="dice-attr-buttons" class="acu-dice-quick-compact"></div>
 
@@ -15944,8 +15905,8 @@ import { injectDatabaseStyles } from './database-ui-override';
   const saveConfig = newCfg => {
     _configCache = { ...getConfig(), ...newCfg };
     Store.set(STORAGE_KEY_UI_CONFIG, _configCache);
-    applyConfigStyles(_configCache);
-    injectDatabaseStyles(_configCache.theme);
+    const fontVal = applyConfigStyles(_configCache);
+    injectDatabaseStyles(_configCache.theme, fontVal);
   };
 
   const generateDiffMap = currentData => {
@@ -16091,6 +16052,8 @@ import { injectDatabaseStyles } from './database-ui-override';
       $optContainer.addClass(`acu-theme-${config.theme}`);
       $optContainer.css(cssVars);
     }
+
+    return fontVal;
   };
 
   /**
@@ -21973,20 +21936,11 @@ import { injectDatabaseStyles } from './database-ui-override';
     // 主题
     dialog.find('#cfg-theme').on('change', function () {
       const newTheme = $(this).val();
-      const $select = $(this);
-
-      // 计算下拉框中心点作为波纹起点
-      const selectRect = $select[0].getBoundingClientRect();
-      const originX = selectRect.left + selectRect.width / 2;
-      const originY = selectRect.top + selectRect.height / 2;
-
-      animateThemeTransition(originX, originY, () => {
-        saveConfig({ theme: newTheme });
-        dialog
-          .find('.acu-edit-dialog')
-          .removeClass(THEMES.map(t => `acu-theme-${t.id}`).join(' '))
-          .addClass(`acu-theme-${newTheme}`);
-      });
+      saveConfig({ theme: newTheme });
+      dialog
+        .find('.acu-edit-dialog')
+        .removeClass(THEMES.map(t => `acu-theme-${t.id}`).join(' '))
+        .addClass(`acu-theme-${newTheme}`);
     });
 
     // 字体
@@ -29312,7 +29266,9 @@ import { injectDatabaseStyles } from './database-ui-override';
       console.info('[DICE]清理旧的 MutationObserver');
     }
     addStyles();
-    injectDatabaseStyles(getConfig().theme);
+    const initCfg = getConfig();
+    const initFontVal = FONTS.find(f => f.id === initCfg.fontFamily)?.val || FONTS[0].val;
+    injectDatabaseStyles(initCfg.theme, initFontVal);
     // 2. 保留原有的 SillyTavern 事件监听（使用具名函数防止重复注册）
     if (window.SillyTavern && window.SillyTavern.eventSource) {
       console.info('[DICE]注册 SillyTavern 事件监听器...');

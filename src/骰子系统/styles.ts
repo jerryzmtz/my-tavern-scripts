@@ -1071,35 +1071,6 @@ export const MAIN_STYLES = `
             .acu-nav-btn.has-validation-errors { border-color: rgba(231, 76, 60, 0.5); }
             .acu-nav-btn .acu-nav-warning-icon { color: var(--acu-error-text, #e74c3c); font-size: 10px; margin-left: 2px; animation: pulse 1.5s infinite; }
             @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-            /* ========== 主题切换波纹扩散动画 ========== */
-            /* View Transitions API 动画定义 */
-            ::view-transition-old(root),
-            ::view-transition-new(root) {
-                animation: none;
-                mix-blend-mode: normal;
-            }
-            ::view-transition-old(root) {
-                z-index: 1;
-            }
-            ::view-transition-new(root) {
-                z-index: 9999;
-            }
-            /* 波纹扩散动画 - 使用 clip-path 实现圆形扩展 */
-            @keyframes acu-theme-ripple-in {
-                from {
-                    clip-path: circle(0% at var(--acu-ripple-x, 50%) var(--acu-ripple-y, 50%));
-                }
-                to {
-                    clip-path: circle(150% at var(--acu-ripple-x, 50%) var(--acu-ripple-y, 50%));
-                }
-            }
-            /* 当 View Transitions 被触发时应用动画 */
-            .acu-theme-transitioning::view-transition-new(root) {
-                animation: acu-theme-ripple-in 450ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
-            }
-            .acu-theme-transitioning::view-transition-old(root) {
-                animation: none;
-            }
             .acu-action-btn { flex: 1; height: 36px; display: flex; align-items: center; justify-content: center; background: var(--acu-btn-bg); border-radius: 8px; color: var(--acu-text-sub); cursor: pointer; border: 1px solid transparent; transition: all 0.2s; margin: 0; }
             .acu-action-btn:hover { background: var(--acu-btn-hover); color: var(--acu-text-main); transform: translateY(-2px); box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
             .acu-action-btn:focus, .acu-action-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--acu-accent) !important; }

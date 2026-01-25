@@ -288,11 +288,21 @@ const DATABASE_THEME_MAP: DatabaseThemeMap = {
  * 注入数据库样式
  * @param themeId 主题 ID
  */
-export function injectDatabaseStyles(themeId: string) {
+export function injectDatabaseStyles(themeId: string, fontFamily?: string) {
   try {
-    // 解决方案：直接使用 window.jQuery 或 window.parent.jQuery
-    const $ = (window as any).jQuery || (window.parent && (window.parent as any).jQuery);
-    if (!$) return;
+    const getJQuery = (w: Window | null | undefined) => {
+      try {
+        return (w as any)?.jQuery as any;
+      } catch {
+        return null;
+      }
+    };
+
+    // 同时尝试当前窗口/父窗口/顶层窗口，避免样式注入到错误 document
+    const targets = [getJQuery(window), getJQuery(window.parent), getJQuery(window.top)].filter(
+      (v, idx, arr) => !!v && arr.indexOf(v) === idx,
+    );
+    if (!targets.length) return;
 
     const t = DATABASE_THEME_MAP[themeId] || DATABASE_THEME_MAP.aurora;
     const darkThemeIds = new Set(['cyber', 'terminal', 'aurora', 'chouten', 'classicpackaging']);
@@ -301,8 +311,31 @@ export function injectDatabaseStyles(themeId: string) {
     const stepperSpinOpacity = isDarkTheme ? '0.85' : '0.55';
     const stepperColorScheme = isDarkTheme ? 'dark' : 'light';
 
+    const fontCss = fontFamily
+      ? `
+        /* 字体同步：覆盖数据库文本字体（避免影响图标字体 / pseudo-element 图标） */
+        html body .auto-card-updater-popup,
+        html body #shujuku_v104-main-window,
+        html body [id^="shujuku"][id$="-main-window"],
+        html body #shujuku_v104-popup.auto-card-updater-popup,
+        html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup {
+          --acu-font-family: ${fontFamily};
+          font-family: var(--acu-font-family) !important;
+        }
+
+        html body .auto-card-updater-popup :is(div, p, span, label, a, button:not(.acu-window-btn), input, select, textarea, th, td, li, ul, ol, h1, h2, h3, h4, h5, h6, small, strong, em),
+        html body #shujuku_v104-main-window :is(div, p, span, label, a, button:not(.acu-window-btn), input, select, textarea, th, td, li, ul, ol, h1, h2, h3, h4, h5, h6, small, strong, em),
+        html body [id^="shujuku"][id$="-main-window"] :is(div, p, span, label, a, button:not(.acu-window-btn), input, select, textarea, th, td, li, ul, ol, h1, h2, h3, h4, h5, h6, small, strong, em),
+        html body #shujuku_v104-popup.auto-card-updater-popup :is(div, p, span, label, a, button:not(.acu-window-btn), input, select, textarea, th, td, li, ul, ol, h1, h2, h3, h4, h5, h6, small, strong, em),
+        html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup :is(div, p, span, label, a, button:not(.acu-window-btn), input, select, textarea, th, td, li, ul, ol, h1, h2, h3, h4, h5, h6, small, strong, em) {
+          font-family: var(--acu-font-family) !important;
+        }
+      `
+      : '';
+
     const css = `
       <style id="dice-db-theme-sync">
+        ${fontCss}
         html body .auto-card-updater-popup {
           --acu-bg-0: ${t.bgPanel} !important;
           --acu-bg-1: ${t.bgNav} !important;
@@ -750,8 +783,10 @@ export function injectDatabaseStyles(themeId: string) {
       </style>
     `;
 
-    $('#dice-db-theme-sync').remove();
-    $('head').append(css);
+    for (const $ of targets) {
+      $('#dice-db-theme-sync').remove();
+      $('head').append(css);
+    }
   } catch (e) {
     // 完全静默
   }
