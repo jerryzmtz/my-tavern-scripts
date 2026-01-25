@@ -12438,7 +12438,7 @@ import { injectDatabaseStyles } from './database-ui-override';
           '<span class="acu-contest-winner-text ' +
           winnerColorClass +
           '">' +
-          winner +
+          displayWinner +
           '</span>' +
           '<i class="fa-solid fa-rotate-right acu-contest-reroll-icon"></i>' +
           '</div>' +
