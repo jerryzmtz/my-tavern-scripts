@@ -520,7 +520,7 @@ export const MAIN_STYLES = `
         .acu-wrapper.acu-wrapper .acu-action-item,
         .acu-wrapper.acu-wrapper .acu-tool-btn,
         .acu-wrapper.acu-wrapper .acu-refill-btn,
-        .acu-wrapper.acu-wrapper [id^="acu-btn-"] {
+        .acu-wrapper.acu-wrapper [id^="acu-btn-"]:not(.acu-expand-trigger) {
             min-width: unset !important;
             min-height: unset !important;
             height: auto !important;
