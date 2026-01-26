@@ -444,7 +444,7 @@ export const MAIN_STYLES = `
         align-content: flex-start;
         min-width: 0;
         max-width: 100%;
-        max-height: 84px;
+        max-height: 63px;
         overflow-x: hidden;
         overflow-y: auto;
         white-space: normal;
@@ -458,7 +458,7 @@ export const MAIN_STYLES = `
         flex-wrap: wrap;
         gap: 3px;
         margin-bottom: 8px;
-        max-height: 84px;
+        max-height: 63px;
         overflow-y: auto;
         align-content: flex-start;
     }
@@ -476,12 +476,55 @@ export const MAIN_STYLES = `
         border: 1px solid var(--acu-border);
         border-radius: 4px;
         color: var(--acu-text-main);
-        font-size: 10px;
+        font-size: 11px;
         cursor: pointer;
         transition: all 0.2s;
         white-space: nowrap;
         flex-shrink: 0;
         line-height: 1.3;
+        -webkit-tap-highlight-color: transparent;
+        touch-action: manipulation;
+    }
+    /* [修复] 覆盖酒馆全局触控优化样式 - 防止移动端按钮被强制放大 */
+    /* 使用双重选择器提高优先级，用 unset 覆盖 Chrome 的 calc-size() */
+    @media (hover: none) and (pointer: coarse) {
+        /* 骰子面板内的小按钮 */
+        .acu-dice-panel.acu-dice-panel .acu-dice-char-btn.acu-dice-char-btn,
+        .acu-dice-panel.acu-dice-panel .acu-dice-attr-btn.acu-dice-attr-btn,
+        .acu-dice-panel.acu-dice-panel .acu-dice-preset.acu-dice-preset,
+        .acu-dice-panel.acu-dice-panel .acu-dice-gen-attr-btn,
+        .acu-dice-panel.acu-dice-panel .acu-dice-clear-attr-btn,
+        .acu-contest-panel.acu-contest-panel .acu-dice-char-btn.acu-dice-char-btn,
+        .acu-contest-panel.acu-contest-panel .acu-dice-attr-btn.acu-dice-attr-btn,
+        .acu-contest-panel.acu-contest-panel .acu-dice-preset.acu-dice-preset,
+        .acu-contest-panel.acu-contest-panel .acu-contest-attr-btn,
+        .acu-contest-panel.acu-contest-panel .acu-contest-gen-attr-btn,
+        .acu-contest-panel.acu-contest-panel .acu-contest-clear-attr-btn,
+        /* 面板头部操作按钮 */
+        .acu-dice-panel.acu-dice-panel .acu-dice-panel-actions button,
+        .acu-dice-panel.acu-dice-panel .acu-dice-config-btn,
+        .acu-dice-panel.acu-dice-panel .acu-dice-close,
+        .acu-dice-panel.acu-dice-panel .acu-dice-panel-action-btn,
+        .acu-contest-panel.acu-contest-panel .acu-dice-panel-actions button,
+        .acu-contest-panel.acu-contest-panel .acu-contest-config-btn,
+        .acu-contest-panel.acu-contest-panel .acu-contest-close,
+        /* 随机技能按钮 */
+        .acu-dice-panel.acu-dice-panel .acu-random-skill-btn,
+        .acu-contest-panel.acu-contest-panel .acu-random-skill-btn,
+        /* 导航栏按钮 */
+        .acu-wrapper.acu-wrapper .acu-nav-btn.acu-nav-btn,
+        .acu-wrapper.acu-wrapper .acu-dashboard-btn,
+        .acu-wrapper.acu-wrapper .acu-nav-bar button,
+        .acu-wrapper.acu-wrapper #acu-nav-bar button,
+        /* 底部工具栏按钮 */
+        .acu-wrapper.acu-wrapper .acu-action-item,
+        .acu-wrapper.acu-wrapper .acu-tool-btn,
+        .acu-wrapper.acu-wrapper .acu-refill-btn,
+        .acu-wrapper.acu-wrapper [id^="acu-btn-"] {
+            min-width: unset !important;
+            min-height: unset !important;
+            height: auto !important;
+        }
     }
     .acu-dice-panel .acu-dice-char-btn:hover,
     .acu-contest-panel .acu-dice-char-btn:hover,
