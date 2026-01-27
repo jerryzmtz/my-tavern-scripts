@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP } from './emoji-maps';
+import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP, RELATION_ICON_MAP } from './emoji-maps';
 import { MAIN_STYLES } from './styles';
 import { injectDatabaseStyles } from './database-ui-override';
 
@@ -794,7 +794,7 @@ import { injectDatabaseStyles } from './database-ui-override';
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.4.2'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v3.68'; // 脚本版本号
+  const SCRIPT_VERSION = 'v3.70'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -3001,9 +3001,10 @@ import { injectDatabaseStyles } from './database-ui-override';
         | { name: string; headers: string[]; rows: string[][] }
         | { [key: string]: { name?: string; content?: string[][] } },
       rules: RegexTransformationRule[],
-    ): { totalApplied: number; errors: string[] } {
+    ): { totalApplied: number; errors: string[]; modifiedSheetKeys: string[] } {
       let totalApplied = 0;
       const errors: string[] = [];
+      const modifiedSheetKeys: string[] = [];
 
       try {
         // 兼容神数据库格式和简化格式
@@ -3050,12 +3051,13 @@ import { injectDatabaseStyles } from './database-ui-override';
 
         if (sheetMap.size === 0) {
           console.warn('[DICE]applyToTable: 没有有效的表格数据');
-          return { totalApplied: 0, errors: ['没有有效的表格数据'] };
+          return { totalApplied: 0, errors: ['没有有效的表格数据'], modifiedSheetKeys: [] };
         }
 
         // 对每个表格应用规则
         for (const [tableName, tableInfo] of sheetMap.entries()) {
-          const { sheet, headers, contentRowIndex } = tableInfo;
+          const { sheet, headers, sheetKey } = tableInfo;
+          let tableModified = false;
 
           for (const rule of rules) {
             if (!rule.enabled) continue;
@@ -3089,6 +3091,7 @@ import { injectDatabaseStyles } from './database-ui-override';
                       if (result.matched) {
                         row[colIndex] = result.newValue;
                         totalApplied++;
+                        tableModified = true;
                       }
                     } else {
                       errors.push(`${rule.name} [${tableName}]: ${result.error}`);
@@ -3119,6 +3122,7 @@ import { injectDatabaseStyles } from './database-ui-override';
                       if (result.matched) {
                         row[colIndex] = result.newValue;
                         totalApplied++;
+                        tableModified = true;
                         console.debug(
                           `[DICE]正则转换: ${tableName}[${contentRowIndex}].${columnName}`,
                           `"${result.oldValue}" -> "${result.newValue}"`,
@@ -3136,6 +3140,9 @@ import { injectDatabaseStyles } from './database-ui-override';
               errors.push(`${rule.name} [${tableName}]: 处理表格时出错 - ${errorMsg}`);
             }
           }
+          if (tableModified && sheetKey) {
+            modifiedSheetKeys.push(sheetKey);
+          }
         }
 
         if (totalApplied > 0) {
@@ -3150,7 +3157,7 @@ import { injectDatabaseStyles } from './database-ui-override';
         errors.push(`执行失败: ${errorMsg}`);
       }
 
-      return { totalApplied, errors };
+      return { totalApplied, errors, modifiedSheetKeys };
     },
 
     // 对单元格应用规则
@@ -10130,7 +10137,7 @@ import { injectDatabaseStyles } from './database-ui-override';
     cachedRawData = rawData;
 
     // 保存
-    await saveDataOnly(rawData);
+    await saveDataOnly(rawData, [sheetKey]);
 
     return {
       success: true,
@@ -10334,7 +10341,7 @@ import { injectDatabaseStyles } from './database-ui-override';
     cachedRawData = rawData;
 
     // 保存（不更新快照，保留审核面板状态）
-    await saveDataOnly(rawData);
+    await saveDataOnly(rawData, [sheetKey]);
 
     // 返回写入的属性供UI更新
     const writtenAttrs = [];
@@ -14075,13 +14082,48 @@ import { injectDatabaseStyles } from './database-ui-override';
         // 只有双向且完全一致时，标签才显示在正中间
         if (isBidirectionalSame) {
           // 双向相同：标签显示在正中间
+          // [修复] 移动 renderRelationIcon 和 addRelationIcon 到这里也能使用
+          const renderRelationIconInline = (iconStr: string): string => {
+            if (iconStr.startsWith('fa:')) {
+              return `<i class="fa-solid fa-${iconStr.slice(3)}" style="font-size:10px;margin-left:2px;opacity:0.8;"></i>`;
+            } else if (iconStr.startsWith('ti:')) {
+              return `<i class="ti ti-${iconStr.slice(3)}" style="font-size:10px;margin-left:2px;opacity:0.8;"></i>`;
+            }
+            return iconStr;
+          };
+
+          const addRelationIconInline = (lbl: string): string => {
+            if (!lbl) return '';
+            for (const group of RELATION_ICON_MAP) {
+              for (const kw of group.keywords) {
+                if (lbl.includes(kw)) {
+                  return lbl + renderRelationIconInline(group.icon);
+                }
+              }
+            }
+            return lbl;
+          };
+
           commonLabels.slice(0, 2).forEach((lbl, i) => {
             if (!lbl) return;
             const offsetDir = i === 0 ? 1 : -1;
             const offsetDist = 6 + i * 10;
             const lx = midX + px * offsetDir * offsetDist;
             const ly = midY + py * offsetDir * offsetDist;
-            edgesHtml += `<text class="acu-graph-edge-label" x="${lx}" y="${ly}" data-edge-idx="${edgeIdx}">${escapeHtml(lbl)}</text>`;
+            // [修复] 添加图标支持
+            const content = addRelationIconInline(lbl);
+            if (content.includes('<i ')) {
+              // 使用foreignObject渲染HTML内容
+              edgesHtml += `<foreignObject x="${lx - 50}" y="${ly - 10}" width="100" height="20" style="overflow:visible;">
+                <div xmlns="http://www.w3.org/1999/xhtml" class="acu-graph-edge-label-html" data-edge-idx="${edgeIdx}" style="
+                  display:flex;align-items:center;justify-content:center;
+                  font-size:11px;color:var(--acu-text-sub);white-space:nowrap;
+                  pointer-events:none;
+                ">${content}</div>
+              </foreignObject>`;
+            } else {
+              edgesHtml += `<text class="acu-graph-edge-label" x="${lx}" y="${ly}" data-edge-idx="${edgeIdx}">${escapeHtml(lbl)}</text>`;
+            }
           });
         } else {
           // 单向或双向不同：分区域显示
@@ -14089,125 +14131,52 @@ import { injectDatabaseStyles } from './database-ui-override';
           // 使用连线长度的25%，但限制在合理范围内
           const safeOffset = Math.max(30, Math.min(lineLen * 0.25, 60));
 
-          // 关系词Emoji映射表
-          const relationEmojiMap = [
-            {
-              emoji: '💕',
-              keywords: [
-                '恋人',
-                '恋爱',
-                '爱情',
-                '恋情',
-                '情侣',
-                '男友',
-                '女友',
-                '暗恋',
-                '单恋',
-                '心动',
-                '喜欢',
-                '爱慕',
-                '倾心',
-                '钟情',
-                '情人',
-                '爱人',
-              ],
-            },
-            {
-              emoji: '👨‍👩‍👧',
-              keywords: [
-                '家人',
-                '亲人',
-                '父母',
-                '父亲',
-                '母亲',
-                '兄弟',
-                '姐妹',
-                '兄妹',
-                '姐弟',
-                '儿子',
-                '女儿',
-                '爷爷',
-                '奶奶',
-                '外公',
-                '外婆',
-                '叔叔',
-                '阿姨',
-                '表亲',
-                '堂亲',
-                '血亲',
-              ],
-            },
-            {
-              emoji: '😊',
-              keywords: [
-                '朋友',
-                '友人',
-                '好友',
-                '友情',
-                '伙伴',
-                '搭档',
-                '队友',
-                '战友',
-                '同伴',
-                '盟友',
-                '挚友',
-                '密友',
-                '至交',
-                '闺蜜',
-                '死党',
-                '知己',
-                '莫逆',
-              ],
-            },
-            {
-              emoji: '🎓',
-              keywords: [
-                '师父',
-                '师傅',
-                '徒弟',
-                '师徒',
-                '老师',
-                '学生',
-                '导师',
-                '弟子',
-                '门生',
-                '同学',
-                '同窗',
-                '同级',
-                '同班',
-                '前辈',
-                '后辈',
-                '学长',
-                '学姐',
-                '学弟',
-                '学妹',
-              ],
-            },
-            { emoji: '💰', keywords: ['交易', '合作', '生意', '客户', '商业', '利益', '雇佣', '契约', '合同'] },
-            { emoji: '⚔️', keywords: ['对手', '竞争', '劲敌', '宿敌', '情敌', '死对头', '冤家'] },
-            { emoji: '💢', keywords: ['敌人', '仇人', '仇恨', '敌对', '仇敌', '死敌', '憎恨', '怨恨', '仇怨'] },
-            { emoji: '🙏', keywords: ['信仰', '崇拜', '敬仰', '仰慕', '追随', '信徒', '教徒', '狂信'] },
-            { emoji: '🌀', keywords: ['复杂', '微妙', '纠葛', '羁绊', '纠缠'] },
-          ];
+          // 渲染关系图标为HTML
+          const renderRelationIcon = (iconStr: string): string => {
+            if (iconStr.startsWith('fa:')) {
+              return `<i class="fa-solid fa-${iconStr.slice(3)}" style="font-size:10px;margin-left:2px;opacity:0.8;"></i>`;
+            } else if (iconStr.startsWith('ti:')) {
+              return `<i class="ti ti-${iconStr.slice(3)}" style="font-size:10px;margin-left:2px;opacity:0.8;"></i>`;
+            }
+            return iconStr;
+          };
 
-          // 给关系词添加Emoji
-          const addRelationEmoji = lbl => {
+          // 给关系词添加图标
+          const addRelationIcon = (lbl: string): string => {
             if (!lbl) return '';
-            for (const group of relationEmojiMap) {
+            for (const group of RELATION_ICON_MAP) {
               for (const kw of group.keywords) {
                 if (lbl.includes(kw)) {
-                  return lbl + group.emoji;
+                  return lbl + renderRelationIcon(group.icon);
                 }
               }
             }
             return lbl;
           };
 
-          // 截断过长标签的辅助函数（在添加emoji之前截断）
-          const truncateLabel = (lbl, maxLen = 4) => {
+          // 截断过长标签的辅助函数（在添加图标之前截断）
+          const truncateLabel = (lbl: string, maxLen = 4): string => {
             if (!lbl) return '';
             const truncated = lbl.length > maxLen ? lbl.substring(0, maxLen) + '..' : lbl;
-            return addRelationEmoji(truncated);
+            return addRelationIcon(truncated);
+          };
+
+          // 生成带图标的标签HTML（使用foreignObject以支持HTML内容）
+          const createLabelHtml = (lbl: string, x: number, y: number, edgeIdx: number, maxLen = 5): string => {
+            const content = truncateLabel(lbl, maxLen);
+            // 检测是否包含HTML标签（图标）
+            if (content.includes('<i ')) {
+              // 使用foreignObject渲染HTML内容
+              return `<foreignObject x="${x - 50}" y="${y - 10}" width="100" height="20" style="overflow:visible;">
+                <div xmlns="http://www.w3.org/1999/xhtml" class="acu-graph-edge-label-html" data-edge-idx="${edgeIdx}" style="
+                  display:flex;align-items:center;justify-content:center;
+                  font-size:11px;color:var(--acu-text-sub);white-space:nowrap;
+                  pointer-events:none;
+                ">${content}</div>
+              </foreignObject>`;
+            }
+            // 纯文本使用原生text元素
+            return `<text class="acu-graph-edge-label" x="${x}" y="${y}" data-edge-idx="${edgeIdx}">${escapeHtml(content)}</text>`;
           };
 
           // 1. 共同标签（显示在正中间，垂直于连线一上一下）
@@ -14217,7 +14186,7 @@ import { injectDatabaseStyles } from './database-ui-override';
               // 单个共同标签放在线的上方
               const lx = midX + px * 8;
               const ly = midY + py * 8 - 3;
-              edgesHtml += `<text class="acu-graph-edge-label" x="${lx}" y="${ly}" data-edge-idx="${edgeIdx}">${escapeHtml(truncateLabel(lbl, 5))}</text>`;
+              edgesHtml += createLabelHtml(lbl, lx, ly, edgeIdx, 5);
             });
           }
 
@@ -14234,7 +14203,7 @@ import { injectDatabaseStyles } from './database-ui-override';
               const perpOffset = (i === 0 ? 1 : -1) * 10;
               const lx = labelBaseX + px * perpOffset;
               const ly = labelBaseY + py * perpOffset;
-              edgesHtml += `<text class="acu-graph-edge-label" x="${lx}" y="${ly}" data-edge-idx="${edgeIdx}">${escapeHtml(truncateLabel(lbl, 5))}</text>`;
+              edgesHtml += createLabelHtml(lbl, lx, ly, edgeIdx, 5);
             });
           }
 
@@ -14251,7 +14220,7 @@ import { injectDatabaseStyles } from './database-ui-override';
               const perpOffset = (i === 0 ? -1 : 1) * 10;
               const lx = labelBaseX + px * perpOffset;
               const ly = labelBaseY + py * perpOffset;
-              edgesHtml += `<text class="acu-graph-edge-label" x="${lx}" y="${ly}" data-edge-idx="${edgeIdx}">${escapeHtml(truncateLabel(lbl, 5))}</text>`;
+              edgesHtml += createLabelHtml(lbl, lx, ly, edgeIdx, 5);
             });
           }
         }
@@ -16167,6 +16136,56 @@ import { injectDatabaseStyles } from './database-ui-override';
     }
   };
 
+  /**
+   * 修正 importTableAsJson 后的 modifiedKeys
+   * 参考: 外部参考/神-数据库_只读:2344-2355 (消息定位)
+   *       外部参考/神-数据库_只读:2371-2380 (字符串兼容)
+   */
+  const fixModifiedKeysAfterImport = async (actualModifiedKeys: string[]) => {
+    if (!actualModifiedKeys || actualModifiedKeys.length === 0) return;
+
+    const ST = getCore().ST;
+    const chat = ST?.chat || (window.parent as any)?.SillyTavern?.chat;
+    if (!chat || chat.length === 0) return;
+
+    // 定位最新 AI 消息（与神·数据库 importTableAsJson 相同逻辑）
+    let targetMsg = null;
+    for (let i = chat.length - 1; i >= 0; i--) {
+      if (!chat[i].is_user) {
+        targetMsg = chat[i];
+        break;
+      }
+    }
+    if (!targetMsg) return;
+
+    // 字符串兼容
+    let isolated = targetMsg.TavernDB_ACU_IsolatedData;
+    if (typeof isolated === 'string') {
+      try {
+        isolated = JSON.parse(isolated);
+      } catch {
+        isolated = {};
+      }
+    }
+    if (!isolated || typeof isolated !== 'object') return;
+
+    // 隔离标签推断
+    const keys = Object.keys(isolated);
+    if (keys.length === 0) return;
+    const isolationKey = keys.includes('') ? '' : keys[0];
+    if (!isolated[isolationKey]) return;
+
+    // 修正字段
+    isolated[isolationKey].modifiedKeys = [...actualModifiedKeys];
+    isolated[isolationKey].updateGroupKeys = [...actualModifiedKeys];
+    targetMsg.TavernDB_ACU_IsolatedData = isolated;
+    targetMsg.TavernDB_ACU_ModifiedKeys = [...actualModifiedKeys];
+    targetMsg.TavernDB_ACU_UpdateGroupKeys = [...actualModifiedKeys];
+
+    await triggerSlash('savechat');
+    console.info('[DICE] fixModifiedKeys:', actualModifiedKeys);
+  };
+
   const saveDataToDatabase = async (tableData, skipRender = false, commitDeletes = false) => {
     if (isSaving) {
       console.warn('[DICE]保存操作正在进行中，跳过重复请求');
@@ -16291,7 +16310,7 @@ import { injectDatabaseStyles } from './database-ui-override';
 
   // [新增] 轻量级保存：只保存数据到数据库，不更新快照
   // 使用队列模式确保快速连续编辑时所有修改都能保存成功
-  const saveDataOnly = async tableData => {
+  const saveDataOnly = async (tableData, modifiedSheetKeys?: string[]) => {
     // 将保存操作加入队列，确保按顺序执行
     const saveOperation = saveQueue
       .then(async () => {
@@ -16331,6 +16350,10 @@ import { injectDatabaseStyles } from './database-ui-override';
             // 检查返回值，某些实现可能返回 false 表示失败
             if (result === false) {
               throw new Error('数据导入失败（返回 false）');
+            }
+            // 修正 modifiedKeys（只标记实际修改的表格）
+            if (modifiedSheetKeys && modifiedSheetKeys.length > 0) {
+              await fixModifiedKeysAfterImport(modifiedSheetKeys);
             }
           } catch (apiError) {
             console.error('[DICE]ACU API 保存失败:', apiError);
@@ -16382,7 +16405,7 @@ import { injectDatabaseStyles } from './database-ui-override';
       rawData[tableKey].content[rowIndex + 1] = newRowData;
 
       // 3. 保存到数据库（不更新完整快照）
-      await saveDataOnly(rawData);
+      await saveDataOnly(rawData, [tableKey]);
 
       // 4. 只更新快照中这一行（关键：保留其他行的变更高亮）
       const snapshot = loadSnapshot();
@@ -21441,6 +21464,8 @@ import { injectDatabaseStyles } from './database-ui-override';
           toastr.error('数据导入失败');
           return;
         }
+        // 修正 modifiedKeys（只标记实际修改的表格）
+        await fixModifiedKeysAfterImport([uid]);
         console.log('[DICE]FavoritesManager 发送成功，已写入数据库');
       } catch (err) {
         console.error('[DICE]FavoritesManager 写入数据库失败:', err);
@@ -23098,7 +23123,7 @@ import { injectDatabaseStyles } from './database-ui-override';
               // 使用 saveDataOnly 避免触发快照更新和界面重渲染（因为后面会继续渲染）
               // 注意：saveDataOnly 可能会触发 UpdateController.handleUpdate()，但由于 isAutoTransforming 标志，不会再次触发转换
               // 不等待保存完成，让它在后台执行，避免阻塞界面渲染
-              saveDataOnly(rawData).catch(err => {
+              saveDataOnly(rawData, transformResult.modifiedSheetKeys).catch(err => {
                 console.warn('[DICE]自动转换后保存数据失败:', err);
               });
             }
@@ -24598,7 +24623,7 @@ import { injectDatabaseStyles } from './database-ui-override';
         }
 
         // [修复] 使用轻量级保存，只保存数据，不更新快照
-        await saveDataOnly(rawData);
+        await saveDataOnly(rawData, [tableKey]);
 
         // 移除该条目并刷新
         $item.fadeOut(200, function () {
@@ -24640,7 +24665,7 @@ import { injectDatabaseStyles } from './database-ui-override';
         }
 
         // [修复] 使用轻量级保存，只保存数据，不更新快照
-        await saveDataOnly(rawData);
+        await saveDataOnly(rawData, [tableKey]);
 
         // 移除该条目并刷新
         $item.fadeOut(200, function () {
@@ -25066,6 +25091,8 @@ import { injectDatabaseStyles } from './database-ui-override';
             if (result === false) {
               throw new Error('数据导入失败（返回 false）');
             }
+            // 修正 modifiedKeys（只标记实际修改的表格）
+            await fixModifiedKeysAfterImport([tableKey]);
             cachedRawData = rawData;
           } catch (e) {
             console.error('[DICE]ACU 保存失败:', e);
@@ -25185,7 +25212,7 @@ import { injectDatabaseStyles } from './database-ui-override';
           currentRow[colIndex] = newVal;
 
           // 保存到数据库
-          await saveDataOnly(rawData);
+          await saveDataOnly(rawData, [tableKey]);
 
           // 只更新快照中这一个单元格
           const snapshot = loadSnapshot();
@@ -25298,7 +25325,7 @@ import { injectDatabaseStyles } from './database-ui-override';
       });
 
       if (hasChanges) {
-        await saveDataOnly(rawData);
+        await saveDataOnly(rawData, [tableKey]);
 
         // 更新快照中这一行
         const snapshot = loadSnapshot();
@@ -25727,7 +25754,7 @@ import { injectDatabaseStyles } from './database-ui-override';
                                 ${escapeHtml(item.name.length > 4 ? item.name.substring(0, 4) + '..' : item.name)}
                             </span>
                             <div style="display:flex;align-items:center;gap:6px;">
-                                <i class="fa-solid fa-hand-pointer acu-dash-use-item-btn" data-item="${escapeHtml(item.name)}" style="cursor:pointer;color:var(--acu-text-sub);opacity:0.4;font-size:10px;" title="使用${item.name}"></i>
+                                <i class="fa-solid fa-hand-pointer acu-dash-use-item-btn" data-item="${escapeHtml(item.name)}" style="cursor:pointer;color:var(--acu-text-sub);opacity:0.4;font-size:8px;" title="使用${item.name}"></i>
                             </div>
                         </div>`;
                             })
@@ -25737,7 +25764,7 @@ import { injectDatabaseStyles } from './database-ui-override';
                     </div>
 
                     <h3 class="acu-dash-table-link" data-table="${escapeHtml(equipTableName)}" style="margin-top:10px;"><i class="fa-solid fa-shield-halved"></i> 装备 (${equippedItems.length})</h3>
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 6px;max-height:80px;overflow-y:auto;margin-bottom:10px;">
+                    <div style="display:flex;flex-direction:column;gap:2px;max-height:80px;overflow-y:auto;margin-bottom:10px;">
                     ${
                       equippedItems.length > 0
                         ? equippedItems
@@ -25760,12 +25787,9 @@ import { injectDatabaseStyles } from './database-ui-override';
                             data-table-key="${equipResult?.key || ''}"
                             data-row-index="${equipParsed.findIndex(r => r.name === item.name)}"
                             data-preview-type="equipment"
-                            style="display:flex;justify-content:space-between;align-items:center;padding:5px 4px;font-size:11px;cursor:pointer;${!isLast ? 'border-bottom:1px dashed var(--acu-border);' : ''}">
-                            <span style="color:var(--acu-text-main);display:flex;align-items:center;gap:4px;" title="${escapeHtml(item.name)}">
-                                ${iconHtml}
-                                ${escapeHtml(item.name.length > 5 ? item.name.substring(0, 5) + '..' : item.name)}
-                            </span>
-                            <span style="color:var(--acu-text-sub);font-size:10px;">${escapeHtml(item.part || item.type)}</span>
+                            style="display:flex;align-items:center;gap:4px;padding:4px;font-size:11px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${!isLast ? 'border-bottom:1px dashed var(--acu-border);' : ''}">
+                            ${iconHtml}
+                            <span style="color:var(--acu-text-main);overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
                         </div>`;
                             })
                             .join('')
@@ -25849,14 +25873,16 @@ import { injectDatabaseStyles } from './database-ui-override';
     const renderFavoriteCard = (fav: FavoriteItem) => {
       // 显示所有行，不做截断，超过高度内部滚动
       const rowsHtml = fav.header
-        .map(
-          (h, i) => `
+        .map((h, i) => {
+          // 清理列标题：移除括号/方括号及其内容（与表格卡片保持一致）
+          const cleanHeader = h.replace(/[\(（\[【][^)）\]】]*[\)）\]】]/g, '').trim();
+          return `
         <div class="acu-card-row">
-          <div class="acu-card-label">${escapeHtml(h)}</div>
+          <div class="acu-card-label">${escapeHtml(cleanHeader)}</div>
           <div class="acu-card-value">${escapeHtml(String(fav.rowData[i] || ''))}</div>
         </div>
-      `,
-        )
+      `;
+        })
         .join('');
       const tagsHtml = fav.tags.map(tag => `<span class="acu-fav-tag">${escapeHtml(tag)}</span>`).join('');
       const sourceLabel = fav.sourceInfo ? escapeHtml(fav.sourceInfo.tableName) : '';
@@ -26845,13 +26871,19 @@ import { injectDatabaseStyles } from './database-ui-override';
       }
     });
     // 仪表盘模块标题点击跳转
-    $wrapper.on('click', '.acu-dash-table-link', function (e) {
+    $wrapper.off('click.acu_dash_table_link').on('click.acu_dash_table_link', '.acu-dash-table-link', function (e) {
       e.stopPropagation();
+      e.preventDefault();
       const tableName = $(this).data('table');
       if (tableName) {
+        // 关闭仪表盘，切换到对应表格
         Store.set(STORAGE_KEY_DASHBOARD_ACTIVE, false);
+        Store.set('acu_changes_panel_active', false); // 同时关闭审核面板
+        // [防闪烁] 先更新导航按钮状态，再延迟渲染
+        $('.acu-nav-btn').removeClass('active');
+        $(`.acu-nav-btn[data-table="${tableName}"]`).addClass('active');
         saveActiveTabState(tableName);
-        renderInterface();
+        setTimeout(() => renderInterface(), 0);
       }
     });
 
@@ -28920,7 +28952,7 @@ import { injectDatabaseStyles } from './database-ui-override';
 
         try {
           // 保存到数据库
-          await saveDataOnly(cachedRawData);
+          await saveDataOnly(cachedRawData, [tableKey]);
 
           // [Bug 3 修复] 立即同步更新diffMap，避免闪烁
           currentDiffMap = generateDiffMap(cachedRawData);

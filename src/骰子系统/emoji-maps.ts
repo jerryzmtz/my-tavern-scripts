@@ -70,7 +70,7 @@ export const EMOJI_MAP: [RegExp, string][] = [
   [/陷阱|地雷|尖刺/, 'ti:alert-triangle'],
   [/开关|拉杆|按钮/, 'fa:gamepad'],
   [/篝火|营火|火把/, 'fa:fire'],
-  [/路牌|告示|公示|公告/, 'ti:sign'],
+  [/路牌|告示|公示|公告/, 'ti:certificate'],
   [/祭坛/, 'ti:candle'],
 
   // ============================================
@@ -425,7 +425,7 @@ export const EMOJI_MAP: [RegExp, string][] = [
   [/鱼/, 'ti:fish'],
   [/饼/, 'ti:bread'],
   [/面包/, 'ti:bread'],
-  [/茶/, 'ti:cup'],
+  [/茶|饮料/, 'ti:cup'],
   [/照片/, 'fa:camera'],
   [/玩偶|毛绒|玩具/, 'ti:teddy-bear'],
   [/手机/, 'fa:mobile'],
@@ -461,3 +461,132 @@ export const EMOJI_MAP: [RegExp, string][] = [
 // 向后兼容：保留原有导出名称
 export const LOCATION_EMOJI_MAP = EMOJI_MAP;
 export const ELEMENT_EMOJI_MAP = EMOJI_MAP;
+
+/**
+ * 人物关系图标映射表
+ * 用于人物关系图中根据关系词显示对应图标
+ *
+ * 使用位置：index.ts 的 showRelationshipGraph() 函数
+ * 渲染方式：通过 foreignObject 在 SVG 中嵌入 HTML 图标
+ *
+ * 图标格式：
+ * - fa:xxx  → Font Awesome 图标 (如 fa:heart)
+ * - ti:xxx  → Tabler Icons 图标 (如 ti:swords)
+ *
+ * 维护规则：
+ * 1. 优先级：排在前面的组优先匹配（恋人比朋友更具体）
+ * 2. 关键词匹配：使用 includes() 进行子串匹配
+ * 3. 新增关系：找到最匹配的分组添加关键词，或新建分组
+ * 4. 图标选择：优先使用 fa 图标，fa 没有合适的再用 ti
+ */
+export const RELATION_ICON_MAP: { icon: string; keywords: string[] }[] = [
+  {
+    icon: 'fa:heart',
+    keywords: [
+      '恋人',
+      '恋爱',
+      '爱情',
+      '恋情',
+      '情侣',
+      '男友',
+      '女友',
+      '暗恋',
+      '单恋',
+      '心动',
+      '喜欢',
+      '爱慕',
+      '倾心',
+      '钟情',
+      '情人',
+      '爱人',
+    ],
+  },
+  {
+    icon: 'fa:child',
+    keywords: ['青梅', '竹马', '发小', '总角', '儿时', '童年'],
+  },
+  {
+    icon: 'fa:people-roof',
+    keywords: [
+      '家人',
+      '亲人',
+      '父母',
+      '父亲',
+      '母亲',
+      '兄弟',
+      '姐妹',
+      '兄妹',
+      '姐弟',
+      '儿子',
+      '女儿',
+      '爷爷',
+      '奶奶',
+      '外公',
+      '外婆',
+      '叔叔',
+      '阿姨',
+      '表亲',
+      '堂亲',
+      '血亲',
+    ],
+  },
+  {
+    icon: 'fa:star',
+    keywords: ['挚友', '密友', '至交', '闺蜜', '死党', '知己', '莫逆', '铁杆', '世交', '心腹', '刎颈', '金兰'],
+  },
+  {
+    icon: 'fa:user-group',
+    keywords: ['朋友', '友人', '好友', '友情', '伙伴', '搭档', '队友', '战友', '同伴', '盟友', '故交', '旧识'],
+  },
+  {
+    icon: 'fa:graduation-cap',
+    keywords: [
+      '师父',
+      '师傅',
+      '徒弟',
+      '师徒',
+      '老师',
+      '学生',
+      '导师',
+      '弟子',
+      '门生',
+      '同学',
+      '同窗',
+      '同级',
+      '同班',
+      '前辈',
+      '后辈',
+      '学长',
+      '学姐',
+      '学弟',
+      '学妹',
+    ],
+  },
+  { icon: 'fa:compass', keywords: ['向导', '指引', '引路', '领路', '导航', '顾问'] },
+  { icon: 'fa:file-signature', keywords: ['契约', '合同', '婚约', '誓约', '约定', '束缚', '缔结', '主仆'] },
+  { icon: 'fa:handshake', keywords: ['交易', '合作', '生意', '客户', '商业', '利益', '雇佣', '共犯'] },
+  {
+    icon: 'fa:gavel',
+    keywords: ['定罪', '审判', '判决', '问责', '制裁', '惩罚', '罪人', '裁决', '刑罚', '处决', '处刑', '治罪'],
+  },
+  { icon: 'fa:thumbs-up', keywords: ['感激', '感谢', '报恩', '谢意', '恩情', '铭记', '恩人'] },
+  { icon: 'fa:hand-holding-heart', keywords: ['同情', '怜悯', '体谅', '哀怜', '惋惜', '宽恕', '慰藉', '关怀'] },
+  { icon: 'fa:eye', keywords: ['兴趣', '好奇', '关注', '有趣', '意趣', '感兴趣', '观察'] },
+  {
+    icon: 'ti:swords',
+    keywords: ['对手', '竞争', '劲敌', '宿敌', '情敌', '死对头', '冤家', '敌手', '对头', '对峙', '争锋', '较量'],
+  },
+  { icon: 'fa:skull', keywords: ['敌人', '仇人', '仇恨', '敌对', '仇敌', '死敌', '憎恨', '怨恨', '仇怨'] },
+  {
+    icon: 'ti:ghost',
+    keywords: ['恐惧', '害怕', '畏惧', '忌惮', '恐慌', '惊恐', '惧怕', '阴影', '梦魇', '噩梦'],
+  },
+  {
+    icon: 'fa:thumbs-down',
+    keywords: ['厌恶', '讨厌', '嫌弃', '恶心', '反感', '鄙视', '唾弃', '不屑', '憎恶', '轻视'],
+  },
+  { icon: 'fa:ban', keywords: ['排斥', '拒绝', '疏远', '抵触', '隔离', '冷落', '孤立', '对立', '隔阂'] },
+  { icon: 'fa:hands-praying', keywords: ['信仰', '崇拜', '敬仰', '仰慕', '追随', '信徒', '教徒', '狂信'] },
+  { icon: 'fa:face-meh', keywords: ['中立', '无感', '冷漠', '路人', '旁观', '互不', '陌生', '无论'] },
+  { icon: 'ti:circles-relation', keywords: ['复杂', '微妙', '纠葛', '羁绊', '纠缠'] },
+];
