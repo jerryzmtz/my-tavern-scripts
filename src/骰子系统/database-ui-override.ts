@@ -396,7 +396,9 @@ export function injectDatabaseStyles(themeId: string, fontFamily?: string) {
         html body #shujuku_v104-popup.auto-card-updater-popup .acu-window-header,
         html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup .acu-window-header,
         html body #shujuku_v104-main-window .acu-window-header,
-        html body [id^="shujuku"][id$="-main-window"] .acu-window-header {
+        html body [id^="shujuku"][id$="-main-window"] .acu-window-header,
+        html body #shujuku_v104-visualizer-window .acu-window-header,
+        html body [id^="shujuku"][id$="-visualizer-window"] .acu-window-header {
           background: ${t.bgNav} !important;
           border-bottom: 1px solid ${t.border} !important;
           color: ${t.textMain} !important;
@@ -408,19 +410,27 @@ export function injectDatabaseStyles(themeId: string, fontFamily?: string) {
         html body #shujuku_v104-main-window .acu-window-title,
         html body [id^="shujuku"][id$="-main-window"] .acu-window-title,
         html body #shujuku_v104-main-window .acu-window-title span,
-        html body [id^="shujuku"][id$="-main-window"] .acu-window-title span {
+        html body [id^="shujuku"][id$="-main-window"] .acu-window-title span,
+        html body #shujuku_v104-visualizer-window .acu-window-title,
+        html body [id^="shujuku"][id$="-visualizer-window"] .acu-window-title,
+        html body #shujuku_v104-visualizer-window .acu-window-title span,
+        html body [id^="shujuku"][id$="-visualizer-window"] .acu-window-title span {
           color: ${t.textMain} !important;
         }
         html body #shujuku_v104-popup.auto-card-updater-popup .acu-window-title i,
         html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup .acu-window-title i,
         html body #shujuku_v104-main-window .acu-window-title i,
-        html body [id^="shujuku"][id$="-main-window"] .acu-window-title i {
+        html body [id^="shujuku"][id$="-main-window"] .acu-window-title i,
+        html body #shujuku_v104-visualizer-window .acu-window-title i,
+        html body [id^="shujuku"][id$="-visualizer-window"] .acu-window-title i {
           color: ${t.accent} !important;
         }
         html body #shujuku_v104-popup.auto-card-updater-popup .acu-window-btn,
         html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup .acu-window-btn,
         html body #shujuku_v104-main-window .acu-window-btn,
-        html body [id^="shujuku"][id$="-main-window"] .acu-window-btn {
+        html body [id^="shujuku"][id$="-main-window"] .acu-window-btn,
+        html body #shujuku_v104-visualizer-window .acu-window-btn,
+        html body [id^="shujuku"][id$="-visualizer-window"] .acu-window-btn {
           background: ${t.btnBg} !important;
           color: ${t.textMain} !important;
           border: 1px solid ${t.border} !important;
@@ -428,14 +438,18 @@ export function injectDatabaseStyles(themeId: string, fontFamily?: string) {
         html body #shujuku_v104-popup.auto-card-updater-popup .acu-window-btn:hover,
         html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup .acu-window-btn:hover,
         html body #shujuku_v104-main-window .acu-window-btn:hover,
-        html body [id^="shujuku"][id$="-main-window"] .acu-window-btn:hover {
+        html body [id^="shujuku"][id$="-main-window"] .acu-window-btn:hover,
+        html body #shujuku_v104-visualizer-window .acu-window-btn:hover,
+        html body [id^="shujuku"][id$="-visualizer-window"] .acu-window-btn:hover {
           background: ${t.btnHover} !important;
           color: ${t.textMain} !important;
         }
         html body #shujuku_v104-popup.auto-card-updater-popup .acu-window-btn.close:hover,
         html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup .acu-window-btn.close:hover,
         html body #shujuku_v104-main-window .acu-window-btn.close:hover,
-        html body [id^="shujuku"][id$="-main-window"] .acu-window-btn.close:hover {
+        html body [id^="shujuku"][id$="-main-window"] .acu-window-btn.close:hover,
+        html body #shujuku_v104-visualizer-window .acu-window-btn.close:hover,
+        html body [id^="shujuku"][id$="-visualizer-window"] .acu-window-btn.close:hover {
           background: ${t.btnActiveBg} !important;
           color: ${t.btnActiveText} !important;
         }
@@ -512,7 +526,7 @@ export function injectDatabaseStyles(themeId: string, fontFamily?: string) {
           background-color: transparent !important; /* 避免容器产生不必要的背景 */
           color: ${t.textMain} !important;
         }
-        
+
         /* Checkbox Label */
         html body #shujuku_v104-popup.auto-card-updater-popup .checkbox-group label,
         html body [id^="shujuku"][id$="-popup"].auto-card-updater-popup .checkbox-group label {
@@ -929,6 +943,751 @@ export function injectDatabaseStyles(themeId: string, fontFamily?: string) {
           background: ${t.btnActiveBg} !important;
           color: ${t.btnActiveText} !important;
           border-color: ${t.btnActiveBg} !important;
+        }
+
+        /* 可视化编辑器 - 布局容器 */
+        /* Header */
+        #acu-visualizer-content .acu-vis-header {
+          background-color: ${t.bgNav} !important;
+          background: ${t.bgNav} !important;
+          border-bottom: 1px solid ${t.border} !important;
+          color: ${t.textMain} !important;
+        }
+
+        /* Content Area */
+        #acu-visualizer-content .acu-vis-content {
+          background-color: ${t.bgPanel} !important;
+          background: ${t.bgPanel} !important;
+        }
+
+        /* Sidebar */
+        #acu-visualizer-content .acu-vis-sidebar {
+          background-color: ${t.bgNav} !important;
+          background: ${t.bgNav} !important;
+          border-right: 1px solid ${t.border} !important;
+        }
+
+        /* Main Section */
+        #acu-visualizer-content .acu-vis-main {
+          background-color: ${t.bgPanel} !important;
+          background: ${t.bgPanel} !important;
+          color: ${t.textMain} !important;
+        }
+
+        /* Title & Actions */
+        #acu-visualizer-content .acu-vis-title {
+          color: ${t.textMain} !important;
+        }
+
+        #acu-visualizer-content .acu-vis-actions {
+          color: ${t.textSub} !important;
+        }
+
+        /* 可视化编辑器 - 数据卡片 */
+        /* Card Grid Layout */
+        #acu-visualizer-content .acu-card-grid {
+          display: grid !important;
+          grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)) !important;
+          gap: 16px !important;
+          padding: 16px !important;
+        }
+
+        /* Data Card Container */
+        #acu-visualizer-content .acu-data-card {
+          background-color: ${t.bgPanel} !important;
+          background: ${t.bgPanel} !important;
+          border: 1px solid ${t.border} !important;
+          border-radius: 10px !important;
+          /* 修复：允许卡片内容垂直滚动，而非截断 */
+          overflow: visible !important;
+          overflow-y: auto !important;
+          max-height: 70vh !important;
+          display: flex !important;
+          flex-direction: column !important;
+          transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+        }
+
+        #acu-visualizer-content .acu-data-card:hover {
+          transform: translateY(-4px) !important;
+          box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25) !important;
+          border-color: ${t.btnActiveBg} !important;
+        }
+
+        /* Add Row Card - 覆盖内联样式 */
+        #acu-visualizer-content #acu-vis-add-row,
+        #acu-visualizer-content .acu-data-card#acu-vis-add-row {
+          background: ${t.bgPanel} !important;
+          background-color: ${t.bgPanel} !important;
+          border: 2px dashed ${t.accent} !important;
+          border-color: ${t.accent} !important;
+        }
+        #acu-visualizer-content #acu-vis-add-row i,
+        #acu-visualizer-content #acu-vis-add-row div,
+        #acu-visualizer-content #acu-vis-add-row i.fa-solid,
+        #acu-visualizer-content #acu-vis-add-row i.fa-plus,
+        #acu-visualizer-content .acu-data-card#acu-vis-add-row > i,
+        #acu-visualizer-content .acu-data-card#acu-vis-add-row > div,
+        #acu-vis-add-row i[style],
+        #acu-vis-add-row div[style] {
+          color: ${t.accent} !important;
+        }
+        #acu-visualizer-content #acu-vis-add-row:hover {
+          background: ${t.btnBg} !important;
+          background-color: ${t.btnBg} !important;
+          border-color: ${t.btnActiveBg} !important;
+        }
+        #acu-visualizer-content #acu-vis-add-row:hover i,
+        #acu-visualizer-content #acu-vis-add-row:hover div,
+        #acu-vis-add-row:hover i[style],
+        #acu-vis-add-row:hover div[style] {
+          color: ${t.btnActiveBg} !important;
+        }
+
+        /* Card Header */
+        #acu-visualizer-content .acu-card-header {
+          background-color: ${t.btnActiveBg} !important;
+          background: ${t.btnActiveBg} !important;
+          color: ${t.btnActiveText} !important;
+          padding: 12px 16px !important;
+          font-weight: 600 !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: space-between !important;
+          border-bottom: 1px solid ${t.border} !important;
+        }
+
+        /* Card Body */
+        #acu-visualizer-content .acu-card-body {
+          background-color: ${t.bgPanel} !important;
+          background: ${t.bgPanel} !important;
+          padding: 16px !important;
+          flex: 1 !important;
+          color: ${t.textMain} !important;
+          font-size: 14px !important;
+          line-height: 1.6 !important;
+        }
+        /* 可视化编辑器 - 交互按钮 */
+        /* Lock Buttons - 通配符统一处理所有锁定按钮 */
+        #acu-visualizer-content [class*="acu-lock"],
+        #acu-visualizer-content [class*="acu-vis-lock"] {
+          background: ${t.btnBg} !important;
+          color: ${t.textSub} !important;
+          border: 1px solid ${t.border} !important;
+          padding: 4px 6px !important;
+          cursor: pointer !important;
+          transition: all 0.2s ease !important;
+          /* 紧凑尺寸 - 防止触摸屏优化导致按钮增大 */
+          min-width: unset !important;
+          min-height: unset !important;
+          width: auto !important;
+          height: auto !important;
+          font-size: 12px !important;
+          line-height: 1 !important;
+          border-radius: 4px !important;
+          flex-shrink: 0 !important;
+        }
+
+        #acu-visualizer-content [class*="acu-lock"]:hover,
+        #acu-visualizer-content [class*="acu-vis-lock"]:hover {
+          background: ${t.btnHover} !important;
+          color: ${t.textMain} !important;
+        }
+
+        /* Delete Buttons (Red warning) */
+        #acu-visualizer-content .acu-vis-del-row,
+        #acu-visualizer-content .acu-vis-del-table-btn {
+          background: ${t.btnBg} !important;
+          color: ${t.textSub} !important;
+          border: 1px solid ${t.border} !important;
+          cursor: pointer !important;
+          transition: all 0.2s ease !important;
+        }
+
+        #acu-visualizer-content .acu-vis-del-row:hover,
+        #acu-visualizer-content .acu-vis-del-table-btn:hover {
+          background: #ff4444 !important;
+          color: #fff !important;
+          border-color: #cc0000 !important;
+        }
+
+        /* Add Table Button */
+        #acu-visualizer-content .acu-add-table-btn {
+          background: ${t.accent} !important;
+          color: #fff !important;
+          border: none !important;
+          padding: 10px 16px !important;
+          cursor: pointer !important;
+          transition: all 0.2s ease !important;
+        }
+
+        #acu-visualizer-content .acu-add-table-btn:hover {
+          background: ${t.btnActiveBg} !important;
+        }
+
+        /* 可视化编辑器 - 工具栏容器 */
+        #acu-visualizer-content .acu-vis-toolbar {
+          display: flex !important;
+          align-items: center !important;
+          justify-content: space-between !important;
+          padding: 8px 12px !important;
+          background: ${t.bgNav} !important;
+          border-bottom: 1px solid ${t.border} !important;
+          flex-shrink: 0 !important;
+          flex-wrap: wrap !important;
+          gap: 8px !important;
+        }
+
+        /* 可视化编辑器 - 模式切换与操作按钮 */
+        /* Mode Switch Container */
+        #acu-visualizer-content .acu-mode-switch {
+          display: flex !important;
+          gap: 4px !important;
+          padding: 4px !important;
+          background: ${t.bgPanel} !important;
+          border-radius: 6px !important;
+          border: 1px solid ${t.border} !important;
+          flex-shrink: 0 !important;
+        }
+
+        /* Mode Button (default) */
+        #acu-visualizer-content .acu-mode-btn {
+          background: transparent !important;
+          color: ${t.textSub} !important;
+          border: 1px solid transparent !important;
+          padding: 6px 10px !important;
+          cursor: pointer !important;
+          transition: all 0.2s ease !important;
+          border-radius: 4px !important;
+          font-size: 12px !important;
+          white-space: nowrap !important;
+          min-width: unset !important;
+          min-height: unset !important;
+        }
+
+        #acu-visualizer-content .acu-mode-btn:hover {
+          background: ${t.btnBg} !important;
+          color: ${t.textMain} !important;
+        }
+
+        /* Mode Button (active) */
+        #acu-visualizer-content .acu-mode-btn.active {
+          background: ${t.btnActiveBg} !important;
+          color: ${t.btnActiveText} !important;
+          border-color: ${t.btnActiveBg} !important;
+        }
+
+        /* 操作按钮区域 */
+        #acu-visualizer-content .acu-vis-actions {
+          display: flex !important;
+          gap: 6px !important;
+          flex-wrap: wrap !important;
+          justify-content: flex-end !important;
+          flex-shrink: 1 !important;
+          min-width: 0 !important;
+        }
+
+        /* Primary Button */
+        #acu-visualizer-content .acu-btn-primary {
+          background: ${t.btnActiveBg} !important;
+          color: ${t.btnActiveText} !important;
+          border: none !important;
+          padding: 6px 12px !important;
+          border-radius: 4px !important;
+          cursor: pointer !important;
+          font-weight: 600 !important;
+          font-size: 12px !important;
+          white-space: nowrap !important;
+          min-width: unset !important;
+          min-height: unset !important;
+        }
+
+        #acu-visualizer-content .acu-btn-primary:hover {
+          filter: brightness(1.1) !important;
+        }
+
+        /* Secondary Button */
+        #acu-visualizer-content .acu-btn-secondary {
+          background: ${t.btnBg} !important;
+          color: ${t.textMain} !important;
+          border: 1px solid ${t.border} !important;
+          padding: 6px 12px !important;
+          border-radius: 4px !important;
+          cursor: pointer !important;
+          font-size: 12px !important;
+          white-space: nowrap !important;
+          min-width: unset !important;
+          min-height: unset !important;
+        }
+
+        #acu-visualizer-content .acu-btn-secondary:hover {
+          background: ${t.btnHover} !important;
+        }
+        /* 可视化编辑器 - 字段元素 */
+        /* Field Row */
+        #acu-visualizer-content .acu-field-row {
+          display: flex !important;
+          align-items: flex-start !important;
+          gap: 12px !important;
+          padding: 10px 0 !important;
+          border-bottom: 1px solid ${t.border} !important;
+          transition: background-color 0.2s ease !important;
+        }
+
+        #acu-visualizer-content .acu-field-row:last-child {
+          border-bottom: none !important;
+        }
+
+        /* Field Label - 覆盖inline style的justify-content:space-between，让锁定按钮紧跟文字 */
+        #acu-visualizer-content .acu-field-label {
+          color: ${t.textSub} !important;
+          font-weight: 600 !important;
+          min-width: 140px !important;
+          max-width: 200px !important;
+          font-size: 13px !important;
+          padding-top: 8px !important;
+          user-select: none !important;
+          overflow: visible !important;
+          text-overflow: ellipsis !important;
+          white-space: nowrap !important;
+          /* 覆盖inline style，让锁定按钮紧跟在列名后面而不是被推到右边 */
+          justify-content: flex-start !important;
+        }
+
+        /* Field Value Wrapper - 改为横向布局，锁定按钮紧跟在值后面 */
+        #acu-visualizer-content .acu-field-value-wrap {
+          flex: 1 1 0 !important;
+          min-width: 0 !important;
+          display: flex !important;
+          flex-direction: row !important;
+          align-items: flex-start !important;
+          gap: 8px !important;
+          width: 100% !important;
+        }
+
+        /* 单元格锁定按钮 - 紧凑样式 */
+        #acu-visualizer-content .acu-field-value-wrap > .acu-lock-btn {
+          flex-shrink: 0 !important;
+          padding: 4px 6px !important;
+          font-size: 12px !important;
+          border-radius: 4px !important;
+          min-width: unset !important;
+          min-height: unset !important;
+          width: auto !important;
+          height: auto !important;
+        }
+
+        /* Field Value (editable) */
+        #acu-visualizer-content .acu-field-value {
+          background-color: ${t.inputBg} !important;
+          background: ${t.inputBg} !important;
+          color: ${t.textMain} !important;
+          border: 1px solid ${t.border} !important;
+          padding: 8px 12px !important;
+          border-radius: 6px !important;
+          font-size: 14px !important;
+          min-height: 38px !important;
+          /* 修复：让输入框始终占满一行，文字自动换行 */
+          flex: 1 1 0 !important;
+          min-width: 0 !important;
+          width: 100% !important;
+          box-sizing: border-box !important;
+          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+          cursor: text !important;
+          line-height: 1.5 !important;
+          /* 文字换行 */
+          white-space: pre-wrap !important;
+          word-wrap: break-word !important;
+          word-break: break-word !important;
+          overflow-wrap: break-word !important;
+        }
+
+        #acu-visualizer-content .acu-field-value:hover {
+          border-color: ${t.accent} !important;
+          background-color: ${t.bgPanel} !important;
+          background: ${t.bgPanel} !important;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+        }
+
+        #acu-visualizer-content .acu-field-value:focus {
+          border-color: ${t.accent} !important;
+          background-color: ${t.bgPanel} !important;
+          background: ${t.bgPanel} !important;
+          outline: none !important;
+          box-shadow: 0 0 0 3px ${t.accent}33 !important;
+        }
+
+        /* 可视化编辑器 - 配置面板 */
+        /* Panel Container */
+        #acu-visualizer-content .acu-config-panel {
+          background: ${t.bgPanel} !important;
+          padding: 20px !important;
+          border-radius: 8px !important;
+        }
+
+        /* Config Section */
+        #acu-visualizer-content .acu-config-section {
+          margin-bottom: 24px !important;
+        }
+
+        #acu-visualizer-content .acu-config-section h4 {
+          color: ${t.textMain} !important;
+          font-size: 16px !important;
+          font-weight: 600 !important;
+          margin-bottom: 12px !important;
+        }
+
+        /* Form Group */
+        #acu-visualizer-content .acu-form-group {
+          margin-bottom: 16px !important;
+        }
+
+        #acu-visualizer-content .acu-form-group label {
+          color: ${t.textSub} !important;
+          display: block !important;
+          margin-bottom: 6px !important;
+          font-weight: 500 !important;
+        }
+
+        /* Form Inputs */
+        #acu-visualizer-content .acu-form-input,
+        #acu-visualizer-content .acu-form-textarea {
+          background: ${t.inputBg} !important;
+          color: ${t.textMain} !important;
+          border: 1px solid ${t.border} !important;
+          padding: 8px 12px !important;
+          border-radius: 4px !important;
+          width: 100% !important;
+        }
+
+        #acu-visualizer-content .acu-form-input:focus,
+        #acu-visualizer-content .acu-form-textarea:focus {
+          border-color: ${t.accent} !important;
+          outline: none !important;
+        }
+
+        /* Hint Text */
+        #acu-visualizer-content .acu-hint {
+          color: ${t.textSub} !important;
+          font-size: 12px !important;
+          opacity: 0.7 !important;
+          margin-top: 4px !important;
+        }
+
+        /* ========== 可视化编辑器 - 侧边栏导航 ========== */
+        /* 侧边栏容器 */
+        #acu-visualizer-content .acu-vis-sidebar {
+          background: ${t.bgNav} !important;
+          border-right: 1px solid ${t.border} !important;
+          padding: 8px !important;
+          overflow-y: auto !important;
+        }
+
+        /* 通配符: 侧边栏内所有按钮统一紧凑样式 - 防止触控优化导致按钮放大 */
+        #acu-visualizer-content .acu-vis-sidebar button,
+        #acu-visualizer-content [class*="acu-table-nav-"] button,
+        #acu-visualizer-content [class*="acu-vis-del-"] {
+          min-width: unset !important;
+          min-height: unset !important;
+          width: auto !important;
+          height: auto !important;
+          padding: 4px 6px !important;
+          font-size: 12px !important;
+          line-height: 1 !important;
+          border-radius: 4px !important;
+          background: ${t.btnBg} !important;
+          color: ${t.textSub} !important;
+          border: 1px solid ${t.border} !important;
+          cursor: pointer !important;
+          transition: all 0.2s ease !important;
+          flex-shrink: 0 !important;
+        }
+
+        #acu-visualizer-content .acu-vis-sidebar button:hover,
+        #acu-visualizer-content [class*="acu-table-nav-"] button:hover {
+          background: ${t.btnHover} !important;
+          color: ${t.textMain} !important;
+        }
+
+        /* 删除按钮悬停时变红色警告 */
+        #acu-visualizer-content [class*="acu-vis-del-"]:hover {
+          background: #ff4444 !important;
+          color: #fff !important;
+          border-color: #cc0000 !important;
+        }
+
+        /* Table Nav Item (default) */
+        #acu-visualizer-content .acu-table-nav-item {
+          background: transparent !important;
+          color: ${t.textSub} !important;
+          border: 1px solid transparent !important;
+          padding: 6px 8px !important;
+          cursor: pointer !important;
+          transition: all 0.2s ease !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: space-between !important;
+          gap: 6px !important;
+          border-radius: 6px !important;
+          margin-bottom: 2px !important;
+          font-size: 16px !important;
+        }
+
+        /* Table Nav Item (hover) */
+        #acu-visualizer-content .acu-table-nav-item:hover {
+          background: ${t.btnHover} !important;
+          color: ${t.textMain} !important;
+        }
+
+        /* Table Nav Item (active) */
+        #acu-visualizer-content .acu-table-nav-item.active {
+          background: ${t.btnActiveBg} !important;
+          color: ${t.btnActiveText} !important;
+          border-color: ${t.btnActiveBg} !important;
+        }
+
+        /* 表格导航内容区 */
+        #acu-visualizer-content .acu-table-nav-content {
+          display: flex !important;
+          align-items: center !important;
+          gap: 6px !important;
+          flex: 1 !important;
+          min-width: 0 !important;
+          overflow: hidden !important;
+        }
+
+        /* 表格导航操作按钮区 */
+        #acu-visualizer-content .acu-table-nav-actions {
+          display: flex !important;
+          align-items: center !important;
+          gap: 4px !important;
+          flex-shrink: 0 !important;
+        }
+
+        /* Table Name */
+        #acu-visualizer-content .acu-table-name {
+          font-weight: 500 !important;
+          flex: 1 !important;
+          overflow: hidden !important;
+          text-overflow: ellipsis !important;
+          white-space: nowrap !important;
+        }
+
+        /* Table Index */
+        #acu-visualizer-content .acu-table-index {
+          font-size: 10px !important;
+          color: ${t.textSub} !important;
+          opacity: 0.7 !important;
+        }
+
+        /* 新增表格按钮 */
+        #acu-visualizer-content .acu-add-table-btn {
+          width: 100% !important;
+          margin-top: 8px !important;
+          padding: 8px 12px !important;
+          background: ${t.accent} !important;
+          color: ${t.btnActiveText} !important;
+          border: none !important;
+          border-radius: 6px !important;
+          font-size: 12px !important;
+          cursor: pointer !important;
+          min-width: unset !important;
+          min-height: unset !important;
+        }
+
+        #acu-visualizer-content .acu-add-table-btn:hover {
+          filter: brightness(1.1) !important;
+        }
+
+        /* 表格导航按钮 - 透明背景（使用更广泛的选择器） */
+        .acu-table-order-btn,
+        .acu-vis-del-table-btn,
+        .acu-vis-sidebar .acu-table-order-btn,
+        .acu-vis-sidebar .acu-vis-del-table-btn,
+        .acu-table-nav-actions .acu-table-order-btn,
+        .acu-table-nav-actions .acu-vis-del-table-btn,
+        #acu-visualizer-content .acu-table-order-btn,
+        #acu-visualizer-content .acu-vis-del-table-btn {
+          background: transparent !important;
+          background-color: transparent !important;
+          border: none !important;
+          color: ${t.textSub} !important;
+          opacity: 0.7 !important;
+        }
+
+        .acu-table-order-btn:hover,
+        .acu-vis-del-table-btn:hover,
+        .acu-vis-sidebar .acu-table-order-btn:hover,
+        .acu-vis-sidebar .acu-vis-del-table-btn:hover,
+        .acu-table-nav-actions .acu-table-order-btn:hover,
+        .acu-table-nav-actions .acu-vis-del-table-btn:hover,
+        #acu-visualizer-content .acu-table-order-btn:hover,
+        #acu-visualizer-content .acu-vis-del-table-btn:hover {
+          background: ${t.btnHover} !important;
+          background-color: ${t.btnHover} !important;
+          color: ${t.textMain} !important;
+          opacity: 1 !important;
+        }
+
+        .acu-table-order-btn:disabled,
+        #acu-visualizer-content .acu-table-order-btn:disabled {
+          opacity: 0.3 !important;
+          cursor: not-allowed !important;
+        }
+
+        /* 可视化编辑器 - 滚动条与响应式 */
+        /* Scrollbar Styles */
+        #acu-visualizer-content ::-webkit-scrollbar {
+          width: 8px !important;
+          height: 8px !important;
+        }
+
+        #acu-visualizer-content ::-webkit-scrollbar-track {
+          background: ${t.bgNav} !important;
+          border-radius: 4px !important;
+        }
+
+        #acu-visualizer-content ::-webkit-scrollbar-thumb {
+          background: ${t.btnBg} !important;
+          border-radius: 4px !important;
+          border: 2px solid ${t.bgNav} !important;
+        }
+
+        #acu-visualizer-content ::-webkit-scrollbar-thumb:hover {
+          background: ${t.btnHover} !important;
+        }
+
+        /* Responsive Styles */
+        @media (max-width: 768px) {
+          /* 工具栏响应式 - 垂直堆叠布局 */
+          #acu-visualizer-content .acu-vis-toolbar {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            padding: 8px !important;
+            gap: 8px !important;
+          }
+
+          #acu-visualizer-content .acu-mode-switch {
+            width: 100% !important;
+            justify-content: center !important;
+          }
+
+          #acu-visualizer-content .acu-mode-btn {
+            flex: 1 !important;
+            text-align: center !important;
+            padding: 8px 6px !important;
+          }
+
+          #acu-visualizer-content .acu-vis-actions {
+            width: 100% !important;
+            justify-content: center !important;
+          }
+
+          #acu-visualizer-content .acu-btn-primary,
+          #acu-visualizer-content .acu-btn-secondary {
+            flex: 1 !important;
+            text-align: center !important;
+            padding: 8px 10px !important;
+          }
+
+          #acu-visualizer-content .acu-vis-header {
+            flex-direction: column !important;
+            height: auto !important;
+            padding: 10px !important;
+          }
+
+          #acu-visualizer-content .acu-vis-sidebar {
+            width: 100% !important;
+            border-right: none !important;
+            border-bottom: 1px solid ${t.border} !important;
+            max-height: 200px !important;
+            overflow-y: auto !important;
+          }
+
+          #acu-visualizer-content .acu-vis-content {
+            flex-direction: column !important;
+          }
+
+          #acu-visualizer-content .acu-card-grid {
+            grid-template-columns: 1fr !important;
+            padding: 10px !important;
+          }
+
+          #acu-visualizer-content .acu-field-row {
+            flex-direction: column !important;
+            align-items: stretch !important;
+          }
+
+          #acu-visualizer-content .acu-field-label {
+            min-width: unset !important;
+            width: 100% !important;
+            padding-bottom: 4px !important;
+          }
+
+          #acu-visualizer-content .acu-vis-actions {
+            justify-content: center !important;
+            width: 100% !important;
+            margin-top: 10px !important;
+          }
+        }
+
+        /* 可视化编辑器 - 列编辑器 */
+        /* Column List */
+        #acu-visualizer-content .acu-col-list {
+          display: flex !important;
+          flex-direction: column !important;
+          gap: 8px !important;
+          padding: 8px 0 !important;
+        }
+
+        /* Column Item */
+        #acu-visualizer-content .acu-col-item {
+          background: ${t.btnBg} !important;
+          border: 1px solid ${t.border} !important;
+          padding: 8px 12px !important;
+          border-radius: 6px !important;
+          display: flex !important;
+          align-items: center !important;
+          gap: 8px !important;
+          transition: all 0.2s ease !important;
+        }
+
+        #acu-visualizer-content .acu-col-item:hover {
+          background: ${t.btnHover} !important;
+        }
+
+        /* Column Input */
+        #acu-visualizer-content .acu-col-input {
+          background-color: ${t.inputBg} !important;
+          background: ${t.inputBg} !important;
+          color: ${t.textMain} !important;
+          border: 1px solid ${t.border} !important;
+          padding: 6px 10px !important;
+          border-radius: 4px !important;
+          flex: 1 !important;
+          font-size: 13px !important;
+        }
+
+        #acu-visualizer-content .acu-col-input:focus {
+          border-color: ${t.accent} !important;
+          outline: none !important;
+        }
+
+        /* Column Delete Button */
+        #acu-visualizer-content .acu-col-btn {
+          background: ${t.btnBg} !important;
+          color: ${t.textSub} !important;
+          border: 1px solid ${t.border} !important;
+          padding: 4px 8px !important;
+          border-radius: 4px !important;
+          cursor: pointer !important;
+          transition: all 0.2s ease !important;
+        }
+
+        #acu-visualizer-content .acu-col-btn:hover {
+          background: #ff4444 !important;
+          color: #fff !important;
+          border-color: #cc0000 !important;
         }
       </style>
     `;

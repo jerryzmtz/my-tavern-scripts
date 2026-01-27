@@ -793,8 +793,8 @@ import { injectDatabaseStyles } from './database-ui-override';
     inSceneNpcWeight: 15,
     offSceneNpcWeight: 5,
   };
-  const PRESET_FORMAT_VERSION = '1.4.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v3.66'; // 脚本版本号
+  const PRESET_FORMAT_VERSION = '1.4.2'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
+  const SCRIPT_VERSION = 'v3.67'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -1862,6 +1862,12 @@ import { injectDatabaseStyles } from './database-ui-override';
     '号码',
     'time',
     'cost',
+    'chapter',
+    'location',
+    'calendar',
+    'day',
+    'year',
+    'month',
   ];
 
   const BlacklistManager = {
@@ -4877,6 +4883,16 @@ import { injectDatabaseStyles } from './database-ui-override';
     },
   };
 
+  // 渲染图标：支持 fa:xxx 简写格式和原生emoji
+  const renderIcon = (icon: string | null): string => {
+    if (!icon) return '';
+    if (icon.startsWith('fa:')) {
+      const name = icon.slice(3);
+      return `<i class="fa-solid fa-${name} acu-icon"></i>`;
+    }
+    return icon; // 原样返回emoji
+  };
+
   const getLocationEmoji = name => {
     if (!name) return null;
     for (const [pattern, emoji] of LOCATION_EMOJI_MAP) {
@@ -6283,21 +6299,18 @@ import { injectDatabaseStyles } from './database-ui-override';
         collectNumericItems(value, key, [key]);
       }
 
-      // [新增] 黑名单过滤：只匹配嵌套的最下一层
+      // [新增] 黑名单过滤：检查路径中的所有层级
       const filteredNumericItems = numericItems.filter(item => {
-        // 获取最后一级的key（最下一层）
-        // 优先从levelNames中获取最后一级非数组索引的名称
-        let lastLevelKey = item.key;
+        // 获取所有非数组索引的层级名称
         const nonArrayLevels = item.levelNames.filter(level => level && !level.startsWith('['));
-        if (nonArrayLevels.length > 0) {
-          lastLevelKey = nonArrayLevels[nonArrayLevels.length - 1];
-        } else if (item.path && item.path.includes('.')) {
-          // 如果没有levelNames，从path中提取
-          const parts = item.path.split('.');
-          lastLevelKey = parts[parts.length - 1];
+        // 检查路径中的任意层级是否在黑名单中
+        // 只要有一个层级匹配黑名单，就过滤掉整个项
+        for (const levelKey of nonArrayLevels) {
+          if (BlacklistManager.isBlacklisted(levelKey)) {
+            return false;
+          }
         }
-        // 使用 BlacklistManager 进行智能匹配
-        return !BlacklistManager.isBlacklisted(lastLevelKey);
+        return true;
       });
 
       if (filteredNumericItems.length === 0) {
@@ -7342,6 +7355,7 @@ import { injectDatabaseStyles } from './database-ui-override';
     hideDiceResultFromUser: false,
     // 隐藏聊天记录中的检定结果
     hideDiceResultInChat: false,
+    autoMergeProtagonist: true,
   };
 
   const getDiceConfig = () => Store.get(STORAGE_KEY_DICE_CONFIG, DEFAULT_DICE_CONFIG);
@@ -9031,8 +9045,8 @@ import { injectDatabaseStyles } from './database-ui-override';
   // 注意：保存按钮已移除，系统现在使用即时保存模式（每次编辑/删除后自动保存）
   const ACTION_BUTTONS = [
     // { id: 'acu-btn-save-global', icon: 'fa-save', title: '保存所有修改' }, // 已废弃：使用即时保存
-    { id: 'acu-btn-refresh', icon: 'fa-sync-alt', title: '重新加载' },
     { id: 'acu-btn-open-editor', icon: 'fa-database', title: '打开神-数据库' },
+    { id: 'acu-btn-open-visualizer', icon: 'fa-table-columns', title: '打开可视化表格编辑' },
     { id: 'acu-btn-collapse', icon: 'fa-chevron-down', title: '收起面板' },
     { id: 'acu-btn-refill', icon: 'fa-bolt', title: '重新填表' },
     { id: 'acu-btn-settings', icon: 'fa-cog', title: '全能设置' },
@@ -12920,9 +12934,22 @@ import { injectDatabaseStyles } from './database-ui-override';
     const $focusArea = overlay.find('.acu-map-focus-area');
     const $thumbnails = overlay.find('.acu-map-thumbnails');
 
+    // 图标渲染：支持 fa:xxx / ti:xxx 简写和原生emoji
+    const renderIconContent = (icon: string): string => {
+      if (icon.startsWith('fa:')) {
+        const name = icon.slice(3);
+        return `<i class="fa-solid fa-${name} acu-theme-icon"></i>`;
+      }
+      if (icon.startsWith('ti:')) {
+        const name = icon.slice(3);
+        return `<i class="ti ti-${name} acu-theme-icon"></i>`;
+      }
+      return icon;
+    };
+
     const renderElementChip = element => {
       const name = element.name || element.type || '元素';
-      const emoji = element.emoji ? `<span class="acu-map-chip-emoji">${element.emoji}</span>` : '';
+      const emoji = element.emoji ? `<span class="acu-map-chip-emoji">${renderIconContent(element.emoji)}</span>` : '';
       return `
                  <div class="acu-map-element-chip acu-dash-preview-trigger" data-table-key="${escapeHtml(
                    element.tableKey || '',
@@ -12973,7 +13000,7 @@ import { injectDatabaseStyles } from './database-ui-override';
       const rightElemsHtml = rightElems.length ? rightElems.map(e => renderElementChip(e)).join('') : '';
 
       const emojiHtml = location.emoji
-        ? `<div class="acu-map-location-emoji">${location.emoji}</div>`
+        ? `<div class="acu-map-location-emoji">${renderIconContent(location.emoji)}</div>`
         : `<div class="acu-map-location-text">${escapeHtml(location.name.charAt(0) || '□')}</div>`;
 
       return `
@@ -13003,7 +13030,7 @@ import { injectDatabaseStyles } from './database-ui-override';
       const elementCount = (model.elements.get(location.name) || []).length;
       const totalCount = charCount + elementCount;
       const emoji = location.emoji
-        ? `<div class="acu-map-thumbnail-emoji">${location.emoji}</div>`
+        ? `<div class="acu-map-thumbnail-emoji">${renderIconContent(location.emoji)}</div>`
         : `<div class="acu-map-thumbnail-placeholder">${escapeHtml(location.name.charAt(0) || '□')}</div>`;
       const badgeHtml = totalCount > 0 ? `<div class="acu-map-thumbnail-badge">${totalCount}</div>` : '';
       return `
@@ -13236,7 +13263,11 @@ import { injectDatabaseStyles } from './database-ui-override';
       const personaName = getPersonaName();
 
       // 明确的用户占位符变体
+      const diceCfg = getDiceConfig();
       const explicitUserVariants = ['<user>', '{{user}}'];
+      if (diceCfg.autoMergeProtagonist !== false) {
+        explicitUserVariants.push('主角');
+      }
       const isExplicitUserVariant = explicitUserVariants.some(
         v => name === v || name.toLowerCase() === v.toLowerCase(),
       );
@@ -15171,7 +15202,11 @@ import { injectDatabaseStyles } from './database-ui-override';
         const personaName = getPersonaName();
 
         // 明确的用户占位符变体
+        const diceCfg = getDiceConfig();
         const explicitUserVariants = ['<user>', '{{user}}'];
+        if (diceCfg.autoMergeProtagonist !== false) {
+          explicitUserVariants.push('主角');
+        }
         const isExplicitUserVariant = explicitUserVariants.some(
           v => name === v || name.toLowerCase() === v.toLowerCase(),
         );
@@ -15249,7 +15284,7 @@ import { injectDatabaseStyles } from './database-ui-override';
                         </div>
                         <div class="acu-avatar-info">
                             <div class="acu-avatar-name-row">
-                                <div class="acu-avatar-name">${escapeHtml(userNodeForDisplay.name)}</div>
+                                <div class="acu-avatar-name">${escapeHtml(userNodeForDisplay.name)}<button class="acu-protagonist-toggle ${getDiceConfig().autoMergeProtagonist !== false ? 'active' : ''}" title="自动将&quot;主角&quot;合并为{{user}}的别名"><i class="fa-solid ${getDiceConfig().autoMergeProtagonist !== false ? 'fa-link' : 'fa-link-slash'}"></i></button></div>
                                 <div class="acu-avatar-actions">
                                     <button class="acu-avatar-save-btn" title="保存"><i class="fa-solid fa-check"></i></button>
                                     <button class="acu-avatar-clear-btn" title="清除"><i class="fa-solid fa-trash"></i></button>
@@ -15486,6 +15521,19 @@ import { injectDatabaseStyles } from './database-ui-override';
           }
 
           $(this).val('');
+        });
+
+        // "主角"自动合并开关
+        $manager.on('click', '.acu-protagonist-toggle', function () {
+          const $btn = $(this);
+          const diceCfg = getDiceConfig();
+          const newValue = diceCfg.autoMergeProtagonist === false ? true : false;
+          saveDiceConfig({ autoMergeProtagonist: newValue });
+
+          $btn.toggleClass('active', newValue);
+          $btn.find('i').attr('class', `fa-solid ${newValue ? 'fa-link' : 'fa-link-slash'}`);
+
+          if (window.toastr) window.toastr.info(newValue ? '已开启自动合并"主角"' : '已关闭自动合并"主角"');
         });
 
         // 保存URL → 弹出裁剪
@@ -16083,6 +16131,14 @@ import { injectDatabaseStyles } from './database-ui-override';
     if (window._acuStylesInjected && $(`#${SCRIPT_ID}-styles`).length) return;
     window._acuStylesInjected = true;
     const { $ } = getCore();
+
+    // 动态加载 Tabler Icons 字体（用于 ti:xxx 图标）
+    if (!$('#tabler-icons-css').length) {
+      $('head').append(
+        '<link id="tabler-icons-css" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">',
+      );
+    }
+
     $('style').each(function () {
       if (this.id && this.id.startsWith('acu_') && this.id.endsWith('-styles') && this.id !== `${SCRIPT_ID}-styles`)
         $(this).remove();
@@ -25560,12 +25616,27 @@ import { injectDatabaseStyles } from './database-ui-override';
                               const isCurrent =
                                 currentPlaceName &&
                                 (areaName.includes(currentPlaceName) || currentPlaceName.includes(areaName));
+                              const emoji = getElementEmoji(areaName, null);
+                              let iconHtml = '';
+                              if (emoji) {
+                                if (emoji.startsWith('fa:')) {
+                                  iconHtml = `<i class="fa-solid fa-${emoji.slice(3)}" style="font-size:10px;opacity:0.7;"></i>`;
+                                } else if (emoji.startsWith('ti:')) {
+                                  iconHtml = `<i class="ti ti-${emoji.slice(3)}" style="font-size:10px;opacity:0.7;"></i>`;
+                                } else {
+                                  iconHtml = `<span style="font-size:10px;">${emoji}</span>`;
+                                }
+                              } else {
+                                iconHtml = isCurrent
+                                  ? '<i class="fa-solid fa-location-dot"></i>'
+                                  : '<i class="fa-solid fa-map-pin" style="font-size:9px;opacity:0.4;"></i>';
+                              }
                               return `<div class="acu-location-item acu-dash-clickable acu-dash-preview-trigger ${isCurrent ? 'acu-current-location' : ''}"
                             data-table-key="${escapeHtml(locationTableKey)}"
                             data-row-index="${loc._rowIndex}"
                             data-preview-type="location">
-                            <span>
-                                ${isCurrent ? '<i class="fa-solid fa-location-dot"></i>' : '<i class="fa-solid fa-map-pin" style="font-size:9px;opacity:0.4;"></i>'}
+                            <span style="display:flex;align-items:center;gap:4px;">
+                                ${iconHtml}
                                 <span title="${escapeHtml(areaName)}">${escapeHtml(areaName)}</span>
                             </span>
                             ${!isCurrent ? `<i class="fa-solid fa-walking acu-dash-goto-btn" data-location="${escapeHtml(areaName)}" style="cursor:pointer;color:var(--acu-text-sub);opacity:0.4;font-size:10px;flex-shrink:0;" title="前往${areaName}"></i>` : '<i class="fa-solid fa-street-view" style="flex-shrink:0;" title="您在这里"></i>'}
@@ -25633,15 +25704,30 @@ import { injectDatabaseStyles } from './database-ui-override';
                         ? bagItems
                             .map((item, idx) => {
                               const isLastBag = idx === bagItems.length - 1;
+                              const emoji = getElementEmoji(item.name, null);
+                              let iconHtml = '';
+                              if (emoji) {
+                                if (emoji.startsWith('fa:')) {
+                                  iconHtml = `<i class="fa-solid fa-${emoji.slice(3)}" style="font-size:10px;opacity:0.7;"></i>`;
+                                } else if (emoji.startsWith('ti:')) {
+                                  iconHtml = `<i class="ti ti-${emoji.slice(3)}" style="font-size:10px;opacity:0.7;"></i>`;
+                                } else {
+                                  iconHtml = `<span style="font-size:10px;">${emoji}</span>`;
+                                }
+                              } else {
+                                iconHtml = '<i class="fa-solid fa-cube" style="font-size:9px;opacity:0.4;"></i>';
+                              }
                               return `<div class="acu-dash-clickable acu-dash-preview-trigger"
                             data-table-key="${bagResult?.key || ''}"
                             data-row-index="${idx}"
                             data-preview-type="bag"
                             style="display:flex;justify-content:space-between;align-items:center;padding:5px 4px;font-size:11px;cursor:pointer;${!isLastBag ? 'border-bottom:1px dashed var(--acu-border);' : ''}">
-                            <span style="color:var(--acu-text-main);flex:1;white-space:nowrap;" title="${escapeHtml(item.name)}">${escapeHtml(item.name.length > 4 ? item.name.substring(0, 4) + '..' : item.name)}</span>
+                            <span style="color:var(--acu-text-main);flex:1;white-space:nowrap;display:flex;align-items:center;gap:4px;" title="${escapeHtml(item.name)}">
+                                ${iconHtml}
+                                ${escapeHtml(item.name.length > 4 ? item.name.substring(0, 4) + '..' : item.name)}
+                            </span>
                             <div style="display:flex;align-items:center;gap:6px;">
                                 <i class="fa-solid fa-hand-pointer acu-dash-use-item-btn" data-item="${escapeHtml(item.name)}" style="cursor:pointer;color:var(--acu-text-sub);opacity:0.4;font-size:10px;" title="使用${item.name}"></i>
-                                <span style="color:var(--acu-accent);font-weight:bold;">${escapeHtml(item.count)}</span>
                             </div>
                         </div>`;
                             })
@@ -25657,12 +25743,28 @@ import { injectDatabaseStyles } from './database-ui-override';
                         ? equippedItems
                             .map((item, idx) => {
                               const isLast = idx === equippedItems.length - 1;
+                              const emoji = getElementEmoji(item.name, null);
+                              let iconHtml = '';
+                              if (emoji) {
+                                if (emoji.startsWith('fa:')) {
+                                  iconHtml = `<i class="fa-solid fa-${emoji.slice(3)}" style="font-size:10px;opacity:0.7;"></i>`;
+                                } else if (emoji.startsWith('ti:')) {
+                                  iconHtml = `<i class="ti ti-${emoji.slice(3)}" style="font-size:10px;opacity:0.7;"></i>`;
+                                } else {
+                                  iconHtml = `<span style="font-size:10px;">${emoji}</span>`;
+                                }
+                              } else {
+                                iconHtml = '<i class="fa-solid fa-shirt" style="font-size:9px;opacity:0.4;"></i>';
+                              }
                               return `<div class="acu-dash-clickable acu-dash-preview-trigger"
                             data-table-key="${equipResult?.key || ''}"
                             data-row-index="${equipParsed.findIndex(r => r.name === item.name)}"
                             data-preview-type="equipment"
                             style="display:flex;justify-content:space-between;align-items:center;padding:5px 4px;font-size:11px;cursor:pointer;${!isLast ? 'border-bottom:1px dashed var(--acu-border);' : ''}">
-                            <span style="color:var(--acu-text-main);" title="${escapeHtml(item.name)}">${escapeHtml(item.name.length > 5 ? item.name.substring(0, 5) + '..' : item.name)}</span>
+                            <span style="color:var(--acu-text-main);display:flex;align-items:center;gap:4px;" title="${escapeHtml(item.name)}">
+                                ${iconHtml}
+                                ${escapeHtml(item.name.length > 5 ? item.name.substring(0, 5) + '..' : item.name)}
+                            </span>
                             <span style="color:var(--acu-text-sub);font-size:10px;">${escapeHtml(item.part || item.type)}</span>
                         </div>`;
                             })
@@ -27030,56 +27132,27 @@ import { injectDatabaseStyles } from './database-ui-override';
         renderInterface();
       });
 
-    // [修改版] 刷新按钮 = 极速回档 (Instant Revert)
-    $('#acu-btn-refresh')
+    // 打开可视化表格编辑器按钮
+    $('#acu-btn-open-visualizer')
       .off('click')
-      .on('click', async e => {
+      .on('click', e => {
         e.stopPropagation();
-
-        // [修复] 关键漏网之鱼：如果是编辑布局模式，禁止触发刷新，只允许被拖拽
         if (isEditingOrder) return;
 
-        // 1. 安全锁：如果正在后台保存，禁止刷新，防止数据冲突
-        if (isSaving) {
-          if (window.toastr) window.toastr.warning('⏳ 正在后台同步数据，无法撤销，请稍后...');
-          return;
+        // 调用神-数据库的可视化编辑器接口
+        const topWin = window.parent || window;
+        if (topWin.AutoCardUpdaterAPI && typeof topWin.AutoCardUpdaterAPI.openVisualizer === 'function') {
+          topWin.AutoCardUpdaterAPI.openVisualizer();
+        } else {
+          // 兜底：尝试直接调用全局函数
+          if (typeof (topWin as any).openNewVisualizer_ACU === 'function') {
+            (topWin as any).openNewVisualizer_ACU();
+          } else {
+            if (window.toastr) {
+              window.toastr.warning('可视化编辑器接口不可用，请确保神-数据库脚本已加载');
+            }
+          }
         }
-
-        const $btn = $(e.currentTarget);
-        const $icon = $btn.find('i');
-        // $icon.addClass('fa-spin'); // 注释掉旋转动画，追求视觉上的“瞬变”
-
-        // 2. 【核心】彻底清除所有未保存状态 (瞬间丢弃脏数据)
-        // (1) 清空内存缓存 -> 丢弃未保存的修改
-        cachedRawData = null;
-
-        // (2) 重置状态标记
-        hasUnsavedChanges = false;
-        currentDiffMap.clear();
-        if (window.acuModifiedSet) window.acuModifiedSet.clear();
-
-        // (4) 重置保存按钮样式 (去掉呼吸灯)
-        const $saveBtn = $('#acu-btn-save-global');
-        $saveBtn.find('i').removeClass('acu-icon-breathe');
-        $saveBtn.attr('title', '保存所有修改').css('color', '');
-
-        // 3. 【极速优化】移除 300ms 延时，直接读取快照
-        // await new Promise(r => setTimeout(r, 300)); // <--- 删掉这行人为延时
-
-        // 尝试优先读取本地快照（Last Snapshot），这样最快，不需要等后端API
-        const snapshot = loadSnapshot();
-        if (snapshot) {
-          cachedRawData = snapshot; // 强制回滚到快照
-        }
-
-        // 4. 重新渲染界面
-        // 清理旧的样式标签，防止残留
-        $('.acu-edit-overlay, .acu-cell-menu, .acu-menu-backdrop').remove();
-
-        // 立即重绘
-        renderInterface();
-
-        // $icon.removeClass('fa-spin');
       });
 
     // [修改] 将收起按钮改为手动更新按钮

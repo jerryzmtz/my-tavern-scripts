@@ -486,44 +486,25 @@ export const MAIN_STYLES = `
         touch-action: manipulation;
     }
     /* [修复] 覆盖酒馆全局触控优化样式 - 防止移动端按钮被强制放大 */
-    /* 使用双重选择器提高优先级，用 unset 覆盖 Chrome 的 calc-size() */
+    /* 酒馆全局规则: @media (hover: none) and (pointer: coarse) { button { min-width: 44px; min-height: 44px; } } */
+    /* 使用通配符一次性禁用所有骰子系统容器内的按钮，避免逐个添加 */
     @media (hover: none) and (pointer: coarse) {
-        /* 骰子面板内的小按钮 */
-        .acu-dice-panel.acu-dice-panel .acu-dice-char-btn.acu-dice-char-btn,
-        .acu-dice-panel.acu-dice-panel .acu-dice-attr-btn.acu-dice-attr-btn,
-        .acu-dice-panel.acu-dice-panel .acu-dice-preset.acu-dice-preset,
-        .acu-dice-panel.acu-dice-panel .acu-dice-gen-attr-btn,
-        .acu-dice-panel.acu-dice-panel .acu-dice-clear-attr-btn,
-        .acu-contest-panel.acu-contest-panel .acu-dice-char-btn.acu-dice-char-btn,
-        .acu-contest-panel.acu-contest-panel .acu-dice-attr-btn.acu-dice-attr-btn,
-        .acu-contest-panel.acu-contest-panel .acu-dice-preset.acu-dice-preset,
-        .acu-contest-panel.acu-contest-panel .acu-contest-attr-btn,
-        .acu-contest-panel.acu-contest-panel .acu-contest-gen-attr-btn,
-        .acu-contest-panel.acu-contest-panel .acu-contest-clear-attr-btn,
-        /* 面板头部操作按钮 */
-        .acu-dice-panel.acu-dice-panel .acu-dice-panel-actions button,
-        .acu-dice-panel.acu-dice-panel .acu-dice-config-btn,
-        .acu-dice-panel.acu-dice-panel .acu-dice-close,
-        .acu-dice-panel.acu-dice-panel .acu-dice-panel-action-btn,
-        .acu-contest-panel.acu-contest-panel .acu-dice-panel-actions button,
-        .acu-contest-panel.acu-contest-panel .acu-contest-config-btn,
-        .acu-contest-panel.acu-contest-panel .acu-contest-close,
-        /* 随机技能按钮 */
-        .acu-dice-panel.acu-dice-panel .acu-random-skill-btn,
-        .acu-contest-panel.acu-contest-panel .acu-random-skill-btn,
-        /* 导航栏按钮 */
-        .acu-wrapper.acu-wrapper .acu-nav-btn.acu-nav-btn,
-        .acu-wrapper.acu-wrapper .acu-dashboard-btn,
-        .acu-wrapper.acu-wrapper .acu-nav-bar button,
-        .acu-wrapper.acu-wrapper #acu-nav-bar button,
-        /* 底部工具栏按钮 */
-        .acu-wrapper.acu-wrapper .acu-action-item,
-        .acu-wrapper.acu-wrapper .acu-tool-btn,
-        .acu-wrapper.acu-wrapper .acu-refill-btn,
-        .acu-wrapper.acu-wrapper [id^="acu-btn-"]:not(.acu-expand-trigger) {
+        .acu-wrapper.acu-wrapper button,
+        .acu-dice-panel.acu-dice-panel button,
+        .acu-contest-panel.acu-contest-panel button,
+        .acu-avatar-manager-overlay.acu-avatar-manager-overlay button,
+        [id^="shujuku"][id$="-popup"] button,
+        [id^="shujuku"][id$="-main-window"] button,
+        #acu-visualizer-content button,
+        #acu-visualizer-content.acu-visualizer-content button,
+        .acu-vis-sidebar button,
+        .acu-vis-sidebar.acu-vis-sidebar button,
+        [class*="acu-vis-"] button,
+        [class*="acu-table-nav-"] button {
             min-width: unset !important;
             min-height: unset !important;
             height: auto !important;
+            width: auto !important;
         }
     }
     .acu-dice-panel .acu-dice-char-btn:hover,
@@ -2631,6 +2612,14 @@ export const MAIN_STYLES = `
             }
             .acu-map-location-emoji:hover { transform: scale(1.1) rotate(5deg); }
 
+            /* FA图标主题色继承 */
+            .acu-map-location-emoji .acu-theme-icon,
+            .acu-map-chip-emoji .acu-theme-icon,
+            .acu-map-thumbnail-emoji .acu-theme-icon {
+                color: var(--acu-accent);
+                font-size: inherit;
+            }
+
             /* 无emoji时的文字占位 */
             .acu-map-location-text {
                 width: 64px;
@@ -2965,6 +2954,25 @@ export const MAIN_STYLES = `
                 justify-content: space-between;
                 gap: 8px;
                 margin-bottom: 6px;
+            }
+            .acu-protagonist-toggle {
+                background: transparent;
+                border: none;
+                color: var(--acu-text-sub);
+                opacity: 0.5;
+                cursor: pointer;
+                padding: 4px 6px;
+                margin-left: 4px;
+                border-radius: 4px;
+                transition: all 0.2s ease;
+            }
+            .acu-protagonist-toggle:hover {
+                opacity: 0.8;
+                background: var(--acu-bg-hover);
+            }
+            .acu-protagonist-toggle.active {
+                opacity: 1;
+                color: var(--acu-accent);
             }
             .acu-avatar-manager-overlay input.acu-avatar-url,
             .acu-avatar-manager-overlay input.acu-avatar-aliases {
