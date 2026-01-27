@@ -794,7 +794,7 @@ import { injectDatabaseStyles } from './database-ui-override';
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.4.2'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v3.67'; // 脚本版本号
+  const SCRIPT_VERSION = 'v3.68'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -22962,7 +22962,7 @@ import { injectDatabaseStyles } from './database-ui-override';
     // 手动更新按钮点击事件
     dialog.on('click', '#acu-manual-update-btn', function (e) {
       e.stopPropagation();
-      showManualUpdateConfirmDialog();
+      showManualUpdateDialog();
     });
     setupOverlayClose(dialog, 'acu-edit-overlay', closeDialog);
   };
