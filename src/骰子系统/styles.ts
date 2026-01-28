@@ -489,22 +489,13 @@ export const MAIN_STYLES = `
     /* 酒馆全局规则: @media (hover: none) and (pointer: coarse) { button { min-width: 44px; min-height: 44px; } } */
     /* 使用通配符一次性禁用所有骰子系统容器内的按钮，避免逐个添加 */
     @media (hover: none) and (pointer: coarse) {
-        .acu-wrapper.acu-wrapper button,
-        .acu-dice-panel.acu-dice-panel button,
-        .acu-contest-panel.acu-contest-panel button,
-        .acu-avatar-manager-overlay.acu-avatar-manager-overlay button,
-        [id^="shujuku"][id$="-popup"] button,
-        [id^="shujuku"][id$="-main-window"] button,
-        #acu-visualizer-content button,
-        #acu-visualizer-content.acu-visualizer-content button,
-        .acu-vis-sidebar button,
-        .acu-vis-sidebar.acu-vis-sidebar button,
-        [class*="acu-vis-"] button,
-        [class*="acu-table-nav-"] button {
+        [class^="acu-"] button,
+        [class*=" acu-"] button,
+        [class^="acu-"] button[class],
+        [class*=" acu-"] button[class],
+        [id^="shujuku"] button {
             min-width: unset !important;
             min-height: unset !important;
-            height: auto !important;
-            width: auto !important;
         }
     }
     .acu-dice-panel .acu-dice-char-btn:hover,
@@ -1362,6 +1353,28 @@ export const MAIN_STYLES = `
             .acu-cell-menu-item#act-delete { color: var(--acu-error-text, #e74c3c); }
             .acu-cell-menu-item#act-delete:hover { background: var(--acu-error-bg, rgba(231, 76, 60, 0.1)); } /* 红色半透明背景，任何主题都适配 */
             .acu-cell-menu-item#act-close { border-top: 1px dashed var(--acu-border); color: var(--acu-text-sub); }
+
+/* 5. 匹配状态标签 */
+            .acu-match-full { color: var(--acu-success-text, #27ae60); }
+            .acu-match-partial { color: var(--acu-warning-text, #f39c12); }
+
+/* 6. 布局编辑完成按钮 */
+            .acu-btn-finish-sort {
+                background: rgba(255,255,255,0.2);
+                color: var(--acu-button-text-on-accent, #fff);
+                border: 1px solid rgba(255,255,255,0.4);
+                padding: 4px 14px;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 12px;
+                transition: all 0.2s;
+                white-space: nowrap;
+            }
+            .acu-btn-finish-sort:hover, .acu-btn-finish-sort.hover {
+                background: var(--acu-button-text-on-accent, #fff);
+                color: var(--acu-accent);
+            }
+
             .acu-edit-overlay { position: fixed !important; top: 0; left: 0; right: 0; bottom: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.75) !important; z-index: 31200 !important; display: flex; justify-content: center !important; align-items: center !important; backdrop-filter: blur(2px); }
             .acu-edit-dialog { background: var(--acu-bg-panel); width: 95%; max-width: 500px; max-height: 95vh; padding: 16px; border-radius: 12px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 15px 50px rgba(0,0,0,0.6); color: var(--acu-text-main); border: 1px solid var(--acu-border); overflow: hidden; flex-shrink: 0; }
             @media (min-width: 768px) { .acu-edit-dialog { max-width: 900px; width: 90%; } .acu-edit-dialog.acu-settings-dialog { max-width: 400px; width: 400px; } }
@@ -2462,8 +2475,10 @@ export const MAIN_STYLES = `
                 align-items: center;
             }
             .acu-map-actions button {
-                width: 28px;
-                height: 28px;
+                width: 28px !important;
+                height: 28px !important;
+                min-width: unset !important;
+                min-height: unset !important;
                 border-radius: 6px;
                 border: 1px solid var(--acu-border);
                 background: var(--acu-btn-bg);
@@ -2478,6 +2493,12 @@ export const MAIN_STYLES = `
                 background: var(--acu-btn-hover);
                 color: var(--acu-accent);
                 border-color: var(--acu-accent);
+            }
+            .acu-map-back-btn {
+                width: 28px !important;
+                height: 28px !important;
+                min-width: unset !important;
+                min-height: unset !important;
             }
             .acu-map-body {
                 display: flex;
@@ -5596,9 +5617,33 @@ export const MAIN_STYLES = `
             .acu-fav-panel-content {
                 padding: 12px;
                 overflow-y: auto;
-                overflow-x: hidden;
+                overflow-x: auto;
                 flex: 1;
                 min-height: 0; /* 关键：允许 flex 子元素收缩 */
+                /* 滚动条样式 - Firefox */
+                scrollbar-width: thin;
+                scrollbar-color: var(--acu-btn-bg) var(--acu-bg-nav);
+                overscroll-behavior: contain;
+            }
+            /* 收藏夹面板滚动条 - Webkit (Chrome/Safari/Edge) */
+            .acu-fav-panel-content::-webkit-scrollbar {
+                width: 8px;
+                height: 8px;
+            }
+            .acu-fav-panel-content::-webkit-scrollbar-track {
+                background: var(--acu-bg-nav);
+                border-radius: 4px;
+            }
+            .acu-fav-panel-content::-webkit-scrollbar-thumb {
+                background: var(--acu-btn-bg);
+                border-radius: 4px;
+                border: 2px solid var(--acu-bg-nav);
+            }
+            .acu-fav-panel-content::-webkit-scrollbar-thumb:hover {
+                background: var(--acu-btn-hover);
+            }
+            .acu-fav-panel-content::-webkit-scrollbar-corner {
+                background: var(--acu-bg-nav);
             }
             /* [已废弃] 工具栏已移至Header，保留样式以防回退 */
             /*

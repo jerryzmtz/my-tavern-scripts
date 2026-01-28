@@ -86,13 +86,14 @@ export const EMOJI_MAP: [RegExp, string][] = [
   // 第五优先级：室内空间（具体房间）
   // ============================================
   [/厨房/, 'ti:chef-hat'],
+  [/淋浴/, 'fa:shower'],
   [/浴室/, 'fa:bath'],
   [/厕所|洗手间|卫生间/, 'fa:toilet'],
   [/阳台|天台|露台/, 'ti:telescope'],
   [/地下室|地窖/, 'ti:stairs-down'],
   [/地下|地底/, 'fa:arrow-down'],
   [/书房/, 'fa:book-open'],
-  [/客厅|起居室/, 'fa:couch'],
+  [/客厅|起居室|大厅/, 'fa:couch'],
   [/闺房/, 'fa:ribbon'],
   [/中庭/, 'fa:building-columns'],
   [/会议室/, 'fa:users'],
@@ -127,6 +128,7 @@ export const EMOJI_MAP: [RegExp, string][] = [
   // ============================================
   [/雪山|冰原|冻土/, 'fa:snowflake'],
   [/火山|熔岩/, 'fa:volcano'],
+  [/湖/, 'fa:water'],
   [/沙漠|荒漠/, 'ti:cactus'],
   [/海沟/, 'fa:water'],
   [/珊瑚/, 'ti:fish'],
@@ -184,7 +186,7 @@ export const EMOJI_MAP: [RegExp, string][] = [
   // 后启示录
   [/废土/, 'ti:building-ruin'],
   [/辐射/, 'fa:radiation'],
-  [/避难所/, 'ti:home-off'],
+  [/避难所|安全屋/, 'ti:home-off'],
   [/拾荒/, 'fa:recycle'],
   [/变异|变种/, 'fa:biohazard'],
 
@@ -448,7 +450,7 @@ export const EMOJI_MAP: [RegExp, string][] = [
   // 最通用
   [/异界|虚空|传送/, 'ti:portal'],
   [/神秘|诡异/, 'ti:portal'],
-  [/城市|城镇|村庄|社区/, 'fa:city'],
+  [/城市|城镇|小镇|村庄|社区/, 'fa:city'],
   [/公寓|住所|家|住宅|别墅|合宿/, 'fa:house'],
   [/阁楼|顶层/, 'fa:house'],
   [/心理|脑/, 'fa:brain'],
@@ -499,6 +501,7 @@ export const RELATION_ICON_MAP: { icon: string; keywords: string[] }[] = [
       '钟情',
       '情人',
       '爱人',
+      '恋慕',
     ],
   },
   {
@@ -536,8 +539,10 @@ export const RELATION_ICON_MAP: { icon: string; keywords: string[] }[] = [
   },
   {
     icon: 'fa:user-group',
-    keywords: ['朋友', '友人', '好友', '友情', '伙伴', '搭档', '队友', '战友', '同伴', '盟友', '故交', '旧识'],
+    keywords: ['朋友', '友人', '好友', '友情', '伙伴', '搭档', '队友', '战友', '同伴', '盟友', '故交', '旧识', '玩伴'],
   },
+  { icon: 'fa:shield-heart', keywords: ['信赖', '信任', '信任', '信靠', '依托'] },
+  { icon: 'fa:house-user', keywords: ['室友', '合租', '同住', '屋檐'] },
   {
     icon: 'fa:graduation-cap',
     keywords: [
@@ -563,7 +568,7 @@ export const RELATION_ICON_MAP: { icon: string; keywords: string[] }[] = [
     ],
   },
   { icon: 'fa:compass', keywords: ['向导', '指引', '引路', '领路', '导航', '顾问'] },
-  { icon: 'fa:file-signature', keywords: ['契约', '合同', '婚约', '誓约', '约定', '束缚', '缔结', '主仆'] },
+  { icon: 'fa:file-signature', keywords: ['契约', '合同', '婚约', '誓约', '约定', '束缚', '缔结', '主仆', '服从'] },
   { icon: 'fa:handshake', keywords: ['交易', '合作', '生意', '客户', '商业', '利益', '雇佣', '共犯'] },
   {
     icon: 'fa:gavel',
@@ -583,7 +588,7 @@ export const RELATION_ICON_MAP: { icon: string; keywords: string[] }[] = [
   },
   {
     icon: 'fa:thumbs-down',
-    keywords: ['厌恶', '讨厌', '嫌弃', '恶心', '反感', '鄙视', '唾弃', '不屑', '憎恶', '轻视'],
+    keywords: ['厌恶', '讨厌', '嫌弃', '恶心', '反感', '鄙视', '唾弃', '不屑', '憎恶', '轻视', '嫌恶'],
   },
   { icon: 'fa:ban', keywords: ['排斥', '拒绝', '疏远', '抵触', '隔离', '冷落', '孤立', '对立', '隔阂'] },
   { icon: 'fa:hands-praying', keywords: ['信仰', '崇拜', '敬仰', '仰慕', '追随', '信徒', '教徒', '狂信'] },

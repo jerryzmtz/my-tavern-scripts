@@ -793,8 +793,8 @@ import { injectDatabaseStyles } from './database-ui-override';
     inSceneNpcWeight: 15,
     offSceneNpcWeight: 5,
   };
-  const PRESET_FORMAT_VERSION = '1.4.2'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v3.70'; // 脚本版本号
+  const PRESET_FORMAT_VERSION = '1.6.2'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
+  const SCRIPT_VERSION = 'v3.80'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -1361,46 +1361,47 @@ import { injectDatabaseStyles } from './database-ui-override';
   // 内置正则转换规则 (Phase 2.2)
   // ========================================
   const BUILTIN_REGEX_RULES: RegexTransformationRule[] = [
-    // 示例1: 清理多余空格(全局规则)
+    // 清除极端词
     {
-      id: 'builtin_trim_spaces',
-      name: '清理多余空格',
-      description: '去除文本前后的空格,将多个连续空格替换为单个空格',
+      id: 'builtin_clear_extreme_words',
+      name: '清除极端词',
+      description: '清除AI常用的极端程度副词和形容词',
       operation: 'replace',
-      pattern: '^\\s+|\\s+$|\\s+',
-      flags: { global: true },
-      replacement: ' ',
+      pattern: '极度|激烈的|剧烈的|强烈|深刻|极其|极高的|完全|未知',
+      flags: { global: false, caseInsensitive: false, multiline: false },
+      replacement: '',
       scope: { type: 'global' },
-      enabled: false,
-      priority: 10,
+      enabled: true,
+      priority: 50,
       executeMode: 'auto',
       security: { maxMatchTime: 100, maxMatches: 1000, maxInputLength: 10000 },
     },
-    // 示例2: 统一引号格式(全局规则)
+    // 去八股
     {
-      id: 'builtin_normalize_quotes',
-      name: '统一引号格式',
-      description: '将各种中文引号统一为标准格式',
+      id: 'builtin_remove_cliche',
+      name: '去八股',
+      description: '移除AI常见的八股文风格表达',
       operation: 'replace',
-      pattern: '["＂]|[\']',
-      flags: { global: true },
-      replacement: '"',
+      pattern:
+        '一(丝+)|(、?)不容置疑([的地]?)|(、?)(不易|难以)(觉察|察觉)([的地]?)|(微|几)不可(查|察|闻)([的地]?)|，([^，]*?)指(关节|节|尖)(.*?)白|，([^，]*?)(一抹|弧度)(.*?)([^，]*?)(?=[。，])|支配|掌控|崩溃',
+      flags: { global: false, caseInsensitive: false, multiline: false },
+      replacement: '',
       scope: { type: 'global' },
-      enabled: false,
-      priority: 10,
+      enabled: true,
+      priority: 50,
       executeMode: 'auto',
       security: { maxMatchTime: 100, maxMatches: 1000, maxInputLength: 10000 },
     },
-    // 示例3: 物品表品质格式化(列级规则)
+    // 统一用户称呼（默认关闭）
     {
-      id: 'builtin_item_quality_format',
-      name: '物品品质格式化',
-      description: '确保物品品质首字母大写',
+      id: 'builtin_replace_user',
+      name: '统一用户称呼',
+      description: '将常见的用户称呼统一替换为指定名称，可自行修改替换目标',
       operation: 'replace',
-      pattern: '\\b(普通|优秀|稀有|史诗|传说|神话)\\b',
-      flags: { global: true },
-      replacement: '$1',
-      scope: { type: 'column', tableNames: ['物品表', '装备表'], columnNames: ['品质'] },
+      pattern: '主角|user|<user>',
+      flags: { global: false, caseInsensitive: false, multiline: false },
+      replacement: '{{user}}',
+      scope: { type: 'global' },
       enabled: false,
       priority: 50,
       executeMode: 'auto',
@@ -1492,15 +1493,15 @@ import { injectDatabaseStyles } from './database-ui-override';
     {
       id: 'quest_status_enum',
       name: '任务表状态',
-      description: '任务状态必须为指定值之一',
+      description: '任务状态必须为指定的枚举值之一',
       enabled: true,
       builtin: true,
       intercept: false,
       targetTable: '任务表',
-      targetColumn: '状态',
+      targetColumn: '状态(Enum Tag)',
       ruleType: 'enum',
       config: { values: ['进行中', '已完成', '已失败', '已放弃'] },
-      errorMessage: '状态必须为：进行中、已完成、已失败、已放弃',
+      errorMessage: '状态必须为枚举值之一：进行中、已完成、已失败、已放弃',
     },
     // 任务表类型枚举
     {
@@ -1529,6 +1530,20 @@ import { injectDatabaseStyles } from './database-ui-override';
       ruleType: 'enum',
       config: { values: ['紧急', '重要', '普通'] },
       errorMessage: '优先级必须为：紧急、重要、普通',
+    },
+    // 任务表进度格式
+    {
+      id: 'quest_progress_format',
+      name: '任务表进度',
+      description: '进度必须为0%~100%格式',
+      enabled: true,
+      builtin: true,
+      intercept: false,
+      targetTable: '任务表',
+      targetColumn: '进度(%)',
+      ruleType: 'format',
+      config: { pattern: '^(100|[1-9]?\\d)%$' },
+      errorMessage: '进度必须为0%~100%格式（如：0%、50%、100%）',
     },
     // 装备表状态枚举
     {
@@ -1810,19 +1825,19 @@ import { injectDatabaseStyles } from './database-ui-override';
       config: { valueType: 'text' },
       errorMessage: '人际关系格式必须为"角色名:关系词;角色名:关系词"',
     },
-    // 任务表 - 进度格式验证
+    // 选项表行数限制（有且仅有一行）
     {
-      id: 'quest_progress_format',
-      name: '任务进度格式',
-      description: '进度必须为数字+%格式，如50%',
+      id: 'option_table_single_row',
+      name: '选项表单行限制',
+      description: '选项表必须有且仅有一行数据',
       enabled: true,
       builtin: true,
       intercept: false,
-      targetTable: '任务表',
-      targetColumn: '进度',
-      ruleType: 'format',
-      config: { pattern: '^\\d+%$' },
-      errorMessage: '进度必须为数字+%格式（如50%、100%）',
+      targetTable: '选项表',
+      targetColumn: null,
+      ruleType: 'rowLimit',
+      config: { min: 0, max: 1 },
+      errorMessage: '选项表必须有且仅有一行数据',
     },
   ];
 
@@ -1962,35 +1977,54 @@ import { injectDatabaseStyles } from './database-ui-override';
         this._initDefaultPreset();
         return this._cache;
       }
-      // 自动检测并更新所有预设的版本（每次调用都检测，不依赖缓存）
+
       let needsSave = false;
       stored.forEach(preset => {
         if (!preset.version || this._compareVersion(preset.version, PRESET_FORMAT_VERSION) < 0) {
           console.log(
-            `[DICE]PresetManager 检测到预设 "${preset.name}" 版本较旧 (${preset.version || '无版本'})，自动合并新版本`,
+            `[DICE]PresetManager 检测到预设 "${preset.name}" 版本较旧 (${preset.version || '无版本'})，自动更新`,
           );
-          // 自动合并新版本（保留用户自定义，添加新规则）
-          const customRules = preset.rules.filter(r => !r.builtin);
-          const builtinRuleIds = new Set(BUILTIN_VALIDATION_RULES.map(r => r.id || r.targetTable + '_' + r.ruleType));
-          const mergedRules = [...BUILTIN_VALIDATION_RULES.map(r => ({ ...r, builtin: true }))];
-          customRules.forEach(rule => {
-            const key = rule.id || rule.targetTable + '_' + rule.ruleType;
-            if (!builtinRuleIds.has(key)) {
-              mergedRules.push({ ...rule, builtin: false });
-            }
-          });
-          preset.rules = mergedRules;
+
+          if (preset.id === 'default') {
+            // 默认预设：强制替换内置规则，只保留用户自定义规则和开关状态
+            const customRules = preset.rules.filter(r => !r.builtin);
+            // 创建现有内置规则的开关状态映射
+            const existingBuiltinMap = new Map();
+            preset.rules
+              .filter(r => r.builtin)
+              .forEach(r => {
+                const key = r.id || r.targetTable + '_' + r.ruleType;
+                existingBuiltinMap.set(key, { enabled: r.enabled, intercept: r.intercept });
+              });
+            // 替换内置规则，保留用户的开关设置
+            preset.rules = [
+              ...BUILTIN_VALIDATION_RULES.map(r => {
+                const key = r.id || r.targetTable + '_' + r.ruleType;
+                const existing = existingBuiltinMap.get(key);
+                return {
+                  ...r,
+                  builtin: true,
+                  ...(existing ? { enabled: existing.enabled, intercept: existing.intercept } : {}),
+                };
+              }),
+              ...customRules,
+            ];
+          } else {
+            // 用户预设：智能合并（保留用户对内置规则的修改）
+            this._mergeBuiltinRules(preset);
+          }
+
           preset.version = PRESET_FORMAT_VERSION;
           needsSave = true;
         }
       });
+
       if (needsSave) {
         this._save(stored);
         ValidationRuleManager.clearCache();
-        // 清除缓存，确保下次获取时使用更新后的数据
         this._cache = null;
       }
-      // 只有在没有更新时才使用缓存
+
       if (!needsSave && this._cache) {
         return this._cache;
       }
@@ -2195,60 +2229,33 @@ import { injectDatabaseStyles } from './database-ui-override';
       }
     },
 
-    // 获取内置规则版本（用于检测更新）
-    _getBuiltinRulesVersion() {
-      try {
-        const rulesStr = JSON.stringify(BUILTIN_VALIDATION_RULES);
-        // 简单的哈希函数
-        let hash = 0;
-        for (let i = 0; i < rulesStr.length; i++) {
-          const char = rulesStr.charCodeAt(i);
-          hash = (hash << 5) - hash + char;
-          hash = hash & hash; // Convert to 32bit integer
-        }
-        return hash.toString(36);
-      } catch (e) {
-        console.error('[DICE]PresetManager 计算版本失败:', e);
-        return '0';
-      }
-    },
-
     // 初始化默认预设
     _initDefaultPreset() {
-      const currentVersion = this._getBuiltinRulesVersion();
       const stored = Store.get(STORAGE_KEY_PRESETS, null);
 
-      // 检查是否需要更新默认预设
+      // 如果已有存储数据，直接使用（版本更新逻辑在 getAllPresets 中处理）
       if (stored && Array.isArray(stored)) {
-        const defaultPreset = stored.find(p => p.id === 'default');
-        if (defaultPreset && defaultPreset._builtinVersion !== currentVersion) {
-          console.log('[DICE]PresetManager 检测到内置规则更新，自动更新默认预设');
-          // 保留自定义规则（非内置规则）
-          const customRules = defaultPreset.rules.filter(r => !r.builtin);
-          defaultPreset.rules = [...BUILTIN_VALIDATION_RULES.map(r => ({ ...r })), ...customRules];
-          defaultPreset._builtinVersion = currentVersion;
-          this._cache = stored;
-          this._save(stored);
-          Store.set(STORAGE_KEY_ACTIVE_PRESET, 'default');
-          return;
-        }
+        this._cache = stored;
+        return;
       }
 
+      // 首次初始化：创建默认预设
       const defaultPreset = {
         id: 'default',
         name: '默认预设',
         builtin: true,
         rules: BUILTIN_VALIDATION_RULES.map(r => ({ ...r })),
         version: PRESET_FORMAT_VERSION,
-        _builtinVersion: currentVersion,
         createdAt: new Date().toISOString(),
       };
+
       // 迁移旧版自定义规则
       const oldCustom = Store.get(STORAGE_KEY_VALIDATION_RULES, []);
       if (oldCustom.length > 0) {
         defaultPreset.rules.push(...oldCustom.map(r => ({ ...r, builtin: false })));
         console.log('[DICE]PresetManager 迁移旧规则:', oldCustom.length, '条');
       }
+
       this._cache = [defaultPreset];
       this._save(this._cache);
       Store.set(STORAGE_KEY_ACTIVE_PRESET, 'default');
@@ -2262,12 +2269,57 @@ import { injectDatabaseStyles } from './database-ui-override';
         // 保留自定义规则（非内置规则）
         const customRules = defaultPreset.rules.filter(r => !r.builtin);
         defaultPreset.rules = [...BUILTIN_VALIDATION_RULES.map(r => ({ ...r })), ...customRules];
-        defaultPreset._builtinVersion = this._getBuiltinRulesVersion();
+        defaultPreset.version = PRESET_FORMAT_VERSION;
         this._save(presets);
         ValidationRuleManager.clearCache();
         return true;
       }
       return false;
+    },
+
+    // 智能合并内置规则（用于非默认预设）
+    _mergeBuiltinRules(preset) {
+      const customRules = preset.rules.filter(r => !r.builtin);
+      const builtinRuleIds = new Set(BUILTIN_VALIDATION_RULES.map(r => r.id || r.targetTable + '_' + r.ruleType));
+
+      // 创建现有内置规则映射
+      const existingBuiltinMap = new Map();
+      preset.rules
+        .filter(r => r.builtin)
+        .forEach(r => {
+          const key = r.id || r.targetTable + '_' + r.ruleType;
+          existingBuiltinMap.set(key, r);
+        });
+
+      const mergedRules = [];
+
+      // 处理内置规则：新增的用新版本，已有的保留用户修改
+      BUILTIN_VALIDATION_RULES.forEach(newRule => {
+        const key = newRule.id || newRule.targetTable + '_' + newRule.ruleType;
+        const existing = existingBuiltinMap.get(key);
+        if (existing) {
+          // 保留用户的启用状态、拦截设置和错误消息，但更新规则定义
+          mergedRules.push({
+            ...newRule,
+            enabled: existing.enabled,
+            intercept: existing.intercept,
+            errorMessage: existing.errorMessage,
+            builtin: true,
+          });
+        } else {
+          mergedRules.push({ ...newRule, builtin: true });
+        }
+      });
+
+      // 添加用户自定义规则（排除与内置规则ID冲突的）
+      customRules.forEach(rule => {
+        const key = rule.id || rule.targetTable + '_' + rule.ruleType;
+        if (!builtinRuleIds.has(key)) {
+          mergedRules.push({ ...rule, builtin: false });
+        }
+      });
+
+      preset.rules = mergedRules;
     },
 
     _save(presets) {
@@ -2593,36 +2645,149 @@ import { injectDatabaseStyles } from './database-ui-override';
   const RegexPresetManager = {
     _cache: null,
 
-    // 获取所有预设
+    // 版本比较（复用全局 compareVersion）
+    _compareVersion(v1, v2) {
+      return compareVersion(v1, v2);
+    },
+
+    // 获取所有预设（自动检测并更新版本）
     getAllPresets() {
-      if (this._cache) return this._cache;
+      const stored = Store.get(STORAGE_KEY_REGEX_PRESETS, null);
 
-      const presets = Store.get(STORAGE_KEY_REGEX_PRESETS, []);
-
-      // 确保至少有一个默认预设
-      if (presets.length === 0) {
+      // 首次初始化
+      if (!stored || stored.length === 0) {
         const defaultPreset: RegexPreset = {
           id: 'regex_default',
           name: '默认预设',
           description: '系统默认的正则转换规则预设',
-          version: '1.0.0',
-          rules: [],
+          version: PRESET_FORMAT_VERSION,
+          rules: BUILTIN_REGEX_RULES.map(r => ({ ...r, builtin: true })),
           createdAt: Date.now(),
           updatedAt: Date.now(),
         };
-        presets.push(defaultPreset);
-        Store.set(STORAGE_KEY_REGEX_PRESETS, presets);
+        this._cache = [defaultPreset];
+        Store.set(STORAGE_KEY_REGEX_PRESETS, this._cache);
+        return this._cache;
       }
 
-      this._cache = presets;
-      return presets;
+      // 自动检测并更新版本
+      let needsSave = false;
+      stored.forEach(preset => {
+        if (!preset.version || this._compareVersion(preset.version, PRESET_FORMAT_VERSION) < 0) {
+          console.log(
+            `[DICE]RegexPresetManager 检测到预设 "${preset.name}" 版本较旧 (${preset.version || '无版本'})，自动更新`,
+          );
+
+          if (preset.id === 'regex_default') {
+            // 默认预设：强制替换内置规则，只保留用户自定义规则和开关状态
+            const customRules = (preset.rules || []).filter(r => !r.builtin);
+            // 创建现有内置规则的开关状态映射
+            const existingBuiltinMap = new Map();
+            (preset.rules || [])
+              .filter(r => r.builtin)
+              .forEach(r => {
+                existingBuiltinMap.set(r.id, { enabled: r.enabled });
+              });
+            // 替换内置规则，保留用户的开关设置
+            preset.rules = [
+              ...BUILTIN_REGEX_RULES.map(r => {
+                const existing = existingBuiltinMap.get(r.id);
+                return {
+                  ...r,
+                  builtin: true,
+                  ...(existing ? { enabled: existing.enabled } : {}),
+                };
+              }),
+              ...customRules,
+            ];
+          } else {
+            // 用户预设：智能合并
+            this._mergeBuiltinRules(preset);
+          }
+
+          preset.version = PRESET_FORMAT_VERSION;
+          preset.updatedAt = Date.now();
+          needsSave = true;
+        }
+      });
+
+      if (needsSave) {
+        this._save(stored);
+        RegexTransformationManager.clearCache();
+        this._cache = null;
+      }
+
+      if (!needsSave && this._cache) {
+        return this._cache;
+      }
+      this._cache = stored;
+      return stored;
+    },
+
+    // 智能合并内置规则（用于非默认预设）
+    _mergeBuiltinRules(preset) {
+      const customRules = (preset.rules || []).filter(r => !r.builtin);
+      const builtinRuleIds = new Set(BUILTIN_REGEX_RULES.map(r => r.id));
+
+      // 创建现有内置规则映射
+      const existingBuiltinMap = new Map();
+      (preset.rules || [])
+        .filter(r => r.builtin)
+        .forEach(r => {
+          existingBuiltinMap.set(r.id, r);
+        });
+
+      const mergedRules = [];
+
+      // 处理内置规则：新增的用新版本，已有的保留用户修改
+      BUILTIN_REGEX_RULES.forEach(newRule => {
+        const existing = existingBuiltinMap.get(newRule.id);
+        if (existing) {
+          // 保留用户的启用状态，但更新规则定义
+          mergedRules.push({
+            ...newRule,
+            enabled: existing.enabled,
+            builtin: true,
+          });
+        } else {
+          mergedRules.push({ ...newRule, builtin: true });
+        }
+      });
+
+      // 添加用户自定义规则（排除与内置规则ID冲突的）
+      customRules.forEach(rule => {
+        if (!builtinRuleIds.has(rule.id)) {
+          mergedRules.push({ ...rule, builtin: false });
+        }
+      });
+
+      preset.rules = mergedRules;
     },
 
     // 获取当前激活的预设
     getActivePreset() {
       const activeId = Store.get(STORAGE_KEY_REGEX_ACTIVE_PRESET, 'regex_default');
       const presets = this.getAllPresets();
-      return presets.find(p => p.id === activeId) || presets[0];
+      const preset = presets.find(p => p.id === activeId) || presets[0];
+
+      // 确保规则存储与当前预设同步
+      // 检查预设中的内置规则是否已存在于规则存储中，如果缺失则合并
+      const storedRules: RegexTransformationRule[] = Store.get(STORAGE_KEY_REGEX_RULES, []);
+      if (preset && preset.rules && preset.rules.length > 0) {
+        // 找出预设中标记为 builtin 但存储中缺失的规则
+        const storedRuleIds = new Set(storedRules.map(r => r.id));
+        const missingBuiltinRules = preset.rules.filter(r => r.builtin && !storedRuleIds.has(r.id));
+
+        if (missingBuiltinRules.length > 0) {
+          // 将缺失的内置规则添加到存储的规则列表开头
+          const mergedRules = [...missingBuiltinRules, ...storedRules];
+          Store.set(STORAGE_KEY_REGEX_RULES, mergedRules);
+          RegexTransformationManager.clearCache();
+          console.log(`[DICE]RegexPresetManager: 已合并 ${missingBuiltinRules.length} 条缺失的内置规则`);
+        }
+      }
+
+      return preset;
     },
 
     // 设置激活预设
@@ -2635,6 +2800,9 @@ import { injectDatabaseStyles } from './database-ui-override';
       }
 
       Store.set(STORAGE_KEY_REGEX_ACTIVE_PRESET, presetId);
+
+      // 同步预设规则到实际规则存储
+      Store.set(STORAGE_KEY_REGEX_RULES, preset.rules || []);
 
       // 清除RegexTransformationManager的缓存
       RegexTransformationManager.clearCache();
@@ -2658,7 +2826,7 @@ import { injectDatabaseStyles } from './database-ui-override';
         id: `regex_preset_${Date.now()}`,
         name: name,
         description: sourcePreset?.description,
-        version: '1.0.0',
+        version: PRESET_FORMAT_VERSION,
         rules: sourcePreset ? JSON.parse(JSON.stringify(sourcePreset.rules)) : [],
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -2748,7 +2916,7 @@ import { injectDatabaseStyles } from './database-ui-override';
           id: `regex_preset_${Date.now()}`,
           name: data.name,
           description: data.description,
-          version: data.version || '1.0.0',
+          version: data.version || PRESET_FORMAT_VERSION,
           rules: data.rules.map((rule: RegexTransformationRule) => ({
             ...rule,
             id: RegexTransformationManager._generateId(),
@@ -3297,6 +3465,24 @@ import { injectDatabaseStyles } from './database-ui-override';
   // ValidationEngine - 数据验证引擎
   // ========================================
   const ValidationEngine = {
+    // 查找列索引（支持精确匹配和模糊 fallback）
+    // 先精确匹配，找不到时 fallback 到"列名包含目标列名"的模糊匹配
+    findColumnIndex(headers: (string | null)[], targetColumn: string): number {
+      // 1. 精确匹配
+      const exactIndex = headers.indexOf(targetColumn);
+      if (exactIndex !== -1) return exactIndex;
+
+      // 2. 模糊匹配 fallback：找包含目标列名的列
+      for (let i = 0; i < headers.length; i++) {
+        const header = headers[i];
+        if (header && header.includes(targetColumn)) {
+          return i;
+        }
+      }
+
+      return -1; // 未找到
+    },
+
     // 格式验证（正则表达式）
     validateFormat(value, pattern) {
       if (value === null || value === undefined || value === '') return true; // 空值不验证
@@ -3552,7 +3738,17 @@ import { injectDatabaseStyles } from './database-ui-override';
           }
         }
 
-        if (!newSheet) continue;
+        // 表不存在时，对于 rowLimit 规则视为 0 行
+        if (!newSheet) {
+          if (rule.ruleType === 'rowLimit' && rule.config?.min && rule.config.min > 0) {
+            violations.push({
+              rule,
+              tableName: rule.targetTable,
+              message: rule.errorMessage || `表 "${rule.targetTable}" 不存在或为空 (需要至少 ${rule.config.min} 行)`,
+            });
+          }
+          continue;
+        }
 
         // 表级规则检查
         if (typeInfo.scope === 'table') {
@@ -3591,7 +3787,7 @@ import { injectDatabaseStyles } from './database-ui-override';
         // 字段级规则检查
         else if (typeInfo.scope === 'field' && rule.targetColumn) {
           const headers = newSheet.content?.[0] || [];
-          const colIndex = headers.indexOf(rule.targetColumn);
+          const colIndex = this.findColumnIndex(headers, rule.targetColumn);
           if (colIndex === -1) continue;
 
           // 检查新数据中的每一行
@@ -3649,7 +3845,7 @@ import { injectDatabaseStyles } from './database-ui-override';
         if (!rule.enabled) continue;
 
         // 找到目标列
-        const colIndex = headers.indexOf(rule.targetColumn);
+        const colIndex = this.findColumnIndex(headers, rule.targetColumn);
         if (colIndex === -1) continue;
 
         const value = row[colIndex];
@@ -3687,7 +3883,7 @@ import { injectDatabaseStyles } from './database-ui-override';
       for (const sheetId in rawData) {
         if (!sheetId.startsWith('sheet_')) continue;
         const sheet = rawData[sheetId];
-        if (!sheet?.name || !sheet?.content || sheet.content.length < 2) continue;
+        if (!sheet?.name || !sheet?.content) continue;
 
         const tableName = sheet.name;
         const headers = sheet.content[0];
@@ -3695,7 +3891,7 @@ import { injectDatabaseStyles } from './database-ui-override';
 
         if (tableRules.length === 0) continue;
 
-        // 检查表级规则（如行数限制、序列递增）
+        // 检查表级规则（如行数限制、序列递增）—— 即使表格为空也要检查
         for (const rule of tableRules) {
           const typeInfo = RULE_TYPE_INFO[rule.ruleType];
           if (typeInfo?.scope === 'table') {
@@ -7713,6 +7909,12 @@ import { injectDatabaseStyles } from './database-ui-override';
           // 清除缓存，确保下次获取时是最新的
           _cache = null;
           console.log('[DICE]AttributePresetManager 切换预设:', finalId);
+          // 延迟调用以确保函数已定义（函数在 AttributePresetManager 之后定义）
+          setTimeout(() => {
+            if (typeof updateTemplateForActivePreset === 'function') {
+              updateTemplateForActivePreset(finalId);
+            }
+          }, 0);
           return true;
         } catch (err) {
           console.error('[DICE]AttributePresetManager 设置预设失败:', err);
@@ -7823,6 +8025,312 @@ import { injectDatabaseStyles } from './database-ui-override';
       },
     };
   })();
+
+  // ========================================
+  // 预设切换时更新表格模板
+  // ========================================
+
+  /**
+   * 根据数值范围动态生成属性标尺描述（包含基准说明）
+   * 将范围按比例划分为6个区间：能力缺失/弱项/平均/精英/极限/破格
+   * @param min 范围最小值
+   * @param max 范围最大值
+   * @returns 完整的属性标尺描述字符串（包含标尺和基准说明）
+   */
+  const generateAttributeScale = (min: number, max: number): string => {
+    const range = max - min;
+
+    // 计算各区间的边界值（向下取整）
+    const threshold1 = Math.floor(min + range * 0.1); // 能力缺失上限
+    const threshold2 = Math.floor(min + range * 0.4); // 弱项上限
+    const threshold3 = Math.floor(min + range * 0.6); // 平均上限
+    const threshold4 = Math.floor(min + range * 0.8); // 精英上限
+    const threshold5 = Math.floor(min + range * 0.9); // 极限上限
+
+    // 生成标尺字符串，处理边界情况（避免出现 "3-3" 这样的区间）
+    const formatRange = (start: number, end: number): string => {
+      if (start === end) return `${start}`;
+      return `${start}-${end}`;
+    };
+
+    const scales = [
+      `${formatRange(min, threshold1)}:能力缺失`,
+      `${formatRange(threshold1 + 1, threshold2)}:弱项`,
+      `${formatRange(threshold2 + 1, threshold3)}:平均`,
+      `${formatRange(threshold3 + 1, threshold4)}:精英`,
+      `${formatRange(threshold4 + 1, threshold5)}:极限`,
+      `${formatRange(threshold5 + 1, max)}:破格`,
+    ];
+
+    const scaleStr = scales.join(' | ');
+
+    // 计算基准说明中的动态数值
+    // "聚集在40-60" → 平均区间
+    // "90+呈断崖式稀缺" → 极限区间起点
+    // "重伤→0-10" → 能力缺失区间
+    // "肾上腺素→80" → 精英区间的高端值
+    const avgStart = threshold2 + 1;
+    const avgEnd = threshold3;
+    const rareThreshold = threshold5 + 1; // 破格区间起点
+    const debuffRange = formatRange(min, threshold1); // 能力缺失区间
+    const buffRange = formatRange(threshold4 + 1, threshold5); // 精英区间上限
+
+    const baseDescription = `基准: 数值呈指数增长(每+10分强度翻倍)；分布呈长尾状(绝大多数聚集在${avgStart}-${avgEnd}，${rareThreshold}+呈断崖式稀缺)，依角色[身份背景]生成，当前值受[当前状态]修正。如:重伤→${debuffRange}; 肾上腺素→${buffRange}`;
+
+    return `${scaleStr}。${baseDescription}`;
+  };
+
+  // 默认规则的特有属性模板内容（用于恢复）
+  const DEFAULT_SPECIAL_ATTR_TEMPLATE = {
+    // 主角信息表的特有属性默认内容
+    protagonist: {
+      range: [0, 100] as [number, number],
+      example1: '腹黑:45; 傲娇:60; 笨手笨脚:40',
+      example2: '忠诚:80; 可爱:50; 天然呆:35',
+    },
+    // 重要人物表的特有属性默认内容
+    npc: {
+      range: [0, 100] as [number, number],
+      example: '念动力:25; 点子:45; 轻飘飘:60',
+    },
+  };
+
+  // 默认规则的虚拟预设定义（六维属性百分制）
+  const DEFAULT_VIRTUAL_PRESET = {
+    id: '__default__',
+    name: '六维属性百分制',
+    baseAttributes: ['力量', '敏捷', '体质', '智力', '感知', '魅力'].map(name => ({
+      name,
+      formula: '3d6*5',
+      range: [5, 95] as [number, number],
+      modifier: '1d10-5',
+    })),
+    specialAttributes: [] as { name: string; formula: string; range: [number, number]; modifier: string }[],
+  };
+
+  /**
+   * 根据激活的属性预设更新表格模板中的示例和范围
+   * @param presetId 预设ID，null 表示使用默认逻辑
+   */
+  const updateTemplateForActivePreset = (presetId: string | null): void => {
+    // 1. 获取预设对象（默认规则使用虚拟预设，确保统一处理路径）
+    type AttributePreset = (typeof BUILTIN_ATTRIBUTE_PRESETS)[number];
+    let preset: AttributePreset;
+    if (presetId === null || presetId === '__default__') {
+      // 使用虚拟默认预设
+      preset = DEFAULT_VIRTUAL_PRESET as AttributePreset;
+    } else {
+      const found = AttributePresetManager.getAllPresets().find((p: AttributePreset) => p.id === presetId);
+      preset = found || (DEFAULT_VIRTUAL_PRESET as AttributePreset);
+    }
+
+    // 2. 生成随机属性值
+    // 注意：对于默认规则，传入 null 以使用 generateRPGAttributes 的内置默认逻辑
+    const attrs = generateRPGAttributes(presetId === null || presetId === '__default__' ? null : preset);
+    // attrs = { base: {...}, special: {...} }
+
+    // 3. 计算数值范围（统一从 preset 对象读取）
+    let baseRangeMin = 0;
+    let baseRangeMax = 100;
+    let specialRangeMin = 0;
+    let specialRangeMax = 100;
+
+    // 基础属性范围：取所有 baseAttributes.range 的 min/max
+    if (preset.baseAttributes && preset.baseAttributes.length > 0) {
+      const baseRanges = preset.baseAttributes.map(attr => attr.range);
+      baseRangeMin = Math.min(...baseRanges.map(r => r[0]));
+      baseRangeMax = Math.max(...baseRanges.map(r => r[1]));
+    }
+    // 特有属性范围：取所有 specialAttributes.range 的 min/max
+    if (preset.specialAttributes && preset.specialAttributes.length > 0) {
+      const specialRanges = preset.specialAttributes.map(attr => attr.range);
+      specialRangeMin = Math.min(...specialRanges.map(r => r[0]));
+      specialRangeMax = Math.max(...specialRanges.map(r => r[1]));
+    }
+
+    // 4. 构建示例字符串
+    const baseEntries = Object.entries(attrs.base as Record<string, number>);
+    const specialEntries = Object.entries(attrs.special as Record<string, number>);
+
+    const baseExampleStr = baseEntries.map(([name, value]) => `${name}:${value}`).join('; ');
+    const specialExampleStr = specialEntries.map(([name, value]) => `${name}:${value}`).join('; ');
+
+    // 5. 获取数据库 API 并读取模板
+    const dbApi = getCore().getDB();
+    if (!dbApi || typeof dbApi.getTableTemplate !== 'function') {
+      console.warn('[DICE] updateTemplateForActivePreset: 数据库 API 不可用，跳过更新');
+      return;
+    }
+
+    const template = dbApi.getTableTemplate();
+    if (!template) {
+      console.warn('[DICE] updateTemplateForActivePreset: 无法获取表格模板，跳过更新');
+      return;
+    }
+
+    // 6. 定义正则表达式（分步处理：先定位段落，再替换内容）
+
+    // 主角信息表：基础属性段落中的示例和范围
+    // 匹配: 基础属性: "{属性名}:{数值}"，数值范围[0,100]\n示例: "力量:35; ..."
+    const protagonistBaseExampleRegex = /(基础属性:[^\n]*数值范围)\[[\d,]+\](\n示例: )"[^"]+"/;
+    const protagonistBaseRangeRegex = /(基础属性:[^\n]*数值范围)\[\d+,\d+\]/;
+
+    // 主角信息表：特有属性段落中的示例和范围
+    // 匹配: 特有属性: ...数值范围[0,100]\n示例: "腹黑:45; ..." | "忠诚:80; ..."
+    const protagonistSpecialExampleRegex = /(特有属性:[^\n]*数值范围)\[[\d,]+\](\n示例: )"[^"]+"\s*\|\s*"[^"]+"/;
+    const protagonistSpecialSingleExampleRegex = /(特有属性:[^\n]*数值范围)\[[\d,]+\](\n示例: )"[^"]+"/;
+    const protagonistSpecialRangeRegex = /(特有属性:[^\n]*数值范围)\[\d+,\d+\]/;
+
+    // 重要人物表：基础属性范围和示例
+    // 匹配: 基础属性: "{属性名}:{数值}"，数值范围[0,100]\n示例: "力量:41; ..."
+    const npcBaseRangeRegex = /(基础属性:[^\n]*数值范围)\[\d+,\d+\]/;
+    const npcBaseExampleRegex = /(基础属性:[^\n]*数值范围)\[[\d,]+\](\n示例: )"[^"]+"/;
+
+    // 重要人物表：特有属性段落中的示例和范围
+    // 匹配: 特有属性: ...数值范围[0,100]\n示例: "念动力:25; ..."
+    const npcSpecialExampleRegex = /(特有属性:[^\n]*数值范围)\[[\d,]+\](\n示例: )"[^"]+"/;
+    const npcSpecialRangeRegex = /(特有属性:[^\n]*数值范围)\[\d+,\d+\]/;
+
+    // 属性标尺正则：匹配 【属性标尺】 后面的完整标尺描述行（包括基准说明）
+    // 格式: 0-10:能力缺失 | ... | 90-100:破格。基准: ...
+    const attributeScaleRegex = /(【属性标尺】\n)\d+-?\d*:能力缺失[^\n]+/;
+
+    // 生成新的属性标尺（基于基础属性范围）
+    const newAttributeScale = generateAttributeScale(baseRangeMin, baseRangeMax) + '。';
+
+    let modified = false;
+
+    // 7. 替换 sheet_protagonist 的 note
+    const protagonistSheet = template.sheet_protagonist;
+    if (protagonistSheet?.sourceData?.note) {
+      let note = protagonistSheet.sourceData.note as string;
+      const originalNote = note;
+
+      // 替换基础属性范围
+      note = note.replace(protagonistBaseRangeRegex, `$1[${baseRangeMin},${baseRangeMax}]`);
+
+      // 替换基础属性示例（如果有基础属性）
+      if (baseEntries.length > 0) {
+        note = note.replace(protagonistBaseExampleRegex, `$1[${baseRangeMin},${baseRangeMax}]$2"${baseExampleStr}"`);
+      }
+
+      // 根据是否有特有属性来替换相关内容
+      if (specialEntries.length > 0) {
+        // 替换特有属性范围
+        note = note.replace(protagonistSpecialRangeRegex, `$1[${specialRangeMin},${specialRangeMax}]`);
+
+        // 替换特有属性示例（双示例格式）
+        if (protagonistSpecialExampleRegex.test(note)) {
+          // 生成两组不同的示例
+          const attrs2 = generateRPGAttributes(presetId === null || presetId === '__default__' ? null : preset);
+          const special2Entries = Object.entries(attrs2.special as Record<string, number>);
+          const specialExample2Str = special2Entries.map(([name, value]) => `${name}:${value}`).join('; ');
+          note = note.replace(
+            protagonistSpecialExampleRegex,
+            `$1[${specialRangeMin},${specialRangeMax}]$2"${specialExampleStr}" | "${specialExample2Str}"`,
+          );
+        } else if (protagonistSpecialSingleExampleRegex.test(note)) {
+          // 单示例格式
+          note = note.replace(
+            protagonistSpecialSingleExampleRegex,
+            `$1[${specialRangeMin},${specialRangeMax}]$2"${specialExampleStr}"`,
+          );
+        }
+      } else {
+        // 无特有属性时，恢复为默认模板内容
+        const defaultRange = DEFAULT_SPECIAL_ATTR_TEMPLATE.protagonist.range;
+        const defaultEx1 = DEFAULT_SPECIAL_ATTR_TEMPLATE.protagonist.example1;
+        const defaultEx2 = DEFAULT_SPECIAL_ATTR_TEMPLATE.protagonist.example2;
+
+        // 恢复特有属性范围
+        note = note.replace(protagonistSpecialRangeRegex, `$1[${defaultRange[0]},${defaultRange[1]}]`);
+
+        // 恢复特有属性示例（双示例格式）
+        if (protagonistSpecialExampleRegex.test(note)) {
+          note = note.replace(
+            protagonistSpecialExampleRegex,
+            `$1[${defaultRange[0]},${defaultRange[1]}]$2"${defaultEx1}" | "${defaultEx2}"`,
+          );
+        } else if (protagonistSpecialSingleExampleRegex.test(note)) {
+          // 单示例格式恢复为双示例格式
+          note = note.replace(
+            protagonistSpecialSingleExampleRegex,
+            `$1[${defaultRange[0]},${defaultRange[1]}]$2"${defaultEx1}" | "${defaultEx2}"`,
+          );
+        }
+      }
+
+      // 替换属性标尺
+      note = note.replace(attributeScaleRegex, `$1${newAttributeScale}`);
+
+      if (note !== originalNote) {
+        protagonistSheet.sourceData.note = note;
+        modified = true;
+      }
+    }
+
+    // 8. 替换 sheet_important_npc 的 note
+    const npcSheet = template.sheet_important_npc;
+    if (npcSheet?.sourceData?.note) {
+      let note = npcSheet.sourceData.note as string;
+      const originalNote = note;
+
+      // 替换基础属性范围
+      note = note.replace(npcBaseRangeRegex, `$1[${baseRangeMin},${baseRangeMax}]`);
+
+      // 替换基础属性示例（如果有基础属性且模板中有示例行）
+      if (baseEntries.length > 0) {
+        note = note.replace(npcBaseExampleRegex, `$1[${baseRangeMin},${baseRangeMax}]$2"${baseExampleStr}"`);
+      }
+
+      // 根据是否有特有属性来替换相关内容
+      if (specialEntries.length > 0) {
+        // 替换特有属性范围
+        note = note.replace(npcSpecialRangeRegex, `$1[${specialRangeMin},${specialRangeMax}]`);
+
+        // 替换特有属性示例
+        note = note.replace(
+          npcSpecialExampleRegex,
+          `$1[${specialRangeMin},${specialRangeMax}]$2"${specialExampleStr}"`,
+        );
+      } else {
+        // 无特有属性时，恢复为默认模板内容
+        const defaultRange = DEFAULT_SPECIAL_ATTR_TEMPLATE.npc.range;
+        const defaultEx = DEFAULT_SPECIAL_ATTR_TEMPLATE.npc.example;
+
+        // 恢复特有属性范围
+        note = note.replace(npcSpecialRangeRegex, `$1[${defaultRange[0]},${defaultRange[1]}]`);
+
+        // 恢复特有属性示例
+        note = note.replace(npcSpecialExampleRegex, `$1[${defaultRange[0]},${defaultRange[1]}]$2"${defaultEx}"`);
+      }
+
+      if (note !== originalNote) {
+        npcSheet.sourceData.note = note;
+        modified = true;
+      }
+    }
+
+    // 9. 使用数据库 API 保存模板
+    if (modified && typeof dbApi.importTemplateFromData === 'function') {
+      dbApi
+        .importTemplateFromData(template)
+        .then((result: { success: boolean; message: string }) => {
+          if (result.success) {
+            console.log('[DICE] updateTemplateForActivePreset 已更新表格模板，预设:', presetId);
+          } else {
+            console.error('[DICE] updateTemplateForActivePreset 保存模板失败:', result.message);
+          }
+        })
+        .catch((err: Error) => {
+          console.error('[DICE] updateTemplateForActivePreset 保存模板失败:', err);
+        });
+    } else if (!modified) {
+      console.log('[DICE] updateTemplateForActivePreset 无需更新（模板内容未变化），预设:', presetId);
+    } else {
+      console.warn('[DICE] updateTemplateForActivePreset: importTemplateFromData 不可用，跳过保存');
+    }
+  };
 
   // ========================================
   // 自定义交互规则预设系统
@@ -12906,7 +13414,7 @@ import { injectDatabaseStyles } from './database-ui-override';
                     <div class="acu-panel-header">
                         <div class="acu-map-title">
                             <i class="fa-solid fa-map-location-dot"></i>
-                            <span class="acu-map-region-name">${escapeHtml(viewModel.currentRegion || '地图')}</span>
+                            <span class="acu-map-region-name">地图</span>
                         </div>
                         <div class="acu-map-region-tabs"></div>
                         <div class="acu-map-actions">
@@ -13082,7 +13590,6 @@ import { injectDatabaseStyles } from './database-ui-override';
         .join('');
       $thumbnails.html(thumbnails || '<div class="acu-map-empty">该地区暂无其他地点</div>');
 
-      overlay.find('.acu-map-region-name').text(selectedRegion || '地图');
       overlay.find('.acu-map-region-tabs').html(renderRegionTabs(viewModel.allRegions, selectedRegion));
     };
 
@@ -16136,54 +16643,152 @@ import { injectDatabaseStyles } from './database-ui-override';
     }
   };
 
-  /**
-   * 修正 importTableAsJson 后的 modifiedKeys
-   * 参考: 外部参考/神-数据库_只读:2344-2355 (消息定位)
-   *       外部参考/神-数据库_只读:2371-2380 (字符串兼容)
-   */
-  const fixModifiedKeysAfterImport = async (actualModifiedKeys: string[]) => {
-    if (!actualModifiedKeys || actualModifiedKeys.length === 0) return;
+  type DbChatMessage = {
+    is_user?: boolean;
+    TavernDB_ACU_IsolatedData?: unknown;
+    TavernDB_ACU_Identity?: unknown;
+    TavernDB_ACU_IndependentData?: unknown;
+    TavernDB_ACU_ModifiedKeys?: unknown;
+    TavernDB_ACU_UpdateGroupKeys?: unknown;
+    TavernDB_ACU_Data?: unknown;
+    TavernDB_ACU_SummaryData?: unknown;
+  };
 
-    const ST = getCore().ST;
-    const chat = ST?.chat || (window.parent as any)?.SillyTavern?.chat;
-    if (!chat || chat.length === 0) return;
+  const getDbChatMessages = (): DbChatMessage[] | null => {
+    const st = window.SillyTavern || window.parent?.SillyTavern;
+    const rawChat = st?.chat;
+    return Array.isArray(rawChat) ? (rawChat as DbChatMessage[]) : null;
+  };
 
-    // 定位最新 AI 消息（与神·数据库 importTableAsJson 相同逻辑）
-    let targetMsg = null;
-    for (let i = chat.length - 1; i >= 0; i--) {
-      if (!chat[i].is_user) {
-        targetMsg = chat[i];
-        break;
-      }
-    }
-    if (!targetMsg) return;
-
-    // 字符串兼容
-    let isolated = targetMsg.TavernDB_ACU_IsolatedData;
-    if (typeof isolated === 'string') {
+  const parseIsolatedData = (value: unknown): Record<string, unknown> | null => {
+    if (!value) return null;
+    if (typeof value === 'string') {
       try {
-        isolated = JSON.parse(isolated);
+        const parsed = JSON.parse(value);
+        if (parsed && typeof parsed === 'object') return parsed as Record<string, unknown>;
       } catch {
-        isolated = {};
+        return null;
+      }
+      return null;
+    }
+    if (typeof value === 'object') return value as Record<string, unknown>;
+    return null;
+  };
+
+  const hasSheetKeys = (value: unknown): boolean => {
+    if (!value || typeof value !== 'object') return false;
+    return Object.keys(value as Record<string, unknown>).some(key => key.startsWith('sheet_'));
+  };
+
+  const hasDbPayload = (msg: DbChatMessage): boolean => {
+    if (hasSheetKeys(msg.TavernDB_ACU_IndependentData)) return true;
+    if (hasSheetKeys(msg.TavernDB_ACU_Data)) return true;
+    if (hasSheetKeys(msg.TavernDB_ACU_SummaryData)) return true;
+    const isolated = parseIsolatedData(msg.TavernDB_ACU_IsolatedData);
+    if (!isolated) return false;
+    return Object.values(isolated).some(tagData => {
+      if (!tagData || typeof tagData !== 'object') return false;
+      const data = (tagData as Record<string, unknown>).independentData;
+      return hasSheetKeys(data);
+    });
+  };
+
+  const findLatestDbMessageIndex = (includeUser = false): number => {
+    const chat = getDbChatMessages();
+    if (!chat) return -1;
+    for (let i = chat.length - 1; i >= 0; i--) {
+      const msg = chat[i];
+      if (!includeUser && msg?.is_user) continue;
+      if (hasDbPayload(msg)) return i;
+    }
+    return -1;
+  };
+
+  const resolveIsolationKey = (msg: DbChatMessage, isolated: Record<string, unknown> | null): string | null => {
+    if (typeof msg?.TavernDB_ACU_Identity === 'string') {
+      const identity = msg.TavernDB_ACU_Identity;
+      if (isolated && Object.prototype.hasOwnProperty.call(isolated, identity)) return identity;
+    }
+    if (isolated && Object.prototype.hasOwnProperty.call(isolated, '')) return '';
+    if (isolated) {
+      const keys = Object.keys(isolated);
+      if (keys.length === 1) return keys[0];
+    }
+    return null;
+  };
+
+  const relocateDbPayloadToAnchor = async (anchorIndex: number): Promise<void> => {
+    if (anchorIndex < 0) return;
+    const chat = getDbChatMessages();
+    if (!chat || anchorIndex >= chat.length) return;
+    const latestIndex = findLatestDbMessageIndex(true);
+    if (latestIndex < 0 || latestIndex === anchorIndex) return;
+
+    const source = chat[latestIndex];
+    const target = chat[anchorIndex];
+    if (!source || !target) return;
+    if (target.is_user && !hasDbPayload(target)) return;
+
+    let moved = false;
+
+    const sourceIsolated = parseIsolatedData(source.TavernDB_ACU_IsolatedData);
+    if (sourceIsolated) {
+      const targetIsolated = parseIsolatedData(target.TavernDB_ACU_IsolatedData) || {};
+      const isolationKey = resolveIsolationKey(source, sourceIsolated);
+      if (isolationKey !== null) {
+        if (Object.prototype.hasOwnProperty.call(sourceIsolated, isolationKey)) {
+          targetIsolated[isolationKey] = sourceIsolated[isolationKey];
+          const nextSource = { ...sourceIsolated };
+          delete nextSource[isolationKey];
+          if (Object.keys(nextSource).length > 0) {
+            source.TavernDB_ACU_IsolatedData = nextSource;
+          } else {
+            delete source.TavernDB_ACU_IsolatedData;
+          }
+          target.TavernDB_ACU_IsolatedData = targetIsolated;
+          moved = true;
+        }
+      } else {
+        target.TavernDB_ACU_IsolatedData = sourceIsolated;
+        delete source.TavernDB_ACU_IsolatedData;
+        moved = true;
       }
     }
-    if (!isolated || typeof isolated !== 'object') return;
 
-    // 隔离标签推断
-    const keys = Object.keys(isolated);
-    if (keys.length === 0) return;
-    const isolationKey = keys.includes('') ? '' : keys[0];
-    if (!isolated[isolationKey]) return;
+    if (source.TavernDB_ACU_Identity !== undefined) {
+      target.TavernDB_ACU_Identity = source.TavernDB_ACU_Identity;
+      delete source.TavernDB_ACU_Identity;
+      moved = true;
+    }
+    if (source.TavernDB_ACU_IndependentData !== undefined) {
+      target.TavernDB_ACU_IndependentData = source.TavernDB_ACU_IndependentData;
+      delete source.TavernDB_ACU_IndependentData;
+      moved = true;
+    }
+    if (source.TavernDB_ACU_ModifiedKeys !== undefined) {
+      target.TavernDB_ACU_ModifiedKeys = source.TavernDB_ACU_ModifiedKeys;
+      delete source.TavernDB_ACU_ModifiedKeys;
+      moved = true;
+    }
+    if (source.TavernDB_ACU_UpdateGroupKeys !== undefined) {
+      target.TavernDB_ACU_UpdateGroupKeys = source.TavernDB_ACU_UpdateGroupKeys;
+      delete source.TavernDB_ACU_UpdateGroupKeys;
+      moved = true;
+    }
+    if (source.TavernDB_ACU_Data !== undefined) {
+      target.TavernDB_ACU_Data = source.TavernDB_ACU_Data;
+      delete source.TavernDB_ACU_Data;
+      moved = true;
+    }
+    if (source.TavernDB_ACU_SummaryData !== undefined) {
+      target.TavernDB_ACU_SummaryData = source.TavernDB_ACU_SummaryData;
+      delete source.TavernDB_ACU_SummaryData;
+      moved = true;
+    }
 
-    // 修正字段
-    isolated[isolationKey].modifiedKeys = [...actualModifiedKeys];
-    isolated[isolationKey].updateGroupKeys = [...actualModifiedKeys];
-    targetMsg.TavernDB_ACU_IsolatedData = isolated;
-    targetMsg.TavernDB_ACU_ModifiedKeys = [...actualModifiedKeys];
-    targetMsg.TavernDB_ACU_UpdateGroupKeys = [...actualModifiedKeys];
-
-    await triggerSlash('savechat');
-    console.info('[DICE] fixModifiedKeys:', actualModifiedKeys);
+    if (moved) {
+      await triggerSlash('savechat');
+    }
   };
 
   const saveDataToDatabase = async (tableData, skipRender = false, commitDeletes = false) => {
@@ -16249,6 +16854,7 @@ import { injectDatabaseStyles } from './database-ui-override';
       if (!api || !api.importTableAsJson) {
         throw new Error('数据库 API 不可用');
       }
+      const anchorIndex = findLatestDbMessageIndex();
 
       try {
         // 调用 importTableAsJson，它内部会调用 saveChat()
@@ -16258,6 +16864,7 @@ import { injectDatabaseStyles } from './database-ui-override';
         if (result === false) {
           throw new Error('数据导入失败（返回 false）');
         }
+        await relocateDbPayloadToAnchor(anchorIndex);
         console.info('[DICE]数据已成功保存到数据库');
       } catch (apiError) {
         console.error('[DICE]ACU API 保存失败:', apiError);
@@ -16343,6 +16950,7 @@ import { injectDatabaseStyles } from './database-ui-override';
           if (!api || !api.importTableAsJson) {
             throw new Error('数据库 API 不可用');
           }
+          const anchorIndex = findLatestDbMessageIndex();
 
           try {
             // 调用 importTableAsJson，它内部会调用 saveChat()
@@ -16351,10 +16959,7 @@ import { injectDatabaseStyles } from './database-ui-override';
             if (result === false) {
               throw new Error('数据导入失败（返回 false）');
             }
-            // 修正 modifiedKeys（只标记实际修改的表格）
-            if (modifiedSheetKeys && modifiedSheetKeys.length > 0) {
-              await fixModifiedKeysAfterImport(modifiedSheetKeys);
-            }
+            await relocateDbPayloadToAnchor(anchorIndex);
           } catch (apiError) {
             console.error('[DICE]ACU API 保存失败:', apiError);
             // 检查是否是 "Settings could not be saved" 相关的错误
@@ -18323,7 +18928,7 @@ import { injectDatabaseStyles } from './database-ui-override';
       if (targetSheet && targetSheet.content && targetSheet.content.length > 1) {
         const headers = targetSheet.content[0] || [];
         const rows = targetSheet.content.slice(1) || [];
-        const colIndex = headers.indexOf(rule.targetColumn);
+        const colIndex = ValidationEngine.findColumnIndex(headers, rule.targetColumn);
 
         if (colIndex >= 0) {
           // 提取所有编码索引的数字部分
@@ -20196,6 +20801,15 @@ import { injectDatabaseStyles } from './database-ui-override';
       const patternStr = String(pattern);
       const { flags: extractedFlags, patternWithoutFlags } = RegexTransformationEngine._extractFlags(patternStr);
 
+      // 校验正则表达式合法性
+      try {
+        new RegExp(patternWithoutFlags);
+      } catch (e) {
+        const errorMsg = e instanceof Error ? e.message : String(e);
+        toastr.error(`正则表达式无效: ${errorMsg}`, '保存失败');
+        return;
+      }
+
       // 获取 UI 中的 flags（如果复选框存在）
       const $flagGlobal = dialog.find('#flag-global');
       const $flagIgnoreCase = dialog.find('#flag-ignorecase');
@@ -21382,8 +21996,8 @@ import { injectDatabaseStyles } from './database-ui-override';
       .map(c => {
         const modeLabel =
           c.mode === 'strict'
-            ? '<span style="color:#27ae60;">✓ 完全匹配</span>'
-            : `<span style="color:#f39c12;">⚠ 部分匹配 (${c.matchedCols.length}/${fav.header.length}列)</span>`;
+            ? '<span class="acu-match-full">✓ 完全匹配</span>'
+            : `<span class="acu-match-partial">⚠ 部分匹配 (${c.matchedCols.length}/${fav.header.length}列)</span>`;
         const unmatchedInfo =
           c.unmatchedCols.length > 0
             ? `<div class="acu-fav-send-unmatched">未匹配: ${c.unmatchedCols.join(', ')}</div>`
@@ -21446,26 +22060,17 @@ import { injectDatabaseStyles } from './database-ui-override';
       // 插入新行
       table.content.push(newRow);
 
-      // 更新缓存
-      if (cachedRawData && cachedRawData[uid]) {
-        cachedRawData[uid].content = table.content;
+      // 更新缓存并写入数据库（复用 saveDataOnly 统一保存路径）
+      const rawData = cachedRawData || getTableData();
+      if (!rawData || !rawData[uid]?.content) {
+        toastr.error('无法获取目标表格数据');
+        return;
       }
+      rawData[uid].content = table.content;
+      cachedRawData = rawData;
 
-      // 写入数据库
       try {
-        const api = getCore().getDB();
-        if (!api || !api.importTableAsJson) {
-          toastr.error('数据库 API 不可用，无法发送到表格');
-          return;
-        }
-        const jsonString = JSON.stringify(cachedRawData);
-        const result = await api.importTableAsJson(jsonString);
-        if (result === false) {
-          toastr.error('数据导入失败');
-          return;
-        }
-        // 修正 modifiedKeys（只标记实际修改的表格）
-        await fixModifiedKeysAfterImport([uid]);
+        await saveDataOnly(rawData, [uid]);
         console.log('[DICE]FavoritesManager 发送成功，已写入数据库');
       } catch (err) {
         console.error('[DICE]FavoritesManager 写入数据库失败:', err);
@@ -21797,7 +22402,7 @@ import { injectDatabaseStyles } from './database-ui-override';
                                     ${PresetManager.getAllPresets()
                                       .map(
                                         p =>
-                                          `<option value="${escapeHtml(p.id)}" ${p.id === PresetManager.getActivePreset()?.id ? 'selected' : ''}>${escapeHtml(p.name)}${p.builtin ? ' (内置)' : ''}</option>`,
+                                          `<option value="${escapeHtml(p.id)}" ${p.id === PresetManager.getActivePreset()?.id ? 'selected' : ''}>${escapeHtml(p.name)}${p.id === 'default' ? ` v${PRESET_FORMAT_VERSION}` : p.builtin ? ' (内置)' : ''}</option>`,
                                       )
                                       .join('')}
                                 </select>
@@ -21863,7 +22468,7 @@ import { injectDatabaseStyles } from './database-ui-override';
                                     ${RegexPresetManager.getAllPresets()
                                       .map(
                                         p =>
-                                          `<option value="${escapeHtml(p.id)}" ${p.id === RegexPresetManager.getActivePreset()?.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`,
+                                          `<option value="${escapeHtml(p.id)}" ${p.id === RegexPresetManager.getActivePreset()?.id ? 'selected' : ''}>${escapeHtml(p.name)}${p.id === 'regex_default' ? ` v${PRESET_FORMAT_VERSION}` : ''}</option>`,
                                       )
                                       .join('')}
                                 </select>
@@ -21875,6 +22480,7 @@ import { injectDatabaseStyles } from './database-ui-override';
                                 <button class="acu-action-btn" id="btn-regex-preset-del" title="删除预设" style="flex:1;height:28px;"><i class="fa-solid fa-trash"></i></button>
                                 <button class="acu-action-btn" id="btn-regex-preset-export" title="导出" style="flex:1;height:28px;"><i class="fa-solid fa-file-export"></i></button>
                                 <button class="acu-action-btn" id="btn-regex-preset-import" title="导入" style="flex:1;height:28px;"><i class="fa-solid fa-file-import"></i></button>
+                                <button class="acu-action-btn" id="btn-regex-preset-reset" title="恢复默认预设" style="flex:1;height:28px;"><i class="fa-solid fa-rotate-left"></i></button>
                             </div>
                             <div class="acu-validation-hint" style="font-size:11px;color:var(--acu-text-sub);margin-bottom:8px;padding:0 4px;">
                                 <i class="fa-solid fa-info-circle"></i> 正则转换规则用于自动修改数据库表格内容
@@ -22850,6 +23456,57 @@ import { injectDatabaseStyles } from './database-ui-override';
         }
       };
       input.click();
+    });
+
+    // === 正则转换预设：恢复默认预设 ===
+    dialog.find('#btn-regex-preset-reset').on('click', function () {
+      if (!confirm('确定要恢复默认预设吗？\n\n此操作将清除当前所有正则规则，并恢复为系统内置的默认规则。')) return;
+
+      // 重置默认预设的规则为内置规则
+      const presets = RegexPresetManager.getAllPresets();
+      let defaultPreset = presets.find(p => p.id === 'regex_default');
+
+      if (defaultPreset) {
+        // 用内置规则覆盖默认预设
+        defaultPreset.rules = JSON.parse(JSON.stringify(BUILTIN_REGEX_RULES.map(r => ({ ...r, builtin: true }))));
+        defaultPreset.version = PRESET_FORMAT_VERSION;
+        defaultPreset.updatedAt = Date.now();
+      } else {
+        // 默认预设不存在，创建它
+        defaultPreset = {
+          id: 'regex_default',
+          name: '默认预设',
+          description: '系统默认的正则转换规则预设',
+          version: PRESET_FORMAT_VERSION,
+          rules: JSON.parse(JSON.stringify(BUILTIN_REGEX_RULES.map(r => ({ ...r, builtin: true })))),
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        presets.unshift(defaultPreset);
+      }
+      RegexPresetManager._save(presets);
+
+      // 切换到默认预设并同步规则
+      Store.set(STORAGE_KEY_REGEX_ACTIVE_PRESET, 'regex_default');
+
+      // 强制用内置规则覆盖规则存储
+      Store.set(
+        STORAGE_KEY_REGEX_RULES,
+        JSON.parse(JSON.stringify(BUILTIN_REGEX_RULES.map(r => ({ ...r, builtin: true })))),
+      );
+      RegexTransformationManager.clearCache();
+
+      // 刷新UI - 重新渲染下拉框选项
+      const $presetSelect = dialog.find('#regex-preset-select');
+      $presetSelect.empty();
+      RegexPresetManager.getAllPresets().forEach(p => {
+        const versionSuffix = p.id === 'regex_default' ? ` v${PRESET_FORMAT_VERSION}` : '';
+        $presetSelect.append(`<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}${versionSuffix}</option>`);
+      });
+      $presetSelect.val('regex_default');
+      refreshRegexRulesList();
+
+      toastr.success(`已恢复默认预设，包含 ${BUILTIN_REGEX_RULES.length} 条内置规则`);
     });
 
     // === 正则转换规则:添加规则 ===
@@ -25065,6 +25722,7 @@ import { injectDatabaseStyles } from './database-ui-override';
             if (!api || !api.importTableAsJson) {
               throw new Error('数据库 API 不可用');
             }
+            const anchorIndex = findLatestDbMessageIndex();
 
             const dataToSave = { mate: rawData.mate || { type: 'chatSheets', version: 1 } };
             Object.keys(rawData).forEach(k => {
@@ -25091,8 +25749,8 @@ import { injectDatabaseStyles } from './database-ui-override';
             if (result === false) {
               throw new Error('数据导入失败（返回 false）');
             }
-            // 修正 modifiedKeys（只标记实际修改的表格）
-            await fixModifiedKeysAfterImport([tableKey]);
+            await relocateDbPayloadToAnchor(anchorIndex);
+
             cachedRawData = rawData;
           } catch (e) {
             console.error('[DICE]ACU 保存失败:', e);
@@ -25444,27 +26102,67 @@ import { injectDatabaseStyles } from './database-ui-override';
     // 合并：在场的排前面
     let allNPCs = [...inSceneNPCs, ...offSceneNPCs];
 
-    // [重构] 任务数据 - 使用新解析器 + 过滤器
+    // [重构] 任务数据 - 使用新解析器（显示所有任务，按状态/类型/优先级/进度排序）
     const questTableName = questResult?.name || '备忘事项';
     const questParsed = DashboardDataParser.parseRows(questResult, 'quest');
-    const activeQuestParsed = DashboardDataParser.applyFilter(questParsed, 'active', 'quest');
 
-    // 任务排序：主线 > 支线 > 日常 > 其他
-    const questTypeOrder = type => {
+    // 任务排序辅助函数
+    const questStatusOrder = (status: string) => {
+      const s = String(status || '').toLowerCase();
+      // 进行中排前面，已完成/已失败/已放弃排后面
+      if (s.includes('进行中') || s.includes('进行')) return 0;
+      return 1; // 已完成、已失败、已放弃等终态
+    };
+    const questTypeOrder = (type: string) => {
       const t = String(type || '').toLowerCase();
       if (t.includes('主线')) return 0;
       if (t.includes('支线')) return 1;
       if (t.includes('日常')) return 2;
       return 3;
     };
-    let activeTasks = activeQuestParsed
+    const questPriorityOrder = (priority: string) => {
+      const p = String(priority || '').toLowerCase();
+      if (p.includes('紧急')) return 0;
+      if (p.includes('重要')) return 1;
+      if (p.includes('普通')) return 2;
+      return 3;
+    };
+    const parseProgress = (progress: string) => {
+      const match = String(progress || '').match(/(\d+)\s*%/);
+      return match ? parseInt(match[1], 10) : 0;
+    };
+
+    let activeTasks = questParsed
       .map(q => ({
         name: q.name || '任务',
         type: q.type || '',
+        status: q.status || '',
+        priority: q.priority || '',
         progress: q.progress || '',
         _rowIndex: q._rowIndex,
       }))
-      .sort((a, b) => questTypeOrder(a.type) - questTypeOrder(b.type));
+      .sort((a, b) => {
+        // 1. 状态：进行中 > 已完成
+        const aStatusOrder = questStatusOrder(a.status);
+        const bStatusOrder = questStatusOrder(b.status);
+        const statusDiff = aStatusOrder - bStatusOrder;
+        if (statusDiff !== 0) return statusDiff;
+
+        // 已完成任务：按行号倒序（行号低的靠后）
+        if (aStatusOrder === 1) {
+          return (b._rowIndex ?? 0) - (a._rowIndex ?? 0);
+        }
+
+        // 进行中任务的排序规则：
+        // 2. 类型：主线 > 支线 > 日常
+        const typeDiff = questTypeOrder(a.type) - questTypeOrder(b.type);
+        if (typeDiff !== 0) return typeDiff;
+        // 3. 优先级：紧急 > 重要 > 普通
+        const priorityDiff = questPriorityOrder(a.priority) - questPriorityOrder(b.priority);
+        if (priorityDiff !== 0) return priorityDiff;
+        // 4. 进度：低 → 高
+        return parseProgress(a.progress) - parseProgress(b.progress);
+      });
     // [重构] 背包物品数据 - 使用新解析器
     const bagTableName = bagResult?.name || '背包物品表';
 
@@ -25764,7 +26462,7 @@ import { injectDatabaseStyles } from './database-ui-override';
                     </div>
 
                     <h3 class="acu-dash-table-link" data-table="${escapeHtml(equipTableName)}" style="margin-top:10px;"><i class="fa-solid fa-shield-halved"></i> 装备 (${equippedItems.length})</h3>
-                    <div style="display:flex;flex-direction:column;gap:2px;max-height:80px;overflow-y:auto;margin-bottom:10px;">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;max-height:80px;overflow-y:auto;margin-bottom:10px;">
                     ${
                       equippedItems.length > 0
                         ? equippedItems
@@ -26153,8 +26851,8 @@ import { injectDatabaseStyles } from './database-ui-override';
         <div class="acu-cell-menu acu-theme-${config.theme}" data-fav-id="${escapeHtml(cardId)}">
           <div class="acu-cell-menu-item" data-action="edit"><i class="fa-solid fa-pen"></i> 编辑</div>
           <div class="acu-cell-menu-item" data-action="copy"><i class="fa-solid fa-copy"></i> 复制</div>
-          <div class="acu-cell-menu-item" data-action="send" style="color:#3498db"><i class="fa-solid fa-paper-plane"></i> 发送到表格</div>
-          <div class="acu-cell-menu-item" data-action="delete" style="color:#e74c3c"><i class="fa-solid fa-trash"></i> 删除</div>
+          <div class="acu-cell-menu-item" data-action="send"><i class="fa-solid fa-paper-plane"></i> 发送到表格</div>
+          <div class="acu-cell-menu-item" data-action="delete"><i class="fa-solid fa-trash"></i> 删除</div>
           <div class="acu-cell-menu-item" data-action="close"><i class="fa-solid fa-times"></i> 关闭菜单</div>
         </div>
       `);
@@ -28096,7 +28794,8 @@ import { injectDatabaseStyles } from './database-ui-override';
           const currentHeader = headers[cIdx] || '';
           if (currentHeader.includes('交互')) return; // 隐藏交互选项列
 
-          const headerName = headers[cIdx] || '属性' + cIdx;
+          // 清理列标题：移除括号/方括号及其内容（与表格卡片保持一致）
+          const headerName = (headers[cIdx] || '属性' + cIdx).replace(/[\(（\[【][^)）\]】]*[\)）\]】]/g, '').trim();
           const rawStr = String(cell || '').trim();
           if (!rawStr) return;
 
@@ -28299,7 +28998,7 @@ import { injectDatabaseStyles } from './database-ui-override';
                             <span><i class="fa-solid fa-layer-group"></i> 布局编辑</span>
                             <span style="font-size:11px; opacity:0.9; font-weight:normal;">拖动或点击交换位置</span>
                         </div>
-                        <button id="acu-btn-finish-sort" style="background:rgba(255,255,255,0.2); color:#fff; border:1px solid rgba(255,255,255,0.4); padding:4px 14px; border-radius:4px; cursor:pointer; font-size:12px; transition:all 0.2s; white-space:nowrap;">
+                        <button id="acu-btn-finish-sort" class="acu-btn-finish-sort">>
                             <i class="fa-solid fa-check"></i> 完成保存
                         </button>
                     </div>
@@ -28310,10 +29009,10 @@ import { injectDatabaseStyles } from './database-ui-override';
 
         $('#acu-btn-finish-sort').hover(
           function () {
-            $(this).css({ background: '#fff', color: 'var(--acu-accent)' });
+            $(this).addClass('hover');
           },
           function () {
-            $(this).css({ background: 'rgba(255,255,255,0.2)', color: '#fff' });
+            $(this).removeClass('hover');
           },
         );
 
@@ -28639,32 +29338,32 @@ import { injectDatabaseStyles } from './database-ui-override';
       // 单元格锁定选项：当前单元格被锁定时显示"解锁"，否则显示"锁定"
       if (isFieldLocked) {
         lockMenuHtml +=
-          '<div class="acu-cell-menu-item" id="act-unlock-field" style="color:#27ae60;"><i class="fa-solid fa-unlock"></i> 解锁此单元格</div>';
+          '<div class="acu-cell-menu-item" id="act-unlock-field"><i class="fa-solid fa-unlock"></i> 解锁此单元格</div>';
       } else {
         lockMenuHtml +=
-          '<div class="acu-cell-menu-item" id="act-lock-field" style="color:#f39c12;"><i class="fa-solid fa-lock"></i> 锁定此单元格</div>';
+          '<div class="acu-cell-menu-item" id="act-lock-field"><i class="fa-solid fa-lock"></i> 锁定此单元格</div>';
       }
 
       // 整行锁定选项：行中有任意锁定时显示"解锁整行"，否则显示"锁定整行"
       if (hasAnyLockInRow) {
         lockMenuHtml +=
-          '<div class="acu-cell-menu-item" id="act-unlock-row" style="color:#27ae60;"><i class="fa-solid fa-unlock"></i> 解锁整行</div>';
+          '<div class="acu-cell-menu-item" id="act-unlock-row"><i class="fa-solid fa-unlock"></i> 解锁整行</div>';
       } else {
         lockMenuHtml +=
-          '<div class="acu-cell-menu-item" id="act-lock-row" style="color:#f39c12;"><i class="fa-solid fa-lock"></i> 锁定整行</div>';
+          '<div class="acu-cell-menu-item" id="act-lock-row"><i class="fa-solid fa-lock"></i> 锁定整行</div>';
       }
     }
 
     const menu = $(`
             <div class="acu-cell-menu acu-theme-${config.theme}">
                 <div class="acu-cell-menu-item" id="act-edit"><i class="fa-solid fa-pen"></i> 编辑内容</div>
-                <div class="acu-cell-menu-item" id="act-edit-card" style="color:#9b59b6"><i class="fa-solid fa-edit"></i> 整体编辑</div>
-                <div class="acu-cell-menu-item" id="act-insert" style="color:#2980b9"><i class="fa-solid fa-plus"></i> 在下方插入新行</div>
+                <div class="acu-cell-menu-item" id="act-edit-card"><i class="fa-solid fa-edit"></i> 整体编辑</div>
+                <div class="acu-cell-menu-item" id="act-insert"><i class="fa-solid fa-plus"></i> 在下方插入新行</div>
                 <div class="acu-cell-menu-item" id="act-copy"><i class="fa-solid fa-copy"></i> 复制内容</div>
-                <div class="acu-cell-menu-item" id="act-favorite" style="color:#f1c40f"><i class="fa-solid fa-star"></i> 收藏此行</div>
+                <div class="acu-cell-menu-item" id="act-favorite"><i class="fa-solid fa-star"></i> 收藏此行</div>
                 ${lockMenuHtml}
-                ${isModified ? '<div class="acu-cell-menu-item" id="act-undo" style="color:#e67e22; border-top:1px solid #eee;"><i class="fa-solid fa-undo"></i> 撤销本次修改</div>' : ''}
-                <div class="acu-cell-menu-item" id="act-delete" style="color:#e74c3c"><i class="fa-solid fa-trash"></i> 删除整行</div>
+                ${isModified ? '<div class="acu-cell-menu-item" id="act-undo"><i class="fa-solid fa-undo"></i> 撤销本次修改</div>' : ''}
+                <div class="acu-cell-menu-item" id="act-delete"><i class="fa-solid fa-trash"></i> 删除整行</div>
                 <div class="acu-cell-menu-item" id="act-close"><i class="fa-solid fa-times"></i> 关闭菜单</div>
             </div>
         `);
