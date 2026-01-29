@@ -41,6 +41,15 @@ importers:
       jqueryui:
         specifier: ^1.11.1
         version: 1.11.1
+<<<<<<< HEAD
+=======
+      json5:
+        specifier: ^2.2.3
+        version: 2.2.3
+      jsonrepair:
+        specifier: ^3.13.2
+        version: 3.13.2
+>>>>>>> fb4dbf4e8a1e0af3bd2894822bd954bdc07f65d5
       klona:
         specifier: ^2.0.6
         version: 2.0.6
@@ -71,6 +80,12 @@ importers:
       vue-router:
         specifier: ^4.6.4
         version: 4.6.4(vue@3.5.27(typescript@6.0.0-dev.20250807))
+<<<<<<< HEAD
+=======
+      vue-word-highlighter:
+        specifier: ^1.2.6
+        version: 1.2.6(vue@3.5.27(typescript@6.0.0-dev.20250807))
+>>>>>>> fb4dbf4e8a1e0af3bd2894822bd954bdc07f65d5
       vue3-pixi:
         specifier: 1.0.0-beta.3
         version: 1.0.0-beta.3(vue@3.5.27(typescript@6.0.0-dev.20250807))
@@ -1647,6 +1662,12 @@ packages:
   devlop@1.1.0:
     resolution: {integrity: sha512-RWmIqhcFf1lRYBvNmr7qTNuyCt/7/ns2jbpp1+PalgE/rDQcBT0fioSMUpJ93irlUhC5hrg4cYqe6U+0ImW0rA==}
 
+<<<<<<< HEAD
+=======
+  diacritics@1.3.0:
+    resolution: {integrity: sha512-wlwEkqcsaxvPJML+rDh/2iS824jbREk6DUMUKkEaSlxdYHeS43cClJtsWglvw2RfeXGm6ohKDqsXteJ5sP5enA==}
+
+>>>>>>> fb4dbf4e8a1e0af3bd2894822bd954bdc07f65d5
   diff@4.0.4:
     resolution: {integrity: sha512-X07nttJQkwkfKfvTPG/KSnE2OMdcUCao6+eXF3wmnIQRn2aPAHH3VxDbDOdegkd6JbPsXqShpvEOHfAT+nCNwQ==}
     engines: {node: '>=0.3.1'}
@@ -2535,6 +2556,13 @@ packages:
   jsonfile@6.2.0:
     resolution: {integrity: sha512-FGuPw30AdOIUTRMC2OMRtQV+jkVj2cfPqSeWXv1NEAJ1qZ5zb1X6z1mFhbfOB/iy3ssJCD+3KuZ8r8C3uVFlAg==}
 
+<<<<<<< HEAD
+=======
+  jsonrepair@3.13.2:
+    resolution: {integrity: sha512-Leuly0nbM4R+S5SVJk3VHfw1oxnlEK9KygdZvfUtEtTawNDyzB4qa1xWTmFt1aeoA7sXZkVTRuIixJ8bAvqVUg==}
+    hasBin: true
+
+>>>>>>> fb4dbf4e8a1e0af3bd2894822bd954bdc07f65d5
   keyv@4.5.4:
     resolution: {integrity: sha512-oxVHkHR/EJf2CNXnWxRLW6mg7JyCCUcG0DtEGmL2ctUo1PNTin1PUil+r/+4r5MpVgC/fn1kjsx7mjSujKqIpw==}
 
@@ -3908,6 +3936,18 @@ packages:
   vue-style-loader@4.1.3:
     resolution: {integrity: sha512-sFuh0xfbtpRlKfm39ss/ikqs9AbKCoXZBpHeVZ8Tx650o0k0q/YCM7FRvigtxpACezfq6af+a7JeqVTWvncqDg==}
 
+<<<<<<< HEAD
+=======
+  vue-word-highlighter@1.2.6:
+    resolution: {integrity: sha512-XkKY3/gNg0aMkzaCxYgHrldun2yxlAofiCS5jvZfq066Hk7uRvQudK5ZgkfJO3wB8qVrya5EbdDEajsRd4i5Dg==}
+    peerDependencies:
+      '@vue/composition-api': ^1.0.0-rc.1
+      vue: ^2.0.0 || >=3.0.0
+    peerDependenciesMeta:
+      '@vue/composition-api':
+        optional: true
+
+>>>>>>> fb4dbf4e8a1e0af3bd2894822bd954bdc07f65d5
   vue3-pixi@1.0.0-beta.3:
     resolution: {integrity: sha512-WHDA7/VPwAGTnwPSQTxcwTOOjspjX8vh8P3Lgfrg6o2lI4mcjGmHlKiKIZabwlNYqmyr+PZKdnUtjzN/h/0e0w==}
 
@@ -5459,6 +5499,11 @@ snapshots:
     dependencies:
       dequal: 2.0.3
 
+<<<<<<< HEAD
+=======
+  diacritics@1.3.0: {}
+
+>>>>>>> fb4dbf4e8a1e0af3bd2894822bd954bdc07f65d5
   diff@4.0.4: {}
 
   dom-converter@0.2.0:
@@ -6488,6 +6533,11 @@ snapshots:
     optionalDependencies:
       graceful-fs: 4.2.11
 
+<<<<<<< HEAD
+=======
+  jsonrepair@3.13.2: {}
+
+>>>>>>> fb4dbf4e8a1e0af3bd2894822bd954bdc07f65d5
   keyv@4.5.4:
     dependencies:
       json-buffer: 3.0.1
@@ -8040,6 +8090,15 @@ snapshots:
       hash-sum: 1.0.2
       loader-utils: 1.4.2
 
+<<<<<<< HEAD
+=======
+  vue-word-highlighter@1.2.6(vue@3.5.27(typescript@6.0.0-dev.20250807)):
+    dependencies:
+      diacritics: 1.3.0
+      vue: 3.5.27(typescript@6.0.0-dev.20250807)
+      vue-demi: 0.14.10(vue@3.5.27(typescript@6.0.0-dev.20250807))
+
+>>>>>>> fb4dbf4e8a1e0af3bd2894822bd954bdc07f65d5
   vue3-pixi@1.0.0-beta.3(vue@3.5.27(typescript@6.0.0-dev.20250807)):
     dependencies:
       '@antfu/utils': 0.7.10
