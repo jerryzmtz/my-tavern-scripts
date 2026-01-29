@@ -260,13 +260,10 @@ export const MAIN_STYLES = `
 
     /* 弹窗遮罩层基类 */
     .acu-edit-overlay,
-    .acu-dice-overlay,
-    .acu-contest-overlay,
     .acu-relation-graph-overlay,
     .acu-avatar-manager-overlay,
     .acu-preview-overlay,
     .acu-import-confirm-overlay,
-    .acu-dice-config-overlay,
     .acu-crop-modal-overlay {
         position: fixed;
         top: 0;
@@ -277,6 +274,25 @@ export const MAIN_STYLES = `
         height: 100vh;
         background: rgba(0,0,0,0.6);
         z-index: 31010;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 16px;
+        backdrop-filter: blur(2px);
+    }
+    /* 骰子面板遮罩层 - 需要在 preview-overlay(31100) 之上，属于编辑层(31200) */
+    .acu-dice-overlay,
+    .acu-contest-overlay,
+    .acu-dice-config-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(0,0,0,0.6);
+        z-index: 31200 !important;
         display: flex;
         justify-content: center;
         align-items: center;
@@ -302,10 +318,11 @@ export const MAIN_STYLES = `
     }
 
     /* ========== 骰子面板专用样式 ========== */
+    /* 骰子面板 - 属于编辑层(31200+)，需要在 preview-overlay(31100) 之上 */
     .acu-dice-panel,
     .acu-contest-panel {
         position: relative;
-        z-index: 31011;
+        z-index: 31201 !important;
         width: 340px;
         max-width: calc(100vw - 32px);
         max-height: calc(100vh - 32px);
@@ -1903,7 +1920,7 @@ export const MAIN_STYLES = `
                 }
             /* === 仪表盘预览卡片样式 === */
             .acu-preview-overlay {
-                z-index: 31100;
+                z-index: 31100 !important;
                 backdrop-filter: blur(3px);
                 animation: acuFadeIn 0.2s ease;
             }

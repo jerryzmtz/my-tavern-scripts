@@ -48,6 +48,7 @@ export const EMOJI_MAP: [RegExp, string][] = [
   [/制服/, 'ti:shirt'],
   [/扫帚/, 'ti:brush'],
   [/发带|发绳/, 'fa:ribbon'],
+  [/椰子/, 'ti:palm'],
 
   // ============================================
   // 第二优先级：具体设施与家具
@@ -58,7 +59,8 @@ export const EMOJI_MAP: [RegExp, string][] = [
   [/书架/, 'fa:book'],
   [/雕像|石像/, 'ti:statue'],
   [/被褥/, 'fa:bed'],
-  [/暖炉/, 'ti:flame'],
+  [/暖炉|壁炉/, 'ti:flame'],
+  [/水池/, 'ti:pool'],
   [/木屋/, 'ti:home'],
   [/工坊/, 'fa:hammer'],
 
@@ -77,6 +79,7 @@ export const EMOJI_MAP: [RegExp, string][] = [
   // 第四优先级：交通设施
   // ============================================
   [/机场|停机坪/, 'fa:plane'],
+  [/吊篮|缆车/, 'fa:cable-car'],
   [/车站|站|地铁|火车站/, 'fa:train'],
   [/停车场|车库/, 'fa:square-parking'],
   [/路|公路|高速/, 'fa:road'],
@@ -126,6 +129,7 @@ export const EMOJI_MAP: [RegExp, string][] = [
   // ============================================
   // 第八优先级：自然地貌（具体）
   // ============================================
+  [/岛屿|岛/, 'fa:umbrella-beach'],
   [/雪山|冰原|冻土/, 'fa:snowflake'],
   [/火山|熔岩/, 'fa:volcano'],
   [/湖/, 'fa:water'],
@@ -211,7 +215,7 @@ export const EMOJI_MAP: [RegExp, string][] = [
   [/稀树草原/, 'ti:deer'],
   [/荆棘/, 'ti:cactus'],
   [/花海/, 'ti:flower'],
-  [/浮空岛|天空岛/, 'fa:cloud'],
+  [/浮空岛|天空岛|高空/, 'fa:cloud'],
   [/地心|地核/, 'fa:fire'],
   [/菌类|蘑菇林/, 'ti:mushroom'],
 
@@ -364,7 +368,7 @@ export const EMOJI_MAP: [RegExp, string][] = [
   // 商业
   [/商业街/, 'fa:bag-shopping'],
   [/商城|购物中心/, 'fa:building'],
-  [/旅馆|客栈|酒店/, 'fa:hotel'],
+  [/旅馆|客栈|酒店|招待所/, 'fa:hotel'],
   [/便利店|超市|商店/, 'fa:store'],
   [/餐厅|饭店|食堂/, 'fa:utensils'],
   [/咖啡|茶室/, 'fa:mug-hot'],
@@ -378,11 +382,11 @@ export const EMOJI_MAP: [RegExp, string][] = [
   [/办公|写字楼|公司/, 'fa:briefcase'],
 
   // 自然地貌
-  [/海滩|海边|海岸/, 'fa:umbrella-beach'],
+  [/海滩|海边|海岸|沙滩/, 'fa:umbrella-beach'],
   [/海洋|深海/, 'fa:water'],
   [/瀑布|河流|溪流/, 'fa:droplet'],
   [/洞穴|山洞/, 'fa:circle-dot'],
-  [/森林|树林|丛林/, 'fa:tree'],
+  [/森林|树林|丛林|树/, 'fa:tree'],
   [/草原|平原|草地/, 'ti:plant'],
   [/山脉|悬崖|山顶/, 'fa:mountain'],
   [/公园|花园/, 'fa:tree'],

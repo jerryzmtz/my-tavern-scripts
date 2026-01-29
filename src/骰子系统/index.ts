@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP, RELATION_ICON_MAP } from './emoji-maps';
 import { MAIN_STYLES } from './styles';
-import { injectDatabaseStyles } from './database-ui-override';
+import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-override';
 
 (function () {
   'use strict';
@@ -793,8 +793,8 @@ import { injectDatabaseStyles } from './database-ui-override';
     inSceneNpcWeight: 15,
     offSceneNpcWeight: 5,
   };
-  const PRESET_FORMAT_VERSION = '1.6.2'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v3.80'; // 脚本版本号
+  const PRESET_FORMAT_VERSION = '1.6.3'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
+  const SCRIPT_VERSION = 'v3.81'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -1398,9 +1398,9 @@ import { injectDatabaseStyles } from './database-ui-override';
       name: '统一用户称呼',
       description: '将常见的用户称呼统一替换为指定名称，可自行修改替换目标',
       operation: 'replace',
-      pattern: '主角|user|<user>',
+      pattern: '主角|user|<user>|{{user}}',
       flags: { global: false, caseInsensitive: false, multiline: false },
-      replacement: '{{user}}',
+      replacement: '！！请输入你的角色名！！',
       scope: { type: 'global' },
       enabled: false,
       priority: 50,
@@ -9736,6 +9736,7 @@ import { injectDatabaseStyles } from './database-ui-override';
     showOptionPanel: true, // [新增] 显示选项面板
     clickOptionToAutoSend: true, // [新增] 点击选项自动发送
     optionFontSize: 12, // [新增] 行动选项独立字体大小
+    muteDatabaseToasts: false,
   };
 
   const FONTS = [
@@ -16446,6 +16447,7 @@ import { injectDatabaseStyles } from './database-ui-override';
     Store.set(STORAGE_KEY_UI_CONFIG, _configCache);
     const fontVal = applyConfigStyles(_configCache);
     injectDatabaseStyles(_configCache.theme, fontVal);
+    setDatabaseToastMute(_configCache.muteDatabaseToasts === true);
   };
 
   const generateDiffMap = currentData => {
@@ -22583,6 +22585,15 @@ import { injectDatabaseStyles } from './database-ui-override';
                                     <i class="fa-solid fa-terminal"></i> 打开
                                 </button>
                             </div>
+                            <div class="acu-setting-row acu-setting-row-toggle">
+                                <div class="acu-setting-info">
+                                    <span class="acu-setting-label"><i class="fa-solid fa-bell-slash"></i> 屏蔽神-数据库弹窗</span>
+                                </div>
+                                <label class="acu-toggle">
+                                    <input type="checkbox" id="cfg-db-toast-mute" ${config.muteDatabaseToasts ? 'checked' : ''}>
+                                    <span class="acu-toggle-slider"></span>
+                                </label>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -22685,6 +22696,10 @@ import { injectDatabaseStyles } from './database-ui-override';
       });
     };
     initCrazyModeUI();
+
+    dialog.find('#cfg-db-toast-mute').on('change', function () {
+      saveConfig({ muteDatabaseToasts: $(this).is(':checked') });
+    });
 
     // 管理变量过滤黑名单按钮
     dialog.find('#cfg-blacklist-manage').on('click', function (e) {
@@ -23971,8 +23986,9 @@ import { injectDatabaseStyles } from './database-ui-override';
 
     // [修改] 判断选项是否变化，并控制可见性
     const optionChanged = currentOptionHash !== lastOptionHash;
-    if (optionChanged && currentOptionHash !== null) {
-      // 选项内容发生了实质变化（有新选项了），才显示面板
+    // [修复] 只要有选项数据，就应该显示面板（而不是仅在内容变化时）
+    // 这修复了用户发送消息后 optionPanelVisible 被设为 false 且选项内容未变时无法恢复的问题
+    if (currentOptionHash !== null) {
       optionPanelVisible = true;
     }
     lastOptionHash = currentOptionHash; // 更新缓存
@@ -24245,13 +24261,42 @@ import { injectDatabaseStyles } from './database-ui-override';
         // 选项有变化，重新插入到最新 AI 消息
         injectIndependentOptions(optionHtml);
       } else {
-        // 选项没变化，检查容器是否还存在
+        // 选项没变化，检查容器是否还存在且在正确位置
         const $existing = $('.acu-embedded-options-container');
         if ($existing.length === 0) {
           // 容器不存在了（可能被删掉了），重新插入
           injectIndependentOptions(optionHtml);
+        } else {
+          // [修复] 检查容器是否在最新的 AI 消息上，而不是旧消息
+          const $lastAiMes = $('#chat .mes')
+            .filter(function () {
+              const $this = $(this);
+              if ($this.attr('is_user') === 'true' || $this.attr('is_system') === 'true' || $this.hasClass('sys_mes'))
+                return false;
+              if ($this.find('.name_text').text().trim() === 'System' || $this.attr('data-is-system') === 'true')
+                return false;
+              if ($this.find('.mes_text').length === 0) return false;
+              if ($this.css('display') === 'none') return false;
+              return true;
+            })
+            .last();
+
+          const isOnLatestMessage =
+            $lastAiMes.length > 0 && $lastAiMes.find('.acu-embedded-options-container').length > 0;
+
+          if (!isOnLatestMessage) {
+            // 容器存在但不在最新消息上，需要重新插入
+            injectIndependentOptions(optionHtml);
+          } else {
+            // [修复] 如果容器存在但不可见（被fadeOut隐藏），强制重新插入
+            const containerVisible = $existing.is(':visible');
+            const containerDisplay = $existing.css('display');
+            const containerHtmlLength = $existing.html()?.length || 0;
+            if (!containerVisible || containerDisplay === 'none' || containerHtmlLength === 0) {
+              injectIndependentOptions(optionHtml);
+            }
+          }
         }
-        // 否则保持原位置不动
       }
     } else if (config.positionMode !== 'embedded') {
       // 没有选项数据时，清理旧的容器
@@ -24372,7 +24417,9 @@ import { injectDatabaseStyles } from './database-ui-override';
         `<div class="acu-embedded-options-container acu-theme-${optConfig.theme}" style="--acu-opt-font-size:${optConfig.optionFontSize || 12}px;"></div>`,
       );
       $container.html(htmlContent);
-      $target.append($container);
+      // [修复] 插入到 mes_text 的后面（作为兄弟元素），而不是内部
+      // 这样 SillyTavern 重写 mes_text 内容时不会销毁我们的容器
+      $target.after($container);
     }
   };
 
@@ -28922,7 +28969,6 @@ import { injectDatabaseStyles } from './database-ui-override';
           overlayEl.style.setProperty('display', 'flex', 'important');
           overlayEl.style.setProperty('justify-content', 'center', 'important');
           overlayEl.style.setProperty('align-items', 'center', 'important');
-          overlayEl.style.setProperty('z-index', '31100', 'important');
         }
 
         // 关闭事件
@@ -30092,6 +30138,7 @@ import { injectDatabaseStyles } from './database-ui-override';
     const initCfg = getConfig();
     const initFontVal = FONTS.find(f => f.id === initCfg.fontFamily)?.val || FONTS[0].val;
     injectDatabaseStyles(initCfg.theme, initFontVal);
+    setDatabaseToastMute(initCfg.muteDatabaseToasts === true);
     // 2. 保留原有的 SillyTavern 事件监听（使用具名函数防止重复注册）
     if (window.SillyTavern && window.SillyTavern.eventSource) {
       console.info('[DICE]注册 SillyTavern 事件监听器...');
