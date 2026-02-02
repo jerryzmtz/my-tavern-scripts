@@ -223,7 +223,7 @@ export const MAIN_STYLES = `
     .acu-dice-panel select,
     .acu-contest-panel input,
     .acu-contest-panel select,
-    .acu-avatar-manager-overlay input {
+    .acu-avatar-manager-overlay input.acu-input {
         font-family: inherit;
         font-size: inherit;
         line-height: 1.4;
@@ -244,7 +244,7 @@ export const MAIN_STYLES = `
     .acu-dice-panel select:focus,
     .acu-contest-panel input:focus,
     .acu-contest-panel select:focus,
-    .acu-avatar-manager-overlay input:focus {
+    .acu-avatar-manager-overlay input.acu-input:focus {
         border-color: var(--acu-accent);
         box-shadow: none;
         outline: none;
@@ -253,7 +253,7 @@ export const MAIN_STYLES = `
     .acu-wrapper textarea::placeholder,
     .acu-dice-panel input::placeholder,
     .acu-contest-panel input::placeholder,
-    .acu-avatar-manager-overlay input::placeholder {
+    .acu-avatar-manager-overlay input.acu-input::placeholder {
         color: var(--acu-text-sub);
         opacity: 0.7;
     }
@@ -569,8 +569,7 @@ export const MAIN_STYLES = `
         transition: all 0.2s;
     }
     .acu-random-skill-btn:hover {
-        background: var(--acu-accent);
-        color: var(--acu-button-text-on-accent, #fff);
+        background: var(--acu-btn-hover);
     }
 
     /* 弹窗头部基类 - 统一使用 .acu-panel-header */
@@ -1180,6 +1179,9 @@ export const MAIN_STYLES = `
             .acu-data-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px var(--acu-shadow); border-color: var(--acu-accent); }
             .acu-data-card.pending-deletion { opacity: 0.6; border: 1px dashed var(--acu-error-text, #e74c3c); }
             .acu-data-card.pending-deletion::after { content: "待删除"; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-15deg); color: var(--acu-error-text, #e74c3c); font-size: 24px; font-weight: bold; border: 2px solid var(--acu-error-text, #e74c3c); padding: 5px 10px; border-radius: 8px; opacity: 0.8; pointer-events: none; }
+            .acu-data-card.acu-card-locked { border: 2px solid var(--acu-accent); box-shadow: 0 0 8px rgba(var(--acu-accent-rgb, 59, 130, 246), 0.3); position: relative; }
+            .acu-data-card.acu-card-locked::before { content: ""; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(135deg, rgba(var(--acu-accent-rgb, 59, 130, 246), 0.05) 0%, transparent 50%); pointer-events: none; z-index: 0; border-radius: 8px; }
+            .acu-row-lock-badge { color: var(--acu-accent); font-size: 14px; opacity: 0.9; margin-left: 4px; flex-shrink: 0; }
             @keyframes pulse-highlight { 0% { opacity: 0.7; } 50% { opacity: 1; } 100% { opacity: 0.7; } }
             .acu-highlight-manual { color: var(--acu-hl-manual) !important; background-color: var(--acu-hl-manual-bg) !important; border-radius: 4px; padding: 0 4px; font-weight: bold; animation: pulse-highlight 2s infinite; display: inline-block; }
             .acu-highlight-diff { color: var(--acu-hl-diff) !important; background-color: var(--acu-hl-diff-bg) !important; border-radius: 4px; padding: 0 4px; font-weight: bold; animation: pulse-highlight 2s infinite; display: inline-block; }
@@ -2931,12 +2933,25 @@ export const MAIN_STYLES = `
             }
             .acu-avatar-item {
                 display: flex;
-                align-items: flex-start;
-                gap: 12px;
+                flex-direction: column;
                 padding: 10px;
                 border-bottom: 1px dashed var(--acu-border);
+                transition: background-color 0.2s ease;
             }
             .acu-avatar-item:last-child { border-bottom: none; }
+            .acu-avatar-item.expanded {
+                background-color: rgba(127, 127, 127, 0.05);
+            }
+
+            /* --- 折叠状态行 --- */
+            .acu-avatar-row-collapsed {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                width: 100%;
+            }
+
+            /* 头像预览部分 (复用原样式但稍作调整) */
             .acu-avatar-preview {
                 width: 48px;
                 height: 48px;
@@ -2951,6 +2966,10 @@ export const MAIN_STYLES = `
                 flex-shrink: 0;
                 position: relative;
                 cursor: pointer;
+                transition: border-color 0.2s;
+            }
+            .acu-avatar-preview:hover {
+                border-color: var(--acu-accent);
             }
             .acu-avatar-preview.has-image {
                 background-image: var(--acu-avatar-image);
@@ -2976,31 +2995,71 @@ export const MAIN_STYLES = `
                 opacity: 0.8;
                 color: var(--acu-accent);
             }
-            .acu-avatar-info {
+
+            /* 角色信息摘要 */
+            .acu-avatar-info-summary {
                 flex: 1;
                 min-width: 0;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
             }
             .acu-avatar-name {
-                font-size: 13px;
+                font-size: 14px;
                 font-weight: bold;
                 color: var(--acu-text-main);
-                margin-bottom: 4px;
-            }
-            .acu-avatar-name-row {
+                margin-bottom: 2px;
                 display: flex;
                 align-items: center;
-                justify-content: space-between;
-                gap: 8px;
-                margin-bottom: 6px;
+                gap: 6px;
             }
+            .acu-avatar-url-preview {
+                font-size: 12px;
+                color: var(--acu-text-sub);
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                max-width: 300px;
+                opacity: 0.8;
+            }
+            /* 操作按钮区 (折叠态) */
+            .acu-avatar-actions-collapsed {
+                display: flex;
+                gap: 6px;
+                flex-shrink: 0;
+            }
+
+            /* --- 展开状态行 --- */
+            .acu-avatar-row-expanded {
+                max-height: 0;
+                overflow: hidden;
+                opacity: 0;
+                transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+                margin-top: 0;
+                padding-top: 0;
+            }
+            .acu-avatar-item.expanded .acu-avatar-row-expanded {
+                max-height: 200px; /* 足够容纳输入框 */
+                opacity: 1;
+                margin-top: 10px;
+                padding-top: 4px;
+                border-top: 1px solid var(--acu-border);
+            }
+            
+            .acu-avatar-details {
+                padding-top: 8px;
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+            }
+
             .acu-protagonist-toggle {
                 background: transparent;
                 border: none;
                 color: var(--acu-text-sub);
                 opacity: 0.5;
                 cursor: pointer;
-                padding: 4px 6px;
-                margin-left: 4px;
+                padding: 4px;
                 border-radius: 4px;
                 transition: all 0.2s ease;
             }
@@ -3012,57 +3071,138 @@ export const MAIN_STYLES = `
                 opacity: 1;
                 color: var(--acu-accent);
             }
-            .acu-avatar-manager-overlay input.acu-avatar-url,
-            .acu-avatar-manager-overlay input.acu-avatar-aliases {
-                width: 100%;
-                padding: 6px 8px;
+            
+            /* 输入行布局 */
+            .acu-input-group {
+                display: flex;
+                gap: 8px;
+                align-items: flex-start;
+            }
+            .acu-input-group-label {
+                width: 32px;
                 font-size: 12px;
+                color: var(--acu-text-sub);
+                text-align: right;
+                flex-shrink: 0;
+                line-height: 36px;
+            }
+            
+            /* URL容器 - 与别名容器统一样式 */
+            .acu-url-container {
+                flex: 1;
+                display: flex;
+                align-items: center;
+                padding: 4px 8px;
                 border: 1px solid var(--acu-border);
                 border-radius: 4px;
-                background: var(--acu-btn-bg) !important;
-                color: var(--acu-text-main) !important;
+                background: var(--acu-input-bg);
+                min-height: 36px;
                 box-sizing: border-box;
-                -webkit-appearance: none;
-                appearance: none;
+                transition: border-color 0.2s ease;
             }
-            .acu-avatar-manager-overlay input.acu-avatar-url:focus,
-            .acu-avatar-manager-overlay input.acu-avatar-aliases:focus {
-                outline: none;
+            .acu-url-container:focus-within {
                 border-color: var(--acu-accent);
-                box-shadow: none !important;
             }
-            /* 头像输入行（URL + 上传按钮） */
-            .acu-avatar-input-row {
-                display: flex;
-                gap: 6px;
-                align-items: center;
-            }
-            .acu-avatar-input-row .acu-avatar-url {
+            
+            /* URL输入框 - 无边框融入容器 */
+            .acu-avatar-manager-overlay .acu-url-container > input.acu-avatar-url,
+            .acu-avatar-manager-overlay .acu-url-container > input.acu-avatar-url:focus {
+                border: 0 !important;
+                background: transparent !important;
+                padding: 0 !important;
+                font-size: 11px !important;
+                color: var(--acu-text-main) !important;
                 flex: 1;
                 min-width: 0;
+                outline: none !important;
+                box-shadow: none !important;
+                height: 26px !important;
+                line-height: 26px !important;
+                border-radius: 0 !important;
+                -webkit-appearance: none !important;
+                appearance: none !important;
             }
-            .acu-avatar-upload-btn {
-                width: 32px;
-                height: 32px;
+            .acu-url-container input::placeholder {
+                color: var(--acu-text-sub);
+                opacity: 0.6;
+            }
+
+            /* 上传按钮美化 */
+            .acu-avatar-upload-trigger {
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                background: var(--acu-btn-bg);
+                gap: 6px;
+                padding: 0 12px;
+                height: 28px;
+                margin: 0;
+                box-sizing: border-box;
+                font-size: 12px;
                 border: 1px solid var(--acu-border);
-                border-radius: 6px;
-                color: var(--acu-text-sub);
+                border-radius: 4px;
+                background: var(--acu-btn-bg);
+                color: var(--acu-text-main);
                 cursor: pointer;
-                flex-shrink: 0;
-                transition: all 0.15s;
+                transition: all 0.2s;
             }
-            .acu-avatar-upload-btn:hover {
+            .acu-avatar-upload-trigger:hover {
                 background: var(--acu-btn-hover);
-                color: var(--acu-accent);
                 border-color: var(--acu-accent);
+                color: var(--acu-accent);
             }
-            .acu-avatar-upload-btn:active {
-                transform: scale(0.95);
+
+            /* 底部操作栏 */
+            .acu-avatar-expanded-footer {
+                display: flex;
+                justify-content: flex-end;
+                align-items: center;
+                gap: 8px;
+                margin-top: 4px;
             }
+
+            .acu-btn-action {
+                width: 28px;
+                height: 28px;
+                border: 1px solid var(--acu-border);
+                border-radius: 4px;
+                background: var(--acu-btn-bg) !important;
+                color: var(--acu-text-sub) !important;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.2s;
+            }
+            .acu-btn-action:hover {
+                background: var(--acu-btn-hover) !important;
+                color: var(--acu-accent) !important;
+            }
+            
+            /* 保存按钮 - 完全匹配本地上传按钮样式 */
+            .acu-btn-save { 
+                display: flex !important;
+                align-items: center !important;
+                gap: 6px !important;
+                padding: 0 12px !important;
+                height: 28px !important;
+                font-size: 12px !important;
+                border: 1px solid var(--acu-border) !important;
+                border-radius: 4px !important;
+                background: var(--acu-btn-bg) !important;
+                color: var(--acu-text-main) !important;
+                cursor: pointer;
+                transition: all 0.2s;
+                white-space: nowrap;
+                width: auto !important;
+            }
+            .acu-btn-save:hover {
+                background: var(--acu-btn-hover) !important;
+                border-color: var(--acu-accent) !important;
+                color: var(--acu-accent) !important;
+            }
+            
+            .acu-btn-delete:hover { color: var(--acu-error-text, #e74c3c) !important; border-color: var(--acu-error-text, #e74c3c) !important; }
+
             /* 头像来源标签 */
             .acu-avatar-source {
                 position: absolute;
@@ -3085,40 +3225,122 @@ export const MAIN_STYLES = `
                 background: var(--acu-badge-bg);
                 color: var(--acu-text-sub);
             }
-            .acu-avatar-manager-overlay input.acu-avatar-aliases {
-                padding: 4px 8px;
-                font-size: 11px;
-                margin-top: 4px;
-            }
-            .acu-avatar-manager-overlay input::placeholder {
-                color: var(--acu-text-sub) !important;
-                opacity: 0.7;
-            }
-            .acu-avatar-actions {
+            
+            /* Tag Input Container - 与URL容器和搜索框统一样式 */
+            .acu-alias-tags-container {
+                flex: 1;
                 display: flex;
-                flex-direction: row;
-                gap: 4px;
-                flex-shrink: 0;
-            }
-            .acu-avatar-manager-overlay .acu-avatar-actions button {
-                width: 32px;
-                height: 32px;
+                flex-wrap: wrap;
+                gap: 6px;
+                padding: 4px 8px;
                 border: 1px solid var(--acu-border);
-                border-radius: 6px;
-                background: var(--acu-btn-bg) !important;
-                color: var(--acu-text-sub) !important;
+                border-radius: 4px;
+                background: var(--acu-input-bg);
+                min-height: 36px;
+                cursor: text;
+                box-sizing: border-box;
+                align-items: center;
+                transition: border-color 0.2s ease;
+            }
+            .acu-alias-tags-container:focus-within {
+                border-color: var(--acu-accent);
+            }
+
+            /* Tag Item - 透明边框风格，与URL输入统一 */
+            .acu-alias-tag {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                padding: 2px 8px;
+                background: transparent;
+                color: var(--acu-text-main);
+                border-radius: 4px;
+                font-size: 11px;
+                line-height: 1.4;
+                border: 1px solid var(--acu-border);
+                user-select: none;
+                transition: all 0.2s ease;
+                max-width: 100%;
+                animation: acu-slide-in 0.2s cubic-bezier(0.2, 0, 0.2, 1) forwards;
+            }
+            .acu-alias-tag:hover {
+                border-color: var(--acu-accent);
+                color: var(--acu-accent);
+            }
+
+            /* Tag Delete Icon - 简洁风格 */
+            .acu-alias-tag i {
                 cursor: pointer;
+                opacity: 0.4;
+                font-size: 10px;
+                width: 14px;
+                height: 14px;
                 display: flex;
                 align-items: center;
                 justify-content: center;
+                border-radius: 50%;
                 transition: all 0.2s;
+                margin-right: -2px;
             }
-            .acu-avatar-manager-overlay .acu-avatar-actions button:hover {
-                background: var(--acu-btn-hover) !important;
-                color: var(--acu-accent) !important;
+            .acu-alias-tag i:hover {
+                opacity: 1;
+                color: var(--acu-error-text, #e74c3c);
             }
-            .acu-avatar-save-btn:hover { color: var(--acu-success-text, #27ae60) !important; }
-            .acu-avatar-clear-btn:hover { color: var(--acu-error-text, #e74c3c) !important; }
+
+            /* 别名输入框 - 无边框无背景，融入容器 */
+            .acu-avatar-manager-overlay .acu-alias-tags-container > input.acu-alias-input,
+            .acu-avatar-manager-overlay .acu-alias-tags-container > input.acu-alias-input:focus {
+                border: 0 !important;
+                background: transparent !important;
+                padding: 0 !important;
+                margin: 2px 0;
+                font-size: 12px !important;
+                color: var(--acu-text-main) !important;
+                flex: 1;
+                min-width: 80px;
+                outline: none !important;
+                box-shadow: none !important;
+                height: 24px;
+                line-height: 24px;
+                border-radius: 0 !important;
+                -webkit-appearance: none !important;
+                appearance: none !important;
+            }
+            .acu-alias-input::placeholder {
+                color: var(--acu-text-sub);
+                opacity: 0.6;
+            }
+
+            /* Animation - 进场动画 */
+            @keyframes acu-slide-in {
+                from { opacity: 0; transform: scale(0.95) translateY(2px); }
+                to { opacity: 1; transform: scale(1) translateY(0); }
+            }
+
+            /* Mobile Optimization - 触控友好适配 */
+            @media (hover: none) and (pointer: coarse) {
+                .acu-alias-tags-container {
+                    padding: 6px 8px;
+                    gap: 6px;
+                    min-height: 40px;
+                }
+                .acu-alias-tag {
+                    padding: 4px 10px;
+                    font-size: 12px;
+                    border-radius: 4px;
+                }
+                .acu-alias-tag i {
+                    width: 18px;
+                    height: 18px;
+                    font-size: 11px;
+                    margin-right: -4px;
+                }
+                .acu-alias-input {
+                    height: 28px;
+                    font-size: 12px;
+                }
+            }
+
             .acu-avatar-import-btn,
             .acu-avatar-export-btn {
                 width: 28px;
@@ -3198,6 +3420,809 @@ export const MAIN_STYLES = `
                 }
             }
 
+            /* ========== 头像管理器视图切换与排序 ========== */
+/* ========== 头像管理器工具栏 v3 ========== */
+
+            /* 标题栏操作按钮区域 */
+            .acu-avatar-header-actions {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+            }
+
+            /* 标题栏中的按钮统一样式 */
+            .acu-avatar-header-actions .acu-btn-icon {
+                width: 32px;
+                height: 32px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                background-color: var(--acu-btn-bg);
+                border: 1px solid var(--acu-border);
+                border-radius: 4px;
+                color: var(--acu-text-sub);
+                transition: all 0.2s ease;
+                flex-shrink: 0;
+            }
+
+            .acu-avatar-header-actions .acu-btn-icon:hover {
+                background-color: var(--acu-btn-hover);
+                color: var(--acu-text-main);
+            }
+
+            /* 关闭按钮与其他按钮对齐 */
+            .acu-avatar-header-actions .acu-avatar-close {
+                width: 32px;
+                height: 32px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                background-color: var(--acu-btn-bg);
+                border: 1px solid var(--acu-border);
+                border-radius: 4px;
+                color: var(--acu-text-sub);
+                transition: all 0.2s ease;
+                flex-shrink: 0;
+            }
+
+            .acu-avatar-header-actions .acu-avatar-close:hover {
+                background-color: var(--acu-btn-hover);
+                color: var(--acu-text-main);
+            }
+
+            /* 工具栏中的搜索框 */
+            .acu-toolbar-group .acu-search-wrapper {
+                position: relative;
+                display: flex;
+                align-items: center;
+                width: 100px;
+                transition: width 0.2s ease;
+                flex-shrink: 0;
+            }
+
+            .acu-toolbar-group .acu-search-wrapper:focus-within {
+                width: 140px;
+            }
+
+            .acu-toolbar-group .acu-search-icon {
+                position: absolute;
+                left: 8px;
+                color: var(--acu-text-sub);
+                pointer-events: none;
+                font-size: 11px;
+                z-index: 1;
+            }
+
+            .acu-toolbar-group .acu-avatar-search {
+                width: 100%;
+                height: 32px !important;
+                min-height: 32px !important;
+                max-height: 32px !important;
+                padding: 0 24px 0 26px !important;
+                margin: 0 !important;
+                background: var(--acu-input-bg) !important;
+                border: 1px solid var(--acu-border) !important;
+                border-radius: 4px !important;
+                color: var(--acu-text-main) !important;
+                font-size: 11px !important;
+                box-shadow: none !important;
+                outline: none !important;
+                box-sizing: border-box !important;
+                line-height: 30px !important;
+            }
+
+            .acu-toolbar-group .acu-avatar-search:focus {
+                outline: none !important;
+                border-color: var(--acu-accent) !important;
+                box-shadow: none !important;
+            }
+
+            .acu-toolbar-group .acu-avatar-search::placeholder {
+                color: var(--acu-text-sub) !important;
+                opacity: 0.7;
+            }
+
+            .acu-toolbar-group .acu-search-clear {
+                position: absolute;
+                right: 6px;
+                cursor: pointer;
+                color: var(--acu-text-sub);
+                font-size: 10px;
+            }
+
+            .acu-toolbar-group .acu-search-clear:hover {
+                color: var(--acu-text-main);
+            }
+
+            /* 旧样式保留以防兼容问题 */
+            .acu-avatar-header-actions .acu-search-wrapper {
+                position: relative;
+                display: flex;
+                align-items: center;
+                width: 100px;
+                transition: width 0.2s ease;
+            }
+
+            .acu-avatar-header-actions .acu-search-wrapper:focus-within {
+                width: 140px;
+            }
+
+            .acu-avatar-header-actions .acu-search-icon {
+                position: absolute;
+                left: 8px;
+                color: var(--acu-text-sub);
+                pointer-events: none;
+                font-size: 11px;
+            }
+
+            .acu-avatar-header-actions .acu-avatar-search {
+                width: 100%;
+                height: 28px;
+                padding: 0 24px 0 26px !important;
+                background: var(--acu-input-bg) !important;
+                border: 1px solid var(--acu-border) !important;
+                border-radius: 4px !important;
+                color: var(--acu-text-main) !important;
+                font-size: 11px !important;
+                box-shadow: none !important;
+                outline: none !important;
+            }
+
+            .acu-avatar-header-actions .acu-avatar-search:focus {
+                outline: none !important;
+                border-color: var(--acu-accent) !important;
+                box-shadow: none !important;
+            }
+
+            .acu-avatar-header-actions .acu-avatar-search::placeholder {
+                color: var(--acu-text-sub) !important;
+                opacity: 0.7;
+            }
+
+            .acu-avatar-header-actions .acu-search-clear {
+                position: absolute;
+                right: 6px;
+                cursor: pointer;
+                color: var(--acu-text-sub);
+                font-size: 10px;
+            }
+
+            .acu-avatar-header-actions .acu-search-clear:hover {
+                color: var(--acu-text-main);
+            }
+
+            /* 工具栏 */
+            .acu-avatar-toolbar {
+                display: flex;
+                flex-wrap: nowrap;
+                gap: 8px;
+                padding: 8px 12px;
+                background-color: var(--acu-bg-panel);
+                border-bottom: 1px solid var(--acu-border);
+                align-items: center;
+                justify-content: space-between;
+            }
+
+            .acu-toolbar-group {
+                display: flex;
+                gap: 6px;
+                align-items: center;
+            }
+
+            .acu-toolbar-group.left {
+                flex-shrink: 0;
+            }
+
+            .acu-toolbar-group.right {
+                flex-shrink: 0;
+            }
+
+            /* 图标按钮 */
+            .acu-avatar-manager-overlay .acu-btn-icon {
+                width: 32px;
+                height: 32px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                background-color: var(--acu-btn-bg);
+                border: 1px solid var(--acu-border);
+                border-radius: 4px;
+                color: var(--acu-text-sub);
+                transition: all 0.2s ease;
+                flex-shrink: 0;
+            }
+
+            .acu-avatar-manager-overlay .acu-btn-icon:hover {
+                background-color: var(--acu-btn-hover);
+                color: var(--acu-text-main);
+            }
+
+            .acu-avatar-manager-overlay .acu-btn-icon.active {
+                background-color: var(--acu-accent);
+                color: var(--acu-btn-active-text);
+                border-color: var(--acu-accent);
+            }
+
+            /* 下拉框 */
+            .acu-select-wrapper {
+                position: relative;
+                display: flex;
+                align-items: center;
+            }
+
+            .acu-avatar-manager-overlay .acu-toolbar-select {
+                height: 32px !important;
+                min-height: 32px !important;
+                max-height: 32px !important;
+                padding: 0 24px 0 8px !important;
+                margin: 0 !important;
+                background: var(--acu-btn-bg) !important;
+                border: 1px solid var(--acu-border) !important;
+                border-radius: 4px !important;
+                color: var(--acu-text-main) !important;
+                font-size: 11px !important;
+                cursor: pointer;
+                appearance: none !important;
+                -webkit-appearance: none !important;
+                -moz-appearance: none !important;
+                background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'%3E%3Cpath fill='%23888' d='M0 2l4 4 4-4z'/%3E%3C/svg%3E") !important;
+                background-repeat: no-repeat !important;
+                background-position: right 8px center !important;
+                box-shadow: none !important;
+                outline: none !important;
+                box-sizing: border-box !important;
+                line-height: 30px !important;
+            }
+
+            .acu-avatar-manager-overlay .acu-toolbar-select option {
+                background: var(--acu-bg-panel) !important;
+                color: var(--acu-text-main) !important;
+            }
+
+            .acu-avatar-manager-overlay .acu-toolbar-select:focus {
+                outline: none !important;
+                border-color: var(--acu-accent) !important;
+                box-shadow: none !important;
+            }
+
+            .acu-select-wrapper.sort-field .acu-toolbar-select {
+                min-width: 60px;
+            }
+
+            /* 移动端响应式 - 搜索框更紧凑 */
+            @media (max-width: 500px) {
+                .acu-avatar-header-actions .acu-search-wrapper {
+                    width: 80px;
+                }
+                .acu-avatar-header-actions .acu-search-wrapper:focus-within {
+                    width: 100px;
+                }
+            }
+
+            /* ========== 删除确认弹窗样式 ========== */
+            .acu-delete-confirm-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                width: 100vw;
+                height: 100vh;
+                background: rgba(0, 0, 0, 0.7);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 31500;
+                backdrop-filter: blur(4px);
+                padding: 16px;
+                box-sizing: border-box;
+            }
+
+            .acu-delete-confirm-modal {
+                width: 90%;
+                max-width: 420px;
+                max-height: calc(100vh - 32px);
+                max-height: calc(100dvh - 32px);
+                background: var(--acu-bg-panel);
+                border: 1px solid var(--acu-border);
+                border-radius: 12px;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+                overflow: hidden;
+                animation: acu-modal-pop 0.2s ease-out;
+                display: flex;
+                flex-direction: column;
+            }
+
+            @keyframes acu-modal-pop {
+                from {
+                    opacity: 0;
+                    transform: scale(0.9);
+                }
+                to {
+                    opacity: 1;
+                    transform: scale(1);
+                }
+            }
+
+            .acu-delete-header {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 14px 18px;
+                background: var(--acu-table-head);
+                border-bottom: 1px solid var(--acu-border);
+                color: var(--acu-accent);
+                font-size: 14px;
+                font-weight: bold;
+                flex-shrink: 0;
+            }
+
+            .acu-delete-header i {
+                font-size: 16px;
+            }
+
+            .acu-delete-content {
+                padding: 20px;
+                flex: 1;
+                min-height: 0;
+                overflow-y: auto;
+            }
+
+            .acu-delete-character-info {
+                display: flex;
+                align-items: center;
+                gap: 14px;
+                padding: 12px;
+                background: var(--acu-table-head);
+                border-radius: 8px;
+                margin-bottom: 16px;
+            }
+
+            .acu-delete-avatar {
+                width: 50px;
+                height: 50px;
+                border-radius: 50%;
+                background: var(--acu-btn-bg);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 20px;
+                font-weight: bold;
+                color: var(--acu-text-sub);
+                overflow: hidden;
+                flex-shrink: 0;
+            }
+
+            .acu-delete-avatar.has-image img {
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+            }
+
+            .acu-delete-name {
+                font-size: 16px;
+                font-weight: bold;
+                color: var(--acu-text-main);
+            }
+
+            .acu-delete-section-title {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                font-size: 12px;
+                font-weight: bold;
+                color: var(--acu-text-sub);
+                margin-bottom: 8px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }
+
+            .acu-delete-section-title i {
+                font-size: 11px;
+            }
+
+            .acu-delete-table-preview {
+                margin-bottom: 16px;
+            }
+
+            .acu-delete-table-row {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+                padding: 10px;
+                background: var(--acu-btn-bg);
+                border-radius: 6px;
+                border: 1px solid var(--acu-border);
+            }
+
+            .acu-delete-cell {
+                font-size: 12px;
+                color: var(--acu-text-sub);
+            }
+
+            .acu-delete-cell strong {
+                color: var(--acu-text-main);
+            }
+
+            .acu-delete-relationships {
+                margin-bottom: 16px;
+            }
+
+            .acu-delete-ref-list {
+                list-style: none;
+                padding: 0;
+                margin: 0;
+                background: var(--acu-btn-bg);
+                border-radius: 6px;
+                border: 1px solid var(--acu-border);
+                padding: 8px 12px;
+            }
+
+            .acu-delete-ref-list li {
+                font-size: 12px;
+                color: var(--acu-text-sub);
+                padding: 4px 0;
+                border-bottom: 1px solid var(--acu-border);
+            }
+
+            .acu-delete-ref-list li:last-child {
+                border-bottom: none;
+            }
+
+            .acu-delete-ref-list li strong {
+                color: var(--acu-text-main);
+            }
+
+            .acu-delete-warning {
+                display: flex;
+                align-items: flex-start;
+                gap: 10px;
+                padding: 12px;
+                background: var(--acu-warning-bg, rgba(243, 156, 18, 0.15));
+                border: 1px solid var(--acu-warning-text, #f39c12);
+                border-radius: 8px;
+                font-size: 12px;
+                color: var(--acu-warning-text, #f39c12);
+            }
+
+            .acu-delete-warning i {
+                font-size: 14px;
+                flex-shrink: 0;
+                margin-top: 1px;
+            }
+
+            .acu-delete-actions {
+                display: flex;
+                justify-content: flex-end;
+                gap: 10px;
+                padding: 14px 18px;
+                background: var(--acu-table-head);
+                border-top: 1px solid var(--acu-border);
+                flex-shrink: 0;
+            }
+
+            .acu-delete-cancel-btn,
+            .acu-delete-confirm-btn {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                padding: 8px 16px;
+                border-radius: 6px;
+                font-size: 13px;
+                font-weight: 500;
+                cursor: pointer;
+                transition: all 0.15s ease;
+            }
+
+            .acu-delete-cancel-btn {
+                background: var(--acu-btn-bg);
+                border: 1px solid var(--acu-border);
+                color: var(--acu-text-sub);
+            }
+
+            .acu-delete-cancel-btn:hover {
+                background: var(--acu-btn-hover);
+                color: var(--acu-text-main);
+            }
+
+            .acu-delete-confirm-btn {
+                background: var(--acu-accent);
+                border: none;
+                color: var(--acu-button-text-on-accent, #fff);
+            }
+
+            .acu-delete-confirm-btn:hover {
+                filter: brightness(1.1);
+                transform: translateY(-1px);
+                color: var(--acu-button-text-on-accent, #fff);
+            }
+
+            /* ========== [Redesign] 删除确认弹窗新样式 ========== */
+            .acu-delete-confirm-modal.redesign {
+                width: 400px;
+                max-width: 95vw;
+                border-radius: 12px;
+                overflow: hidden;
+                border: 1px solid var(--acu-border);
+                background: var(--acu-bg-panel);
+                box-shadow: 0 24px 48px rgba(0,0,0,0.6);
+
+                /* 语义化变量映射：使用主题变量 */
+                --c-destruct: var(--acu-error-text, #e74c3c);
+                --c-destruct-bg: var(--acu-error-bg, rgba(231, 76, 60, 0.15));
+                --c-warning: var(--acu-hl-manual, #e67e22);
+                --c-warning-bg: var(--acu-hl-manual-bg, rgba(230, 126, 34, 0.15));
+                --c-caution: var(--acu-warning-text, #f1c40f);
+                --c-caution-bg: var(--acu-warning-bg, rgba(241, 196, 15, 0.15));
+            }
+
+            /* 头部 - destruct 样式 */
+            .acu-delete-header.destruct {
+                background: var(--c-destruct-bg);
+                color: var(--c-destruct);
+                border-bottom: 1px solid var(--c-destruct-bg);
+                font-size: 15px;
+                padding: 16px 20px;
+                position: relative;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+
+            /* 关闭按钮 (×) */
+            .acu-delete-close-btn {
+                position: absolute;
+                right: 12px;
+                top: 50%;
+                transform: translateY(-50%);
+                width: 28px;
+                height: 28px;
+                border: none;
+                background: transparent;
+                color: var(--c-destruct);
+                font-size: 16px;
+                cursor: pointer;
+                border-radius: 4px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.15s;
+                opacity: 0.7;
+            }
+
+            .acu-delete-close-btn:hover {
+                opacity: 1;
+                background: var(--c-destruct-bg);
+            }
+
+            /* 分区卡片通用 */
+            .acu-del-section {
+                border-radius: 8px;
+                border: 1px solid var(--acu-border);
+                overflow: hidden;
+            }
+
+            .acu-del-section-head {
+                padding: 8px 12px;
+                font-size: 12px;
+                font-weight: bold;
+                background: var(--acu-table-head);
+                border-bottom: 1px solid var(--acu-border);
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                color: var(--acu-text-sub);
+            }
+
+            /* 状态色修饰 */
+            .acu-del-section.destruct { border-color: var(--c-destruct-bg); }
+            .acu-del-section.destruct .acu-del-section-head {
+                color: var(--c-destruct);
+                background: var(--c-destruct-bg);
+                border-bottom-color: var(--c-destruct-bg);
+            }
+
+            .acu-del-section.warning { border-color: var(--c-warning-bg); }
+            .acu-del-section.warning .acu-del-section-head {
+                color: var(--c-warning);
+                background: var(--c-warning-bg);
+                border-bottom-color: var(--c-warning-bg);
+            }
+
+            .acu-del-section.caution { border-color: var(--c-caution-bg); }
+            .acu-del-section.caution .acu-del-section-head {
+                color: var(--c-caution);
+                background: var(--c-caution-bg);
+                border-bottom-color: var(--c-caution-bg);
+            }
+
+            /* 核心身份卡片 */
+            .acu-del-card {
+                padding: 12px;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                background: var(--acu-btn-bg);
+            }
+
+            .acu-del-avatar-box {
+                width: 56px;
+                height: 56px;
+                border-radius: 50%;
+                border: 2px solid var(--c-destruct);
+                overflow: hidden;
+                flex-shrink: 0;
+                background: var(--acu-bg-panel);
+            }
+
+            .acu-del-avatar-box .acu-avatar-preview {
+                width: 100%;
+                height: 100%;
+                border: none;
+                border-radius: 0;
+            }
+
+            .acu-del-name {
+                font-size: 16px;
+                font-weight: bold;
+                color: var(--acu-text-main);
+            }
+
+            .acu-del-meta {
+                font-size: 12px;
+                color: var(--acu-text-sub);
+                margin-top: 2px;
+            }
+
+            .acu-del-info {
+                flex: 1;
+                min-width: 0;
+            }
+
+            /* 列表样式 */
+            .acu-del-list {
+                list-style: none;
+                padding: 0;
+                margin: 0;
+                background: var(--acu-btn-bg);
+            }
+
+            .acu-del-list li {
+                padding: 8px 12px;
+                font-size: 13px;
+                color: var(--acu-text-main);
+                border-bottom: 1px solid var(--acu-border);
+                display: flex;
+                align-items: flex-start;
+                gap: 10px;
+            }
+
+            .acu-del-list li:last-child { border-bottom: none; }
+
+            .acu-del-list li i {
+                margin-top: 3px;
+                font-size: 12px;
+                color: var(--acu-text-sub);
+                width: 16px;
+                text-align: center;
+            }
+
+            .acu-del-list li strong { color: var(--acu-accent); }
+
+            /* 别名子分组 */
+            .acu-del-list li.sub-group {
+                flex-direction: column;
+                gap: 6px;
+            }
+
+            .acu-del-list .group-title {
+                font-size: 12px;
+                color: var(--acu-text-sub);
+                display: flex;
+                align-items: center;
+                gap: 6px;
+            }
+
+            .acu-del-list .group-content {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 4px;
+            }
+
+            .acu-del-list .tag {
+                font-size: 11px;
+                padding: 2px 6px;
+                background: var(--acu-bg-panel);
+                border: 1px solid var(--acu-border);
+                border-radius: 4px;
+                color: var(--acu-text-sub);
+            }
+
+            .acu-del-list .group-warning {
+                font-size: 12px;
+                color: var(--c-warning);
+                margin-top: 4px;
+                display: flex;
+                gap: 6px;
+                align-items: center;
+            }
+
+            .acu-del-list .group-warning .detail {
+                opacity: 0.8;
+                font-size: 11px;
+            }
+
+            /* 引用摘要 */
+            .acu-del-summary {
+                padding: 8px 12px;
+                font-size: 12px;
+                color: var(--acu-text-main);
+                background: var(--acu-btn-bg);
+                border-bottom: 1px solid var(--acu-border);
+            }
+
+            .acu-del-list.compact li {
+                padding: 6px 12px;
+                font-size: 12px;
+            }
+
+            .acu-del-list.compact li.more {
+                color: var(--acu-text-sub);
+                font-style: italic;
+                padding-left: 38px;
+            }
+
+            /* 关系标签 */
+            .acu-del-list .relation-tag {
+                display: inline-block;
+                font-size: 10px;
+                padding: 1px 6px;
+                background: var(--c-warning-bg);
+                color: var(--c-warning);
+                border-radius: 3px;
+                margin-left: 4px;
+                font-weight: normal;
+            }
+
+            /* 最终警告 */
+            .acu-del-final-warn {
+                font-size: 13px;
+                color: var(--acu-text-sub);
+                text-align: center;
+                margin-top: 4px;
+            }
+
+            .acu-del-final-warn strong {
+                color: var(--c-destruct);
+            }
+
+            /* 按钮 - destruct 样式 */
+            .acu-delete-confirm-btn.destruct {
+                background: var(--c-destruct);
+                color: var(--acu-btn-active-text, #fff);
+                border: 1px solid transparent;
+            }
+
+            .acu-delete-confirm-btn.destruct:hover {
+                filter: brightness(0.9);
+            }
+
+            .acu-delete-confirm-btn.destruct:disabled {
+                opacity: 0.7;
+                cursor: not-allowed;
+                filter: grayscale(0.5);
+            }
+
+            /* 退出动画 */
+            .acu-delete-confirm-overlay.closing .acu-delete-confirm-modal {
+                transform: scale(0.9);
+                opacity: 0;
+                transition: all 0.2s ease-in;
+            }
+
             /* ========== 导入确认弹窗样式 ========== */
             .acu-import-confirm-overlay {
                 z-index: 31400;
@@ -3214,6 +4239,7 @@ export const MAIN_STYLES = `
             .acu-import-confirm-header {
                 display: flex;
                 align-items: center;
+                justify-content: space-between;
                 gap: 10px;
                 padding: 14px 18px;
                 background: var(--acu-table-head);
@@ -3247,7 +4273,7 @@ export const MAIN_STYLES = `
                 color: var(--acu-text-sub);
             }
             .acu-stat-new .acu-stat-num { color: var(--acu-success-text); }
-            .acu-stat-conflict .acu-stat-num { color: #e67e22; }
+            .acu-stat-conflict .acu-stat-num { color: var(--acu-hl-manual); }
             .acu-import-conflict-section {
                 margin-top: 12px;
                 padding-top: 12px;
@@ -3605,6 +4631,8 @@ export const MAIN_STYLES = `
                 left: 0;
                 right: 0;
                 bottom: 0;
+                width: 100vw;
+                height: 100vh;
                 background: rgba(0, 0, 0, 0.6);
                 z-index: 31400;
                 display: flex;
@@ -3619,10 +4647,14 @@ export const MAIN_STYLES = `
                 border-radius: 12px;
                 width: 100%;
                 max-width: 360px;
+                max-height: calc(100vh - 32px);
+                max-height: calc(100dvh - 32px);
                 box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
                 overflow: hidden;
                 position: relative;
                 z-index: 1;
+                display: flex;
+                flex-direction: column;
             }
             .acu-manual-update-header {
                 padding: 14px 16px;
@@ -3634,12 +4666,18 @@ export const MAIN_STYLES = `
                 display: flex;
                 align-items: center;
                 gap: 8px;
+                flex-shrink: 0;
             }
             .acu-manual-update-body {
                 padding: 16px;
                 color: var(--acu-text-main) !important;
                 font-size: 13px;
                 line-height: 1.6;
+                flex: 1;
+                min-height: 0;
+                overflow-y: auto;
+                overscroll-behavior: contain;
+                -webkit-overflow-scrolling: touch;
             }
             .acu-manual-update-body p {
                 margin: 0 0 12px 0;
@@ -3675,6 +4713,7 @@ export const MAIN_STYLES = `
                 gap: 8px;
                 border-top: 1px solid var(--acu-border);
                 background: var(--acu-table-head);
+                flex-shrink: 0;
             }
             .acu-manual-update-cancel-btn,
             .acu-manual-update-confirm-btn {
@@ -6038,5 +7077,183 @@ export const MAIN_STYLES = `
         gap: 4px;
         color: var(--acu-text-sub);
         font-size: 11px;
+    }
+
+    /* 锁定图标 - CSS-only */
+    [data-locked="true"]::after {
+        content: "\\f023";
+        font-family: "Font Awesome 6 Free";
+        font-weight: 900;
+        font-size: 10px;
+        color: var(--acu-accent);
+        opacity: 0.7;
+        margin-left: 4px;
+        pointer-events: none;
+        display: inline;
+    }
+
+    /* 标题锁图标略大 */
+    .acu-editable-title[data-locked="true"]::after {
+        font-size: 11px;
+        opacity: 0.8;
+    }
+
+    /* ========== 导入确认弹窗样式 ========== */
+    .acu-import-confirm-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(0, 0, 0, 0.6);
+        z-index: 31300;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 16px;
+        box-sizing: border-box;
+    }
+
+    .acu-import-confirm-dialog {
+        width: 90%;
+        max-width: 420px;
+        max-height: calc(100vh - 32px);
+        background: var(--acu-bg-panel);
+        border: 1px solid var(--acu-border);
+        border-radius: 12px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        overflow: hidden;
+        animation: acu-modal-pop 0.2s ease-out;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .acu-import-confirm-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .acu-import-close-btn {
+        width: 28px;
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--acu-btn-bg);
+        border: 1px solid var(--acu-border);
+        border-radius: 6px;
+        color: var(--acu-text-sub);
+        cursor: pointer;
+        transition: all 0.2s ease;
+        flex-shrink: 0;
+    }
+
+    .acu-import-close-btn:hover {
+        background: var(--acu-btn-hover);
+        color: var(--acu-text-main);
+    }
+
+    .acu-import-warning {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 12px;
+        background: var(--acu-hl-manual-bg, rgba(230, 126, 34, 0.15));
+        border-radius: 6px;
+        color: var(--acu-hl-manual, #e67e22);
+        font-size: 13px;
+        margin-bottom: 12px;
+    }
+
+    .acu-import-conflict-list {
+        max-height: 120px;
+        overflow-y: auto;
+        padding: 10px 12px;
+        background: var(--acu-table-hover);
+        border-radius: 6px;
+        font-size: 12px;
+        color: var(--acu-text-main);
+        line-height: 1.6;
+        margin-bottom: 12px;
+    }
+
+    .acu-import-conflict-options {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .acu-import-radio {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 14px;
+        background: var(--acu-btn-bg);
+        border: 1px solid var(--acu-border);
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .acu-import-radio:hover {
+        background: var(--acu-btn-hover);
+        border-color: var(--acu-accent);
+    }
+
+    .acu-import-radio input[type="radio"] {
+        accent-color: var(--acu-accent);
+    }
+
+    .acu-import-success {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 14px;
+        background: var(--acu-success-bg, rgba(39, 174, 96, 0.15));
+        border-radius: 6px;
+        color: var(--acu-success-text, #27ae60);
+        font-size: 13px;
+    }
+
+    .acu-import-confirm-footer {
+        display: flex;
+        gap: 10px;
+        padding: 14px 18px;
+        border-top: 1px solid var(--acu-border);
+        background: var(--acu-table-head);
+    }
+
+    .acu-import-cancel-btn,
+    .acu-import-confirm-btn {
+        flex: 1;
+        padding: 10px 16px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .acu-import-cancel-btn {
+        background: var(--acu-btn-bg);
+        border: 1px solid var(--acu-border);
+        color: var(--acu-text-main);
+    }
+
+    .acu-import-cancel-btn:hover {
+        background: var(--acu-btn-hover);
+    }
+
+    .acu-import-confirm-btn {
+        background: var(--acu-accent);
+        border: 1px solid var(--acu-accent);
+        color: var(--acu-btn-active-text);
+    }
+
+    .acu-import-confirm-btn:hover {
+        filter: brightness(1.1);
     }
 `;

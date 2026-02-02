@@ -19,7 +19,7 @@ export const EMOJI_MAP: [RegExp, string][] = [
   // 第一优先级：特定名词（最具体）
   // ============================================
   [/荞麦面|拉面/, 'ti:soup'],
-  [/RiNG|LiveHouse/, 'fa:guitar'],
+  [/ring|livehouse/, 'fa:guitar'],
   [/黄瓜/, 'ti:plant'],
   [/芒果/, 'ti:lemon'],
   [/剧本/, 'fa:scroll'],
@@ -33,14 +33,14 @@ export const EMOJI_MAP: [RegExp, string][] = [
   [/唱片/, 'fa:compact-disc'],
   [/眼镜/, 'fa:glasses'],
   [/长袍/, 'ti:shirt'],
-  [/薯条/, 'ti:fries'],
+  [/薯条/, 'fa:utensils'],
   [/铅笔/, 'fa:pencil'],
   [/种子/, 'ti:plant'],
   [/冰淇淋/, 'ti:ice-cream'],
-  [/草莓/, 'ti:strawberry'],
+  [/草莓/, 'fa:apple-whole'],
   [/布丁/, 'ti:cookie'],
   [/插画|绘本/, 'fa:palette'],
-  [/T恤/, 'ti:shirt'],
+  [/t恤/, 'ti:shirt'],
   [/录音/, 'fa:microphone'],
   [/风铃/, 'ti:wind'],
   [/苹果/, 'ti:apple'],
@@ -53,11 +53,13 @@ export const EMOJI_MAP: [RegExp, string][] = [
   // ============================================
   // 第二优先级：具体设施与家具
   // ============================================
+  [/休息室|休息区|休息/, 'fa:couch'],
   [/扶梯/, 'ti:escalator'],
   [/长椅|长凳|公园椅/, 'ti:armchair'],
+  [/凳/, 'fa:chair'],
   [/花坛|花圃/, 'ti:flower'],
   [/书架/, 'fa:book'],
-  [/雕像|石像/, 'ti:statue'],
+  [/雕像|石像/, 'fa:monument'],
   [/被褥/, 'fa:bed'],
   [/暖炉|壁炉/, 'ti:flame'],
   [/水池/, 'ti:pool'],
@@ -68,7 +70,7 @@ export const EMOJI_MAP: [RegExp, string][] = [
   // 第三优先级：机关与交互元素
   // ============================================
   [/存档点|记录点/, 'fa:floppy-disk'],
-  [/传送门|传送阵/, 'ti:portal'],
+  [/传送门|传送阵/, 'fa:door-open'],
   [/陷阱|地雷|尖刺/, 'ti:alert-triangle'],
   [/开关|拉杆|按钮/, 'fa:gamepad'],
   [/篝火|营火|火把/, 'fa:fire'],
@@ -84,6 +86,7 @@ export const EMOJI_MAP: [RegExp, string][] = [
   [/停车场|车库/, 'fa:square-parking'],
   [/路|公路|高速/, 'fa:road'],
   [/校车|巴士|公交/, 'fa:bus'],
+  [/大巴/, 'fa:bus-simple'],
 
   // ============================================
   // 第五优先级：室内空间（具体房间）
@@ -120,7 +123,7 @@ export const EMOJI_MAP: [RegExp, string][] = [
   [/实验室|研究所/, 'fa:flask'],
   [/医务室/, 'fa:hospital'],
   [/工厂|发电厂/, 'fa:industry'],
-  [/警察局|派出所/, 'ti:police-car'],
+  [/警察局|派出所/, 'fa:building-shield'],
   [/法院|法庭|县衙|府衙/, 'fa:scale-balanced'],
   [/监狱|牢房|监房|禁闭|监牢|牢狱/, 'fa:handcuffs'],
   [/职员室|教师室|教务处/, 'fa:folder'],
@@ -179,7 +182,8 @@ export const EMOJI_MAP: [RegExp, string][] = [
   [/全息/, 'ti:device-projector'],
   [/数据中心|机房/, 'fa:server'],
   [/芯片|晶片/, 'fa:microchip'],
-  [/SCP|收容|单元/, 'fa:shield-halved'],
+  [/scp|收容|单元/, 'fa:shield-halved'],
+  [/系统/, 'fa:gear'],
 
   // 蒸汽朋克
   [/飞艇/, 'ti:air-balloon'],
@@ -188,7 +192,7 @@ export const EMOJI_MAP: [RegExp, string][] = [
   [/钟楼/, 'ti:clock'],
 
   // 后启示录
-  [/废土/, 'ti:building-ruin'],
+  [/废土/, 'fa:house-crack'],
   [/辐射/, 'fa:radiation'],
   [/避难所|安全屋/, 'ti:home-off'],
   [/拾荒/, 'fa:recycle'],
@@ -197,11 +201,11 @@ export const EMOJI_MAP: [RegExp, string][] = [
   // 太空歌剧
   [/星舰|战舰/, 'fa:rocket'],
   [/太空港/, 'fa:satellite'],
-  [/虫洞|跃迁/, 'ti:portal'],
+  [/虫洞|跃迁/, 'fa:circle-notch'],
   [/外星人/, 'ti:alien'],
 
   // 灵异超自然
-  [/镜像世界/, 'ti:mirror'],
+  [/镜像世界/, 'fa:clone'],
   [/阴阳界|彼岸/, 'fa:scale-balanced'],
   [/黄泉|冥界/, 'fa:skull'],
   [/招魂|降灵/, 'ti:candle'],
@@ -242,12 +246,38 @@ export const EMOJI_MAP: [RegExp, string][] = [
   [/马厩|兽栏/, 'ti:horse'],
 
   // ============================================
-  // 第十四优先级：魔法元素
+  // 新四大类型映射 (剧情物品/威胁/龙套/地标)
+  // ============================================
+  // [剧情物品]
+  [/剧情物品|信物|关键|任务物品/, 'fa:key'],
+  [/文件|日记|书信|档案/, 'fa:file-lines'],
+  [/线索|痕迹|证据/, 'fa:magnifying-glass'],
+  [/钥匙|通行证|门卡/, 'fa:id-card'],
+
+  // [威胁]
+  [/威胁|敌人|怪物|敌对/, 'fa:skull'],
+  [/陷阱|机关/, 'fa:explosion'],
+  [/野兽|猛兽/, 'ti:paw'],
+  [/恶魔|魔物/, 'fa:skull'],
+
+  // [龙套]
+  [/龙套|警卫|店员|服务员/, 'fa:user-tie'],
+  [/路人|居民|村民/, 'fa:user'],
+  [/商人|老板/, 'fa:shop'],
+
+  // [地标]
+  [/地标|雕像|纪念碑/, 'fa:monument'],
+  [/机制|控制台|装置/, 'fa:gears'],
+  [/遗迹|废墟/, 'fa:dungeon'],
+  [/传送门|入口/, 'fa:door-open'],
+
+  // ============================================
+  // 旧兼容保留 (以防万一)
   // ============================================
   [/火元素|烈焰/, 'fa:fire'],
   [/水元素|寒冰/, 'fa:droplet'],
   [/风元素|疾风/, 'fa:wind'],
-  [/土元素/, 'ti:rock'],
+  [/土元素/, 'fa:mountain'],
   [/雷元素/, 'fa:bolt'],
   [/光元素|圣光/, 'ti:sparkles'],
   [/暗元素|暗影/, 'fa:moon'],
@@ -259,25 +289,25 @@ export const EMOJI_MAP: [RegExp, string][] = [
   [/樱花/, 'ti:flower'],
   [/枫树|红枫/, 'ti:leaf'],
   [/荷花|莲花/, 'ti:flower'],
-  [/玫瑰/, 'ti:rose'],
+  [/玫瑰/, 'ti:flower'],
   [/向日葵/, 'ti:flower'],
   [/蝴蝶/, 'ti:butterfly'],
-  [/蜜蜂/, 'ti:bee'],
+  [/蜜蜂/, 'ti:bug'],
   [/蝙蝠/, 'ti:bat'],
   [/乌鸦|渡鸦/, 'ti:feather'],
   [/凤凰|火鸟/, 'fa:fire'],
   [/白鸽/, 'ti:feather'],
   [/猫/, 'ti:cat'],
-  [/兔子/, 'ti:rabbit'],
+  [/兔子/, 'ti:deer'],
 
   // ============================================
   // 第十六优先级：角色类型（具体）
   // ============================================
-  [/BOSS|首领|魔王/, 'ti:skull'],
+  [/boss|首领|魔王/, 'ti:skull'],
   [/亡灵|丧尸|僵尸|骷髅/, 'fa:skull'],
   [/野兽/, 'ti:paw'],
   [/史莱姆|软泥/, 'fa:droplet'],
-  [/恶魔/, 'ti:devil'],
+  [/恶魔/, 'fa:skull'],
   [/机器人|机甲/, 'fa:robot'],
 
   // ============================================
@@ -289,7 +319,7 @@ export const EMOJI_MAP: [RegExp, string][] = [
   [/药水|药剂/, 'fa:flask'],
   [/钥匙|门卡/, 'fa:key'],
   [/地图/, 'fa:map'],
-  [/宝箱/, 'ti:chest'],
+  [/宝箱/, 'fa:box'],
   [/布料|布/, 'ti:shirt'],
   [/剑/, 'ti:sword'],
   [/弩/, 'ti:bow'],
@@ -352,9 +382,10 @@ export const EMOJI_MAP: [RegExp, string][] = [
   [/门|大门|入口|出口/, 'fa:door-open'],
 
   // 交通
-  [/街道|街角|马路/, 'fa:person-walking'],
+  [/街道|街角|马路|街/, 'fa:person-walking'],
+  [/巷/, 'ti:lane'],
   [/桥|桥梁/, 'fa:bridge'],
-  [/广场/, 'fa:fountain'],
+  [/广场/, 'fa:square-full'],
   [/边境/, 'fa:flag'],
 
   // 室内空间
@@ -378,7 +409,7 @@ export const EMOJI_MAP: [RegExp, string][] = [
   // 机构
   [/仓库|储藏/, 'fa:warehouse'],
   [/医院|诊所/, 'fa:hospital'],
-  [/银行|金库/, 'fa:building-columns'],
+  [/银行|金库|总行|分行/, 'fa:building-columns'],
   [/办公|写字楼|公司/, 'fa:briefcase'],
 
   // 自然地貌
@@ -392,6 +423,8 @@ export const EMOJI_MAP: [RegExp, string][] = [
   [/公园|花园/, 'fa:tree'],
 
   // 建筑类型
+  [/基地|营地/, 'fa:campground'],
+  [/楼/, 'fa:building'],
   [/王宫|皇宫/, 'fa:crown'],
   [/宫殿/, 'fa:building-columns'],
   [/城堡|要塞/, 'fa:chess-rook'],
@@ -433,7 +466,7 @@ export const EMOJI_MAP: [RegExp, string][] = [
   [/面包/, 'ti:bread'],
   [/茶|饮料/, 'ti:cup'],
   [/照片/, 'fa:camera'],
-  [/玩偶|毛绒|玩具/, 'ti:teddy-bear'],
+  [/玩偶|毛绒|玩具/, 'fa:gamepad'],
   [/手机/, 'fa:mobile'],
   [/包装/, 'fa:gift'],
   [/手册|指南/, 'fa:book'],
@@ -452,8 +485,8 @@ export const EMOJI_MAP: [RegExp, string][] = [
   [/再生|恢复/, 'fa:heart'],
 
   // 最通用
-  [/异界|虚空|传送/, 'ti:portal'],
-  [/神秘|诡异/, 'ti:portal'],
+  [/异界|虚空|传送/, 'fa:circle-notch'],
+  [/神秘|诡异/, 'fa:eye'],
   [/城市|城镇|小镇|村庄|社区/, 'fa:city'],
   [/公寓|住所|家|住宅|别墅|合宿/, 'fa:house'],
   [/阁楼|顶层/, 'fa:house'],
@@ -461,7 +494,7 @@ export const EMOJI_MAP: [RegExp, string][] = [
   [/生物|基因/, 'fa:dna'],
   [/检测|调查/, 'fa:magnifying-glass'],
   [/舞蹈/, 'ti:walk'],
-  [/环境|石|木|金属|障碍/, 'ti:rock'],
+  [/环境|石|木|金属|障碍/, 'fa:mountain'],
 ];
 
 // 向后兼容：保留原有导出名称
@@ -506,7 +539,12 @@ export const RELATION_ICON_MAP: { icon: string; keywords: string[] }[] = [
       '情人',
       '爱人',
       '恋慕',
+      '倾慕',
     ],
+  },
+  {
+    icon: 'fa:ring',
+    keywords: ['丈夫', '妻子', '夫妻', '配偶', '伴侣', '结婚', '婚姻', '夫君', '娘子', '老公', '老婆'],
   },
   {
     icon: 'fa:child',
@@ -543,9 +581,10 @@ export const RELATION_ICON_MAP: { icon: string; keywords: string[] }[] = [
   },
   {
     icon: 'fa:user-group',
-    keywords: ['朋友', '友人', '好友', '友情', '伙伴', '搭档', '队友', '战友', '同伴', '盟友', '故交', '旧识', '玩伴'],
+    keywords: ['朋友', '友人', '好友', '友情', '伙伴', '队友', '战友', '同伴', '盟友', '故交', '旧识', '玩伴'],
   },
-  { icon: 'fa:shield-heart', keywords: ['信赖', '信任', '信任', '信靠', '依托'] },
+  { icon: 'fa:handshake-angle', keywords: ['搭档', '拍档', '合伙', '协作', '配合'] },
+  { icon: 'fa:shield-heart', keywords: ['信赖', '信任', '信靠', '依托', '依赖', '依附', '依靠'] },
   { icon: 'fa:house-user', keywords: ['室友', '合租', '同住', '屋檐'] },
   {
     icon: 'fa:graduation-cap',
@@ -585,7 +624,7 @@ export const RELATION_ICON_MAP: { icon: string; keywords: string[] }[] = [
     icon: 'ti:swords',
     keywords: ['对手', '竞争', '劲敌', '宿敌', '情敌', '死对头', '冤家', '敌手', '对头', '对峙', '争锋', '较量'],
   },
-  { icon: 'fa:skull', keywords: ['敌人', '仇人', '仇恨', '敌对', '仇敌', '死敌', '憎恨', '怨恨', '仇怨'] },
+  { icon: 'fa:skull', keywords: ['敌人', '仇人', '仇恨', '敌对', '仇敌', '死敌', '憎恨', '怨恨', '仇怨', '敌意'] },
   {
     icon: 'ti:ghost',
     keywords: ['恐惧', '害怕', '畏惧', '忌惮', '恐慌', '惊恐', '惧怕', '阴影', '梦魇', '噩梦'],
@@ -595,7 +634,16 @@ export const RELATION_ICON_MAP: { icon: string; keywords: string[] }[] = [
     keywords: ['厌恶', '讨厌', '嫌弃', '恶心', '反感', '鄙视', '唾弃', '不屑', '憎恶', '轻视', '嫌恶'],
   },
   { icon: 'fa:ban', keywords: ['排斥', '拒绝', '疏远', '抵触', '隔离', '冷落', '孤立', '对立', '隔阂'] },
-  { icon: 'fa:hands-praying', keywords: ['信仰', '崇拜', '敬仰', '仰慕', '追随', '信徒', '教徒', '狂信'] },
-  { icon: 'fa:face-meh', keywords: ['中立', '无感', '冷漠', '路人', '旁观', '互不', '陌生', '无论'] },
+  {
+    icon: 'fa:hands-praying',
+    keywords: ['信仰', '崇拜', '敬仰', '仰慕', '追随', '信徒', '教徒', '狂信', '粉丝', '迷弟', '迷妹'],
+  },
+  {
+    icon: 'fa:face-meh',
+    keywords: ['中立', '无感', '冷漠', '路人', '旁观', '互不', '陌生', '无论', '熟人', '认识', '面熟'],
+  },
   { icon: 'ti:circles-relation', keywords: ['复杂', '微妙', '纠葛', '羁绊', '纠缠'] },
+  { icon: 'fa:link', keywords: ['共鸣', '共情', '同感', '心灵相通', '灵魂共振', '心意相通', '默契'] },
+  { icon: 'fa:crosshairs', keywords: ['执着', '执念', '偏执', '痴迷', '沉迷', '狂热', '专注', '迷恋'] },
+  { icon: 'fa:medal', keywords: ['赏识', '欣赏', '器重', '看重', '青睐', '认可', '肯定', '重视'] },
 ];

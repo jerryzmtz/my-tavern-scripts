@@ -8,282 +8,147 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
   const SCRIPT_ID = 'acu_visualizer_ui_v19_6_ai_overlay';
   // ========================================
-  // LockManager - 字段锁定管理器（按聊天隔离）
-  // ========================================
-  const LockManager = {
-    STORAGE_KEY_PREFIX: 'acu_locked_fields_v2_',
-    MAX_CONTEXTS: 20, // 最多保留多少个聊天的锁定数据
-
-    PRIMARY_KEYS: {
-      全局数据表: null,
-      世界地图点: '详细地点',
-      地图元素表: '元素名称',
-      主角信息: '姓名',
-      重要人物表: '姓名',
-      技能表: '技能名称',
-      物品表: '物品名称',
-      装备表: '装备名称',
-      任务表: '名称',
-      总结表: '编码索引',
-      总体大纲: '编码索引',
-      重要情报: '情报名称',
-      势力: '名称',
-    },
-
-    _cache: null,
-    _currentContextId: null,
-
-    // 获取当前上下文专属的存储键
-    _getStorageKey(ctxId) {
-      return this.STORAGE_KEY_PREFIX + (ctxId || getCurrentContextFingerprint());
-    },
-
-    // 清理过旧的锁定数据，只保留最近使用的 N 个
-    _cleanupOldContexts() {
-      try {
-        const prefix = this.STORAGE_KEY_PREFIX;
-        const allKeys = [];
-
-        for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (key && key.startsWith(prefix)) {
-            allKeys.push(key);
-          }
-        }
-
-        if (allKeys.length <= this.MAX_CONTEXTS) return;
-
-        // 按最后访问时间排序（通过内部 _lastAccess 字段）
-        const keyWithTime = allKeys.map(key => {
-          try {
-            const data = JSON.parse(localStorage.getItem(key));
-            return { key, time: data?._lastAccess || 0 };
-          } catch {
-            return { key, time: 0 };
-          }
-        });
-
-        keyWithTime.sort((a, b) => b.time - a.time);
-
-        // 删除超出限制的旧数据
-        const toDelete = keyWithTime.slice(this.MAX_CONTEXTS);
-        toDelete.forEach(item => {
-          localStorage.removeItem(item.key);
-        });
-
-        if (toDelete.length > 0) {
-          console.log(`[DICE]LockManager 清理了 ${toDelete.length} 个过期的锁定数据`);
-        }
-      } catch (e) {
-        console.warn('[DICE]LockManager 清理失败', e);
-      }
-    },
-
-    _load() {
-      const ctxId = getCurrentContextFingerprint();
-
-      // 上下文变化时清空缓存
-      if (this._currentContextId !== ctxId) {
-        this._cache = null;
-        this._currentContextId = ctxId;
-      }
-
-      if (!this._cache) {
-        try {
-          const stored = localStorage.getItem(this._getStorageKey());
-          this._cache = stored ? JSON.parse(stored) : {};
-          // 移除内部元数据字段，不暴露给业务逻辑
-          delete this._cache._lastAccess;
-        } catch (e) {
-          this._cache = {};
-        }
-      }
-      return this._cache;
-    },
-
-    _save() {
-      try {
-        // 写入时附带最后访问时间戳
-        const dataToSave = { ...this._cache, _lastAccess: Date.now() };
-        localStorage.setItem(this._getStorageKey(), JSON.stringify(dataToSave));
-
-        // 每次保存后尝试清理（内部有数量判断，不会频繁执行）
-        this._cleanupOldContexts();
-      } catch (e) {
-        console.warn('[DICE]LockManager 保存失败', e);
-      }
-    },
-
-    getRowKey(tableName, row, headers) {
-      const pkField = this.PRIMARY_KEYS[tableName];
-      if (pkField === null) return '_row_0';
-
-      let fieldIndex = 1;
-      if (pkField) {
-        const idx = headers.indexOf(pkField);
-        if (idx !== -1) fieldIndex = idx;
-      }
-
-      if (!row[fieldIndex]) return null;
-      return `${pkField || headers[fieldIndex]}=${row[fieldIndex]}`;
-    },
-
-    lockField(tableName, rowKey, fieldName, value) {
-      const data = this._load();
-      if (!data[tableName]) data[tableName] = {};
-      if (!data[tableName][rowKey]) {
-        data[tableName][rowKey] = { _fullRow: false, _fields: {}, _snapshot: null };
-      }
-      data[tableName][rowKey]._fields[fieldName] = value;
-      this._save();
-    },
-
-    lockRow(tableName, rowKey, rowData, headers) {
-      const data = this._load();
-      if (!data[tableName]) data[tableName] = {};
-
-      const snapshot = {};
-      headers.forEach((h, i) => {
-        if (h && rowData[i] != null && rowData[i] !== '') {
-          snapshot[h] = rowData[i];
-        }
-      });
-
-      data[tableName][rowKey] = { _fullRow: true, _fields: {}, _snapshot: snapshot };
-      this._save();
-    },
-
-    unlockField(tableName, rowKey, fieldName) {
-      const data = this._load();
-      const lock = data[tableName]?.[rowKey];
-      if (!lock) return;
-
-      // 如果是整行锁定，从 _snapshot 中移除
-      if (lock._fullRow && lock._snapshot) {
-        delete lock._snapshot[fieldName];
-        // 如果 _snapshot 为空，解除整行锁定
-        if (Object.keys(lock._snapshot).length === 0) {
-          delete data[tableName][rowKey];
-          if (Object.keys(data[tableName]).length === 0) {
-            delete data[tableName];
-          }
-        }
-      } else {
-        // 非整行锁定，从 _fields 中移除
-        delete lock._fields[fieldName];
-        if (Object.keys(lock._fields).length === 0) {
-          delete data[tableName][rowKey];
-          if (Object.keys(data[tableName]).length === 0) {
-            delete data[tableName];
-          }
-        }
-      }
-      this._save();
-    },
-
-    unlockRow(tableName, rowKey) {
-      const data = this._load();
-      if (data[tableName]) {
-        delete data[tableName][rowKey];
-        if (Object.keys(data[tableName]).length === 0) {
-          delete data[tableName];
-        }
-        this._save();
-      }
-    },
-
-    isFieldLocked(tableName, rowKey, fieldName) {
-      const lock = this._load()[tableName]?.[rowKey];
-      if (!lock) return false;
-      if (lock._fullRow) return lock._snapshot?.hasOwnProperty(fieldName);
-      return lock._fields?.hasOwnProperty(fieldName);
-    },
-
-    isRowLocked(tableName, rowKey) {
-      return this._load()[tableName]?.[rowKey]?._fullRow === true;
-    },
-
-    applyLocks(tableName, tableContent) {
-      const tableLocks = this._load()[tableName];
-      if (!tableLocks || !tableContent || tableContent.length < 2) {
-        return { modified: false, restored: [] };
-      }
-
-      const headers = tableContent[0];
-      const restored = [];
-      let modified = false;
-
-      // 建立现有行的索引
-      const rowIndex = {};
-      for (let i = 1; i < tableContent.length; i++) {
-        const key = this.getRowKey(tableName, tableContent[i], headers);
-        if (key) rowIndex[key] = i;
-      }
-
-      for (const [rowKey, lock] of Object.entries(tableLocks)) {
-        const idx = rowIndex[rowKey];
-
-        if (idx === undefined) {
-          // 行不存在，尝试重建（仅在同一聊天内有效）
-          const newRow = this._rebuildRow(headers, lock);
-          if (newRow) {
-            tableContent.push(newRow);
-            restored.push(rowKey);
-            modified = true;
-          }
-          continue;
-        }
-
-        const row = tableContent[idx];
-        const fields = lock._fullRow ? lock._snapshot : lock._fields;
-
-        if (fields) {
-          for (const [field, value] of Object.entries(fields)) {
-            const colIdx = headers.indexOf(field);
-            if (colIdx !== -1 && row[colIdx] !== value) {
-              row[colIdx] = value;
-              modified = true;
-            }
-          }
-        }
-      }
-
-      return { modified, restored };
-    },
-
-    _rebuildRow(headers, lock) {
-      const fields = lock._fullRow ? lock._snapshot : lock._fields;
-      if (!fields || Object.keys(fields).length === 0) return null;
-
-      const row = new Array(headers.length).fill(null);
-      for (const [field, value] of Object.entries(fields)) {
-        const idx = headers.indexOf(field);
-        if (idx !== -1) row[idx] = value;
-      }
-      return row;
-    },
-
-    // 检查某行是否有任意锁定（整行锁定或任意单元格锁定）
-    hasAnyLock(tableName, rowKey) {
-      const lock = this._load()[tableName]?.[rowKey];
-      if (!lock) return false;
-      if (lock._fullRow) return true;
-      return Object.keys(lock._fields || {}).length > 0;
-    },
-
-    getLockedFields(tableName, rowKey) {
-      const lock = this._load()[tableName]?.[rowKey];
-      if (!lock) return [];
-      if (lock._fullRow) return Object.keys(lock._snapshot || {});
-      return Object.keys(lock._fields || {});
-    },
-
-    // 清理当前聊天的所有锁定（调试用）
-    clearCurrentContext() {
-      localStorage.removeItem(this._getStorageKey());
-      this._cache = null;
-    },
+  // 表主键配置 (用于行标识转换)
+  const PRIMARY_KEYS = {
+    全局数据表: null,
+    世界地图点: '详细地点',
+    地图元素表: '元素名称',
+    主角信息: '姓名',
+    重要人物表: '姓名',
+    技能表: '技能名称',
+    物品表: '物品名称',
+    装备表: '装备名称',
+    任务表: '名称',
+    总结表: '编码索引',
+    总体大纲: '编码索引',
+    重要情报: '情报名称',
+    势力: '名称',
   };
+
+  /**
+   * 获取行的主键值
+   * @param tableName 表名
+   * @param row 行数据
+   * @param headers 表头
+   */
+  function getRowKey(tableName, row, headers) {
+    const pkField = PRIMARY_KEYS[tableName];
+    if (pkField === null) return '_row_0';
+
+    let fieldIndex = 1;
+    if (pkField) {
+      const idx = headers.indexOf(pkField);
+      if (idx !== -1) fieldIndex = idx;
+    }
+
+    if (!row[fieldIndex]) return null;
+    return `${pkField || headers[fieldIndex]}=${row[fieldIndex]}`;
+  }
+
+  // ========================================
+  // 神-数据库适配层 (LockManager -> GodDB API)
+  // ========================================
+
+  /**
+   * 获取神-数据库锁定API
+   * @returns API对象，如果不可用返回null
+   */
+  function getDbLockAPI(): any {
+    // 递归找到真正的顶层窗口（处理多层iframe嵌套）
+    let topWindow: Window = window;
+    try {
+      while (topWindow.parent && topWindow.parent !== topWindow) {
+        topWindow = topWindow.parent;
+      }
+    } catch (e) {
+      // 跨域情况下无法访问parent，使用当前window
+    }
+
+    // 优先从顶层窗口获取，然后尝试当前窗口
+    const api = (topWindow as any).AutoCardUpdaterAPI || (window as any).AutoCardUpdaterAPI;
+    return api || null;
+  }
+
+  /**
+   * 根据表名获取sheetKey
+   * @param tableName - 表名（如"主角信息"）
+   * @returns sheetKey（如"sheet_0"），找不到返回null
+   */
+  function getSheetKeyByTableName(tableName: string): string | null {
+    const api = getDbLockAPI();
+    if (!api || typeof api.exportTableAsJson !== 'function') return null;
+
+    try {
+      const data = api.exportTableAsJson() as Record<string, { name: string; content: (string | number | null)[][] }>;
+      if (!data) return null;
+
+      for (const key in data) {
+        if (key.startsWith('sheet_') && data[key]?.name === tableName) {
+          return key;
+        }
+      }
+    } catch (e) {
+      console.warn('[DICE]getSheetKeyByTableName 失败:', e);
+    }
+    return null;
+  }
+
+  /**
+   * 通过主键值查找行索引
+   * @param sheetKey - 表格标识
+   * @param tableName - 表名
+   * @param primaryKeyValue - 主键值（格式可能是 "字段名=值" 或纯值）
+   * @returns 行索引（从0开始），找不到返回null
+   */
+  function findRowIndexByPrimaryKey(sheetKey: string, tableName: string, primaryKeyValue: string): number | null {
+    const api = getDbLockAPI();
+    if (!api || typeof api.exportTableAsJson !== 'function') return null;
+
+    try {
+      const data = api.exportTableAsJson() as Record<string, { name: string; content: (string | number | null)[][] }>;
+      const sheet = data?.[sheetKey];
+      if (!sheet || !sheet.content || !Array.isArray(sheet.content) || sheet.content.length < 2) {
+        return null;
+      }
+
+      const headers = sheet.content[0] as string[];
+      const pkField = PRIMARY_KEYS[tableName as keyof typeof PRIMARY_KEYS];
+
+      // 处理特殊情况：全局数据表等没有主键的情况
+      if (pkField === null) {
+        return primaryKeyValue === '_row_0' ? 0 : null;
+      }
+
+      if (!pkField) return null;
+
+      const pkIndex = headers.indexOf(pkField);
+      if (pkIndex === -1) {
+        console.warn(`[DICE]findRowIndexByPrimaryKey: 在表 ${tableName} 中找不到主键字段 ${pkField}`);
+        return null;
+      }
+
+      // 【修复】解析 primaryKeyValue，提取实际值
+      // getRowKey() 返回格式: "姓名=张三" -> 需要提取 "张三"
+      let actualValue = primaryKeyValue;
+      const eqIdx = primaryKeyValue.indexOf('=');
+      if (eqIdx !== -1) {
+        actualValue = primaryKeyValue.substring(eqIdx + 1);
+      }
+
+      // 遍历数据行（从索引1开始）
+      for (let i = 1; i < sheet.content.length; i++) {
+        const row = sheet.content[i];
+        if (row && String(row[pkIndex]) === String(actualValue)) {
+          // 神-数据库的 rowIndex 是从 0 开始的数据行索引（对应 content[1]）
+          return i - 1;
+        }
+      }
+    } catch (e) {
+      console.warn('[DICE]findRowIndexByPrimaryKey 失败:', e);
+    }
+    return null;
+  }
+
   // ========================================
   // BookmarkManager - 书签管理器（按聊天隔离）
   // ========================================
@@ -793,8 +658,8 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     inSceneNpcWeight: 15,
     offSceneNpcWeight: 5,
   };
-  const PRESET_FORMAT_VERSION = '1.6.3'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v3.81'; // 脚本版本号
+  const PRESET_FORMAT_VERSION = '1.6.6'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
+  const SCRIPT_VERSION = 'v3.90'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -1403,6 +1268,21 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       replacement: '！！请输入你的角色名！！',
       scope: { type: 'global' },
       enabled: false,
+      priority: 50,
+      executeMode: 'auto',
+      security: { maxMatchTime: 100, maxMatches: 1000, maxInputLength: 10000 },
+    },
+    // 去除特殊属性中的负面情绪
+    {
+      id: 'builtin_remove_negative_traits',
+      name: '去除特殊属性中的负面情绪',
+      description: '删除主角信息表与重要人物表中过于陈腐的性格标签',
+      operation: 'replace',
+      pattern: '[^;：:\\s]*(绝望|崩溃|崩坏|恐惧|NTR|羞耻|快感|顺从|侵犯|服从|逻辑|决绝|臣服)[^;：:\\s]*[:：]\\d+;?\\s?',
+      flags: { global: false, caseInsensitive: false, multiline: false },
+      replacement: '',
+      scope: { type: 'table', tableNames: ['主角信息', '重要人物表'] },
+      enabled: true,
       priority: 50,
       executeMode: 'auto',
       security: { maxMatchTime: 100, maxMatches: 1000, maxInputLength: 10000 },
@@ -4847,7 +4727,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
         this._cache = {};
         for (const name in raw) {
           if (typeof raw[name] === 'string') {
-            this._cache[name] = { url: raw[name], offsetX: 50, offsetY: 50, scale: 150, aliases: [] };
+            this._cache[name] = { url: raw[name], offsetX: 50, offsetY: 50, scale: 150, aliases: [], createdAt: 0 };
           } else {
             this._cache[name] = {
               url: raw[name].url || '',
@@ -4855,6 +4735,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
               offsetY: raw[name].offsetY ?? 50,
               scale: raw[name].scale ?? 150,
               aliases: raw[name].aliases || [],
+              createdAt: raw[name].createdAt ?? 0,
             };
           }
         }
@@ -4972,7 +4853,9 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     },
 
     set(name, url, offsetX = 50, offsetY = 50, scale = 150, aliases = []) {
-      this.load()[name] = { url, offsetX, offsetY, scale, aliases };
+      const existing = this.load()[name];
+      const createdAt = existing ? (existing.createdAt ?? 0) : Date.now();
+      this.load()[name] = { url, offsetX, offsetY, scale, aliases, createdAt };
       this.save();
     },
 
@@ -5041,6 +4924,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
               offsetY: imported.offsetY ?? 50,
               scale: imported.scale ?? 150,
               aliases: imported.aliases || [],
+              createdAt: imported.createdAt ?? 0,
             };
             stats.updated++;
           } else {
@@ -5054,6 +4938,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
             offsetY: imported.offsetY ?? 50,
             scale: imported.scale ?? 150,
             aliases: imported.aliases || [],
+            createdAt: imported.createdAt ?? 0,
           };
           stats.added++;
         }
@@ -5098,8 +4983,9 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
   const getLocationEmoji = name => {
     if (!name) return null;
+    const lowerName = name.toLowerCase();
     for (const [pattern, emoji] of LOCATION_EMOJI_MAP) {
-      if (pattern.test(name)) return emoji;
+      if (pattern.test(lowerName)) return emoji;
     }
     return null;
   };
@@ -5107,9 +4993,10 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
   // 获取地点名的所有候选emoji（用于去重分配）
   const getEmojiCandidates = (name: string): string[] => {
     if (!name) return [];
+    const lowerName = name.toLowerCase();
     const candidates: string[] = [];
     for (const [pattern, emoji] of LOCATION_EMOJI_MAP) {
-      if (pattern.test(name)) {
+      if (pattern.test(lowerName)) {
         candidates.push(emoji);
       }
     }
@@ -5151,11 +5038,13 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
   const getElementEmoji = (name, type) => {
     if (!name && !type) return null;
+    const lowerName = name?.toLowerCase();
+    const lowerType = type?.toLowerCase();
     for (const [pattern, emoji] of ELEMENT_EMOJI_MAP) {
-      if (name && pattern.test(name)) return emoji;
+      if (lowerName && pattern.test(lowerName)) return emoji;
     }
     for (const [pattern, emoji] of ELEMENT_EMOJI_MAP) {
-      if (type && pattern.test(type)) return emoji;
+      if (lowerType && pattern.test(lowerType)) return emoji;
     }
     return null;
   };
@@ -5235,20 +5124,124 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     // ===== 私有变量 =====
     const MODULE_ID = '__mvu__';
     let cachedEraData = null; // 缓存 ERA 数据
+    let cachedEraDataChatId: string | null = null;
+
+    function getCurrentChatIdSafe(): string | null {
+      const ST = window.SillyTavern || window.parent?.SillyTavern;
+      try {
+        return typeof ST?.getCurrentChatId === 'function' ? ST.getCurrentChatId() : null;
+      } catch {
+        return null;
+      }
+    }
+
+    function clearMvuCacheIfChatChanged() {
+      const chatId = getCurrentChatIdSafe();
+      if (!cachedEraData) return;
+      if (!chatId) return;
+      if (cachedEraDataChatId && cachedEraDataChatId !== chatId) {
+        cachedEraData = null;
+        cachedEraDataChatId = null;
+      }
+    }
+
+    function isLwbChatContext(): boolean {
+      const lwbGuard = globalThis.LWB_Guard || window.LWB_Guard || window.parent?.LWB_Guard;
+      if (typeof lwbGuard !== 'object' || lwbGuard === null) return false;
+
+      const ST = window.SillyTavern || window.parent?.SillyTavern;
+      const chatMetadata = ST?.chatMetadata;
+      if (typeof chatMetadata !== 'object' || chatMetadata === null) return false;
+
+      // 关键修复：如果 ERA 框架存在且有 ERA 数据，优先使用 ERA 而非 LWB
+      const eventEmit = window.eventEmit || window.parent?.eventEmit;
+      const eventOn = window.eventOn || window.parent?.eventOn;
+      if (typeof eventEmit === 'function' && typeof eventOn === 'function') {
+        const variablesUnknown = (chatMetadata as { variables?: unknown }).variables;
+        if (typeof variablesUnknown === 'object' && variablesUnknown !== null) {
+          const variables = variablesUnknown as Record<string, unknown>;
+          // 如果有 ERA 保留键，明确是 ERA 卡
+          if (variables.ERAMetaData !== undefined || variables.stat_data !== undefined) {
+            return false;
+          }
+        }
+      }
+
+      // 关键修复：如果 MVU 框架存在，优先使用 MVU 而非 LWB
+      // MVU 数据存储在消息楼层变量中，不在 chatMetadata.variables 中
+      // 因此即使 chatMetadata 有 LWB_* 残留键，也应该优先使用 MVU
+      if (typeof window.Mvu !== 'undefined' && typeof window.Mvu.getMvuData === 'function') {
+        // MVU 框架可用，尝试检查是否有 MVU 数据
+        try {
+          const mvuData = window.Mvu.getMvuData({ type: 'message', message_id: 'latest' });
+          // 如果能成功获取 MVU 数据（即使 stat_data 为空），说明这是 MVU 卡
+          if (mvuData !== null && mvuData !== undefined) {
+            return false;
+          }
+        } catch {
+          // MVU 获取失败，继续检查 LWB
+        }
+      }
+
+      // LWB_Guard 是全局的，安装扩展后一直存在，不能作为单独判据。
+      // 必须有明确的 LWB 标记才能判定为 LWB 卡。
+
+      // 检查 chatMetadata 顶层是否有 LWB_* 标记
+      const hasLwbMetaKey = Object.keys(chatMetadata).some(k => k.startsWith('LWB_') || k.startsWith('lwb_'));
+      if (hasLwbMetaKey) return true;
+
+      const variablesUnknown = (chatMetadata as { variables?: unknown }).variables;
+      if (typeof variablesUnknown !== 'object' || variablesUnknown === null) return false;
+
+      const variables = variablesUnknown as Record<string, unknown>;
+
+      // 检查 variables 中是否有 LWB_* 标记
+      const hasLwbVarKey = Object.keys(variables).some(k => k.startsWith('LWB_') || k.startsWith('lwb_'));
+      if (hasLwbVarKey) return true;
+
+      // 关键修复：只有当有明确的 LWB 标记时才认为是 LWB
+      // 不再使用启发式检测（JSON 字符串值），因为这会误判 MVU 卡
+      // MVU 卡的数据存储在消息楼层变量中，不在 chatMetadata.variables 中
+      // 如果没有 LWB_* 标记，就不是 LWB 卡
+      return false;
+    }
+
+    // ===== 检测当前聊天是否有 ERA 特征数据 =====
+    function hasEraDataInCurrentChat(): boolean {
+      const ST = window.SillyTavern || window.parent?.SillyTavern;
+      const chatMetadata = ST?.chatMetadata;
+      if (typeof chatMetadata !== 'object' || chatMetadata === null) return false;
+
+      const variablesUnknown = (chatMetadata as { variables?: unknown }).variables;
+      if (typeof variablesUnknown !== 'object' || variablesUnknown === null) return false;
+
+      const variables = variablesUnknown as Record<string, unknown>;
+      // ERA 特征：有 ERAMetaData 或 stat_data 键
+      return variables.ERAMetaData !== undefined || variables.stat_data !== undefined;
+    }
 
     // ===== 智能检测变量源 =====
     function detectMode() {
+      clearMvuCacheIfChatChanged();
+
       // 如果有缓存数据，检查数据来源标记
       if (cachedEraData && cachedEraData._source) {
         return cachedEraData._source;
       }
 
-      // 优先检测 ERA，因为 ERA 框架较新
+      // [新增] 优先检测 LWB (小白X)，因为 LWB 需要特殊处理
+      if (isLwbChatContext()) {
+        console.log('[DICE]MvuModule 智能检测到 LWB (小白X) 框架');
+        return 'lwb';
+      }
+
+      // 检测 ERA：框架存在 且 当前聊天有 ERA 特征数据
       const eventEmit = window.eventEmit || window.parent?.eventEmit;
       const eventOn = window.eventOn || window.parent?.eventOn;
+      const eraFrameworkExists = typeof eventEmit === 'function' && typeof eventOn === 'function';
 
-      if (typeof eventEmit === 'function' && typeof eventOn === 'function') {
-        console.log('[DICE]MvuModule 智能检测到 ERA 框架');
+      if (eraFrameworkExists && hasEraDataInCurrentChat()) {
+        console.log('[DICE]MvuModule 智能检测到 ERA 框架（当前聊天有 ERA 数据）');
         return 'era';
       }
 
@@ -5258,6 +5251,12 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
         return 'mvu';
       }
 
+      // 如果 ERA 框架存在但当前聊天无数据，仍返回 ERA（新建聊天场景）
+      if (eraFrameworkExists) {
+        console.log('[DICE]MvuModule 智能检测到 ERA 框架（新聊天，无数据）');
+        return 'era';
+      }
+
       // 默认 MVU
       console.log('[DICE]MvuModule 未检测到框架，默认使用 MVU 模式');
       return 'mvu';
@@ -5265,11 +5264,19 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
     // ===== 增强的智能检测（带数据验证）=====
     async function detectModeWithData() {
-      // 1. 优先尝试 ERA（因为 ERA 是新框架）
+      // [新增] 1. 优先尝试 LWB（因为需要特殊处理）
+      if (isLwbChatContext()) {
+        const lwbData = getLwbData();
+        console.log('[DICE]检测到 LWB 框架，数据条目数:', Object.keys(lwbData.stat_data).length);
+        return { mode: 'lwb', data: lwbData };
+      }
+
+      // 2. 检测 ERA：框架存在 且 当前聊天有 ERA 特征数据
       const eventEmit = window.eventEmit || window.parent?.eventEmit;
       const eventOn = window.eventOn || window.parent?.eventOn;
+      const eraFrameworkExists = typeof eventEmit === 'function' && typeof eventOn === 'function';
 
-      if (typeof eventEmit === 'function' && typeof eventOn === 'function') {
+      if (eraFrameworkExists && hasEraDataInCurrentChat()) {
         try {
           // 尝试实际获取 ERA 数据（带超时）
           const eraData = await Promise.race([
@@ -5286,7 +5293,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
         }
       }
 
-      // 2. 尝试 MVU
+      // 3. 尝试 MVU
       try {
         await waitGlobalInitialized('Mvu');
 
@@ -5314,6 +5321,64 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       // 3. 都不可用，返回默认 MVU 模式（向后兼容）
       console.warn('[DICE]未检测到可用的变量框架，默认使用 MVU 模式');
       return { mode: 'mvu', data: null };
+    }
+
+    // ===== LWB (小白X) 数据获取函数 =====
+    // JSON解析辅助函数（基于 LWB 源码分析，只需单次解析）
+    // 注意：LWB 不存在双重序列化，只做单次 JSON.parse
+    function parseJsonSafe(value: unknown): unknown {
+      if (typeof value !== 'string') return value;
+
+      const trimmed = value.trim();
+      if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return value;
+
+      try {
+        return JSON.parse(trimmed) as unknown;
+      } catch {
+        return value;
+      }
+    }
+
+    // 获取小白X变量数据
+    function getLwbData() {
+      try {
+        // iframe 兼容的 SillyTavern 访问
+        const ST = window.SillyTavern || window.parent?.SillyTavern;
+        const variables = ST?.chatMetadata?.variables || {};
+        const stat_data: Record<string, unknown> = {};
+
+        for (const [key, value] of Object.entries(variables)) {
+          // 跳过小白X内部键（防御性编程）
+          if (key.startsWith('LWB_') || key.startsWith('lwb_')) continue;
+
+          // 使用 parseJsonSafe 处理 JSON 字符串（单次解析）
+          const parsed = parseJsonSafe(value);
+
+          // 只保留嵌套对象（plot-log特征）
+          if (typeof parsed === 'object' && parsed !== null) {
+            stat_data[key] = parsed;
+          }
+        }
+
+        // 关键：始终返回对象，即使 stat_data 为空
+        // 确保 _source: 'lwb' 进入缓存，使 detectMode() 返回 'lwb'
+        // 注意：不在此处更新 cachedEraData，由调用方负责
+        return {
+          stat_data,
+          display_data: {},
+          delta_data: {},
+          _source: 'lwb',
+        };
+      } catch (e) {
+        console.warn('[DICE]获取LWB变量失败:', e);
+        // 即使出错也返回空的 LWB 数据对象，确保模式标记正确
+        return {
+          stat_data: {},
+          display_data: {},
+          delta_data: {},
+          _source: 'lwb',
+        };
+      }
     }
 
     // ===== ERA 数据获取函数 =====
@@ -5362,6 +5427,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
           // 缓存数据
           cachedEraData = result;
+          cachedEraDataChatId = getCurrentChatIdSafe();
 
           resolve(result);
         };
@@ -5966,6 +6032,10 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
         const emitAvailable = typeof eventEmit === 'function';
         const onAvailable = typeof eventOn === 'function';
         return emitAvailable && onAvailable;
+      } else if (mode === 'lwb') {
+        // [新增] LWB 模式：检查 chatMetadata.variables 是否可访问
+        const ST = window.SillyTavern || window.parent?.SillyTavern;
+        return ST?.chatMetadata !== undefined;
       } else {
         // MVU 模式：检查 MVU 框架是否加载
         const mvuAvailable = typeof window.Mvu !== 'undefined' && typeof window.Mvu.getMvuData === 'function';
@@ -5976,9 +6046,20 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     function getData() {
       console.warn('[DICE]警告: getData() 是同步函数，可能无法正确获取 MVU 数据。建议使用 getDataWithRetry()');
 
+      clearMvuCacheIfChatChanged();
+
       // 优先返回缓存（可能来自 ERA 或 MVU）
       if (cachedEraData) {
         return cachedEraData;
+      }
+
+      // [新增] 尝试同步获取 LWB
+      if (isLwbChatContext()) {
+        const lwbData = getLwbData();
+        cachedEraData = lwbData;
+        cachedEraDataChatId = getCurrentChatIdSafe();
+        console.log('[DICE]LWB 数据同步获取成功');
+        return lwbData;
       }
 
       // 尝试同步获取 MVU（可能失败）
@@ -5996,6 +6077,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
             };
 
             cachedEraData = data; // 更新缓存
+            cachedEraDataChatId = getCurrentChatIdSafe();
             return data;
           }
         }
@@ -6042,6 +6124,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
               // 为 MVU 也添加缓存
               cachedEraData = data;
+              cachedEraDataChatId = getCurrentChatIdSafe();
               console.log('[DICE]MVU 数据获取成功');
               return data;
             }
@@ -6070,6 +6153,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
         // 如果检测时已经获取到数据，直接返回
         if (detection.data) {
           cachedEraData = detection.data; // 更新缓存
+          cachedEraDataChatId = getCurrentChatIdSafe();
           return detection.data;
         }
 
@@ -6083,6 +6167,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
               const data = await getEraData();
               if (data && data.stat_data) {
                 cachedEraData = data;
+                cachedEraDataChatId = getCurrentChatIdSafe();
                 return data;
               }
             } catch (e) {
@@ -6097,6 +6182,12 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
           // ERA 失败，尝试降级到 MVU
           console.warn('[DICE]ERA 数据获取失败，尝试降级到 MVU');
           return await getMvuDataWithRetry(maxRetries, retryDelay);
+        } else if (mode === 'lwb') {
+          // [新增] LWB 模式：重新获取
+          const lwbData = getLwbData();
+          cachedEraData = lwbData;
+          cachedEraDataChatId = getCurrentChatIdSafe();
+          return lwbData;
         } else {
           // MVU 模式
           return await getMvuDataWithRetry(maxRetries, retryDelay);
@@ -6750,7 +6841,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
         const mvuData = getData();
 
         // 智能检测当前模式（MVU 或 ERA）
-        const varMode = detectMode();
+        const varMode = (mvuData && mvuData._source) || detectMode();
         const isEraMode = varMode === 'era';
 
         // [新增] 读取数值模式状态
@@ -6766,7 +6857,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
         const layoutMode = 'vertical-layout';
 
         // 生成面板标题
-        const panelTitle = isEraMode ? 'ERA 变量' : 'MVU 变量';
+        const panelTitle = varMode === 'lwb' ? 'LWB 变量' : varMode === 'era' ? 'ERA 变量' : 'MVU 变量';
 
         // 如果无法获取数据（MVU 框架未加载或数据为 null）
         if (!mvuData) {
@@ -6825,7 +6916,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
                             <div class="mvu-empty">
                                 <i class="fa-solid fa-inbox"></i>
                                 <p>当前没有变量数据</p>
-                                <p class="mvu-empty-hint">变量数据将在 AI 回复后自动初始化，或点击刷新按钮自动重试获取变量</p>
+                                <p class="mvu-empty-hint">${varMode === 'lwb' ? '当前没有变量数据，变量将在 AI 通过 plot-log 输出后显示' : '变量数据将在 AI 回复后自动初始化，或点击刷新按钮自动重试获取变量'}</p>
                             </div>
                         </div>
                     `;
@@ -7420,6 +7511,65 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
         });
       },
 
+      // ===== LWB 路径解析和写入函数 =====
+      // 解析路径，支持 "根变量.子路径" 和 "根变量[0].子路径" 格式
+      parsePath: function (path: string): { rootName: string; subPath: string } {
+        const match = path.match(/^([^.\[]+)/);
+        const rootName = match ? match[1] : path;
+
+        let subPath = path.slice(rootName.length);
+        if (subPath.startsWith('.')) subPath = subPath.slice(1);
+
+        return { rootName, subPath };
+      },
+
+      // LWB 变量写入函数
+      setLwbValue: function (path: string, value: unknown) {
+        try {
+          const ST = window.SillyTavern || window.parent?.SillyTavern;
+          if (!ST?.chatMetadata) {
+            console.error('[DICE]无法访问 chatMetadata');
+            return;
+          }
+
+          if (!ST.chatMetadata.variables) {
+            ST.chatMetadata.variables = {};
+          }
+
+          const { rootName, subPath } = this.parsePath(path);
+
+          if (!subPath) {
+            // 直接设置根变量
+            ST.chatMetadata.variables[rootName] =
+              typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value ?? '');
+          } else {
+            // 设置嵌套路径
+            const currentRaw = ST.chatMetadata.variables[rootName];
+            let current = parseJsonSafe(currentRaw);
+
+            if (typeof current !== 'object' || current === null) {
+              current = {};
+            }
+
+            // lodash _.set 原生支持 "a[0].b" 格式
+            _.set(current as object, subPath, value);
+
+            ST.chatMetadata.variables[rootName] = JSON.stringify(current);
+          }
+
+          // 保存元数据
+          ST.saveMetadata?.();
+
+          // 刷新缓存
+          cachedEraData = null;
+          cachedEraDataChatId = null;
+
+          console.log('[DICE]LWB 变量已更新:', path, '=', value);
+        } catch (e) {
+          console.error('[DICE]LWB 变量写入失败:', e);
+        }
+      },
+
       setValue: async function (path, newValue) {
         if (!isAvailable()) return false;
 
@@ -7435,6 +7585,10 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
           if (mode === 'era') {
             return await setEraValue(path, parsedValue);
+          } else if (mode === 'lwb') {
+            // [新增] LWB 模式：写入到 chatMetadata.variables
+            this.setLwbValue(path, parsedValue);
+            return true;
           } else {
             const mvuData = window.Mvu.getMvuData({ type: 'message', message_id: 'latest' });
             if (!mvuData) {
@@ -7468,6 +7622,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       // 清除 ERA 缓存（当 ERA 变量更新时调用）
       clearCache: function () {
         cachedEraData = null;
+        cachedEraDataChatId = null;
         console.log('[DICE]MvuModule 已清除 ERA 缓存');
       },
 
@@ -11730,7 +11885,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       // 按比例转换
       const ratio = val / fromMax;
       const newVal = Math.round(ratio * toMax);
-      return Math.max(1, Math.min(newVal, toMax));
+      return Math.max(0, Math.min(newVal, toMax));
     };
 
     // [重写] 成功标准切换时更新 UI（COC/DND 模式切换）
@@ -11952,7 +12107,8 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
       if (targetInputVal !== '') {
         // 用户手动输入了目标值/DC
-        target = parseInt(targetInputVal, 10) || getDefaultTarget(formula);
+        const parsedTarget = parseInt(targetInputVal, 10);
+        target = !Number.isNaN(parsedTarget) ? parsedTarget : getDefaultTarget(formula);
       } else if (isDND) {
         // DND 模式：留空时 DC = 20 - 属性值（若属性值为空则DC=10）
         if (attrValue > 0) {
@@ -15672,6 +15828,14 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       const config = getConfig();
       const avatars = AvatarManager.getAll();
 
+      // 视图和排序状态
+      let currentView = 'chat'; // 'chat' | 'global'
+      let sortBy = 'name'; // 'name' | 'date' | 'source'
+      let sortOrder = 'asc'; // 'asc' | 'desc'
+      let searchQuery = '';
+      const expandedItems = new Set<string>(); // 跟踪展开的角色
+      let isInitialLoad = true; // 首次加载标志，用于控制自动展开行为
+
       // 统一解析用户占位符为{{user}}主键（用于头像管理界面）
       const resolveUserPlaceholderForAvatar = name => {
         if (!name) return name;
@@ -15714,15 +15878,120 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       const buildList = async () => {
         let listHtml = '';
 
+        // 预先获取所有头像数据 (必须在使用前声明)
+        const allAvatarData = AvatarManager.getAll();
+
+        // 根据视图模式获取节点列表
+        let workingNodes = [];
+        if (currentView === 'chat') {
+          // 当前聊天视图：使用传入的 nodeArr
+          workingNodes = nodeArr.map(n => ({ name: n.name, isPlayer: n.isPlayer }));
+        } else {
+          // 全局视图：合并当前聊天角色 + 全局已配置角色（去重）
+          const seenNames = new Set<string>();
+          const merged: { name: string; isPlayer: boolean }[] = [];
+
+          // 先添加当前聊天的角色
+          for (const n of nodeArr) {
+            if (!seenNames.has(n.name)) {
+              seenNames.add(n.name);
+              merged.push({ name: n.name, isPlayer: n.isPlayer });
+            }
+          }
+
+          // 再添加全局已配置但不在当前聊天中的角色
+          for (const name of Object.keys(allAvatarData)) {
+            if (!seenNames.has(name)) {
+              seenNames.add(name);
+              merged.push({ name, isPlayer: false });
+            }
+          }
+
+          workingNodes = merged;
+        }
+
         // 分离{{user}}节点和其他节点
-        const userNode = nodeArr.find(n => {
+        const userNode = workingNodes.find(n => {
           const resolved = resolveUserPlaceholderForAvatar(n.name);
           return resolved === '{{user}}';
         });
-        const otherNodes = nodeArr.filter(n => {
+        let otherNodes = workingNodes.filter(n => {
           const resolved = resolveUserPlaceholderForAvatar(n.name);
           return resolved !== '{{user}}';
         });
+
+        // 搜索过滤
+        if (searchQuery) {
+          const query = searchQuery.toLowerCase();
+          otherNodes = otherNodes.filter(n => {
+            const nameMatch = n.name.toLowerCase().includes(query);
+            const aliasMatch = (allAvatarData[n.name]?.aliases || []).some(alias =>
+              alias.toLowerCase().includes(query),
+            );
+            return nameMatch || aliasMatch;
+          });
+        }
+
+        // 预计算来源信息（用于来源排序）
+        const nodeSourceMap = new Map<string, { hasLocal: boolean; hasUrl: boolean }>();
+        if (sortBy === 'source') {
+          for (const node of otherNodes) {
+            const hasLocal = await AvatarManager.hasLocalAvatar(node.name);
+            const hasUrl = !!allAvatarData[node.name]?.url;
+            nodeSourceMap.set(node.name, { hasLocal, hasUrl });
+          }
+        }
+
+        // 对其他节点进行排序
+        if (sortBy === 'source') {
+          // 按来源排序：本地上传 > URL > 无头像
+          // 正序: local(0) < url(1) < none(2)
+          // 倒序: none(2) < url(1) < local(0)
+          const getSourcePriority = (name: string) => {
+            const info = nodeSourceMap.get(name);
+            if (info?.hasLocal) return 0; // 本地上传
+            if (info?.hasUrl) return 1; // URL
+            return 2; // 无头像
+          };
+          otherNodes.sort((a, b) => {
+            const priorityA = getSourcePriority(a.name);
+            const priorityB = getSourcePriority(b.name);
+            const cmp = priorityA - priorityB;
+            return sortOrder === 'asc' ? cmp : -cmp;
+          });
+        } else if (sortBy === 'name') {
+          otherNodes.sort((a, b) => {
+            const cmp = a.name.localeCompare(b.name, 'zh-CN');
+            return sortOrder === 'asc' ? cmp : -cmp;
+          });
+        } else {
+          // 按日期排序
+          otherNodes.sort((a, b) => {
+            const timeA = allAvatarData[a.name]?.createdAt ?? 0;
+            const timeB = allAvatarData[b.name]?.createdAt ?? 0;
+            return sortOrder === 'asc' ? timeA - timeB : timeB - timeA;
+          });
+        }
+
+        // 检查是否为空状态（全局视图）
+        if (currentView === 'global' && workingNodes.length === 0) {
+          return `
+            <div class="acu-avatar-empty-state">
+              <i class="fa-solid fa-images"></i>
+              <p>暂无角色数据。请确保数据库正确启动并包含主角信息或重要人物表数据。</p>
+            </div>
+          `;
+        }
+
+        // 检查是否为空状态（当前聊天视图）
+        if (currentView === 'chat' && workingNodes.length === 0) {
+          return `
+            <div class="acu-avatar-empty-state">
+              <i class="fa-solid fa-user-slash"></i>
+              <p>当前聊天中没有找到角色数据。请先在仪表盘中添加主角或NPC。</p>
+            </div>
+          `;
+        }
 
         // 先渲染{{user}}（如果存在）
         if (userNode) {
@@ -15751,25 +16020,58 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
           const aliases = (data.aliases || []).join(', ');
           const hasAvatar = !!displayUrl;
 
+          // 默认策略：仅在首次加载时，如果没有头像URL，自动展开方便编辑
+          if (isInitialLoad && !hasAvatar && !data.url) {
+            expandedItems.add(userNodeForDisplay.name);
+          }
+          const isExpanded = expandedItems.has(userNodeForDisplay.name);
+
           listHtml += `
-                    <div class="acu-avatar-item" data-name="${escapeHtml(userNodeForDisplay.name)}" data-has-local="${hasLocal}" data-display-url="${escapeHtml(displayUrl)}">
-                        <div class="acu-avatar-preview-wrap">
-                            <div class="acu-avatar-preview ${hasAvatar ? 'has-image' : ''}" data-avatar-url="${escapeHtml(displayUrl)}" data-avatar-x="${data.offsetX ?? 50}" data-avatar-y="${data.offsetY ?? 50}" data-avatar-scale="${data.scale ?? 150}">
-                                ${!hasAvatar ? `<span>${escapeHtml(userNodeForDisplay.name.charAt(0))}</span><i class="fa-solid fa-camera acu-avatar-camera-hint"></i>` : ''}
+                    <div class="acu-avatar-item ${isExpanded ? 'expanded' : ''}" data-name="${escapeHtml(userNodeForDisplay.name)}" data-has-local="${hasLocal}" data-display-url="${escapeHtml(displayUrl)}">
+                        <!-- 折叠态 -->
+                        <div class="acu-avatar-row-collapsed">
+                            <div class="acu-avatar-preview-wrap">
+                                <div class="acu-avatar-preview ${hasAvatar ? 'has-image' : ''}" data-avatar-url="${escapeHtml(displayUrl)}" data-avatar-x="${data.offsetX ?? 50}" data-avatar-y="${data.offsetY ?? 50}" data-avatar-scale="${data.scale ?? 150}">
+                                    ${!hasAvatar ? `<span>${escapeHtml(userNodeForDisplay.name.charAt(0))}</span><i class="fa-solid fa-camera acu-avatar-camera-hint"></i>` : ''}
+                                </div>
+                                ${sourceLabel}
                             </div>
-                            ${sourceLabel}
-                        </div>
-                        <div class="acu-avatar-info">
-                            <div class="acu-avatar-name-row">
+                            <div class="acu-avatar-info-summary">
                                 <div class="acu-avatar-name">${escapeHtml(userNodeForDisplay.name)}<button class="acu-protagonist-toggle ${getDiceConfig().autoMergeProtagonist !== false ? 'active' : ''}" title="自动将&quot;主角&quot;合并为{{user}}的别名"><i class="fa-solid ${getDiceConfig().autoMergeProtagonist !== false ? 'fa-link' : 'fa-link-slash'}"></i></button></div>
-                                <div class="acu-avatar-actions">
-                                    <button class="acu-avatar-save-btn" title="保存"><i class="fa-solid fa-check"></i></button>
-                                    <button class="acu-avatar-clear-btn" title="清除"><i class="fa-solid fa-trash"></i></button>
+                                <div class="acu-avatar-url-preview">${escapeHtml(currentUrl || '无头像设置')}</div>
+                            </div>
+                            <div class="acu-avatar-actions-collapsed">
+                                <button class="acu-btn-action acu-btn-edit" title="编辑"><i class="fa-solid ${isExpanded ? 'fa-chevron-up' : 'fa-pencil'}"></i></button>
+                                <button class="acu-btn-action acu-btn-delete acu-avatar-clear-btn" title="清除"><i class="fa-solid fa-trash"></i></button>
+                            </div>
+                        </div>
+
+                        <!-- 展开态 -->
+                        <div class="acu-avatar-row-expanded">
+                            <div class="acu-avatar-details">
+                                <div class="acu-input-group">
+                                    <label class="acu-input-group-label">URL</label>
+                                    <div class="acu-url-container">
+                                        <input type="text" class="acu-input acu-avatar-url" placeholder="粘贴图片链接..." value="${escapeHtml(currentUrl)}" />
+                                    </div>
+                                </div>
+                                <div class="acu-input-group">
+                                    <label class="acu-input-group-label">别名</label>
+                                    <div class="acu-alias-tags-container">
+                                        ${(data.aliases || []).map(a => `<span class="acu-alias-tag" data-alias="${escapeHtml(a)}">${escapeHtml(a)} <i class="fa-solid fa-xmark"></i></span>`).join('')}
+                                        <input type="text" class="acu-alias-input" placeholder="输入别名，逗号分隔..." />
+                                    </div>
+                                </div>
+                                <div class="acu-avatar-expanded-footer">
+                                    <button class="acu-btn-action acu-avatar-clear-all-btn" title="清除头像"><i class="fa-solid fa-user-slash"></i></button>
+                                    <button class="acu-btn-action acu-avatar-clear-alias-btn" title="清空别名"><i class="fa-solid fa-tags"></i></button>
+                                    <label class="acu-avatar-upload-trigger">
+                                        <i class="fa-solid fa-cloud-arrow-up"></i> 本地上传
+                                        <input type="file" accept="image/*" class="acu-avatar-file-input" style="display:none" />
+                                    </label>
+                                    <button class="acu-btn-action acu-btn-save acu-avatar-save-btn" title="保存"><i class="fa-solid fa-check"></i>&nbsp;保存</button>
                                 </div>
                             </div>
-                            <input type="text" class="acu-avatar-url" placeholder="粘贴URL..." value="${escapeHtml(currentUrl)}" />
-                            <input type="text" class="acu-avatar-aliases" placeholder="别名（逗号分隔）..." value="${escapeHtml(aliases)}" title="例如: 睦, 睦头" />
-                            <input type="file" accept="image/*" class="acu-avatar-file-input" />
                         </div>
                     </div>
                 `;
@@ -15796,25 +16098,58 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
           const aliases = (data.aliases || []).join(', ');
           const hasAvatar = !!displayUrl;
 
+          // 默认策略：仅在首次加载时，如果没有头像URL，自动展开方便编辑
+          if (isInitialLoad && !hasAvatar && !data.url) {
+            expandedItems.add(node.name);
+          }
+          const isExpanded = expandedItems.has(node.name);
+
           listHtml += `
-                    <div class="acu-avatar-item" data-name="${escapeHtml(node.name)}" data-has-local="${hasLocal}" data-display-url="${escapeHtml(displayUrl)}">
-                        <div class="acu-avatar-preview-wrap">
-                            <div class="acu-avatar-preview ${hasAvatar ? 'has-image' : ''}" data-avatar-url="${escapeHtml(displayUrl)}" data-avatar-x="${data.offsetX ?? 50}" data-avatar-y="${data.offsetY ?? 50}" data-avatar-scale="${data.scale ?? 150}">
-                                ${!hasAvatar ? `<span>${escapeHtml(node.name.charAt(0))}</span><i class="fa-solid fa-camera acu-avatar-camera-hint"></i>` : ''}
+                    <div class="acu-avatar-item ${isExpanded ? 'expanded' : ''}" data-name="${escapeHtml(node.name)}" data-has-local="${hasLocal}" data-display-url="${escapeHtml(displayUrl)}">
+                        <!-- 折叠态 -->
+                        <div class="acu-avatar-row-collapsed">
+                            <div class="acu-avatar-preview-wrap">
+                                <div class="acu-avatar-preview ${hasAvatar ? 'has-image' : ''}" data-avatar-url="${escapeHtml(displayUrl)}" data-avatar-x="${data.offsetX ?? 50}" data-avatar-y="${data.offsetY ?? 50}" data-avatar-scale="${data.scale ?? 150}">
+                                    ${!hasAvatar ? `<span>${escapeHtml(node.name.charAt(0))}</span><i class="fa-solid fa-camera acu-avatar-camera-hint"></i>` : ''}
+                                </div>
+                                ${sourceLabel}
                             </div>
-                            ${sourceLabel}
-                        </div>
-                        <div class="acu-avatar-info">
-                            <div class="acu-avatar-name-row">
+                            <div class="acu-avatar-info-summary">
                                 <div class="acu-avatar-name">${escapeHtml(node.name)}</div>
-                                <div class="acu-avatar-actions">
-                                    <button class="acu-avatar-save-btn" title="保存"><i class="fa-solid fa-check"></i></button>
-                                    <button class="acu-avatar-clear-btn" title="清除"><i class="fa-solid fa-trash"></i></button>
+                                <div class="acu-avatar-url-preview">${escapeHtml(currentUrl || '无头像设置')}</div>
+                            </div>
+                            <div class="acu-avatar-actions-collapsed">
+                                <button class="acu-btn-action acu-btn-edit" title="编辑"><i class="fa-solid ${isExpanded ? 'fa-chevron-up' : 'fa-pencil'}"></i></button>
+                                <button class="acu-btn-action acu-btn-delete acu-avatar-clear-btn" title="清除"><i class="fa-solid fa-trash"></i></button>
+                            </div>
+                        </div>
+
+                        <!-- 展开态 -->
+                        <div class="acu-avatar-row-expanded">
+                            <div class="acu-avatar-details">
+                                <div class="acu-input-group">
+                                    <label class="acu-input-group-label">URL</label>
+                                    <div class="acu-url-container">
+                                        <input type="text" class="acu-input acu-avatar-url" placeholder="粘贴图片链接..." value="${escapeHtml(currentUrl)}" />
+                                    </div>
+                                </div>
+                                <div class="acu-input-group">
+                                    <label class="acu-input-group-label">别名</label>
+                                    <div class="acu-alias-tags-container">
+                                        ${(data.aliases || []).map(a => `<span class="acu-alias-tag" data-alias="${escapeHtml(a)}">${escapeHtml(a)} <i class="fa-solid fa-xmark"></i></span>`).join('')}
+                                        <input type="text" class="acu-alias-input" placeholder="输入别名，逗号分隔..." />
+                                    </div>
+                                </div>
+                                <div class="acu-avatar-expanded-footer">
+                                    <button class="acu-btn-action acu-avatar-clear-all-btn" title="清除头像"><i class="fa-solid fa-user-slash"></i></button>
+                                    <button class="acu-btn-action acu-avatar-clear-alias-btn" title="清空别名"><i class="fa-solid fa-tags"></i></button>
+                                    <label class="acu-avatar-upload-trigger">
+                                        <i class="fa-solid fa-cloud-arrow-up"></i> 本地上传
+                                        <input type="file" accept="image/*" class="acu-avatar-file-input" style="display:none" />
+                                    </label>
+                                    <button class="acu-btn-action acu-btn-save acu-avatar-save-btn" title="保存"><i class="fa-solid fa-check"></i>&nbsp;保存</button>
                                 </div>
                             </div>
-                            <input type="text" class="acu-avatar-url" placeholder="粘贴URL..." value="${escapeHtml(currentUrl)}" />
-                            <input type="text" class="acu-avatar-aliases" placeholder="别名（逗号分隔）..." value="${escapeHtml(aliases)}" title="例如: 睦, 睦头" />
-                            <input type="file" accept="image/*" class="acu-avatar-file-input" />
                         </div>
                     </div>
                 `;
@@ -15847,9 +16182,32 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
                     <div class="acu-panel-header">
                         <div class="acu-avatar-title"><i class="fa-solid fa-user-circle"></i> 头像管理</div>
                         <div class="acu-avatar-header-actions">
-                            <button class="acu-avatar-import-btn" title="导入"><i class="fa-solid fa-file-import"></i></button>
-                            <button class="acu-avatar-export-btn" title="导出"><i class="fa-solid fa-file-export"></i></button>
+                            <button class="acu-btn-icon acu-avatar-import-btn" title="导入"><i class="fa-solid fa-file-import"></i></button>
+                            <button class="acu-btn-icon acu-avatar-export-btn" title="导出"><i class="fa-solid fa-file-export"></i></button>
                             <button class="acu-avatar-close"><i class="fa-solid fa-times"></i></button>
+                        </div>
+                    </div>
+                    <div class="acu-avatar-toolbar">
+                        <!-- 左侧:切换视图、排序、搜索 -->
+                        <div class="acu-toolbar-group left">
+                            <button class="acu-btn-icon acu-view-toggle" title="当前聊天 / 全局头像库" data-view="chat">
+                                <i class="fa-solid fa-comments"></i>
+                            </button>
+                            <div class="acu-select-wrapper sort-field">
+                                <select class="acu-toolbar-select acu-sort-field" title="排序方式">
+                                    <option value="name">名字</option>
+                                    <option value="date">日期</option>
+                                    <option value="source">来源</option>
+                                </select>
+                            </div>
+                            <button class="acu-btn-icon acu-sort-order" title="排序方向" data-dir="asc">
+                                <i class="fa-solid fa-arrow-down-a-z"></i>
+                            </button>
+                            <div class="acu-search-wrapper">
+                                <i class="fa-solid fa-magnifying-glass acu-search-icon"></i>
+                                <input type="text" class="acu-avatar-search" placeholder="搜索..." autocomplete="off">
+                                <i class="fa-solid fa-xmark acu-search-clear" style="display:none;"></i>
+                            </div>
                         </div>
                     </div>
                     <div class="acu-avatar-list" id="acu-avatar-list-container">
@@ -15909,6 +16267,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
             .find('span')
             .remove();
           $item.find('.acu-avatar-preview-wrap').append(sourceLabel);
+          $item.find('.acu-avatar-url-preview').text(data.url || '本地图片');
         } else {
           $preview
             .removeClass('has-image')
@@ -15925,13 +16284,634 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
             .html(
               `<span>${escapeHtml(name.charAt(0))}</span><i class="fa-solid fa-camera acu-avatar-camera-hint"></i>`,
             );
+          $item.find('.acu-avatar-url-preview').text('无头像设置');
         }
 
         $item.attr('data-has-local', hasLocal);
         $item.attr('data-display-url', displayUrl);
       };
 
+      // 刷新整个列表
+      const refreshList = async () => {
+        const listHtml = await buildList();
+        $manager.find('#acu-avatar-list-container').html(listHtml);
+        applyAvatarPreviewStyles($manager);
+        // 首次加载完成后，禁止后续自动展开
+        isInitialLoad = false;
+      };
+
+      // ========== 删除功能辅助函数 ==========
+
+      // Part A: 在表格中查找角色
+      const findCharacterInTable = (
+        name: string,
+      ): { tableKey: string; rowIndex: number; row: Record<string, unknown> } | null => {
+        try {
+          const rawData = typeof getTableData === 'function' ? getTableData() : null;
+          if (!rawData) return null;
+
+          // 获取角色的所有别名
+          const avatarData = AvatarManager.getAll()[name];
+          const aliases = avatarData?.aliases || [];
+          const allNames = [name, ...aliases].map(n => n.toLowerCase());
+
+          // 遍历所有表格
+          for (const [tableKey, tableData] of Object.entries(rawData)) {
+            if (!tableData || typeof tableData !== 'object') continue;
+            const rows = (tableData as { rows?: unknown[] }).rows;
+            if (!Array.isArray(rows)) continue;
+
+            for (let i = 0; i < rows.length; i++) {
+              const row = rows[i] as Record<string, unknown>;
+              if (!row) continue;
+
+              // 检查名字列（常见列名）
+              const nameColumns = ['名字', '角色名', '姓名', 'name', 'Name', '名称'];
+              for (const col of nameColumns) {
+                const cellValue = row[col];
+                if (cellValue && typeof cellValue === 'string') {
+                  if (allNames.includes(cellValue.toLowerCase())) {
+                    return { tableKey, rowIndex: i, row };
+                  }
+                }
+              }
+            }
+          }
+          return null;
+        } catch (err) {
+          console.error('[DICE] findCharacterInTable 错误:', err);
+          return null;
+        }
+      };
+
+      // Part A: 查找人际关系引用
+      const findRelationshipReferences = (
+        name: string,
+        aliases: string[] = [],
+      ): Array<{
+        tableName: string;
+        rowIndex: number;
+        characterName: string;
+        relationText: string;
+        matchedRelation: string;
+      }> => {
+        const references: Array<{
+          tableName: string;
+          rowIndex: number;
+          characterName: string;
+          relationText: string;
+          matchedRelation: string;
+        }> = [];
+
+        try {
+          const rawData = typeof getTableData === 'function' ? getTableData() : null;
+          if (!rawData) return references;
+
+          const allNames = [name, ...aliases].map(n => n.toLowerCase());
+
+          for (const [tKey, tData] of Object.entries(rawData)) {
+            if (!tKey.startsWith('sheet_')) continue;
+            if (!tData || typeof tData !== 'object') continue;
+
+            const sheet = tData as { name?: string; content?: unknown[][] };
+            if (!Array.isArray(sheet.content) || sheet.content.length < 2) continue;
+
+            const headers = sheet.content[0] as string[];
+            const tableName = sheet.name || tKey.replace('sheet_', '');
+
+            // 查找"名字"列索引
+            const nameColumns = ['名字', '角色名', '姓名', 'name', 'Name', '名称'];
+            let nameColIndex = -1;
+            for (const col of nameColumns) {
+              const idx = headers.findIndex(h => h === col);
+              if (idx !== -1) {
+                nameColIndex = idx;
+                break;
+              }
+            }
+
+            // 查找"人际关系"列索引
+            const relationColIndex = headers.findIndex(h => h === '人际关系');
+            if (relationColIndex === -1) continue;
+
+            // 遍历数据行（跳过表头）
+            for (let i = 1; i < sheet.content.length; i++) {
+              const row = sheet.content[i];
+              if (!Array.isArray(row)) continue;
+
+              // 获取该行角色名
+              let rowCharacterName = '';
+              if (nameColIndex !== -1) {
+                const cellValue = row[nameColIndex];
+                if (cellValue && typeof cellValue === 'string') {
+                  rowCharacterName = cellValue;
+                }
+              }
+
+              // 检查人际关系列
+              const relationValue = row[relationColIndex];
+              if (relationValue && typeof relationValue === 'string') {
+                // 格式: "角色名:关系词;角色名:关系词"
+                const parts = relationValue.split(/[;；]/);
+                for (const part of parts) {
+                  const splitResult = part.split(/[:：]/);
+                  const refName = splitResult[0];
+                  const relationWord = splitResult[1] || '';
+                  if (refName && allNames.includes(refName.trim().toLowerCase())) {
+                    references.push({
+                      tableName,
+                      rowIndex: i - 1, // 减1因为跳过了表头
+                      characterName: rowCharacterName || `行${i}`,
+                      relationText: relationValue,
+                      matchedRelation: relationWord.trim(),
+                    });
+                    break; // 每行只记录一次
+                  }
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.error('[DICE] findRelationshipReferences 错误:', err);
+        }
+
+        return references;
+      };
+
+      // Part B: 删除确认弹窗 (Redesigned)
+      const showDeleteConfirmModal = (
+        info: {
+          name: string;
+          avatarUrl: string;
+          tableRow: { tableKey: string; rowIndex: number; row: Record<string, unknown> } | null;
+          relationships: Array<{
+            tableName: string;
+            rowIndex: number;
+            characterName: string;
+            relationText: string;
+            matchedRelation: string;
+          }>;
+        },
+        onConfirm: () => void,
+        onClose?: () => void,
+      ) => {
+        const { name, tableRow, relationships } = info;
+
+        // 1. 获取头像完整配置 (包含偏移/缩放/别名)
+        const avatarData = AvatarManager.getAll()[name] || {};
+        const aliases = avatarData.aliases || [];
+        const avX = avatarData.offsetX ?? 50;
+        const avY = avatarData.offsetY ?? 50;
+        const avScale = avatarData.scale ?? 150;
+        const displayUrl = avatarData.url || info.avatarUrl;
+
+        // 2. 扫描别名在表格中的分布
+        const aliasRows: Array<{ tableKey: string; alias: string }> = [];
+        if (aliases.length > 0) {
+          try {
+            const rawData = typeof getTableData === 'function' ? getTableData() : null;
+            if (rawData) {
+              const lowerAliases = aliases.map((a: string) => a.toLowerCase());
+              for (const [tKey, tData] of Object.entries(rawData)) {
+                if (!tKey.startsWith('sheet_')) continue;
+                if (!tData || typeof tData !== 'object') continue;
+                const sheet = tData as { content?: unknown[][] };
+                if (!Array.isArray(sheet.content) || sheet.content.length < 2) continue;
+
+                const headers = sheet.content[0] as string[];
+                const nameColumns = ['名字', '角色名', '姓名', 'name', 'Name', '名称'];
+                let nameColIndex = -1;
+                for (const col of nameColumns) {
+                  const idx = headers.findIndex(h => h === col);
+                  if (idx !== -1) {
+                    nameColIndex = idx;
+                    break;
+                  }
+                }
+                if (nameColIndex === -1) continue;
+
+                for (let i = 1; i < sheet.content.length; i++) {
+                  const row = sheet.content[i];
+                  if (!Array.isArray(row)) continue;
+                  const cellValue = row[nameColIndex];
+                  if (cellValue && typeof cellValue === 'string') {
+                    if (lowerAliases.includes(cellValue.toLowerCase())) {
+                      aliasRows.push({ tableKey: tKey.replace('sheet_', ''), alias: cellValue });
+                    }
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('[DeleteModal] Alias scan failed', e);
+          }
+        }
+
+        // 3. 构建 HTML 内容
+        const modalHtml = `
+          <div class="acu-delete-confirm-overlay acu-theme-${config.theme}">
+            <div class="acu-delete-confirm-modal redesign">
+
+              <!-- 头部 -->
+              <div class="acu-delete-header destruct">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+                删除角色确认
+                <button class="acu-delete-close-btn" title="关闭">
+                  <i class="fa-solid fa-xmark"></i>
+                </button>
+              </div>
+
+              <div class="acu-delete-content">
+
+                <!-- 核心身份 (红色区域) -->
+                <div class="acu-del-section destruct">
+                  <div class="acu-del-section-head">
+                    <i class="fa-solid fa-id-card"></i> 将永久删除
+                  </div>
+                  <div class="acu-del-card main-identity">
+                    <div class="acu-del-avatar-box">
+                      <div class="acu-avatar-preview ${displayUrl ? 'has-image' : ''}"
+                           data-avatar-url="${escapeHtml(displayUrl || '')}"
+                           data-avatar-x="${avX}"
+                           data-avatar-y="${avY}"
+                           data-avatar-scale="${avScale}">
+                        ${!displayUrl ? `<span>${escapeHtml(name.charAt(0))}</span>` : ''}
+                      </div>
+                    </div>
+                    <div class="acu-del-info">
+                      <div class="acu-del-name">${escapeHtml(name)}</div>
+                      <div class="acu-del-meta">头像配置与映射记录</div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 关联数据 (橙色区域) -->
+                ${
+                  tableRow || aliases.length > 0
+                    ? `
+                <div class="acu-del-section warning">
+                  <div class="acu-del-section-head">
+                    <i class="fa-solid fa-database"></i> 关联数据清理
+                  </div>
+                  <ul class="acu-del-list">
+                    ${
+                      tableRow
+                        ? `
+                      <li>
+                        <i class="fa-solid fa-table"></i>
+                        <span>主数据行: <strong>${escapeHtml(tableRow.tableKey)}</strong></span>
+                      </li>
+                    `
+                        : ''
+                    }
+                    ${
+                      aliases.length > 0
+                        ? `
+                      <li class="sub-group">
+                        <div class="group-title"><i class="fa-solid fa-tags"></i> 别名 (${aliases.length}个)</div>
+                        <div class="group-content">${aliases.map((a: string) => `<span class="tag">${escapeHtml(a)}</span>`).join('')}</div>
+                        ${
+                          aliasRows.length > 0
+                            ? `
+                          <div class="group-warning">
+                            <i class="fa-solid fa-trash-can"></i> 将删除 ${aliasRows.length} 行别名数据
+                            <span class="detail">(${aliasRows
+                              .map(r => r.tableKey)
+                              .slice(0, 3)
+                              .join(', ')}${aliasRows.length > 3 ? '...' : ''})</span>
+                          </div>
+                        `
+                            : ''
+                        }
+                      </li>
+                    `
+                        : ''
+                    }
+                  </ul>
+                </div>
+                `
+                    : ''
+                }
+
+                <!-- 关系引用 (橙色区域 - 与关联数据清理一致) -->
+                ${
+                  relationships.length > 0
+                    ? `
+                <div class="acu-del-section warning">
+                  <div class="acu-del-section-head">
+                    <i class="fa-solid fa-link"></i> 人际关系清除
+                  </div>
+                  <div class="acu-del-summary">
+                    将从 <strong>${relationships.length}</strong> 处人际关系中移除此角色
+                  </div>
+                  <ul class="acu-del-list compact">
+                    ${relationships
+                      .slice(0, 5)
+                      .map(
+                        rel => `
+                      <li>
+                        <i class="fa-solid fa-user-tag"></i>
+                        <span>${escapeHtml(rel.tableName)}.${escapeHtml(rel.characterName)}${rel.matchedRelation ? ` <span class="relation-tag">${escapeHtml(rel.matchedRelation)}</span>` : ''}</span>
+                      </li>
+                    `,
+                      )
+                      .join('')}
+                    ${relationships.length > 5 ? `<li class="more">... 以及其他 ${relationships.length - 5} 处</li>` : ''}
+                  </ul>
+                </div>
+                `
+                    : ''
+                }
+
+                <div class="acu-del-final-warn">
+                  此操作 <strong>不可撤销</strong>，请确认是否继续？
+                </div>
+              </div>
+
+              <!-- 底部按钮 -->
+              <div class="acu-delete-actions">
+                <button class="acu-delete-cancel-btn">
+                  取消
+                </button>
+                <button class="acu-delete-confirm-btn destruct">
+                  <i class="fa-solid fa-trash"></i> 确认永久删除
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+
+        const $modal = $(modalHtml);
+        $('body').append($modal);
+
+        // 应用头像预览样式 (复用 applyAvatarPreviewStyles 逻辑)
+        $modal.find('.acu-avatar-preview').each(function () {
+          const $preview = $(this);
+          const url = $preview.attr('data-avatar-url');
+          if (!url) return;
+          const offsetX = Number($preview.attr('data-avatar-x') || 50);
+          const offsetY = Number($preview.attr('data-avatar-y') || 50);
+          const scale = Number($preview.attr('data-avatar-scale') || 150);
+          $preview.css({
+            '--acu-avatar-image': `url('${url}')`,
+            '--acu-avatar-x': `${offsetX}%`,
+            '--acu-avatar-y': `${offsetY}%`,
+            '--acu-avatar-scale': `${scale}%`,
+          });
+        });
+
+        // 关闭弹窗
+        const closeModal = () => {
+          $modal.addClass('closing');
+          setTimeout(() => {
+            $modal.remove();
+            onClose?.();
+          }, 200);
+        };
+
+        // ESC 键关闭
+        const handleKeydown = (e: KeyboardEvent) => {
+          if (e.key === 'Escape') {
+            closeModal();
+            $(document).off(
+              'keydown',
+              handleKeydown as unknown as JQuery.TypeEventHandler<Document, unknown, Document, Document, 'keydown'>,
+            );
+          }
+        };
+        $(document).on(
+          'keydown',
+          handleKeydown as unknown as JQuery.TypeEventHandler<Document, unknown, Document, Document, 'keydown'>,
+        );
+
+        // 点击遮罩关闭
+        $modal.on('click', function (e) {
+          if ($(e.target).hasClass('acu-delete-confirm-overlay')) {
+            closeModal();
+          }
+        });
+
+        // 取消按钮
+        $modal.find('.acu-delete-cancel-btn').on('click', closeModal);
+
+        // 关闭按钮 (×)
+        $modal.find('.acu-delete-close-btn').on('click', closeModal);
+
+        // 确认按钮
+        $modal.find('.acu-delete-confirm-btn').on('click', () => {
+          const $btn = $modal.find('.acu-delete-confirm-btn');
+          $btn.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i> 删除中...');
+          setTimeout(() => {
+            closeModal();
+            onConfirm();
+          }, 50);
+        });
+      };
+
+      // Part D: 执行删除
+      const executeCharacterDelete = async (name: string) => {
+        try {
+          const avatarData = AvatarManager.getAll()[name];
+          const aliases = avatarData?.aliases || [];
+
+          // 1. 删除头像
+          await AvatarManager.deleteLocalAvatar(name);
+          AvatarManager.remove(name);
+
+          // 收集需要保存的表格keys
+          const modifiedSheetKeys = new Set<string>();
+
+          // 2. 获取表格数据（使用 cachedRawData 或 getTableData，与现有删除整行逻辑一致）
+          let rawData = typeof getTableData === 'function' ? getTableData() : null;
+          if (!rawData) {
+            console.warn('[DICE] 无法获取表格数据，跳过表格行删除');
+          }
+
+          // 3. 删除表格行（复用现有删除整行的数据结构：content 二维数组）
+          if (rawData) {
+            const allNames = [name, ...aliases].map(n => n.toLowerCase());
+
+            // 遍历所有表格查找并删除角色行
+            for (const [tableKey, tableData] of Object.entries(rawData)) {
+              if (!tableKey.startsWith('sheet_')) continue;
+              if (!tableData || typeof tableData !== 'object') continue;
+
+              const sheet = tableData as { content?: unknown[][] };
+              if (!Array.isArray(sheet.content) || sheet.content.length < 2) continue;
+
+              // 获取表头，找到"名字"列的索引
+              const headers = sheet.content[0] as string[];
+              const nameColumns = ['名字', '角色名', '姓名', 'name', 'Name', '名称'];
+              let nameColIndex = -1;
+              for (const col of nameColumns) {
+                const idx = headers.findIndex(h => h === col);
+                if (idx !== -1) {
+                  nameColIndex = idx;
+                  break;
+                }
+              }
+
+              if (nameColIndex === -1) continue; // 该表格没有名字列
+
+              // 从后向前遍历数据行（跳过表头 content[0]），删除所有匹配的行
+              for (let i = sheet.content.length - 1; i >= 1; i--) {
+                const row = sheet.content[i];
+                if (!Array.isArray(row)) continue;
+
+                const cellValue = row[nameColIndex];
+                if (cellValue && typeof cellValue === 'string') {
+                  if (allNames.includes(cellValue.toLowerCase())) {
+                    // 删除该行（与现有删除整行逻辑一致）
+                    sheet.content.splice(i, 1);
+                    modifiedSheetKeys.add(tableKey);
+                    console.log(`[DICE] 已从表格 ${tableKey} 删除角色行 [${i}]: ${cellValue}`);
+                    // 不break，继续遍历删除所有别名对应的行
+                  }
+                }
+              }
+            }
+          }
+
+          // 4. 清理人际关系引用（直接在 rawData 上操作，使用 content 结构）
+          if (rawData) {
+            const allNames = [name, ...aliases].map(n => n.toLowerCase());
+
+            for (const [tableKey, tableData] of Object.entries(rawData)) {
+              if (!tableKey.startsWith('sheet_')) continue;
+              if (!tableData || typeof tableData !== 'object') continue;
+
+              const sheet = tableData as { content?: unknown[][] };
+              if (!Array.isArray(sheet.content) || sheet.content.length < 2) continue;
+
+              // 获取表头，找到"人际关系"列的索引
+              const headers = sheet.content[0] as string[];
+              const relationColIndex = headers.findIndex(h => h === '人际关系');
+              if (relationColIndex === -1) continue;
+
+              // 遍历数据行（跳过表头）
+              for (let i = 1; i < sheet.content.length; i++) {
+                const row = sheet.content[i];
+                if (!Array.isArray(row)) continue;
+
+                const relationValue = row[relationColIndex];
+                if (typeof relationValue !== 'string' || !relationValue) continue;
+
+                // 过滤掉包含被删除角色的部分
+                const parts = relationValue.split(/[;；]/);
+                const filteredParts = parts.filter(part => {
+                  const [refName] = part.split(/[:：]/);
+                  return !refName || !allNames.includes(refName.trim().toLowerCase());
+                });
+
+                const newValue = filteredParts.join(';');
+                if (newValue !== relationValue) {
+                  row[relationColIndex] = newValue;
+                  modifiedSheetKeys.add(tableKey);
+                }
+              }
+            }
+          }
+
+          // 5. 保存数据到数据库
+          if (rawData && modifiedSheetKeys.size > 0) {
+            await saveDataOnly(rawData, Array.from(modifiedSheetKeys));
+            // 触发界面刷新
+            if (typeof renderInterface === 'function') {
+              renderInterface();
+            }
+          }
+
+          // 6. 从 nodeArr 中移除被删除的角色（确保列表刷新时不再显示）
+          const idx = nodeArr.findIndex(n => n.name === name);
+          if (idx !== -1) {
+            nodeArr.splice(idx, 1);
+          }
+
+          // 7. 刷新头像管理列表
+          await refreshList();
+
+          // 8. 显示成功提示
+          if (window.toastr) {
+            window.toastr.success(`已删除角色 "${name}"`);
+          }
+
+          onUpdate?.();
+        } catch (err) {
+          console.error('[DICE] 删除角色失败:', err);
+          if (window.toastr) {
+            window.toastr.error('删除失败');
+          }
+        }
+      };
+
+      // ========== 删除功能辅助函数结束 ==========
+
       const bindAvatarEvents = () => {
+        // 视图切换(toggle图标)
+        $manager.on('click', '.acu-view-toggle', async function () {
+          const $btn = $(this);
+          const isChat = $btn.attr('data-view') === 'chat';
+          const newView = isChat ? 'global' : 'chat';
+
+          $btn.attr('data-view', newView);
+          currentView = newView;
+
+          const $icon = $btn.find('i');
+          if (newView === 'global') {
+            $icon.removeClass('fa-comments').addClass('fa-globe');
+            $btn.addClass('active');
+          } else {
+            $icon.removeClass('fa-globe').addClass('fa-comments');
+            $btn.removeClass('active');
+          }
+
+          await refreshList();
+        });
+
+        // 搜索(带防抖)
+        const debouncedSearch = _.debounce(async () => {
+          await refreshList();
+        }, 300);
+
+        $manager.on('input', '.acu-avatar-search', function () {
+          searchQuery = $(this).val().trim();
+          const $clear = $manager.find('.acu-search-clear');
+          $clear.toggle(!!searchQuery);
+          debouncedSearch();
+        });
+
+        $manager.on('click', '.acu-search-clear', async function () {
+          searchQuery = '';
+          $manager.find('.acu-avatar-search').val('');
+          $(this).hide();
+          await refreshList();
+        });
+
+        // 排序字段
+        $manager.on('change', '.acu-sort-field', async function () {
+          sortBy = $(this).val();
+          await refreshList();
+        });
+
+        // 排序方向(toggle图标)
+        $manager.on('click', '.acu-sort-order', async function () {
+          const $btn = $(this);
+          const isAsc = $btn.attr('data-dir') === 'asc';
+          const newDir = isAsc ? 'desc' : 'asc';
+
+          $btn.attr('data-dir', newDir);
+          sortOrder = newDir;
+
+          const $icon = $btn.find('i');
+          if (newDir === 'desc') {
+            $icon.removeClass('fa-arrow-down-a-z').addClass('fa-arrow-up-a-z');
+          } else {
+            $icon.removeClass('fa-arrow-up-a-z').addClass('fa-arrow-down-a-z');
+          }
+
+          await refreshList();
+        });
+
         // 点击头像预览
         $manager.on('click', '.acu-avatar-preview', async function (e) {
           e.stopPropagation();
@@ -15948,8 +16928,113 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
               onUpdate && onUpdate();
             });
           } else {
-            // 无图片 → 触发文件上传
+            // 无图片 → 直接触发本地上传
             $item.find('.acu-avatar-file-input').click();
+          }
+        });
+
+        // 展开/折叠切换
+        $manager.on('click', '.acu-btn-edit', function (e) {
+          e.stopPropagation();
+          const $item = $(this).closest('.acu-avatar-item');
+          const name = $item.data('name');
+          const isExpanded = $item.hasClass('expanded');
+
+          if (isExpanded) {
+            $item.removeClass('expanded');
+            expandedItems.delete(name);
+            $(this).find('i').removeClass('fa-chevron-up').addClass('fa-pencil');
+          } else {
+            $item.addClass('expanded');
+            expandedItems.add(name);
+            $(this).find('i').removeClass('fa-pencil').addClass('fa-chevron-up');
+          }
+        });
+
+        // 别名标签输入逻辑
+        $manager.on('keydown', '.acu-alias-input', function (e) {
+          if (e.key === 'Enter' || e.key === ',') {
+            e.preventDefault();
+            const val = $(this).val().trim();
+            if (val) {
+              const $container = $(this).closest('.acu-alias-tags-container');
+              // 检查重复
+              let exists = false;
+              $container.find('.acu-alias-tag').each(function () {
+                if ($(this).data('alias') === val) exists = true;
+              });
+
+              if (!exists) {
+                const tagHtml = `<span class="acu-alias-tag" data-alias="${escapeHtml(val)}">${escapeHtml(val)} <i class="fa-solid fa-xmark"></i></span>`;
+                $(this).before(tagHtml);
+              }
+              $(this).val('');
+            }
+          } else if (e.key === 'Backspace' && !$(this).val()) {
+            // 删除最后一个标签
+            $(this).prev('.acu-alias-tag').remove();
+          }
+        });
+
+        // 逗号输入处理 (用于中文逗号)
+        $manager.on('input', '.acu-alias-input', function (e) {
+          const val = $(this).val();
+          if (val.includes(',') || val.includes('，')) {
+            const parts = val.split(/[,，]/);
+            const lastPart = parts.pop(); // 保留最后一部分在输入框
+            const $container = $(this).closest('.acu-alias-tags-container');
+
+            parts.forEach(part => {
+              const cleanPart = part.trim();
+              if (cleanPart) {
+                let exists = false;
+                $container.find('.acu-alias-tag').each(function () {
+                  if ($(this).data('alias') === cleanPart) exists = true;
+                });
+                if (!exists) {
+                  const tagHtml = `<span class="acu-alias-tag" data-alias="${escapeHtml(cleanPart)}">${escapeHtml(cleanPart)} <i class="fa-solid fa-xmark"></i></span>`;
+                  $(this).before(tagHtml);
+                }
+              }
+            });
+            $(this).val(lastPart);
+          }
+        });
+
+        // 粘贴处理
+        $manager.on('paste', '.acu-alias-input', function (e) {
+          e.preventDefault();
+          const clipboardData = (e.originalEvent || e).clipboardData;
+          const pastedData = clipboardData.getData('text');
+          if (!pastedData) return;
+
+          const parts = pastedData.split(/[,，\n]/);
+          const $container = $(this).closest('.acu-alias-tags-container');
+
+          parts.forEach(part => {
+            const cleanPart = part.trim();
+            if (cleanPart) {
+              let exists = false;
+              $container.find('.acu-alias-tag').each(function () {
+                if ($(this).data('alias') === cleanPart) exists = true;
+              });
+              if (!exists) {
+                const tagHtml = `<span class="acu-alias-tag" data-alias="${escapeHtml(cleanPart)}">${escapeHtml(cleanPart)} <i class="fa-solid fa-xmark"></i></span>`;
+                $(this).before(tagHtml);
+              }
+            }
+          });
+        });
+
+        // 删除标签
+        $manager.on('click', '.acu-alias-tag i', function () {
+          $(this).parent().remove();
+        });
+
+        // 点击容器聚焦输入框
+        $manager.on('click', '.acu-alias-tags-container', function (e) {
+          if (e.target === this) {
+            $(this).find('.acu-alias-input').focus();
           }
         });
 
@@ -16018,13 +17103,17 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
           const $item = $(this).closest('.acu-avatar-item');
           const name = $item.data('name');
           const url = $item.find('.acu-avatar-url').val().trim();
-          const aliasesStr = $item.find('.acu-avatar-aliases').val().trim();
-          const aliases = aliasesStr
-            ? aliasesStr
-                .split(/[,，]/)
-                .map(s => s.trim())
-                .filter(s => s && s !== name)
-            : [];
+
+          // 从标签收集别名
+          const aliases = [];
+          $item.find('.acu-alias-tag').each(function () {
+            aliases.push($(this).data('alias'));
+          });
+          // 也检查输入框里有没有残留的内容
+          const pendingAlias = $item.find('.acu-alias-input').val().trim();
+          if (pendingAlias && !aliases.includes(pendingAlias)) {
+            aliases.push(pendingAlias);
+          }
 
           const data = AvatarManager.getAll()[name] || {};
 
@@ -16046,18 +17135,64 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
           }
         });
 
-        // 清除
-        $manager.on('click', '.acu-avatar-clear-btn', async function () {
+        // 清除头像按钮（同时清除本地头像和URL）
+        $manager.on('click', '.acu-avatar-clear-all-btn', async function () {
           const $item = $(this).closest('.acu-avatar-item');
-          const name = $item.data('name');
+          const name = $item.data('name') as string;
 
-          await AvatarManager.deleteLocalAvatar(name);
-          AvatarManager.remove(name);
-
+          // 清除URL输入框
           $item.find('.acu-avatar-url').val('');
-          $item.find('.acu-avatar-aliases').val('');
+
+          // 清除本地头像（如有）
+          const hasLocal = await AvatarManager.hasLocalAvatar(name);
+          if (hasLocal) {
+            await LocalAvatarDB.delete(name);
+          }
+
+          // 更新数据：清除URL，保留别名和位置设置
+          const data = AvatarManager.getAll()[name] || {};
+          AvatarManager.set(name, '', data.offsetX ?? 50, data.offsetY ?? 50, data.scale ?? 150, data.aliases || []);
+
+          // 刷新显示
           await refreshItem(name);
           onUpdate && onUpdate();
+        });
+
+        // 清空别名按钮
+        $manager.on('click', '.acu-avatar-clear-alias-btn', function () {
+          const $item = $(this).closest('.acu-avatar-item');
+          $item.find('.acu-alias-tag').remove();
+          $item.find('.acu-alias-input').val('');
+        });
+
+        // 清除（删除角色）
+        $manager.on('click', '.acu-avatar-clear-btn', async function () {
+          const $item = $(this).closest('.acu-avatar-item');
+          const name = $item.data('name') as string;
+
+          // {{user}} 不应被删除（按钮应该已隐藏，但做双重保护）
+          if (name === '{{user}}') {
+            if (window.toastr) window.toastr.warning('无法删除主角');
+            return;
+          }
+
+          // 收集删除信息
+          const avatarData = AvatarManager.getAll()[name];
+          const aliases = avatarData?.aliases || [];
+          const tableRow = findCharacterInTable(name);
+          const relationships = findRelationshipReferences(name, aliases);
+
+          // 获取头像 URL 用于预览
+          let avatarUrl = '';
+          const hasLocal = await AvatarManager.hasLocalAvatar(name);
+          if (hasLocal) {
+            avatarUrl = (await LocalAvatarDB.get(name)) || '';
+          } else if (avatarData?.url) {
+            avatarUrl = avatarData.url;
+          }
+
+          // 显示确认弹窗
+          showDeleteConfirmModal({ name, avatarUrl, tableRow, relationships }, () => executeCharacterDelete(name));
         });
 
         // 导出
@@ -16234,7 +17369,8 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
             <div class="acu-import-confirm-overlay acu-theme-${config.theme}">
                 <div class="acu-import-confirm-dialog">
                     <div class="acu-import-confirm-header">
-                        <i class="fa-solid fa-file-import"></i> 导入头像配置
+                        <span class="acu-import-confirm-title"><i class="fa-solid fa-file-import"></i> 导入头像配置</span>
+                        <button class="acu-import-close-btn" title="关闭"><i class="fa-solid fa-times"></i></button>
                     </div>
                     <div class="acu-import-confirm-body">
                         <div class="acu-import-stats">
@@ -16312,6 +17448,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     const closeDialog = () => $dialog.remove();
 
     $dialog.find('.acu-import-cancel-btn').click(closeDialog);
+    $dialog.find('.acu-import-close-btn').click(closeDialog);
     setupOverlayClose($dialog, 'acu-import-confirm-overlay', closeDialog);
 
     $dialog.find('.acu-import-confirm-btn').click(function () {
@@ -23678,6 +24815,9 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       return;
     }
 
+    // [修复] 在防抖前立即保存滚动状态，确保锁定操作等场景下滚动位置不丢失
+    saveCurrentTabState();
+
     // 防抖：如果已有待执行的渲染，取消它
     if (renderInterfaceTimer) {
       clearTimeout(renderInterfaceTimer);
@@ -23756,25 +24896,6 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     } else {
       rawData = getTableData();
       isDataFromDatabase = true; // 数据来自数据库，需要检查自动替换
-
-      // [锁定功能] 应用锁定值覆盖
-      if (rawData) {
-        let anyLockApplied = false;
-        for (const sheetId in rawData) {
-          if (!sheetId.startsWith('sheet_')) continue;
-          const sheet = rawData[sheetId];
-          if (!sheet || !sheet.name || !sheet.content) continue;
-
-          const result = LockManager.applyLocks(sheet.name, sheet.content);
-          if (result.modified) {
-            anyLockApplied = true;
-          }
-          if (result.restored.length > 0) {
-          }
-        }
-        if (anyLockApplied) {
-        }
-      }
 
       // [自动替换] 应用auto模式的正则转换规则
       // 注意：只在非自动转换过程中执行，防止循环触发
@@ -27026,6 +28147,11 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     const config = getConfig();
     const headers = (tableData.headers || []).slice(1);
 
+    // [新增] 获取神-数据库锁定状态API
+    const dbLockApi = getDbLockAPI();
+    const sheetKey = dbLockApi ? getSheetKeyByTableName(tableName) : null;
+    const lockState = dbLockApi && sheetKey ? dbLockApi.getTableLockState(sheetKey) : null;
+
     // 获取当前表格的视图模式 (默认 list)
     const currentStyle = (getTableStyles() || {})[tableName] || 'list';
     const isGridMode = currentStyle === 'grid';
@@ -27042,7 +28168,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
     // --- 搜索和排序逻辑 ---
     let processedRows = tableData.rows.map((row, index) => {
-      const rowKey = LockManager.getRowKey(tableName, row, tableData.headers);
+      const rowKey = getRowKey(tableName, row, tableData.headers);
       const isBookmarked = rowKey && BookmarkManager.isBookmarked(tableName, rowKey);
       return { data: row, originalIndex: index, rowKey, isBookmarked };
     });
@@ -27146,6 +28272,17 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
           else if (isRowNew) rowClass = 'acu-highlight-diff';
         }
 
+        // [迁移] 计算整行锁定状态（移到外层以便卡片标题使用）
+        const cardLockRowKey = getRowKey(tableName, row, tableData.headers);
+        const cardRowIndex =
+          sheetKey && cardLockRowKey ? findRowIndexByPrimaryKey(sheetKey, tableName, cardLockRowKey) : null;
+        const isCardRowLocked = lockState && cardRowIndex !== null ? lockState.rows.includes(cardRowIndex) : false;
+
+        // [新增] 计算标题列是否单独锁定（用于在标题后显示小锁图标）
+        // titleColIndex 是包含行号列的索引，神-数据库的 colIndex 不包含行号列，需要 -1
+        const isTitleCellLocked =
+          lockState && cardRowIndex !== null ? lockState.cells.includes(`${cardRowIndex}:${titleColIndex - 1}`) : false;
+
         // 计算有效列数，用于网格视图末行占满处理
         const validColIndices = row.map((_, i) => i).filter(i => i > 0 && i !== titleColIndex);
         const isOddValidCount = validColIndices.length % 2 === 1;
@@ -27161,12 +28298,12 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
             // 清理列标题：移除括号/方括号及其内容
             const rawHeaderName = headers[cIdx - 1] || '属性' + cIdx;
 
-            // [新增] 在特殊列渲染之前计算锁定状态
-            const lockRowKey = LockManager.getRowKey(tableName, row, tableData.headers);
-            const isThisFieldLocked = lockRowKey && LockManager.isFieldLocked(tableName, lockRowKey, headers[cIdx - 1]);
-            const inlineLockIcon = isThisFieldLocked
-              ? '<i class="fa-solid fa-lock" style="color:var(--acu-accent);font-size:10px;opacity:0.7;margin-left:4px;" title="已锁定"></i>'
-              : '';
+            // [迁移] 计算单元格锁定状态（复用外层的cardRowIndex）
+            // [修复] cIdx 是包含行号列的索引，神-数据库的 colIndex 不包含行号列，需要 -1
+            const isThisCellLocked =
+              lockState && cardRowIndex !== null ? lockState.cells.includes(`${cardRowIndex}:${cIdx - 1}`) : false;
+            // [改进] 整行锁定时，所有单元格都显示锁定图标
+            const isThisFieldLocked = isCardRowLocked || isThisCellLocked;
 
             const headerName = rawHeaderName.replace(/[\(（\[【][^)）\]】]*[\)）\]】]/g, '').trim();
             const safeStr = str =>
@@ -27230,9 +28367,10 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
                     i < validRelations.length - 1 ? 'border-bottom:1px dashed rgba(128,128,128,0.2);' : '';
                   relHtml += '<div style="display:flex;align-items:center;gap:8px;padding:3px 0;' + borderStyle + '">';
                   relHtml +=
-                    '<span style="color:var(--acu-text-sub);font-size:0.95em;">' +
+                    '<span style="color:var(--acu-text-sub);font-size:0.95em;" data-locked="' +
+                    isThisFieldLocked +
+                    '">' +
                     safeStr(rel.name) +
-                    inlineLockIcon +
                     '</span>';
                   if (rel.relation) {
                     relHtml +=
@@ -27248,9 +28386,10 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
                 const rel = validRelations[0];
                 contentHtml = '<div style="display:flex;align-items:center;gap:8px;padding:3px 0;">';
                 contentHtml +=
-                  '<span style="color:var(--acu-text-sub);font-size:0.95em;">' +
+                  '<span style="color:var(--acu-text-sub);font-size:0.95em;" data-locked="' +
+                  isThisFieldLocked +
+                  '">' +
                   safeStr(rel.name) +
-                  inlineLockIcon +
                   '</span>';
                 if (rel.relation) {
                   contentHtml +=
@@ -27270,11 +28409,12 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
                 attrsHtml +=
                   '<div style="display:flex;justify-content:space-between;align-items:center;padding:2px 0;">';
                 attrsHtml +=
-                  '<span style="color:var(--acu-text-sub);font-size:0.9em;white-space:nowrap;" title="' +
+                  '<span style="color:var(--acu-text-sub);font-size:0.9em;white-space:nowrap;" data-locked="' +
+                  isThisFieldLocked +
+                  '" title="' +
                   safeStr(attr.name) +
                   '">' +
                   safeStr(attr.name.length > 3 ? attr.name.substring(0, 5) : attr.name) +
-                  inlineLockIcon +
                   '</span>';
                 attrsHtml += '<div style="display:flex;align-items:center;gap:4px;">';
                 attrsHtml +=
@@ -27299,9 +28439,10 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
               const showDice = !BlacklistManager.isBlacklisted(attr.name);
               contentHtml = '<div style="display:flex;justify-content:space-between;align-items:center;">';
               contentHtml +=
-                '<span style="color:var(--acu-text-sub);font-size:0.95em;">' +
+                '<span style="color:var(--acu-text-sub);font-size:0.95em;" data-locked="' +
+                isThisFieldLocked +
+                '">' +
                 safeStr(attr.name) +
-                inlineLockIcon +
                 '</span>';
               contentHtml += '<div style="display:flex;align-items:center;gap:6px;">';
               contentHtml += '<span style="color:var(--acu-text-main);font-weight:bold;">' + attr.value + '</span>';
@@ -27390,10 +28531,11 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
               cIdx +
               '" data-val="' +
               encodeURIComponent(cell ?? '') +
-              '"><div class="acu-card-label">' +
+              '"><div class="acu-card-label"><span data-locked="' +
+              isThisFieldLocked +
+              '">' +
               headerName +
-              inlineLockIcon +
-              '</div><div class="acu-card-value ' +
+              '</span></div><div class="acu-card-value ' +
               cellHighlight +
               '">' +
               contentHtml +
@@ -27418,21 +28560,23 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
           actionsHtml = `<div class="acu-card-actions">${actionBtns}</div>`;
         }
 
-        // 检查整行是否被锁定
-        const cardLockRowKey = LockManager.getRowKey(tableName, row, tableData.headers);
-        const isCardRowLocked = cardLockRowKey && LockManager.isRowLocked(tableName, cardLockRowKey);
-        const cardLockIcon = isCardRowLocked
-          ? ' <i class="fa-solid fa-lock" style="color:var(--acu-accent);font-size:11px;opacity:0.8;" title="整行已锁定"></i>'
-          : '';
+        // [修改] 标题小锁图标：整行锁定或标题列单独锁定时都显示
+        const isTitleLocked = isCardRowLocked || isTitleCellLocked;
+
+        // [移除] 不再需要单独的整行锁定样式类，因为每个单元格都会显示锁图标
+        // const cardLockedClass = isCardRowLocked ? ' acu-card-locked' : '';
 
         // 检查是否被bookmark
-        const cardBookmarkRowKey = LockManager.getRowKey(tableName, row, tableData.headers);
+        const cardBookmarkRowKey = getRowKey(tableName, row, tableData.headers);
         const isBookmarked = cardBookmarkRowKey && BookmarkManager.isBookmarked(tableName, cardBookmarkRowKey);
         const bookmarkIcon = cardBookmarkRowKey
           ? `<i class="${isBookmarked ? 'fa-solid' : 'fa-regular'} fa-bookmark acu-bookmark-icon ${isBookmarked ? 'bookmarked' : ''}" data-table="${escapeHtml(tableName)}" data-row-key="${escapeHtml(cardBookmarkRowKey)}" title="${isBookmarked ? '取消书签' : '添加书签'}"></i>`
           : '';
 
-        return `<div class="acu-data-card"><div class="acu-card-header"><span class="acu-card-index">${showDefaultIndex ? '#' + (realRowIdx + 1) : ''}</span><span class="acu-cell acu-editable-title ${rowClass}" data-key="${escapeHtml(tableData.key)}" data-tname="${escapeHtml(tableName)}" data-row="${realRowIdx}" data-col="${titleColIndex}" data-val="${encodeURIComponent(cardTitle ?? '')}" title="点击编辑标题">${escapeHtml(cardTitle)}${cardLockIcon}</span>${bookmarkIcon}</div><div class="acu-card-body ${isGridMode ? 'view-grid' : 'view-list'}">${cardBody}</div>${actionsHtml}</div>`;
+        // [移除] 不再需要右上角的整行锁定图标，因为每个单元格都会显示锁图标
+        // const rowLockBadge = isCardRowLocked ? '...' : '';
+
+        return `<div class="acu-data-card"><div class="acu-card-header"><span class="acu-card-index">${showDefaultIndex ? '#' + (realRowIdx + 1) : ''}</span><span class="acu-cell acu-editable-title ${rowClass}" data-key="${escapeHtml(tableData.key)}" data-tname="${escapeHtml(tableName)}" data-row="${realRowIdx}" data-col="${titleColIndex}" data-val="${encodeURIComponent(cardTitle ?? '')}" data-locked="${isTitleLocked}" title="点击编辑标题">${escapeHtml(cardTitle)}</span>${bookmarkIcon}</div><div class="acu-card-body ${isGridMode ? 'view-grid' : 'view-list'}">${cardBody}</div>${actionsHtml}</div>`;
       })
       .join('');
     html += `</div></div>`;
@@ -28834,6 +29978,24 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
         const titleColIndex = 1;
         const realRowIdx = rowIndex;
 
+        // [新增] 获取神-数据库锁定状态API
+        const dbLockApi = getDbLockAPI();
+        const sheetKey = dbLockApi ? getSheetKeyByTableName(tableName) : null;
+        const lockState = dbLockApi && sheetKey ? dbLockApi.getTableLockState(sheetKey) : null;
+
+        // [新增] 计算行锁定状态（在循环外部计算一次）
+        const lockRowKey = getRowKey(tableName, rowData, headers);
+        const dbRowIndex = sheetKey && lockRowKey ? findRowIndexByPrimaryKey(sheetKey, tableName, lockRowKey) : null;
+        const isCardRowLocked =
+          lockState && dbRowIndex !== null ? (lockState.rows?.includes(dbRowIndex) ?? false) : false;
+
+        // [新增] 计算标题列锁定状态
+        const isTitleLocked =
+          isCardRowLocked ||
+          (lockState && dbRowIndex !== null
+            ? (lockState.cells?.includes(`${dbRowIndex}:${titleColIndex - 1}`) ?? false)
+            : false);
+
         // 构建卡片内容（复用主表格的渲染逻辑）
         let cardBody = '';
         rowData.forEach((cell, cIdx) => {
@@ -28846,12 +30008,13 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
           const rawStr = String(cell || '').trim();
           if (!rawStr) return;
 
-          // [新增] 计算锁定状态
-          const lockRowKey = LockManager.getRowKey(tableName, rowData, headers);
-          const isThisFieldLocked = lockRowKey && LockManager.isFieldLocked(tableName, lockRowKey, headerName);
-          const inlineLockIcon = isThisFieldLocked
-            ? '<i class="fa-solid fa-lock" style="color:var(--acu-accent);font-size:10px;opacity:0.7;margin-left:4px;" title="已锁定"></i>'
-            : '';
+          // [修复] 计算锁定状态：整行锁定或单元格锁定
+          // [修复] cIdx 是包含行号列的索引，神-数据库的 colIndex 不包含行号列，需要 -1
+          const isThisCellLocked =
+            lockState && dbRowIndex !== null
+              ? (lockState.cells?.includes(`${dbRowIndex}:${cIdx - 1}`) ?? false)
+              : false;
+          const isThisFieldLocked = isCardRowLocked || isThisCellLocked;
 
           let contentHtml = '';
           let hideLabel = false;
@@ -28866,7 +30029,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
               relations.forEach((rel, i) => {
                 const borderStyle = i < relations.length - 1 ? 'border-bottom:1px dashed rgba(128,128,128,0.2);' : '';
                 relHtml += `<div style="display:flex;justify-content:flex-start;align-items:center;gap:8px;padding:3px 0;${borderStyle}">
-                              <span style="color:var(--acu-text-sub);font-size:0.95em;">${escapeHtml(rel.name)}${inlineLockIcon}</span>
+                              <span style="color:var(--acu-text-sub);font-size:0.95em;" data-locked="${isThisFieldLocked}">${escapeHtml(rel.name)}</span>
                               ${rel.relation ? `<span style="color:var(--acu-text-main);font-size:0.85em;background:var(--acu-badge-bg);padding:1px 6px;border-radius:8px;">${escapeHtml(rel.relation)}</span>` : ''}
                           </div>`;
               });
@@ -28875,7 +30038,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
               hideLabel = true; // [修复] 单个人际关系也需要隐藏标签
               const rel = relations[0];
               contentHtml = `<div style="display:flex;justify-content:flex-start;align-items:center;gap:8px;">
-                          <span style="color:var(--acu-text-sub);">${escapeHtml(rel.name)}${inlineLockIcon}</span>
+                          <span style="color:var(--acu-text-sub);" data-locked="${isThisFieldLocked}">${escapeHtml(rel.name)}</span>
                           <span style="color:var(--acu-text-main);font-size:0.85em;background:var(--acu-badge-bg);padding:1px 6px;border-radius:8px;">${escapeHtml(rel.relation)}</span>
                       </div>`;
             }
@@ -28886,7 +30049,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
               const showDice = !BlacklistManager.isBlacklisted(attr.name);
               const borderStyle = i < parsedAttrs.length - 1 ? 'border-bottom:1px dashed rgba(128,128,128,0.2);' : '';
               attrsHtml += `<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;${borderStyle}">
-                          <span style="color:var(--acu-text-sub);font-size:0.95em;">${escapeHtml(attr.name)}${inlineLockIcon}</span>
+                          <span style="color:var(--acu-text-sub);font-size:0.95em;" data-locked="${isThisFieldLocked}">${escapeHtml(attr.name)}</span>
                           <div style="display:flex;align-items:center;gap:6px;">
                               <span style="color:var(--acu-text-main);font-weight:bold;">${attr.value}</span>
                               ${showDice ? `<i class="fa-solid fa-dice-d20 acu-inline-dice-btn" data-attr-name="${escapeHtml(attr.name)}" data-attr-value="${attr.value}" style="cursor:pointer;color:var(--acu-accent);opacity:0.5;font-size:11px;" title="检定"></i>` : ''}
@@ -28898,7 +30061,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
             const attr = parsedAttrs[0];
             const showDice = !BlacklistManager.isBlacklisted(attr.name);
             contentHtml = `<div style="display:flex;justify-content:space-between;align-items:center;">
-                      <span style="color:var(--acu-text-sub);font-size:0.95em;">${escapeHtml(attr.name)}${inlineLockIcon}</span>
+                      <span style="color:var(--acu-text-sub);font-size:0.95em;" data-locked="${isThisFieldLocked}">${escapeHtml(attr.name)}</span>
                       <div style="display:flex;align-items:center;gap:6px;">
                           <span style="color:var(--acu-text-main);font-weight:bold;">${attr.value}</span>
                           ${showDice ? `<i class="fa-solid fa-dice-d20 acu-inline-dice-btn" data-attr-name="${escapeHtml(attr.name)}" data-attr-value="${attr.value}" style="cursor:pointer;color:var(--acu-accent);opacity:0.5;font-size:11px;" title="检定"></i>` : ''}
@@ -28919,7 +30082,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
           const rowClass = 'acu-card-row acu-cell' + (hideLabel ? ' acu-hide-label' : '');
           cardBody += `<div class="${rowClass}" data-key="${escapeHtml(tableKey)}" data-tname="${escapeHtml(tableName)}" data-row="${realRowIdx}" data-col="${cIdx}" data-val="${encodeURIComponent(cell ?? '')}">
-                <div class="acu-card-label">${escapeHtml(headerName)}</div>
+                <div class="acu-card-label"><span data-locked="${isThisFieldLocked}">${escapeHtml(headerName)}</span></div>
                 <div class="acu-card-value">${contentHtml}</div>
             </div>`;
         });
@@ -28944,7 +30107,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
                 <div class="acu-data-card" style="width:90vw;max-width:420px;max-height:85vh;overflow-y:auto;">
                     <div class="acu-card-header">
                         <span class="acu-card-index">#${realRowIdx + 1}</span>
-                        <span class="acu-cell acu-editable-title" data-key="${escapeHtml(tableKey)}" data-tname="${escapeHtml(tableName)}" data-row="${realRowIdx}" data-col="${titleColIndex}" data-val="${encodeURIComponent(title)}">${escapeHtml(title)}</span>
+                        <span class="acu-cell acu-editable-title" data-key="${escapeHtml(tableKey)}" data-tname="${escapeHtml(tableName)}" data-row="${realRowIdx}" data-col="${titleColIndex}" data-val="${encodeURIComponent(title)}" data-locked="${isTitleLocked}">${escapeHtml(title)}</span>
                         <button class="acu-preview-close" style="margin-left:auto;background:none;border:none;color:var(--acu-text-sub);cursor:pointer;font-size:16px;padding:4px;"><i class="fa-solid fa-times"></i></button>
                     </div>
                     <div class="acu-card-body view-list">${cardBody}</div>
@@ -29347,18 +30510,22 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     const backdrop = $('<div class="acu-menu-backdrop"></div>');
     $('body').append(backdrop);
 
-    const rowIdx = parseInt($(cell).data('row'), 10);
-    const colIdx = parseInt($(cell).data('col'), 10);
+    const $cell = $(cell); // 保存单元格引用用于直接操作 data-locked
+    const rowIdx = parseInt($cell.data('row'), 10);
+    const colIdx = parseInt($cell.data('col'), 10);
     if (isNaN(rowIdx) || isNaN(colIdx)) {
       console.warn('[DICE]ACU 无效的行/列索引');
       backdrop.remove();
       return;
     }
-    const tableKey = $(cell).data('key');
+    const tableKey = $cell.data('key');
     // v19.x 可能没有 tname，尝试获取
-    const tableName = $(cell).data('tname') || $(cell).closest('.acu-data-card').find('.acu-editable-title').text();
-    const content = decodeURIComponent($(cell).data('val'));
+    const tableName = $cell.data('tname') || $cell.closest('.acu-data-card').find('.acu-editable-title').text();
+    const content = decodeURIComponent($cell.data('val'));
     const config = getConfig();
+
+    // 保存卡片引用用于整行操作
+    const $card = $cell.closest('.acu-data-card');
 
     // 唯一标识 ID
     const cellId = `${tableKey}-${rowIdx}-${colIdx}`;
@@ -29370,11 +30537,44 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     // 计算锁定状态
     const headers = cachedRawData?.[tableKey]?.content?.[0] || [];
     const rowData = cachedRawData?.[tableKey]?.content?.[rowIdx + 1] || [];
-    const lockRowKey = LockManager.getRowKey(tableName, rowData, headers);
+    const lockRowKey = getRowKey(tableName, rowData, headers);
     const currentHeader = headers[colIdx] || '';
 
-    const isFieldLocked = lockRowKey && LockManager.isFieldLocked(tableName, lockRowKey, currentHeader);
-    const hasAnyLockInRow = lockRowKey && LockManager.hasAnyLock(tableName, lockRowKey);
+    let isFieldLocked = false;
+    let hasAnyLockInRow = false;
+    let rowIndex = -1;
+    let sheetKey = '';
+
+    const api = getDbLockAPI();
+    if (api && lockRowKey) {
+      sheetKey = getSheetKeyByTableName(tableName);
+      if (sheetKey) {
+        rowIndex = findRowIndexByPrimaryKey(sheetKey, tableName, lockRowKey);
+        if (rowIndex !== null && rowIndex !== -1) {
+          const lockState = api.getTableLockState(sheetKey);
+          if (lockState) {
+            // 检查行锁定
+            hasAnyLockInRow = lockState.rows?.includes(rowIndex) ?? false;
+            // 检查单元格锁定
+            // [修复] colIdx 是包含行号列的索引，神-数据库的 colIndex 不包含行号列，需要 -1
+            const cellKey = `${rowIndex}:${colIdx - 1}`;
+            isFieldLocked = lockState.cells?.includes(cellKey) ?? false;
+          }
+        } else {
+          console.warn('[DICE] 找不到表格的 rowIndex');
+          isFieldLocked = false;
+          hasAnyLockInRow = false;
+        }
+      } else {
+        console.warn('[DICE] 找不到表格的 sheetKey');
+        isFieldLocked = false;
+        hasAnyLockInRow = false;
+      }
+    } else {
+      if (!api) console.warn('[DICE] 神-数据库 API 不可用');
+      isFieldLocked = false;
+      hasAnyLockInRow = false;
+    }
 
     // 构建锁定菜单项
     let lockMenuHtml = '';
@@ -29452,37 +30652,86 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     backdrop.on('click', closeAll);
     menu.find('#act-close').click(closeAll);
     // 锁定字段
-    menu.find('#act-lock-field').click(() => {
+    // [修复] colIdx 是包含行号列的索引，神-数据库的 colIndex 不包含行号列，需要 -1
+    const dbColIndex = colIdx - 1;
+    menu.find('#act-lock-field').click(e => {
+      e.stopPropagation();
       if (lockRowKey && currentHeader) {
-        LockManager.lockField(tableName, lockRowKey, currentHeader, content);
-        renderInterface();
+        if (api && sheetKey && rowIndex !== null && rowIndex !== -1 && dbColIndex >= 0) {
+          api.lockTableCell(sheetKey, rowIndex, dbColIndex, true);
+          // [优化] 直接修改 data-locked 属性，无需重新渲染
+          // [修复] 同时更新 $cell 自身和内部所有带 data-locked 的元素
+          if ($cell.is('[data-locked]')) {
+            $cell.attr('data-locked', 'true');
+          }
+          $cell.find('[data-locked]').attr('data-locked', 'true');
+        } else {
+          console.warn('[DICE] 神-数据库API不可用或索引转换失败，无法锁定单元格');
+        }
       }
       closeAll();
     });
 
     // 解锁字段
-    menu.find('#act-unlock-field').click(() => {
+    menu.find('#act-unlock-field').click(e => {
+      e.stopPropagation();
       if (lockRowKey && currentHeader) {
-        LockManager.unlockField(tableName, lockRowKey, currentHeader);
-        renderInterface();
+        if (api && sheetKey && rowIndex !== null && rowIndex !== -1 && dbColIndex >= 0) {
+          api.lockTableCell(sheetKey, rowIndex, dbColIndex, false);
+          // [优化] 直接修改 data-locked 属性，无需重新渲染
+          // [修复] 同时更新 $cell 自身和内部所有带 data-locked 的元素
+          if ($cell.is('[data-locked]')) {
+            $cell.attr('data-locked', 'false');
+          }
+          $cell.find('[data-locked]').attr('data-locked', 'false');
+        } else {
+          console.warn('[DICE] 神-数据库API不可用或索引转换失败，无法解锁单元格');
+        }
       }
       closeAll();
     });
 
     // 锁定整行
-    menu.find('#act-lock-row').click(() => {
+    menu.find('#act-lock-row').click(e => {
+      e.stopPropagation();
       if (lockRowKey) {
-        LockManager.lockRow(tableName, lockRowKey, rowData, headers);
-        renderInterface();
+        if (api && sheetKey && rowIndex !== null && rowIndex !== -1) {
+          api.lockTableRow(sheetKey, rowIndex, true);
+          // [优化] 直接修改卡片内所有可锁定元素的 data-locked 属性
+          $card.find('[data-locked]').attr('data-locked', 'true');
+        } else {
+          console.warn('[DICE] 神-数据库API不可用或索引转换失败，无法锁定整行');
+        }
       }
       closeAll();
     });
 
     // 解锁整行
-    menu.find('#act-unlock-row').click(() => {
+    menu.find('#act-unlock-row').click(e => {
+      e.stopPropagation();
       if (lockRowKey) {
-        LockManager.unlockRow(tableName, lockRowKey);
-        renderInterface();
+        if (api && sheetKey && rowIndex !== null && rowIndex !== -1) {
+          // [改进] 解锁整行时，同时清除该行的所有单元格锁定
+          const currentLockState = api.getTableLockState(sheetKey);
+          if (currentLockState && currentLockState.cells) {
+            // 找出该行的所有单元格锁定并逐一解锁
+            const rowPrefix = `${rowIndex}:`;
+            currentLockState.cells.forEach((cellKey: string) => {
+              if (cellKey.startsWith(rowPrefix)) {
+                const cellColIndex = parseInt(cellKey.split(':')[1], 10);
+                if (!isNaN(cellColIndex)) {
+                  api.lockTableCell(sheetKey, rowIndex, cellColIndex, false);
+                }
+              }
+            });
+          }
+          // 解锁整行
+          api.lockTableRow(sheetKey, rowIndex, false);
+          // [优化] 直接修改卡片内所有可锁定元素的 data-locked 属性
+          $card.find('[data-locked]').attr('data-locked', 'false');
+        } else {
+          console.warn('[DICE] 神-数据库API不可用或索引转换失败，无法解锁整行');
+        }
       }
       closeAll();
     });
@@ -30100,6 +31349,25 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
   const init = () => {
     if (isInitialized) return;
 
+    // 清理旧的LockManager锁定数据 (已迁移到神-数据库API)
+    (() => {
+      const prefix = 'acu_locked_fields_v2_';
+      const keysToRemove: string[] = [];
+
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(prefix)) {
+          keysToRemove.push(key);
+        }
+      }
+
+      keysToRemove.forEach(key => localStorage.removeItem(key));
+
+      if (keysToRemove.length > 0) {
+        console.info(`[DICE] 已清理 ${keysToRemove.length} 个旧锁定数据键`);
+      }
+    })();
+
     console.log('[DICE]开始初始化骰子系统...');
 
     // 恢复 ConsoleCaptureManager 状态（从 localStorage）
@@ -30169,6 +31437,14 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
           hasUnsavedChanges = false;
           currentDiffMap.clear();
           if (window.acuModifiedSet) window.acuModifiedSet.clear();
+          // 清除变量面板缓存，避免不同聊天间模式/数据串线
+          try {
+            if (typeof MvuModule?.clearCache === 'function') {
+              MvuModule.clearCache();
+            }
+          } catch (e) {
+            console.warn('[DICE]清除变量面板缓存失败:', e);
+          }
           setTimeout(renderInterface, 500);
         };
       }
