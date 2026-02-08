@@ -2443,6 +2443,88 @@ export const MAIN_STYLES = `
                 stroke-width: 2;
                 filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3));
             }
+            .acu-node-center-indicator {
+                fill: none;
+                stroke: var(--acu-accent);
+                stroke-width: 2;
+                stroke-dasharray: 6 3;
+                opacity: 0.7;
+                animation: acu-center-spin 8s linear infinite;
+                pointer-events: none;
+            }
+            @keyframes acu-center-spin {
+                from { transform: rotate(0deg); }
+                to { transform: rotate(360deg); }
+            }
+            .acu-graph-center-dropdown {
+                position: relative;
+            }
+            .acu-graph-center-trigger {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                background: var(--acu-btn-bg);
+                color: var(--acu-text-main);
+                border: 1px solid var(--acu-border);
+                border-radius: 6px;
+                padding: 4px 10px;
+                font-size: 12px;
+                cursor: pointer;
+                max-width: 130px;
+                transition: all 0.2s;
+                white-space: nowrap;
+            }
+            .acu-graph-center-trigger:hover {
+                border-color: var(--acu-accent);
+            }
+            .acu-graph-center-trigger .acu-center-label {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                max-width: 100px;
+            }
+            .acu-graph-center-trigger .fa-caret-down {
+                font-size: 10px;
+                opacity: 0.6;
+                transition: transform 0.2s;
+            }
+            .acu-graph-center-dropdown.open .acu-graph-center-trigger {
+                border-color: var(--acu-accent);
+            }
+            .acu-graph-center-dropdown.open .fa-caret-down {
+                transform: rotate(180deg);
+            }
+            .acu-graph-center-menu {
+                display: none;
+                position: absolute;
+                top: calc(100% + 4px);
+                left: 0;
+                min-width: 100%;
+                max-height: 200px;
+                overflow-y: auto;
+                background: var(--acu-bg-panel);
+                border: 1px solid var(--acu-border);
+                border-radius: 6px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+                z-index: 10;
+            }
+            .acu-graph-center-dropdown.open .acu-graph-center-menu {
+                display: block;
+            }
+            .acu-center-option {
+                padding: 6px 12px;
+                font-size: 12px;
+                color: var(--acu-text-main);
+                cursor: pointer;
+                white-space: nowrap;
+                transition: background 0.15s;
+            }
+            .acu-center-option:hover {
+                background: var(--acu-btn-hover);
+            }
+            .acu-center-option.active {
+                color: var(--acu-accent);
+                font-weight: bold;
+            }
             .acu-graph-legend {
                 display: flex;
                 gap: 16px;
@@ -6305,7 +6387,8 @@ export const MAIN_STYLES = `
             .acu-favorites-overlay,
             .acu-fav-edit-overlay,
             .acu-fav-new-overlay,
-            .acu-fav-send-overlay {
+            .acu-fav-send-overlay,
+            .acu-fav-tag-overlay {
                 position: fixed;
                 top: 0;
                 left: 0;
@@ -6579,7 +6662,8 @@ export const MAIN_STYLES = `
             /* 编辑弹窗 */
             .acu-fav-edit-modal,
             .acu-fav-new-modal,
-            .acu-fav-send-modal {
+            .acu-fav-send-modal,
+            .acu-fav-tag-modal {
                 width: 90%;
                 max-width: 500px;
                 max-height: 80vh;
@@ -6593,7 +6677,8 @@ export const MAIN_STYLES = `
             }
             .acu-fav-edit-modal-header,
             .acu-fav-new-modal-header,
-            .acu-fav-send-modal-header {
+            .acu-fav-send-modal-header,
+            .acu-fav-tag-modal-header {
                 display: flex;
                 align-items: center;
                 justify-content: space-between;
@@ -6603,14 +6688,16 @@ export const MAIN_STYLES = `
             }
             .acu-fav-edit-modal-header h4,
             .acu-fav-new-modal-header h4,
-            .acu-fav-send-modal-header h4 {
+            .acu-fav-send-modal-header h4,
+            .acu-fav-tag-modal-header h4 {
                 margin: 0;
                 font-size: 15px;
                 color: var(--acu-accent);
             }
             .acu-fav-edit-close,
             .acu-fav-new-close,
-            .acu-fav-send-close {
+            .acu-fav-send-close,
+            .acu-fav-tag-close {
                 background: transparent !important;
                 border: none !important;
                 color: var(--acu-text-main) !important;
@@ -6619,27 +6706,32 @@ export const MAIN_STYLES = `
             }
             .acu-fav-edit-close:hover,
             .acu-fav-new-close:hover,
-            .acu-fav-send-close:hover {
+            .acu-fav-send-close:hover,
+            .acu-fav-tag-close:hover {
                 background: transparent !important;
                 color: var(--acu-accent) !important;
             }
             .acu-fav-edit-modal-body,
             .acu-fav-new-modal-body,
-            .acu-fav-send-modal-body {
+            .acu-fav-send-modal-body,
+            .acu-fav-tag-modal-body {
                 flex: 1;
                 overflow-y: auto;
                 padding: 16px;
             }
-            .acu-fav-edit-tags-section {
+            .acu-fav-edit-tags-section,
+            .acu-fav-tag-input-section {
                 margin-bottom: 16px;
             }
-            .acu-fav-edit-tags-section label {
+            .acu-fav-edit-tags-section label,
+            .acu-fav-tag-input-section label {
                 display: block;
                 font-size: 12px;
                 color: var(--acu-text-sub);
                 margin-bottom: 6px;
             }
-            .acu-fav-edit-tags-section input {
+            .acu-fav-edit-tags-section input,
+            .acu-fav-tag-input-section input {
                 width: 100%;
                 padding: 8px 12px;
                 background: var(--acu-bg-main);
@@ -6715,7 +6807,8 @@ export const MAIN_STYLES = `
             }
             .acu-fav-edit-modal-footer,
             .acu-fav-new-modal-footer,
-            .acu-fav-send-modal-footer {
+            .acu-fav-send-modal-footer,
+            .acu-fav-tag-modal-footer {
                 display: flex;
                 justify-content: flex-end;
                 gap: 10px;
@@ -6725,7 +6818,8 @@ export const MAIN_STYLES = `
             }
             .acu-fav-edit-cancel,
             .acu-fav-new-cancel,
-            .acu-fav-send-cancel {
+            .acu-fav-send-cancel,
+            .acu-fav-tag-cancel {
                 padding: 8px 16px;
                 background: var(--acu-btn-bg);
                 border: 1px solid var(--acu-text-sub);
@@ -6734,7 +6828,8 @@ export const MAIN_STYLES = `
                 cursor: pointer;
             }
             .acu-fav-edit-save,
-            .acu-fav-new-create {
+            .acu-fav-new-create,
+            .acu-fav-tag-confirm {
                 padding: 8px 16px;
                 background: var(--acu-accent);
                 border: 1px solid var(--acu-accent);
@@ -6743,7 +6838,8 @@ export const MAIN_STYLES = `
                 cursor: pointer;
             }
             .acu-fav-edit-save:hover,
-            .acu-fav-new-create:hover {
+            .acu-fav-new-create:hover,
+            .acu-fav-tag-confirm:hover {
                 opacity: 0.9;
             }
 
@@ -7015,6 +7111,14 @@ export const MAIN_STYLES = `
                     width: 92vw !important;
                     max-height: 88vh !important;
                 }
+                .acu-fav-send-modal {
+                    width: 92vw !important;
+                    max-width: 500px !important;
+                }
+                .acu-fav-tag-modal {
+                    width: 92vw !important;
+                    max-width: 500px !important;
+                }
                 .acu-fav-edit-overlay {
                     align-items: flex-start !important;
                     padding-top: 5vh !important;
@@ -7024,7 +7128,8 @@ export const MAIN_STYLES = `
                 }
             }
             /* 编辑弹窗输入框样式覆盖 */
-            .acu-fav-edit-modal input {
+            .acu-fav-edit-modal input,
+            .acu-fav-tag-modal input {
                 padding: 8px 10px !important;
                 background: var(--acu-bg-panel) !important;
                 border: 1px solid var(--acu-border) !important;

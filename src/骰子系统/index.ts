@@ -1787,7 +1787,7 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.7.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v4.00'; // 脚本版本号
+  const SCRIPT_VERSION = 'v4.01'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -14248,7 +14248,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
         for (let i = 1; i < sheet.content.length; i++) {
           const row = sheet.content[i];
-          if (row && row[nameColIdx] === characterName) {
+          if (row && getDisplayName(String(row[nameColIdx] || '')) === getDisplayName(characterName)) {
             let attrs = [];
             headers.forEach((h, idx) => {
               if (h && h.includes('属性')) {
@@ -14406,7 +14406,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
         for (let i = 1; i < sheet.content.length; i++) {
           const row = sheet.content[i];
-          if (row && row[nameColIdx] === characterName) {
+          if (row && getDisplayName(String(row[nameColIdx] || '')) === getDisplayName(characterName)) {
             for (let idx = 0; idx < headers.length; idx++) {
               const h = headers[idx];
               if (h && h.includes('属性')) {
@@ -14885,7 +14885,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         // 查找目标行
         for (let i = 1; i < sheet.content.length; i++) {
           const row = sheet.content[i];
-          if (row && row[nameColIdx] === charName) {
+          if (row && getDisplayName(String(row[nameColIdx] || '')) === getDisplayName(charName)) {
             targetSheet = sheet;
             targetRowIndex = i;
             sheetKey = key;
@@ -15028,7 +15028,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         // 查找目标行
         for (let i = 1; i < sheet.content.length; i++) {
           const row = sheet.content[i];
-          if (row && row[nameColIdx] === charName) {
+          if (row && getDisplayName(String(row[nameColIdx] || '')) === getDisplayName(charName)) {
             targetSheet = sheet;
             targetRowIndex = i;
             sheetKey = key;
@@ -15321,7 +15321,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         // 查找目标行
         for (let i = 1; i < sheet.content.length; i++) {
           const row = sheet.content[i];
-          if (row && row[nameColIdx] === charName) {
+          if (row && getDisplayName(String(row[nameColIdx] || '')) === getDisplayName(charName)) {
             targetSheet = sheet;
             targetRowIndex = i;
             sheetKey = key;
@@ -15512,7 +15512,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
         for (let i = 1; i < sheet.content.length; i++) {
           const row = sheet.content[i];
-          if (row && row[nameColIdx] === characterName) {
+          if (row && getDisplayName(String(row[nameColIdx] || '')) === getDisplayName(characterName)) {
             headers.forEach((h, idx) => {
               if (h && h.includes('属性')) {
                 const parsed = parseAttributeString(row[idx] || '');
@@ -23336,6 +23336,101 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       });
     });
 
+    // [新增] 同时抓取主角信息表的人际关系数据
+    if (rawData) {
+      for (const key in rawData) {
+        const sheet = rawData[key];
+        if (sheet?.name === '主角信息' && sheet.content?.[1]) {
+          const playerHeaders = sheet.content[0] || [];
+          const playerRow = sheet.content[1];
+          const playerRelIdx = playerHeaders.findIndex(h => h && h.includes('人际关系'));
+          if (playerRelIdx > 0 && playerRow[playerRelIdx]) {
+            const playerRelations = parseRelationshipString(playerRow[playerRelIdx]);
+            console.info(`[DICE]主角信息表人际关系: 发现${playerRelations.length}条关系`);
+
+            playerRelations.forEach(rel => {
+              if (!rel.name) return;
+              const resolvedRelName = resolveName(rel.name);
+              if (resolvedRelName === resolvedPlayerName) return;
+
+              if (!nodes.has(resolvedRelName)) {
+                // 尝试在NPC表中查找该人物的额外信息
+                let relRowIndex = -1;
+                let relIsInScene = false;
+                for (let ri = 0; ri < rows.length; ri++) {
+                  if (resolveName(rows[ri][nameIdx]) === resolvedRelName) {
+                    relRowIndex = ri;
+                    if (inSceneColIdx > 0) {
+                      const inSceneVal = String(rows[ri][inSceneColIdx] || '')
+                        .trim()
+                        .toLowerCase();
+                      const header = String(headers[inSceneColIdx] || '').toLowerCase();
+                      if (header.includes('离场')) {
+                        relIsInScene = inSceneVal === '否' || inSceneVal === 'false' || inSceneVal === 'no';
+                      } else {
+                        relIsInScene =
+                          inSceneVal.startsWith('在场') ||
+                          inSceneVal === 'true' ||
+                          inSceneVal === '是' ||
+                          inSceneVal === 'yes';
+                      }
+                    }
+                    break;
+                  }
+                }
+                nodes.set(resolvedRelName, {
+                  name: resolvedRelName,
+                  isPlayer: false,
+                  x: 0,
+                  y: 0,
+                  tableKey: relRowIndex >= 0 ? npcTableKey : '',
+                  rowIndex: relRowIndex >= 0 ? relRowIndex : undefined,
+                  isInScene: relIsInScene,
+                });
+              }
+
+              // 清洗关系标签（主角信息表格式通常已规范）
+              const rawLabel = String(rel.relation || '').trim();
+              const cleanedLabels = rawLabel
+                ? rawLabel
+                    .split(/[,，、\/\|]+/)
+                    .map(s => s.trim())
+                    .filter(s => s && s.length > 0 && s.length <= 8)
+                    .slice(0, 2)
+                : [''];
+              if (cleanedLabels.length === 0) cleanedLabels.push('');
+
+              // 查找已存在的边（与NPC表处理逻辑一致）
+              let existingEdge = edges.find(
+                e =>
+                  (e.source === resolvedPlayerName && e.target === resolvedRelName) ||
+                  (e.source === resolvedRelName && e.target === resolvedPlayerName),
+              );
+
+              if (!existingEdge) {
+                edges.push({
+                  source: resolvedPlayerName,
+                  target: resolvedRelName,
+                  labelsFromSource: cleanedLabels.slice(0, 2),
+                  labelsFromTarget: [],
+                });
+              } else {
+                // 边已存在（可能NPC表已创建该边），追加主角视角的标签
+                if (existingEdge.source === resolvedPlayerName) {
+                  const combined = [...(existingEdge.labelsFromSource || []), ...cleanedLabels];
+                  existingEdge.labelsFromSource = [...new Set(combined)].slice(0, 2);
+                } else {
+                  const combined = [...(existingEdge.labelsFromTarget || []), ...cleanedLabels];
+                  existingEdge.labelsFromTarget = [...new Set(combined)].slice(0, 2);
+                }
+              }
+            });
+          }
+          break;
+        }
+      }
+    }
+
     const nodeArr = Array.from(nodes.values());
     console.info(`[DICE]人物关系表数据抓取完成，共${nodeArr.length}个节点，${edges.length}条边`);
     const centerX = 400,
@@ -23359,7 +23454,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     // 新增：节点大小和过滤状态（必须在 getNodeRadius 之前声明）
     let nodeSizeMultiplier = 1.0; // 节点大小倍数，默认1.0
     let filterInScene = false; // 是否只显示主角+在场角色
-    let filterDirectOnly = false; // 是否只显示与主角直接相关的
+    let filterDirectOnly = false; // 是否只显示与中心角色直接相关的
+    let centerNodeName = resolvedPlayerName; // 当前中心节点（默认为主角）
 
     const getNodeRadius = (nodeName, isPlayer) => {
       const base = isPlayer ? playerBaseRadius : baseRadius;
@@ -23379,13 +23475,13 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       // 两个都关闭时显示全部
       if (!filterInScene && !filterDirectOnly) return nodeArr;
 
-      // 计算主角直接相关的节点集合（如果需要）
+      // 计算中心角色直接相关的节点集合（如果需要）
       let directNodes: Set<string> | null = null;
       if (filterDirectOnly) {
-        directNodes = new Set([resolvedPlayerName]);
+        directNodes = new Set([centerNodeName]);
         edges.forEach(edge => {
-          if (edge.source === resolvedPlayerName) directNodes!.add(edge.target);
-          if (edge.target === resolvedPlayerName) directNodes!.add(edge.source);
+          if (edge.source === centerNodeName) directNodes!.add(edge.target);
+          if (edge.target === centerNodeName) directNodes!.add(edge.source);
         });
       }
 
@@ -23488,7 +23584,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const runForceDirectedLayout = () => {
       // 初始化位置：在中心附近随机散布，开始模拟
       nodeArr.forEach(node => {
-        if (node.isPlayer) {
+        if (node.name === centerNodeName) {
           node.x = centerX;
           node.y = centerY;
           node.vx = 0;
@@ -23526,11 +23622,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             const fx = (dx / dist) * force;
             const fy = (dy / dist) * force;
 
-            if (!u.isPlayer) {
+            if (u.name !== centerNodeName) {
               u.vx -= fx;
               u.vy -= fy;
             }
-            if (!v.isPlayer) {
+            if (v.name !== centerNodeName) {
               v.vx += fx;
               v.vy += fy;
             }
@@ -23553,11 +23649,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           const fx = (dx / dist) * force;
           const fy = (dy / dist) * force;
 
-          if (!u.isPlayer) {
+          if (u.name !== centerNodeName) {
             u.vx += fx;
             u.vy += fy;
           }
-          if (!v.isPlayer) {
+          if (v.name !== centerNodeName) {
             v.vx -= fx;
             v.vy -= fy;
           }
@@ -23565,7 +23661,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
         // 3. 中心重力 (轻微拉向中心)
         nodeArr.forEach(node => {
-          if (node.isPlayer) return;
+          if (node.name === centerNodeName) return;
           const dx = centerX - node.x;
           const dy = centerY - node.y;
           node.vx += dx * kGravity;
@@ -23577,7 +23673,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const maxSpeed = 50 * (1 - iter / iterations); // 随迭代冷却最大速度
 
         nodeArr.forEach(node => {
-          if (node.isPlayer) return; // 玩家节点固定不动 (作为锚点)
+          if (node.name === centerNodeName) return; // 中心节点固定不动 (作为锚点)
 
           // 阻尼
           node.vx *= damping;
@@ -23618,8 +23714,17 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                     <div class="acu-panel-header">
                         <div class="acu-graph-title">
                             <i class="fa-solid fa-project-diagram"></i>
-                            <button class="acu-graph-btn acu-filter-toggle acu-graph-filter-btn ml-8" id="filter-in-scene" title="只显示主角和在场角色"><i class="fa-solid fa-map-marker-alt"></i></button>
-                            <button class="acu-graph-btn acu-filter-toggle acu-graph-filter-btn" id="filter-direct-only" title="只显示与主角直接相关"><i class="fa-solid fa-link"></i></button>
+                            <div class="acu-graph-center-dropdown" id="graph-center-dropdown">
+                                <button class="acu-graph-center-trigger" type="button" title="选择中心角色">
+                                    <span class="acu-center-label">${escapeHtml(replaceUserPlaceholders(centerNodeName))}</span>
+                                    <i class="fa-solid fa-caret-down"></i>
+                                </button>
+                                <div class="acu-graph-center-menu">
+                                    ${nodeArr.map(n => `<div class="acu-center-option${n.name === centerNodeName ? ' active' : ''}" data-value="${escapeHtml(n.name)}">${escapeHtml(replaceUserPlaceholders(n.name))}</div>`).join('')}
+                                </div>
+                            </div>
+                            <button class="acu-graph-btn acu-filter-toggle acu-graph-filter-btn" id="filter-in-scene" title="只显示中心角色和在场角色"><i class="fa-solid fa-map-marker-alt"></i></button>
+                            <button class="acu-graph-btn acu-filter-toggle acu-graph-filter-btn" id="filter-direct-only" title="只显示与中心角色直接相关"><i class="fa-solid fa-link"></i></button>
                         </div>
                         <div class="acu-graph-actions">
                             <button class="acu-graph-btn" id="graph-relayout" title="重新布局（清除缓存并重新计算节点位置）"><i class="fa-solid fa-sync"></i></button>
@@ -23975,6 +24080,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                         : `<text class="acu-node-char" dy="0.35em">${escapeHtml(nodeDisplayName.charAt(0))}</text>`
                     }
                     ${inSceneIndicator}
+                    ${node.name === centerNodeName ? `<circle class="acu-node-center-indicator" r="${node.radius + 5}" />` : ''}
                     <text class="acu-node-label" dy="${node.radius + 14}">${escapeHtml(nodeDisplayName)}</text>
                 </g>
             `;
@@ -24519,13 +24625,59 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       render();
     });
 
-    // 重置视图（缩放、位置 + 节点布局 + 节点大小）
+    // [新增] 自定义中心角色下拉选择器
+    const $centerDropdown = overlay.find('#graph-center-dropdown');
+    const $centerTrigger = $centerDropdown.find('.acu-graph-center-trigger');
+    const $centerMenu = $centerDropdown.find('.acu-graph-center-menu');
+    const $centerLabel = $centerDropdown.find('.acu-center-label');
+
+    // 点击触发器 toggle 菜单
+    $centerTrigger.on('click', function (e) {
+      e.stopPropagation();
+      $centerDropdown.toggleClass('open');
+    });
+
+    // 点击选项
+    $centerMenu.on('click', '.acu-center-option', function (e) {
+      e.stopPropagation();
+      const newCenter = $(this).data('value') as string;
+      $centerDropdown.removeClass('open');
+      if (newCenter && newCenter !== centerNodeName && nodes.has(newCenter)) {
+        centerNodeName = newCenter;
+        // 更新下拉显示
+        $centerLabel.text(replaceUserPlaceholders(newCenter));
+        $centerMenu.find('.acu-center-option').removeClass('active');
+        $(this).addClass('active');
+        // 清除布局缓存并重新布局
+        clearLayoutCache();
+        nodeArr.forEach(node => {
+          node.radius = getNodeRadius(node.name, node.isPlayer);
+        });
+        runForceDirectedLayout();
+        render();
+        const displayName = replaceUserPlaceholders(newCenter);
+        if (window.toastr) window.toastr.info(`已将「${displayName}」设为中心`, '', { timeOut: 1500 });
+      }
+    });
+
+    // 点击外部关闭菜单
+    overlay.on('click.center-dropdown', function () {
+      $centerDropdown.removeClass('open');
+    });
+
+    // 重置视图（缩放、位置 + 节点布局 + 节点大小 + 中心角色）
     overlay.find('#graph-zoom-reset').click(() => {
       // 重置缩放和平移
       scale = 1;
       panX = 0;
       panY = 0;
       updateTransform();
+
+      // 重置中心角色为主角
+      centerNodeName = resolvedPlayerName;
+      $centerLabel.text(replaceUserPlaceholders(resolvedPlayerName));
+      $centerMenu.find('.acu-center-option').removeClass('active');
+      $centerMenu.find(`.acu-center-option[data-value="${resolvedPlayerName}"]`).addClass('active');
 
       // 重置节点大小
       nodeSizeMultiplier = 1.0;
@@ -33576,6 +33728,91 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     });
   };
 
+  // 标签输入弹窗（替代浏览器原生 prompt）
+  const showTagInputModal = (): Promise<string | null> => {
+    const { $ } = getCore();
+    const config = getConfig();
+
+    return new Promise(resolve => {
+      $('.acu-fav-tag-overlay').remove();
+
+      const overlayHtml = `
+        <div class="acu-fav-tag-overlay acu-theme-${config.theme}">
+          <div class="acu-fav-tag-modal">
+            <div class="acu-fav-tag-modal-header">
+              <h4><i class="fa-solid fa-tags"></i> 添加标签</h4>
+              <button class="acu-fav-tag-close"><i class="fa-solid fa-times"></i></button>
+            </div>
+            <div class="acu-fav-tag-modal-body">
+              <div class="acu-fav-tag-input-section">
+                <label>标签（多个标签用逗号分隔，留空则无标签）</label>
+                <input type="text" id="acu-fav-tag-input" placeholder="例如：武器, 稀有, 攻击" />
+              </div>
+            </div>
+            <div class="acu-fav-tag-modal-footer">
+              <button class="acu-fav-tag-cancel">取消</button>
+              <button class="acu-fav-tag-confirm">确认收藏</button>
+            </div>
+          </div>
+        </div>
+      `;
+
+      $('body').append(overlayHtml);
+
+      const $overlay = $('.acu-fav-tag-overlay');
+      // 内联样式确保移动端层叠上下文正确（与发送到表格弹窗同策略）
+      $overlay.css({
+        position: 'fixed',
+        top: '0',
+        left: '0',
+        right: '0',
+        bottom: '0',
+        width: '100vw',
+        height: '100vh',
+        'z-index': '31300',
+        display: 'flex',
+        'align-items': 'center',
+        'justify-content': 'center',
+        padding: '16px',
+        'box-sizing': 'border-box',
+      });
+      const $modal = $overlay.find('.acu-fav-tag-modal');
+      const $input = $modal.find('#acu-fav-tag-input');
+      let resolved = false;
+
+      const closeModal = (result: string | null) => {
+        if (resolved) return;
+        resolved = true;
+        $overlay.remove();
+        resolve(result);
+      };
+
+      // 点击遮罩关闭
+      $overlay.on('click', e => {
+        if ($(e.target).hasClass('acu-fav-tag-overlay')) closeModal(null);
+      });
+
+      // 关闭/取消按钮
+      $modal.find('.acu-fav-tag-close, .acu-fav-tag-cancel').on('click', () => closeModal(null));
+
+      // 确认按钮
+      $modal.find('.acu-fav-tag-confirm').on('click', () => {
+        closeModal(($input.val() as string) || '');
+      });
+
+      // 回车确认
+      $input.on('keydown', (e: JQuery.KeyDownEvent) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          closeModal(($input.val() as string) || '');
+        }
+      });
+
+      // 自动聚焦输入框
+      setTimeout(() => $input.trigger('focus'), 100);
+    });
+  };
+
   // 新建收藏弹窗（选择模板）
   const showNewFavoriteModal = (
     currentTables: Record<string, any>,
@@ -33698,6 +33935,22 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     $('body').append(overlayHtml);
 
     const $overlay = $('.acu-fav-send-overlay');
+    // 内联样式确保移动端层叠上下文正确（与骰子配置弹窗同策略）
+    $overlay.css({
+      position: 'fixed',
+      top: '0',
+      left: '0',
+      right: '0',
+      bottom: '0',
+      width: '100vw',
+      height: '100vh',
+      'z-index': '31300',
+      display: 'flex',
+      'align-items': 'center',
+      'justify-content': 'center',
+      padding: '16px',
+      'box-sizing': 'border-box',
+    });
     const $modal = $overlay.find('.acu-fav-send-modal');
 
     const closeModal = () => $overlay.remove();
@@ -35854,6 +36107,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     bindEvents(tables);
     bindOptionEvents();
     updateSaveButtonState();
+    // [修复] 仪表盘NPC头像异步加载
+    loadDashboardNpcAvatars();
     // [修复] 如果审核面板激活，绑定其事件
     if (Store.get('acu_changes_panel_active', false)) {
       bindChangesEvents();
@@ -37647,8 +37902,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     let offSceneNPCs = [];
     npcParsed.forEach(npc => {
       const inSceneVal = String(npc.inScene || '').toLowerCase();
+      const normalizedNpcName = String(npc.name || '未知').trim() || '未知';
       const npcData = {
-        name: npc.name || '未知',
+        name: normalizedNpcName,
         status: npc.status || '',
         position: npc.position || '',
         index: npc._rowIndex,
@@ -37917,12 +38173,17 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                       allNPCs.length > 0
                         ? allNPCs
                             .map((npc, npcIdx) => {
-                              const isInScene = inSceneNPCs.some(n => n.name === npc.name);
+                              const npcName = String(npc.name || '').trim() || '未知';
+                              const npcDisplayName = replaceUserPlaceholders(getDisplayName(npcName)).trim() || '未知';
+                              const npcDisplayShort =
+                                npcDisplayName.length > 4 ? npcDisplayName.substring(0, 4) + '..' : npcDisplayName;
+                              const npcFallbackChar = npcDisplayName.charAt(0) || '？';
+                              const isInScene = inSceneNPCs.some(n => n.name === npcName);
                               const isLastNpc = npcIdx === allNPCs.length - 1;
-                              const npcAvatar = AvatarManager.get(npc.name);
-                              const avatarOffsetX = AvatarManager.getOffsetX(npc.name);
-                              const avatarOffsetY = AvatarManager.getOffsetY(npc.name);
-                              const avatarScale = AvatarManager.getScale(npc.name);
+                              const npcAvatar = AvatarManager.get(npcName);
+                              const avatarOffsetX = AvatarManager.getOffsetX(npcName);
+                              const avatarOffsetY = AvatarManager.getOffsetY(npcName);
+                              const avatarScale = AvatarManager.getScale(npcName);
                               const avatarStyle = npcAvatar
                                 ? `background-image:url('${npcAvatar}');background-size:${avatarScale}%;background-position:${avatarOffsetX}% ${avatarOffsetY}%;`
                                 : '';
@@ -37936,18 +38197,13 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                             style="padding:6px 4px;${!isLastNpc ? 'border-bottom:1px dashed var(--acu-border);' : ''}">
                             <div style="display:flex;justify-content:space-between;align-items:center;">
                                 <span class="acu-task-name" style="font-size:12px;display:flex;align-items:center;gap:6px;">
-                                    <span class="acu-dash-npc-avatar" style="width:22px;height:22px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:var(--acu-btn-bg);border:1.5px solid ${isInScene ? 'var(--acu-accent)' : 'var(--acu-border)'};${avatarStyle}${offSceneFilter}" title="${isInScene ? '在场' : '不在场'}">
-                                        ${!npcAvatar ? `<span style="font-size:10px;font-weight:bold;color:var(--acu-text-sub);${offSceneFilter}">${escapeHtml(getDisplayName(npc.name).charAt(0))}</span>` : ''}
+                                    <span class="acu-dash-npc-avatar" data-npc-name="${escapeHtml(npcName)}" style="width:22px;height:22px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:var(--acu-badge-bg, rgba(0,255,255,0.12));border:1.5px solid ${isInScene ? 'var(--acu-accent)' : 'var(--acu-border)'};${avatarStyle}${offSceneFilter}" title="${isInScene ? '在场' : '不在场'}">
+                                        ${!npcAvatar ? `<span class="acu-dash-npc-avatar-fallback" style="font-size:10px;font-weight:bold;color:var(--acu-accent);">${escapeHtml(npcFallbackChar)}</span>` : ''}
                                     </span>
-                                    <span title="${escapeHtml(getDisplayName(npc.name))}" style="${isInScene ? '' : 'opacity:0.6;'}">${escapeHtml(
-                                      (() => {
-                                        const dn = getDisplayName(npc.name);
-                                        return dn.length > 4 ? dn.substring(0, 4) + '..' : dn;
-                                      })(),
-                                    )}</span>
+                                    <span title="${escapeHtml(npcDisplayName)}" style="${isInScene ? '' : 'opacity:0.6;'}">${escapeHtml(npcDisplayShort)}</span>
                                 </span>
                                 <div style="display:flex;align-items:center;">
-                                    <i class="fa-solid fa-people-arrows acu-dash-contest-btn" data-npc="${escapeHtml(npc.name)}" style="cursor:pointer;color:var(--acu-text-sub);opacity:0.4;font-size:8px;" title="与${getDisplayName(npc.name)}进行对抗检定"></i>
+                                    <i class="fa-solid fa-people-arrows acu-dash-contest-btn" data-npc="${escapeHtml(npcName)}" style="cursor:pointer;color:var(--acu-text-sub);opacity:0.4;font-size:8px;" title="与${escapeHtml(npcDisplayName)}进行对抗检定"></i>
                                 </div>
                             </div>
                         </div>`;
@@ -38082,6 +38338,199 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     console.info(`[DICE]仪表盘数据抓取完成，共${loadedModules.length}个模块: ${loadedModules.join(', ')}`);
     return html;
+  };
+
+  // [修复] 仪表盘NPC头像异步加载（支持IndexedDB本地头像）
+  const loadDashboardNpcAvatars = () => {
+    const $avatars = $('.acu-dash-npc-avatar[data-npc-name]');
+    if ($avatars.length === 0) return;
+
+    const normalizeName = (value: string): string => {
+      const base = String(value || '')
+        .normalize('NFKC')
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')
+        .trim();
+      if (!base) return '';
+      const display = replaceUserPlaceholders(getDisplayName(base)).trim() || base;
+      return display
+        .normalize('NFKC')
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')
+        .replace(/\s+/g, '')
+        .toLowerCase();
+    };
+
+    void (async () => {
+      const allAvatarData = AvatarManager.getAll();
+      const candidatePool: string[] = [];
+      const pushUnique = (name: string) => {
+        const cleaned = String(name || '').trim();
+        if (!cleaned) return;
+        if (!candidatePool.includes(cleaned)) candidatePool.push(cleaned);
+      };
+
+      Object.keys(allAvatarData).forEach(pushUnique);
+      Object.values(allAvatarData).forEach(data => {
+        const aliasCandidates = Array.isArray((data as { aliases?: unknown[] }).aliases)
+          ? ((data as { aliases?: unknown[] }).aliases as unknown[])
+          : [];
+        aliasCandidates.forEach(alias => pushUnique(String(alias || '')));
+      });
+
+      let localNames: string[] = [];
+      try {
+        localNames = (await LocalAvatarDB.getAllNames()) as string[];
+      } catch {
+        localNames = [];
+      }
+      localNames.forEach(name => pushUnique(String(name || '')));
+
+      const normalizedNameMap = new Map<string, string[]>();
+      const addNormalized = (name: string) => {
+        const key = normalizeName(name);
+        if (!key) return;
+        if (!normalizedNameMap.has(key)) normalizedNameMap.set(key, []);
+        const list = normalizedNameMap.get(key)!;
+        if (!list.includes(name)) list.push(name);
+      };
+      candidatePool.forEach(addNormalized);
+
+      const getManualAliases = (name: string): string[] => {
+        const data = AvatarManager.getAll()[name] as { aliases?: unknown[] } | undefined;
+        if (!data || !Array.isArray(data.aliases)) return [];
+        return data.aliases.map(alias => String(alias || '').trim()).filter(Boolean);
+      };
+
+      $avatars.each(function () {
+        const $el = $(this);
+        const rawName = String($el.attr('data-npc-name') || '').trim();
+        if (!rawName) return;
+
+        void (async () => {
+          try {
+            const displayName = getDisplayName(rawName);
+            const resolvedName = NameAliasRegistry.resolve(rawName);
+            const avatarPrimaryName = AvatarManager.getPrimaryName(rawName);
+
+            const directCandidates = Array.from(
+              new Set(
+                [
+                  rawName,
+                  displayName,
+                  resolvedName,
+                  avatarPrimaryName,
+                  replaceUserPlaceholders(rawName),
+                  replaceUserPlaceholders(displayName),
+                  replaceUserPlaceholders(resolvedName),
+                  ...NameAliasRegistry.getAliases(resolvedName),
+                  ...NameAliasRegistry.getAliases(avatarPrimaryName),
+                  ...getManualAliases(resolvedName),
+                  ...getManualAliases(avatarPrimaryName),
+                ]
+                  .map(v => String(v || '').trim())
+                  .filter(Boolean),
+              ),
+            );
+
+            const allCandidates = [...directCandidates];
+            directCandidates.forEach(name => {
+              const key = normalizeName(name);
+              if (!key) return;
+              const mapped = normalizedNameMap.get(key) || [];
+              mapped.forEach(m => {
+                if (!allCandidates.includes(m)) allCandidates.push(m);
+              });
+            });
+
+            let matchedName: string | null = null;
+            let matchedUrl: string | null = null;
+            let matchedLocal = false;
+
+            // 1) 先尝试本地头像（最稳定）
+            for (const name of allCandidates) {
+              const localUrl = await LocalAvatarDB.get(name);
+              if (localUrl) {
+                matchedName = name;
+                matchedUrl = localUrl;
+                matchedLocal = true;
+                break;
+              }
+            }
+
+            // 2) 再尝试URL头像缓存
+            if (!matchedUrl) {
+              for (const name of allCandidates) {
+                const url = AvatarManager.get(name);
+                if (url) {
+                  matchedName = name;
+                  matchedUrl = url;
+                  break;
+                }
+              }
+            }
+
+            // 3) 最后完整兜底（主角占位符/别名）
+            if (!matchedUrl) {
+              for (const name of allCandidates) {
+                const url = await AvatarManager.getAsync(name);
+                if (url) {
+                  matchedName = name;
+                  matchedUrl = url;
+                  break;
+                }
+              }
+            }
+
+            // 找不到头像：保留首字fallback
+            if (!matchedUrl || !matchedName) {
+              $el.css({
+                'background-image': 'none',
+                'background-color': 'var(--acu-badge-bg, rgba(0,255,255,0.12))',
+              });
+              $el.find('.acu-dash-npc-avatar-fallback').show();
+              return;
+            }
+
+            const applyAvatar = () => {
+              const offsetX = AvatarManager.getOffsetX(matchedName!);
+              const offsetY = AvatarManager.getOffsetY(matchedName!);
+              const scale = AvatarManager.getScale(matchedName!);
+              $el.css({
+                'background-image': `url('${matchedUrl}')`,
+                'background-size': `${scale}%`,
+                'background-position': `${offsetX}% ${offsetY}%`,
+                'background-repeat': 'no-repeat',
+                'background-color': 'var(--acu-badge-bg, rgba(0,255,255,0.12))',
+              });
+              $el.find('.acu-dash-npc-avatar-fallback').hide();
+            };
+
+            // 本地头像/Blob链接直接应用，避免预加载阶段被误判
+            if (matchedLocal || matchedUrl.startsWith('blob:')) {
+              applyAvatar();
+              return;
+            }
+
+            // URL头像先预加载，坏链路保持fallback
+            const img = new Image();
+            img.onload = applyAvatar;
+            img.onerror = () => {
+              $el.css({
+                'background-image': 'none',
+                'background-color': 'var(--acu-badge-bg, rgba(0,255,255,0.12))',
+              });
+              $el.find('.acu-dash-npc-avatar-fallback').show();
+            };
+            img.src = matchedUrl;
+          } catch {
+            $el.css({
+              'background-image': 'none',
+              'background-color': 'var(--acu-badge-bg, rgba(0,255,255,0.12))',
+            });
+            $el.find('.acu-dash-npc-avatar-fallback').show();
+          }
+        })();
+      });
+    })();
   };
 
   // ========== [新增] 收藏夹面板渲染函数 ==========
@@ -39249,6 +39698,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                 const tables = processJsonData(rawData || {});
                 $panel.html(renderDashboard(tables));
                 bindEvents(tables);
+                loadDashboardNpcAvatars();
               });
             }
             return false;
@@ -41210,7 +41660,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         }
 
         // 弹出标签输入框
-        const tagInput = prompt('请输入标签（多个标签用逗号分隔，留空则无标签）：', '');
+        const tagInput = await showTagInputModal();
+        if (tagInput === null) {
+          // 用户取消
+          closeAll();
+          return;
+        }
         const tags: string[] = tagInput
           ? tagInput
               .split(',')
