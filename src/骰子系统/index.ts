@@ -2,11 +2,13 @@
 import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP, RELATION_ICON_MAP } from './emoji-maps';
 import { MAIN_STYLES } from './styles';
 import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-override';
+import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './types';
 
 (function () {
   'use strict';
 
   const SCRIPT_ID = 'acu_visualizer_ui_v19_6_ai_overlay';
+
   // ========================================
   // 表主键配置 (用于行标识转换)
   const PRIMARY_KEYS = {
@@ -149,6 +151,1063 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     return null;
   }
 
+  /**
+   * 安全地修改角色卡属性值
+   * @param characterName - 角色名称
+   * @param attrName - 属性名称
+   * @param operation - 操作类型: 'add' | 'subtract' | 'set'
+   * @param value - 操作数值
+   * @param options - 可选配置 { initValue?: number, min?: number, max?: number }
+   * @returns Promise<{ success: boolean, oldValue: number, newValue: number, error?: string }>
+   */
+  async function safeUpdateAttribute(
+    characterName: string,
+    attrName: string,
+    operation: 'add' | 'subtract' | 'set',
+    value: number,
+    options?: { initValue?: number; min?: number; max?: number },
+  ): Promise<{ success: boolean; oldValue: number; newValue: number; error?: string }> {
+    console.info(`[DICE]safeUpdateAttribute: ${characterName}.${attrName} ${operation} ${value}`);
+
+    try {
+      // 1. 获取 DbLockAPI
+      const api = getDbLockAPI();
+      if (!api || typeof api.exportTableAsJson !== 'function') {
+        const error = '神-数据库 API 不可用';
+        console.error(`[DICE]safeUpdateAttribute: ${error}`);
+        return { success: false, oldValue: 0, newValue: 0, error };
+      }
+
+      // 2. 导出表格数据
+      const data = api.exportTableAsJson() as Record<string, { name: string; content: (string | number | null)[][] }>;
+      if (!data) {
+        const error = '无法导出表格数据';
+        console.error(`[DICE]safeUpdateAttribute: ${error}`);
+        return { success: false, oldValue: 0, newValue: 0, error };
+      }
+
+      // 3. 查找角色所在表格和行索引
+      let targetSheetKey: string | null = null;
+      let targetRowIndex: number | null = null;
+      let targetColIndex: number = -1;
+
+      // 遍历所有表格查找角色
+      for (const sheetKey in data) {
+        if (!sheetKey.startsWith('sheet_')) continue;
+        const sheet = data[sheetKey];
+        if (!sheet || !sheet.content || !Array.isArray(sheet.content) || sheet.content.length < 2) continue;
+
+        const headers = sheet.content[0] as string[];
+        const pkField = PRIMARY_KEYS[sheet.name as keyof typeof PRIMARY_KEYS];
+
+        // 跳过无主键的表格
+        if (pkField === undefined) continue;
+
+        // 处理特殊情况：全局数据表等没有主键的情况
+        if (pkField === null) {
+          if (characterName === '_row_0') {
+            targetSheetKey = sheetKey;
+            targetRowIndex = 0;
+            targetColIndex = headers.indexOf(attrName);
+            break;
+          }
+          continue;
+        }
+
+        // 查找主键列索引
+        const pkIndex = headers.indexOf(pkField);
+        if (pkIndex === -1) continue;
+
+        // 遍历数据行查找角色
+        for (let i = 1; i < sheet.content.length; i++) {
+          const row = sheet.content[i];
+          if (row && String(row[pkIndex]) === String(characterName)) {
+            targetSheetKey = sheetKey;
+            targetRowIndex = i - 1; // 神-数据库的 rowIndex 是从 0 开始的数据行索引
+            targetColIndex = headers.indexOf(attrName);
+            break;
+          }
+        }
+
+        if (targetSheetKey) break;
+      }
+
+      if (!targetSheetKey || targetRowIndex === null) {
+        const error = `找不到角色: ${characterName}`;
+        console.warn(`[DICE]safeUpdateAttribute: ${error}`);
+        return { success: false, oldValue: 0, newValue: 0, error };
+      }
+
+      if (targetColIndex === -1) {
+        const error = `角色 ${characterName} 中找不到属性: ${attrName}`;
+        console.warn(`[DICE]safeUpdateAttribute: ${error}`);
+        return { success: false, oldValue: 0, newValue: 0, error };
+      }
+
+      // 4. 检查锁定状态
+      const lockState = api.getTableLockState?.(targetSheetKey);
+      if (lockState) {
+        // 检查行锁定
+        const isRowLocked = lockState.rows?.includes(targetRowIndex) ?? false;
+        if (isRowLocked) {
+          const error = `角色 ${characterName} 的整行已被锁定`;
+          console.warn(`[DICE]safeUpdateAttribute: ${error}`);
+          return { success: false, oldValue: 0, newValue: 0, error };
+        }
+
+        // 检查单元格锁定
+        // 注意: targetColIndex 包含行号列，神-数据库的 colIndex 不包含行号列，需要 -1
+        const cellKey = `${targetRowIndex}:${targetColIndex - 1}`;
+        const isCellLocked = lockState.cells?.includes(cellKey) ?? false;
+        if (isCellLocked) {
+          const error = `属性 ${characterName}.${attrName} 已被锁定`;
+          console.warn(`[DICE]safeUpdateAttribute: ${error}`);
+          return { success: false, oldValue: 0, newValue: 0, error };
+        }
+      }
+
+      // 5. 获取旧值或初始化
+      const sheet = data[targetSheetKey];
+      const currentValue = sheet.content[targetRowIndex + 1][targetColIndex]; // +1 因为 content[0] 是表头
+      let oldValue: number;
+
+      if (currentValue === null || currentValue === undefined || currentValue === '') {
+        if (options?.initValue !== undefined) {
+          oldValue = options.initValue;
+          console.info(`[DICE]safeUpdateAttribute: 属性 ${attrName} 不存在，初始化为 ${oldValue}`);
+        } else {
+          const error = `属性 ${attrName} 不存在且未提供 initValue`;
+          console.warn(`[DICE]safeUpdateAttribute: ${error}`);
+          return { success: false, oldValue: 0, newValue: 0, error };
+        }
+      } else {
+        oldValue = typeof currentValue === 'number' ? currentValue : parseFloat(String(currentValue));
+        if (isNaN(oldValue)) {
+          const error = `属性 ${attrName} 的值 "${currentValue}" 无法转换为数字`;
+          console.warn(`[DICE]safeUpdateAttribute: ${error}`);
+          return { success: false, oldValue: 0, newValue: 0, error };
+        }
+      }
+
+      // 6. 执行操作
+      let newValue: number;
+      switch (operation) {
+        case 'add':
+          newValue = oldValue + value;
+          break;
+        case 'subtract':
+          newValue = oldValue - value;
+          break;
+        case 'set':
+          newValue = value;
+          break;
+        default:
+          const error = `不支持的操作类型: ${operation}`;
+          console.error(`[DICE]safeUpdateAttribute: ${error}`);
+          return { success: false, oldValue, newValue: oldValue, error };
+      }
+
+      // 7. 应用 min/max 约束
+      const min = options?.min ?? -Infinity;
+      const max = options?.max ?? Infinity;
+      newValue = Math.max(min, Math.min(max, newValue));
+
+      console.info(
+        `[DICE]safeUpdateAttribute: ${characterName}.${attrName} ${oldValue} → ${newValue} (${operation} ${value})`,
+      );
+
+      // 8. 更新数据
+      sheet.content[targetRowIndex + 1][targetColIndex] = newValue;
+
+      // 9. 使用 JSON.parse(JSON.stringify()) 去除 Proxy 层后导入
+      const cleanData = JSON.parse(JSON.stringify(data));
+      const importResult = await api.importTableAsJson(cleanData);
+
+      if (importResult === false) {
+        const error = '数据导入失败（返回 false）';
+        console.error(`[DICE]safeUpdateAttribute: ${error}`);
+        return { success: false, oldValue, newValue, error };
+      }
+
+      console.info(`[DICE]safeUpdateAttribute: 成功修改 ${characterName}.${attrName}`);
+      return { success: true, oldValue, newValue };
+    } catch (e) {
+      const error = `修改属性时发生异常: ${e instanceof Error ? e.message : String(e)}`;
+      console.error(`[DICE]safeUpdateAttribute: ${error}`, e);
+      return { success: false, oldValue: 0, newValue: 0, error };
+    }
+  }
+
+  /**
+   * 执行检定后果效果
+   * 在 MESSAGE_SENT 事件中调用，异步执行不阻塞消息发送
+   * @param pendingCtx 待执行的后果上下文
+   * @returns 执行结果数组
+   */
+  async function executeEffects(pendingCtx: PendingEffectContext): Promise<EffectResult[]> {
+    const results: EffectResult[] = [];
+    const { preset, matchedOutcome, context } = pendingCtx;
+    const replayOperations: EffectReplayOperation[] = [];
+    const deferredSecondaryCallbacks: Array<() => void> = [];
+    const baseData = cachedRawData || getTableData();
+    if (!baseData) {
+      throw new Error('效果执行失败：无法获取表格数据');
+    }
+    const transactionalData = JSON.parse(JSON.stringify(baseData));
+    const modifiedSheetKeys = new Set<string>();
+    const overrideMap = new Map<string, ComputedEffect>();
+    if (pendingCtx.effectOverrides && pendingCtx.effectOverrides.length > 0) {
+      pendingCtx.effectOverrides.forEach(item => {
+        overrideMap.set(item.effectId, item);
+      });
+    }
+
+    if (!matchedOutcome.effects || matchedOutcome.effects.length === 0) {
+      return results;
+    }
+
+    console.info(`[DICE] Executing ${matchedOutcome.effects.length} effects for outcome "${matchedOutcome.name}"`);
+
+    for (const effect of matchedOutcome.effects) {
+      // 1. 检查条件
+      if (effect.condition) {
+        const condContext = {
+          $roll: context.roll,
+          $attr: context.attributeValue,
+          $mod: context.modifier,
+          $dc: context.dc,
+        };
+        const condResult = evaluateCondition(effect.condition, condContext);
+        if (!condResult.success || !condResult.value) {
+          console.info(`[DICE] Effect ${effect.id} skipped: condition "${effect.condition}" not met`);
+          continue;
+        }
+      }
+
+      // 2. 检查 allowedTargets
+      if (preset.effectsConfig?.allowedTargets && preset.effectsConfig.allowedTargets.length > 0) {
+        if (!preset.effectsConfig.allowedTargets.includes(effect.target)) {
+          console.warn(`[DICE] Effect ${effect.id} blocked: target "${effect.target}" not in allowedTargets`);
+          continue;
+        }
+      }
+
+      // 3. 解析 value（支持骰子表达式）
+      let finalValue = 0;
+      let formulaText = '';
+      let rolledValue: number | undefined;
+      const override = overrideMap.get(effect.id);
+      if (override) {
+        finalValue = Math.abs(override.computedValue);
+        formulaText = override.formula || String(effect.value || '0');
+        rolledValue = Number.isFinite(override.rolledValue) ? override.rolledValue : undefined;
+        console.info(
+          `[DICE] Effect ${effect.id}: use confirmed override "${override.formula}" => ${override.computedValue}`,
+        );
+      } else {
+        const parsedValue = parseEffectValueInput(effect.value, `Effect ${effect.id}`);
+        formulaText = parsedValue.formulaText;
+        finalValue = parsedValue.finalValue;
+        rolledValue = parsedValue.rolledValue;
+        if (parsedValue.valid) {
+          console.info(`[DICE] Effect ${effect.id}: rolled "${formulaText}" = ${finalValue}`);
+        }
+      }
+
+      // 4. 执行属性更新（使用 updateSingleAttribute 支持属性字符串格式）
+      const aliasCandidates = [...(preset.effectsConfig?.allowedTargets || []), context.attributeName].filter(
+        (name, idx, arr) => Boolean(name) && arr.indexOf(name) === idx,
+      );
+
+      const updateResult = await updateSingleAttribute(
+        context.characterName,
+        effect.target,
+        effect.operation,
+        finalValue,
+        {
+          initValue: effect.initValue,
+          min: effect.min,
+          max: effect.max,
+          aliasCandidates,
+          skipSave: true,
+          dataOverride: transactionalData,
+        },
+      );
+      if (updateResult.modifiedSheetKey) modifiedSheetKeys.add(updateResult.modifiedSheetKey);
+
+      // 5. 记录结果
+      const effectResult: EffectResult = {
+        effectId: effect.id,
+        success: updateResult.success,
+        oldValue: updateResult.oldValue,
+        newValue: updateResult.newValue,
+        error: updateResult.error,
+        target: updateResult.resolvedAttrName || effect.target,
+        level: 1,
+        triggerType: 'primary',
+        branchLabel: `L1/${matchedOutcome.name}`,
+        formulaText,
+        rolledValue,
+      };
+      results.push(effectResult);
+
+      if (updateResult.success) {
+        replayOperations.push({
+          characterName: context.characterName,
+          target: effect.target,
+          operation: effect.operation,
+          value: finalValue,
+          initValue: effect.initValue,
+          min: effect.min,
+          max: effect.max,
+          aliasCandidates,
+          resultRef: effectResult,
+        });
+      }
+
+      if (updateResult.success) {
+        console.info(
+          `[DICE] Effect executed: ${context.characterName}.${updateResult.resolvedAttrName || effect.target} ${effect.operation} ${finalValue} (${updateResult.oldValue} → ${updateResult.newValue})`,
+        );
+      } else {
+        console.error(`[DICE] Effect ${effect.id} failed: ${updateResult.error}`);
+      }
+    }
+
+    const secondaryResults = await executeSecondaryEffectsChain(
+      preset,
+      results,
+      {
+        characterName: context.characterName,
+        attributeName: context.attributeName,
+        attributeValue: context.attributeValue,
+      },
+      transactionalData,
+      modifiedSheetKeys,
+      replayOperations,
+      deferredSecondaryCallbacks,
+    );
+
+    const allResults = [...results, ...secondaryResults];
+    const hasFailure = allResults.some(r => !r.success);
+
+    // all-or-nothing: 任一效果失败则整批回滚（不提交 transactionalData）
+    if (hasFailure) {
+      return allResults.map(r =>
+        r.success
+          ? {
+              ...r,
+              success: false,
+              error: r.error || '事务回滚：同批次存在失败效果，整批未提交',
+            }
+          : r,
+      );
+    }
+
+    // 在保存队列的同一临界区内读取最新数据、重放补丁并提交
+    return runInSaveQueue(async () => {
+      const latestData = cachedRawData || getTableData();
+      if (!latestData) {
+        return allResults.map(r =>
+          r.success
+            ? {
+                ...r,
+                success: false,
+                error: r.error || '事务回滚：提交阶段无法读取最新数据',
+              }
+            : r,
+        );
+      }
+
+      const latestTransactionalData = JSON.parse(JSON.stringify(latestData));
+      const latestModifiedSheetKeys = new Set<string>();
+      for (const op of replayOperations) {
+        const replayResult = await updateSingleAttribute(op.characterName, op.target, op.operation, op.value, {
+          initValue: op.initValue,
+          min: op.min,
+          max: op.max,
+          aliasCandidates: op.aliasCandidates,
+          skipSave: true,
+          dataOverride: latestTransactionalData,
+        });
+
+        if (!replayResult.success) {
+          return allResults.map(r =>
+            r.success
+              ? {
+                  ...r,
+                  success: false,
+                  error: r.error || `事务回滚：最新数据重放失败 (${replayResult.error || 'unknown'})`,
+                }
+              : r,
+          );
+        }
+
+        if (replayResult.modifiedSheetKey) latestModifiedSheetKeys.add(replayResult.modifiedSheetKey);
+        op.resultRef.oldValue = replayResult.oldValue;
+        op.resultRef.newValue = replayResult.newValue;
+        op.resultRef.target = replayResult.resolvedAttrName || op.resultRef.target;
+        op.resultRef.error = undefined;
+      }
+
+      if (latestModifiedSheetKeys.size > 0) {
+        await performSaveDataOnly(latestTransactionalData, Array.from(latestModifiedSheetKeys));
+      }
+
+      deferredSecondaryCallbacks.forEach(run => run());
+
+      return allResults;
+    });
+  }
+
+  function parseEffectValueInput(
+    rawValue: unknown,
+    traceLabel: string,
+  ): {
+    formulaText: string;
+    finalValue: number;
+    rolledValue: number;
+    valid: boolean;
+  } {
+    const formulaText = String(rawValue ?? '').trim() || '0';
+    const rollResult = rollComplexDiceExpression(formulaText);
+    if (Number.isNaN(rollResult.total)) {
+      console.warn(`[DICE] ${traceLabel} 效果值解析失败: "${formulaText}"，按 0 处理`);
+      return {
+        formulaText,
+        finalValue: 0,
+        rolledValue: 0,
+        valid: false,
+      };
+    }
+
+    const value = Math.round(rollResult.total);
+    return {
+      formulaText,
+      finalValue: value,
+      rolledValue: value,
+      valid: true,
+    };
+  }
+
+  async function executeSecondaryEffectsChain(
+    preset: AdvancedDicePreset,
+    effectResults: EffectResult[],
+    context: { characterName: string; attributeName: string; attributeValue: number },
+    transactionalData?: Record<string, { name: string; content: (string | number | null)[][] }>,
+    modifiedSheetKeys?: Set<string>,
+    replayOperations?: EffectReplayOperation[],
+    deferredSecondaryCallbacks?: Array<() => void>,
+  ): Promise<EffectResult[]> {
+    const secondaryEffects = preset.secondaryEffects;
+    if (!secondaryEffects || secondaryEffects.length === 0) return [];
+
+    const clamp = (num: number, min: number, max: number): number => Math.max(min, Math.min(max, num));
+    const maxDepth = clamp(Number(preset.secondaryMaxDepth ?? 3), 1, 8);
+    const triggerCounts = new Map<string, number>();
+    const allGenerated: EffectResult[] = [];
+    const localDeferredCallbacks: Array<() => void> = [];
+    const callbackQueue = deferredSecondaryCallbacks || localDeferredCallbacks;
+    let currentLevelResults = effectResults.filter(r => r.success);
+
+    const buildFormulaContext = (): Record<string, number> => {
+      const currentAttrs = getFullAttributesForCharacter(context.characterName, transactionalData);
+      const formulaContext: Record<string, number> = {};
+      currentAttrs.forEach(attr => {
+        if (attr && typeof attr.name === 'string' && typeof attr.value === 'number' && !isNaN(attr.value)) {
+          formulaContext[attr.name] = attr.value;
+        }
+      });
+      return formulaContext;
+    };
+
+    const compare = (operator: SecondaryEffect['trigger']['operator'], left: number, right: number): boolean => {
+      switch (operator) {
+        case 'gt':
+          return left > right;
+        case 'gte':
+          return left >= right;
+        case 'lt':
+          return left < right;
+        case 'lte':
+          return left <= right;
+        case 'eq':
+          return left === right;
+        default:
+          return false;
+      }
+    };
+
+    const resolveThresholdValue = (value: string, result: EffectResult, depth: number): number => {
+      const rawExpr = String(value || '').trim();
+      if (!rawExpr) return 0;
+
+      // 兼容 {意志}/5 形式
+      const expr = rawExpr.replace(/\{([^}]+)\}/g, '$1');
+      const delta = Math.abs(result.newValue - result.oldValue);
+      const liveFormulaContext = buildFormulaContext();
+      const exprContext: Record<string, number> = {
+        ...liveFormulaContext,
+        $attr: result.newValue,
+        $old: result.oldValue,
+        $new: result.newValue,
+        $delta: delta,
+        $depth: depth,
+      };
+
+      const condResult = evaluateCondition(expr, exprContext);
+      if (condResult.success && condResult.value !== undefined) {
+        const val = typeof condResult.value === 'boolean' ? (condResult.value ? 1 : 0) : Number(condResult.value);
+        if (Number.isFinite(val)) return val;
+      }
+
+      const formulaExpr = expr.replace(/\$[a-zA-Z_]\w*/g, token => {
+        const val = exprContext[token];
+        return typeof val === 'number' && Number.isFinite(val) ? String(val) : '0';
+      });
+      const formulaValue = evaluateFormula(formulaExpr, liveFormulaContext);
+      if (typeof formulaValue === 'number' && Number.isFinite(formulaValue)) return formulaValue;
+
+      const fallbackNum = parseFloat(expr);
+      return Number.isFinite(fallbackNum) ? fallbackNum : 0;
+    };
+
+    const renderTemplateText = (text: string, vars: Record<string, string | number | boolean | undefined>): string => {
+      return String(text || '').replace(/\$([a-zA-Z_]\w*)/g, (match, key: string) => {
+        const varKey = `$${key}`;
+        const val = vars[varKey];
+        if (val === undefined || val === null) return match;
+        return String(val);
+      });
+    };
+
+    const renderTemplateTextTwice = (
+      text: string,
+      vars: Record<string, string | number | boolean | undefined>,
+    ): string => {
+      const pass1 = renderTemplateText(text, vars);
+      return renderTemplateText(pass1, vars);
+    };
+
+    const appendNamedRandomTables = (
+      outputVars: Record<string, string | number | boolean>,
+      randomTables?: SecondaryEffect['randomTables'],
+    ): void => {
+      if (!randomTables) return;
+      for (const [tableKey, tableDef] of Object.entries(randomTables)) {
+        if (!tableDef || !tableDef.dice) continue;
+        const tableRoll = rollComplexDiceExpression(tableDef.dice);
+        outputVars[`$${tableKey}Roll`] = tableRoll.total;
+        const rawResult = tableDef.entries?.[tableRoll.total] ?? String(tableRoll.total);
+        outputVars[`$${tableKey}Result`] = renderTemplateTextTwice(rawResult, outputVars);
+      }
+    };
+
+    for (let depth = 2; depth <= maxDepth + 1; depth++) {
+      if (currentLevelResults.length === 0) break;
+      const nextLevelResults: EffectResult[] = [];
+
+      const secondaryTriggerMode: 'first' | 'all' = preset.secondaryTriggerMode === 'all' ? 'all' : 'first';
+
+      for (const secEffect of secondaryEffects) {
+        if (secEffect.enabled === false) continue;
+        const maxTriggerCount = Math.max(1, secEffect.maxTriggerCount ?? 1);
+        const currentCount = triggerCounts.get(secEffect.id) || 0;
+        if (currentCount >= maxTriggerCount) continue;
+
+        const matchedCandidates: Array<{ result: EffectResult; thresholdValue: number }> = [];
+        for (const result of currentLevelResults) {
+          if (!result.success) continue;
+          const resultTarget = result.target || result.effectId;
+          if (!isSameAttributeAlias(resultTarget, secEffect.trigger.attribute)) continue;
+
+          const attrValue = result.newValue;
+          const delta = Math.abs(result.newValue - result.oldValue);
+          const thresholdValue = resolveThresholdValue(secEffect.trigger.value, result, depth);
+          const compareValue = secEffect.trigger.type === 'threshold' ? attrValue : delta;
+          const isTriggered = compare(secEffect.trigger.operator, compareValue, thresholdValue);
+          if (!isTriggered) continue;
+
+          matchedCandidates.push({ result, thresholdValue });
+          if (secondaryTriggerMode === 'first') break;
+        }
+
+        if (matchedCandidates.length === 0) continue;
+
+        const remainingTriggerCount = Math.max(0, maxTriggerCount - currentCount);
+        if (remainingTriggerCount === 0) continue;
+
+        let consumedMatches = 0;
+        const generatedByMatch: EffectResult[][] = [];
+
+        for (let candidateIndex = 0; candidateIndex < matchedCandidates.length; candidateIndex++) {
+          if (consumedMatches >= remainingTriggerCount) break;
+
+          const matched = matchedCandidates[candidateIndex];
+          const matchedResult = matched.result;
+          const matchedThresholdValue = matched.thresholdValue;
+          const attrValue = matchedResult.newValue;
+          const delta = Math.abs(matchedResult.newValue - matchedResult.oldValue);
+          const nextMatchIndex = consumedMatches + 1;
+          let callbackScheduled = false;
+
+          if (secEffect.callback) {
+            const callbackFn = (window as Record<string, unknown>)[secEffect.callback];
+            if (typeof callbackFn === 'function') {
+              const callbackPayload: Record<string, unknown> = {
+                attrValue,
+                delta,
+                context,
+                depth,
+                thresholdValue: matchedThresholdValue,
+                matchIndex: nextMatchIndex,
+                chainMode: secondaryTriggerMode,
+              };
+              callbackScheduled = true;
+              const runCallback = () => {
+                try {
+                  (callbackFn as (effect: SecondaryEffect, data: Record<string, unknown>) => void)(
+                    secEffect,
+                    callbackPayload,
+                  );
+                  console.info(
+                    `[DICE] Secondary effect callback triggered: ${secEffect.id} (depth=${depth}, mode=${secondaryTriggerMode}, match=${nextMatchIndex}, ${secEffect.trigger.type} ${secEffect.trigger.operator} ${matchedThresholdValue})`,
+                  );
+                } catch (e) {
+                  console.error(`[DICE] Secondary effect callback error:`, e);
+                }
+              };
+
+              callbackQueue.push(runCallback);
+            }
+          }
+
+          const effectsToRun: Effect[] = [...(secEffect.effects || [])];
+          const generatedForCurrentMatch: EffectResult[] = [];
+          const baseOutputVars: Record<string, string | number | boolean> = {
+            $delta: delta,
+            $old: matchedResult.oldValue,
+            $new: matchedResult.newValue,
+            $attr: attrValue,
+            $depth: depth,
+            $initiator: context.characterName,
+            $attribute: matchedResult.target || context.attributeName,
+          };
+
+          // 渲染 outputText 模板并生成信息型 EffectResult
+          if (secEffect.outputText) {
+            const outputVars: Record<string, string | number | boolean> = {
+              ...baseOutputVars,
+            };
+            // 随机表: 投骰并查表，注入 $tableRoll 和 $tableResult
+            if (secEffect.randomTable) {
+              const tableRoll = rollComplexDiceExpression(secEffect.randomTable.dice);
+              outputVars.$tableRoll = tableRoll.total;
+              const rawTableResult = secEffect.randomTable.entries[tableRoll.total] || `未知(${tableRoll.total})`;
+              outputVars.$tableResult = renderTemplateTextTwice(rawTableResult, outputVars);
+            }
+            appendNamedRandomTables(outputVars, secEffect.randomTables);
+            const renderedText = renderTemplateTextTwice(secEffect.outputText, outputVars);
+            const infoResult: EffectResult = {
+              effectId: secEffect.id,
+              success: true,
+              oldValue: matchedResult.oldValue,
+              newValue: matchedResult.newValue,
+              target: matchedResult.target,
+              level: depth,
+              triggerType: secEffect.trigger.type,
+              triggerSourceId: secEffect.id,
+              triggerThreshold: matchedThresholdValue,
+              triggerMatchIndex: nextMatchIndex,
+              outputMessage: renderedText,
+              branchLabel: `L${depth}/${secEffect.id}`,
+            };
+            // infoResult 只进 allGenerated（最终返回）和 generatedForCurrentMatch（当次统计），
+            // 不进 nextLevelResults（下一层级输入），避免其继承的 delta/oldValue/newValue 误触发下游 delta/threshold 效果
+            allGenerated.push(infoResult);
+            generatedForCurrentMatch.push(infoResult);
+          }
+
+          if (secEffect.subCheck) {
+            const subCheck = secEffect.subCheck;
+            const subCheckCandidates = [subCheck.attribute, ...(subCheck.attributeCandidates || [])].filter(
+              (item, idx, arr) => Boolean(item) && arr.indexOf(item) === idx,
+            );
+            const subCheckLabel = subCheck.label || subCheck.attribute;
+            let subCheckAttrName = subCheck.attribute;
+            let subCheckAttrValue: number | null = null;
+            for (const candidate of subCheckCandidates) {
+              const value = getAttributeValue(context.characterName, candidate, subCheckCandidates);
+              if (typeof value === 'number' && Number.isFinite(value)) {
+                subCheckAttrName = candidate;
+                subCheckAttrValue = value;
+                break;
+              }
+            }
+
+            if (subCheckAttrValue === null) {
+              const fallbackText =
+                subCheck.missingAttributeText ||
+                '⚠ 无法自动进行$subCheckLabel：发起者缺少属性[$subCheckAttrName]，请手动判定。';
+              const missingVars: Record<string, string | number | boolean> = {
+                ...baseOutputVars,
+                $subCheckLabel: subCheckLabel,
+                $subCheckAttrName: subCheckAttrName,
+              };
+              const infoResult: EffectResult = {
+                effectId: `${secEffect.id}_subcheck_missing`,
+                success: true,
+                oldValue: matchedResult.oldValue,
+                newValue: matchedResult.newValue,
+                target: matchedResult.target,
+                level: depth,
+                triggerType: secEffect.trigger.type,
+                triggerSourceId: secEffect.id,
+                triggerThreshold: matchedThresholdValue,
+                triggerMatchIndex: nextMatchIndex,
+                outputMessage: renderTemplateText(fallbackText, missingVars),
+                branchLabel: `L${depth}/${secEffect.id}/${subCheckLabel}:缺失属性`,
+              };
+              allGenerated.push(infoResult);
+              generatedForCurrentMatch.push(infoResult);
+            } else {
+              const subCheckDice = subCheck.dice || '1d100';
+              const subCheckRoll = rollComplexDiceExpression(subCheckDice).total;
+              const subCheckTarget =
+                typeof subCheck.targetValue === 'string' && subCheck.targetValue.trim().length > 0
+                  ? resolveThresholdValue(subCheck.targetValue, matchedResult, depth)
+                  : subCheckAttrValue;
+              const subCheckOperator = subCheck.operator || 'lte';
+              const subCheckPassed = compare(subCheckOperator, subCheckRoll, subCheckTarget);
+              const subCheckJudge = subCheckPassed ? '成立' : '不成立';
+              const branch = subCheckPassed ? subCheck.success : subCheck.failure;
+              const subCheckVars: Record<string, string | number | boolean> = {
+                ...baseOutputVars,
+                $subCheckLabel: subCheckLabel,
+                $subCheckAttrName: subCheckAttrName,
+                $subCheckAttrValue: subCheckAttrValue,
+                $subCheckDice: subCheckDice,
+                $subCheckRoll: subCheckRoll,
+                $subCheckTarget: subCheckTarget,
+                $subCheckOperator: subCheckOperator,
+                $subCheckPassed: subCheckPassed ? 1 : 0,
+                $subCheckJudge: subCheckJudge,
+              };
+
+              if (branch?.randomTable) {
+                const tableRoll = rollComplexDiceExpression(branch.randomTable.dice);
+                subCheckVars.$tableRoll = tableRoll.total;
+                const rawTableResult = branch.randomTable.entries[tableRoll.total] || `未知(${tableRoll.total})`;
+                subCheckVars.$tableResult = renderTemplateTextTwice(rawTableResult, subCheckVars);
+              }
+              appendNamedRandomTables(
+                subCheckVars,
+                branch?.randomTables as SecondaryEffect['randomTables'] | undefined,
+              );
+
+              if (branch?.outputText) {
+                const infoResult: EffectResult = {
+                  effectId: `${secEffect.id}_subcheck_${subCheckPassed ? 'success' : 'failure'}`,
+                  success: true,
+                  oldValue: matchedResult.oldValue,
+                  newValue: matchedResult.newValue,
+                  target: matchedResult.target,
+                  level: depth,
+                  triggerType: secEffect.trigger.type,
+                  triggerSourceId: secEffect.id,
+                  triggerThreshold: matchedThresholdValue,
+                  triggerMatchIndex: nextMatchIndex,
+                  outputMessage: renderTemplateTextTwice(branch.outputText, subCheckVars),
+                  branchLabel: `L${depth}/${secEffect.id}/${subCheckLabel}:${subCheckPassed ? '成功' : '失败'}`,
+                };
+                allGenerated.push(infoResult);
+                generatedForCurrentMatch.push(infoResult);
+              }
+
+              if (branch?.effects && branch.effects.length > 0) {
+                effectsToRun.push(...branch.effects);
+              }
+            }
+          }
+
+          for (const effect of effectsToRun) {
+            if (effect.condition) {
+              const formulaContextForCondition = buildFormulaContext();
+              const condContext = {
+                $roll: 0,
+                $attr: matchedResult.newValue,
+                $old: matchedResult.oldValue,
+                $new: matchedResult.newValue,
+                $delta: delta,
+                $depth: depth,
+                $mod: 0,
+                $dc: 0,
+                ...formulaContextForCondition,
+              };
+              const condResult = evaluateCondition(effect.condition, condContext);
+              if (!condResult.success || !condResult.value) continue;
+            }
+
+            if (preset.effectsConfig?.allowedTargets && preset.effectsConfig.allowedTargets.length > 0) {
+              if (!preset.effectsConfig.allowedTargets.includes(effect.target)) continue;
+            }
+
+            const parsedValue = parseEffectValueInput(effect.value, `Secondary ${secEffect.id}/${effect.id}`);
+            const finalValue = parsedValue.finalValue;
+
+            const aliasCandidates = [...(preset.effectsConfig?.allowedTargets || []), context.attributeName].filter(
+              (name, idx, arr) => Boolean(name) && arr.indexOf(name) === idx,
+            );
+
+            const updateResult = await updateSingleAttribute(
+              context.characterName,
+              effect.target,
+              effect.operation,
+              finalValue,
+              {
+                initValue: effect.initValue,
+                min: effect.min,
+                max: effect.max,
+                aliasCandidates,
+                skipSave: Boolean(transactionalData),
+                dataOverride: transactionalData,
+              },
+            );
+            if (updateResult.modifiedSheetKey && modifiedSheetKeys)
+              modifiedSheetKeys.add(updateResult.modifiedSheetKey);
+
+            const generatedResult: EffectResult = {
+              effectId: effect.id,
+              success: updateResult.success,
+              oldValue: updateResult.oldValue,
+              newValue: updateResult.newValue,
+              error: updateResult.error,
+              target: updateResult.resolvedAttrName || effect.target,
+              level: depth,
+              triggerType: secEffect.trigger.type,
+              triggerSourceId: secEffect.id,
+              triggerThreshold: matchedThresholdValue,
+              triggerMatchIndex: nextMatchIndex,
+              branchLabel: `L${depth}/${secEffect.id}`,
+              formulaText: parsedValue.formulaText,
+              rolledValue: parsedValue.rolledValue,
+            };
+            nextLevelResults.push(generatedResult);
+            allGenerated.push(generatedResult);
+            generatedForCurrentMatch.push(generatedResult);
+
+            if (updateResult.success && replayOperations) {
+              replayOperations.push({
+                characterName: context.characterName,
+                target: effect.target,
+                operation: effect.operation,
+                value: finalValue,
+                initValue: effect.initValue,
+                min: effect.min,
+                max: effect.max,
+                aliasCandidates,
+                resultRef: generatedResult,
+              });
+            }
+          }
+
+          if (!callbackScheduled && generatedForCurrentMatch.length === 0) {
+            continue;
+          }
+
+          consumedMatches += 1;
+          generatedByMatch.push(generatedForCurrentMatch);
+        }
+
+        if (consumedMatches === 0) continue;
+
+        triggerCounts.set(secEffect.id, currentCount + consumedMatches);
+
+        for (const grouped of generatedByMatch) {
+          grouped.forEach(item => {
+            item.triggerMatchCount = consumedMatches;
+          });
+        }
+      }
+
+      currentLevelResults = nextLevelResults.filter(r => r.success);
+    }
+
+    if (!deferredSecondaryCallbacks) {
+      const hasFailure = allGenerated.some(item => !item.success);
+      if (!hasFailure) {
+        localDeferredCallbacks.forEach(run => run());
+      }
+    }
+
+    return allGenerated;
+  }
+
+  /**
+   * 根据后果执行结果计算输出模板变量
+   * @param results 后果执行结果数组
+   * @returns 可用于 outputContext 的变量对象
+   */
+  function computeEffectVariables(results: EffectResult[]): Record<string, string | number | boolean> {
+    if (!results || results.length === 0) {
+      return {
+        effectTarget: '',
+        effectOperation: '',
+        effectDelta: 0,
+        effectDeltaFormula: '',
+        effectOldValue: 0,
+        effectNewValue: 0,
+        effectSummary: '',
+        effectText: '',
+        hasEffect: false,
+        effectCount: 0,
+        effectResults: '[]',
+      };
+    }
+
+    // 使用最后一个成功的结果，若全部失败则使用最后一个
+    const successResults = results.filter(r => r.success);
+    const lastSuccess =
+      successResults.length > 0 ? successResults[successResults.length - 1] : results[results.length - 1];
+
+    const delta = lastSuccess.newValue - lastSuccess.oldValue;
+    const operation = delta > 0 ? '增加' : delta < 0 ? '减少' : '设置为';
+
+    // 生成所有成功效果的摘要
+    const summaries = successResults.map(r => {
+      const d = r.newValue - r.oldValue;
+      const op = d > 0 ? '+' : '';
+      return `${r.effectId}: ${op}${d} (${r.oldValue}→${r.newValue})`;
+    });
+
+    return {
+      effectTarget: lastSuccess.effectId,
+      effectOperation: operation,
+      effectDelta: Math.abs(delta),
+      effectDeltaFormula: `${Math.abs(delta)}`,
+      effectOldValue: lastSuccess.oldValue,
+      effectNewValue: lastSuccess.newValue,
+      effectSummary:
+        successResults.length > 0
+          ? `${operation} ${Math.abs(delta)} (${lastSuccess.oldValue} → ${lastSuccess.newValue})`
+          : '',
+      effectText: summaries.join('; '),
+      hasEffect: successResults.length > 0,
+      effectCount: successResults.length,
+      effectResults: JSON.stringify(results),
+    };
+  }
+
+  function buildEffectTraceLines(results: EffectResult[]): string[] {
+    if (!results || results.length === 0) return [];
+    return results.map(item => {
+      const prefix = item.branchLabel ? `[${item.branchLabel}] ` : item.level ? `[L${item.level}] ` : '';
+      const target = item.target || '-';
+      // 失败条目优先（事务回滚时所有结果被标记 success:false，outputMessage 条目也不应显示为成功）
+      if (!item.success && item.error) {
+        return `${prefix}✗ ${target} 变更失败: ${item.error}`;
+      }
+      // 信息输出型条目（来自 secondaryEffect.outputText）
+      if (item.outputMessage) {
+        return `${prefix}${item.outputMessage}`;
+      }
+      const delta = item.newValue - item.oldValue;
+      const sign = delta > 0 ? '+' : '';
+      const icon = item.success ? '✓' : '✗';
+      const formulaInfo = item.formulaText
+        ? ` ｜算式:${item.formulaText}${item.rolledValue !== undefined ? ` ｜掷值:${item.rolledValue}` : ''}`
+        : '';
+      return `${prefix}${icon} ${target} ${item.oldValue} → ${item.newValue} (${sign}${delta})${formulaInfo}`;
+    });
+  }
+
+  function buildEffectMetaLines(
+    results: EffectResult[],
+    options?: {
+      branchReasonText?: string;
+    },
+  ): string[] {
+    if (!results || results.length === 0) return [];
+    const settledHeader = '【已填表】以下数值效果已同步填表，无需重复填表。';
+    const lines = results
+      .filter(item => item.success)
+      .map(item => {
+        if (item.outputMessage) {
+          return item.outputMessage;
+        }
+
+        const target = item.target || '属性';
+        const delta = item.newValue - item.oldValue;
+        const sign = delta > 0 ? '+' : '';
+        const primaryBranch = item.branchLabel?.startsWith('L1/') ? item.branchLabel.slice(3) : '';
+        const formulaDetail =
+          item.formulaText && item.rolledValue !== undefined
+            ? `，${primaryBranch ? `按${primaryBranch}分支` : '按当前分支'}算式${item.formulaText}得到${item.rolledValue}`
+            : '';
+
+        const reasonPrefix = primaryBranch ? `命中${primaryBranch}分支后，` : '';
+        return `${reasonPrefix}${target}从${item.oldValue}变为${item.newValue}（变化${sign}${delta}${formulaDetail}）`;
+      });
+
+    // 避免与主检定叙事重复：优先输出效果行，仅在没有效果行时回退到分支原因
+    if (lines.length > 0) return [settledHeader, ...lines];
+    if (options?.branchReasonText) return [settledHeader, options.branchReasonText];
+    return [];
+  }
+
+  /**
+   * 根据待执行的效果定义预计算输出模板变量
+   * 用于在输出模板中显示预期的效果信息（实际执行在消息发送后）
+   * @param effects 效果定义数组
+   * @returns 可用于 outputContext 的变量对象
+   */
+  function computePendingEffectVariables(effects: Effect[] | undefined): Record<string, string | number | boolean> {
+    if (!effects || effects.length === 0) {
+      return {
+        effectTarget: '',
+        effectOperation: '',
+        effectDelta: 0,
+        effectDeltaFormula: '',
+        effectOldValue: 0,
+        effectNewValue: 0,
+        effectSummary: '',
+        effectText: '',
+        hasEffect: false,
+        effectCount: 0,
+        effectResults: '[]',
+      };
+    }
+
+    // 使用第一个效果作为主要显示
+    const firstEffect = effects[0];
+    const operationMap: Record<string, string> = {
+      add: '增加',
+      subtract: '减少',
+      set: '设置为',
+    };
+    const operation = operationMap[firstEffect.operation] || firstEffect.operation;
+
+    // 生成所有效果的预期摘要
+    const summaries = effects.map(e => {
+      const op = operationMap[e.operation] || e.operation;
+      return `${e.target}: ${op} ${e.value}`;
+    });
+
+    return {
+      effectTarget: firstEffect.target,
+      effectOperation: operation,
+      effectDelta: 0, // 未执行，无法知道实际变化量
+      effectDeltaFormula: firstEffect.value,
+      effectOldValue: 0, // 未执行，无法知道原值
+      effectNewValue: 0, // 未执行，无法知道新值
+      effectSummary: `${firstEffect.target} ${operation} ${firstEffect.value}`,
+      effectText: summaries.join('; '),
+      hasEffect: true,
+      effectCount: effects.length,
+      effectResults: JSON.stringify(effects.map(e => ({ effectId: e.id, pending: true }))),
+    };
+  }
+
   // ========================================
   // BookmarkManager - 书签管理器（按聊天隔离）
   // ========================================
@@ -286,6 +1345,47 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
+
+  const stripLoneSurrogates = (value: string): string => {
+    let sanitized = '';
+    for (let i = 0; i < value.length; i++) {
+      const code = value.charCodeAt(i);
+      if (code >= 0xd800 && code <= 0xdbff) {
+        const next = value.charCodeAt(i + 1);
+        if (next >= 0xdc00 && next <= 0xdfff) {
+          sanitized += value[i] + value[i + 1];
+          i++;
+        } else {
+          sanitized += '\uFFFD';
+        }
+        continue;
+      }
+      if (code >= 0xdc00 && code <= 0xdfff) {
+        sanitized += '\uFFFD';
+        continue;
+      }
+      sanitized += value[i];
+    }
+    return sanitized;
+  };
+
+  const safeEncodeURIComponent = (value: unknown): string => {
+    const text = String(value ?? '');
+    try {
+      return encodeURIComponent(text);
+    } catch {
+      return encodeURIComponent(stripLoneSurrogates(text));
+    }
+  };
+
+  const safeDecodeURIComponent = (value: unknown): string => {
+    const text = String(value ?? '');
+    try {
+      return decodeURIComponent(text);
+    } catch {
+      return stripLoneSurrogates(text);
+    }
+  };
 
   /**
    * 设置弹窗点击遮罩关闭的事件监听
@@ -431,16 +1531,20 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     const $ta = $('#send_textarea');
     if (!$ta.length) return;
 
-    const currentVal = ($ta.val() || '').trim();
+    const normalizeTextareaContent = (text: unknown): string => {
+      return String(text ?? '')
+        .replace(/\r\n?/g, '\n')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n[ \t]+/g, '\n')
+        .replace(/\n{2,}/g, '\n')
+        .trim();
+    };
 
-    // 普通检定结果的识别正则
-    // 格式: "（元叙事：角色名发起了【属性名】检定，掷出XX，判定式，【结果】）"
-    const normalDiceRegex = /（元叙事：[\u4e00-\u9fa5a-zA-Z<>]+发起了【[^】]+】检定，掷出\d+，[^【]*【[^】]+】）/g;
+    const normalizedNewContent = normalizeTextareaContent(newContent);
+    const currentVal = normalizeTextareaContent($ta.val() || '');
 
-    // 对抗检定结果的识别正则
-    // 格式: "（元叙事：进行了一次【角色名 属性名 vs 角色名 属性名】的对抗检定。角色名 属性名 (目标...) 掷出 ...，判定为【...】；角色名 属性名 (目标...) 掷出 ...，判定为【...】。最终结果：【...】）"
-    const contestDiceRegex =
-      /（元叙事：进行了一次【[^】]+ vs [^】]+】的对抗检定。.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】；.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】。最终结果：【[^】]+】）/g;
+    // 统一检定结果标签正则（匹配 <meta:检定结果>...</meta:检定结果>）
+    const metaCheckResultRegex = /<meta:检定结果>[\s\S]*?<\/meta:检定结果>/g;
 
     // 交互选项的识别正则（以<user>开头，匹配到句末标点）
     const actionRegex = /<user>(?:(?!<user>).)*?[。！？]/g;
@@ -450,7 +1554,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
     // [修复] 如果配置启用隐藏，且是骰子结果，则使用占位符显示，但保存真实结果
     const diceCfg = getDiceConfig();
-    let contentToInsert = newContent;
+    let contentToInsert = normalizedNewContent;
     let shouldSaveOriginal = false;
     if (contentType === 'dice' && diceCfg.hideDiceResultFromUser) {
       contentToInsert = '[投骰结果已隐藏]';
@@ -462,10 +1566,10 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       $ta.val(contentToInsert).trigger('input').trigger('change');
       // [修复] 始终保存真实结果到 data 属性（即使不隐藏也要保存，以便后续处理）
       if (contentType === 'dice') {
-        $ta.data('acu-original-dice-text', newContent);
+        $ta.data('acu-original-dice-text', normalizedNewContent);
         // [性能优化] 同时设置 DOM 属性作为缓存，避免 getter 中频繁调用 jQuery
         const textarea = $ta[0] as any;
-        textarea._acuOriginalDiceText = newContent;
+        textarea._acuOriginalDiceText = normalizedNewContent;
         textarea._acuHasDiceData = true;
       }
       return;
@@ -492,26 +1596,19 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       }
     }
 
-    // 1. 先提取对抗检定结果（优先级更高，格式更长）
-    const contestMatches = workingText.match(contestDiceRegex);
-    if (contestMatches && contestMatches.length > 0) {
-      existingDice = contestMatches[contestMatches.length - 1];
+    // 1. 提取 <meta:检定结果> 标签块（统一格式）
+    const metaMatches = workingText.match(metaCheckResultRegex);
+    if (metaMatches && metaMatches.length > 0) {
+      existingDice = metaMatches[metaMatches.length - 1];
       existingDiceOriginal = existingDice;
-      workingText = workingText.replace(contestDiceRegex, '\u0000').trim();
-      console.log('[DICE]ACU SmartInsert Found and extracted contest roll:', existingDice);
+      workingText = workingText.replace(metaCheckResultRegex, '\u0000').trim();
+      console.log(
+        '[DICE]ACU SmartInsert Found and extracted meta check result:',
+        existingDice.substring(0, 50) + '...',
+      );
     }
 
-    // 2. 再提取普通检定结果
-    const normalMatches = workingText.match(normalDiceRegex);
-    if (normalMatches && normalMatches.length > 0) {
-      // 如果已有对抗检定结果，普通检定会覆盖它；否则取普通检定
-      existingDice = normalMatches[normalMatches.length - 1];
-      existingDiceOriginal = existingDice;
-      workingText = workingText.replace(normalDiceRegex, '\u0000').trim();
-      console.log('[DICE]ACU SmartInsert Found and extracted normal roll:', existingDice);
-    }
-
-    // 3. 提取交互选项
+    // 2. 提取交互选项
     const actionMatches = workingText.match(actionRegex);
     if (actionMatches && actionMatches.length > 0) {
       existingAction = actionMatches[actionMatches.length - 1];
@@ -519,34 +1616,55 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       console.log('[DICE]ACU SmartInsert Found and extracted action:', existingAction);
     }
 
-    // 4. 移除占位符，剩下的就是用户输入
+    // 3. 移除占位符，剩下的就是用户输入
     let userInput = workingText
       .replace(/[\u0000\u0001]/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
 
-    // 5. 根据新内容类型，更新对应部分
+    // [修复] 清理历史遗留的“骰子输出前缀残片”
+    // 某些旧异常文本会形成："前缀文本 + <meta:检定结果>..."。
+    // 这里在插入新骰子结果时，若 userInput 只是新结果首行的前缀/近似前缀，则自动丢弃，避免重复。
+    if (contentType === 'dice' && normalizedNewContent.includes('<meta:检定结果>') && userInput) {
+      const diceBody = normalizeTextareaContent(
+        normalizedNewContent.replace(/<meta:检定结果>/g, '').replace(/<\/meta:检定结果>/g, ''),
+      );
+      const firstLine = (diceBody.split('\n')[0] || '').trim();
+      const normalizeFragment = (text: string): string => {
+        return String(text || '')
+          .replace(/\s+/g, '')
+          .replace(/[：:，。,！？!?.]+$/g, '')
+          .trim();
+      };
+      const userNorm = normalizeFragment(userInput);
+      const firstNorm = normalizeFragment(firstLine);
+      if (userNorm && firstNorm && (firstNorm.startsWith(userNorm) || userNorm.startsWith(firstNorm))) {
+        userInput = '';
+      }
+    }
+
+    // 4. 根据新内容类型，更新对应部分
     if (contentType === 'dice') {
       // [修复] 保存真实结果，显示占位符（如果配置启用）
       existingDice = contentToInsert;
-      existingDiceOriginal = newContent;
+      existingDiceOriginal = normalizedNewContent;
       // 始终保存真实结果到 data 属性
-      $ta.data('acu-original-dice-text', newContent);
+      $ta.data('acu-original-dice-text', normalizedNewContent);
       // [性能优化] 同时设置 DOM 属性作为缓存，避免 getter 中频繁调用 jQuery
       const textarea = $ta[0] as any;
-      textarea._acuOriginalDiceText = newContent;
+      textarea._acuOriginalDiceText = normalizedNewContent;
       textarea._acuHasDiceData = true;
     } else if (contentType === 'action') {
-      existingAction = newContent;
+      existingAction = normalizedNewContent;
     }
 
-    // 6. 重新组合：用户输入 + 交互选项 + 骰子结果
+    // 5. 重新组合：用户输入 + 交互选项 + 骰子结果
     const parts = [];
     if (userInput) parts.push(userInput);
     if (existingAction) parts.push(existingAction);
     if (existingDice) parts.push(existingDice);
 
-    const finalVal = parts.join(' ');
+    const finalVal = normalizeTextareaContent(parts.join(' '));
     $ta.val(finalVal).trigger('input').trigger('change');
   };
 
@@ -650,7 +1768,17 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
   const STORAGE_KEY_ACTIVE_ATTR_PRESET = 'acu_active_attr_preset_v1';
   const STORAGE_KEY_ACTION_PRESETS = 'acu_action_presets_v1';
   const STORAGE_KEY_ACTIVE_ACTION_PRESET = 'acu_active_action_preset_v1';
+  const STORAGE_KEY_ADVANCED_PRESETS = 'acu_advanced_presets_v1';
+  const STORAGE_KEY_BUILTIN_PRESET_VISIBILITY = 'acu_builtin_preset_visibility';
+  const STORAGE_KEY_BUILTIN_PRESET_ORDER = 'acu_builtin_preset_order';
+  const STORAGE_KEY_LAST_PRESET = 'acu_dice_last_preset';
   const STORAGE_KEY_CRAZY_MODE = 'acu_dice_crazy_mode';
+
+  // 自定义掷骰模式常量
+  const CUSTOM_ROLL_MODE = {
+    id: '__custom__',
+    name: '自定义',
+  } as const;
   const DEFAULT_CRAZY_MODE_CONFIG = {
     enabled: false,
     crazyLevel: 50,
@@ -658,8 +1786,8 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     inSceneNpcWeight: 15,
     offSceneNpcWeight: 5,
   };
-  const PRESET_FORMAT_VERSION = '1.6.6'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v3.90'; // 脚本版本号
+  const PRESET_FORMAT_VERSION = '1.7.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
+  const SCRIPT_VERSION = 'v4.00'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -1263,7 +2391,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       name: '统一用户称呼',
       description: '将常见的用户称呼统一替换为指定名称，可自行修改替换目标',
       operation: 'replace',
-      pattern: '主角|user|<user>|{{user}}',
+      pattern: '主角|<user>|{{user}}',
       flags: { global: false, caseInsensitive: false, multiline: false },
       replacement: '！！请输入你的角色名！！',
       scope: { type: 'global' },
@@ -1278,7 +2406,8 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       name: '去除特殊属性中的负面情绪',
       description: '删除主角信息表与重要人物表中过于陈腐的性格标签',
       operation: 'replace',
-      pattern: '[^;：:\\s]*(绝望|崩溃|崩坏|恐惧|NTR|羞耻|快感|顺从|侵犯|服从|逻辑|决绝|臣服)[^;：:\\s]*[:：]\\d+;?\\s?',
+      pattern:
+        '[^;：:\\s]*(绝望|崩溃|崩坏|恐惧|NTR|羞耻|快感|顺从|侵犯|服从|逻辑|决绝|臣服|屈服|敏感|洗脑)[^;：:\\s]*[:：]\\d+;?\\s?',
       flags: { global: false, caseInsensitive: false, multiline: false },
       replacement: '',
       scope: { type: 'table', tableNames: ['主角信息', '重要人物表'] },
@@ -1736,9 +2865,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     '任务',
     '纪要',
     '服装',
-    '外貌',
     '头像',
-    '外貌',
     '进度',
     '编码',
     '上限',
@@ -2359,16 +3486,10 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       if (this._cache) return this._cache;
 
       const rules = Store.get(STORAGE_KEY_REGEX_RULES, []);
-      const enabledStates = this.getEnabledStates();
-
-      // 应用启用状态
-      const allRules = rules.map(rule => ({
-        ...rule,
-        enabled: enabledStates[rule.id] !== undefined ? enabledStates[rule.id] : rule.enabled,
-      }));
-
-      this._cache = allRules;
-      return allRules;
+      // 直接使用规则中存储的 enabled 状态，不再从全局 enabledStates 覆盖
+      // 这确保了每个预设的开关状态是独立的
+      this._cache = rules;
+      return rules;
     },
 
     // 获取启用状态映射
@@ -2417,9 +3538,20 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
     // 切换规则启用状态
     toggleRuleEnabled(ruleId, enabled) {
-      const states = this.getEnabledStates();
-      states[ruleId] = enabled;
-      this._saveEnabledStates(states);
+      // 更新 STORAGE_KEY_REGEX_RULES 中的规则状态
+      const rules = Store.get(STORAGE_KEY_REGEX_RULES, []);
+      const ruleIndex = rules.findIndex(r => r.id === ruleId);
+      if (ruleIndex !== -1) {
+        rules[ruleIndex].enabled = enabled;
+        Store.set(STORAGE_KEY_REGEX_RULES, rules);
+      }
+
+      // 同时更新当前激活预设中的规则状态
+      const activePreset = RegexPresetManager.getActivePreset();
+      if (activePreset) {
+        RegexPresetManager.updatePresetRules(activePreset.id, rules);
+      }
+
       this.clearCache();
     },
 
@@ -4346,6 +5478,194 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     },
   };
 
+  type DiceHistoryEventType = 'check' | 'contest';
+
+  interface DiceHistoryStatRecord {
+    id?: number;
+    eventType: DiceHistoryEventType;
+    timestamp: number;
+    chatId: string;
+    characterId: string;
+    success: boolean;
+    attrName: string;
+    formula: string;
+    total: number;
+    target: number;
+    outcomeText: string;
+  }
+
+  interface DiceHistoryStatsSummary {
+    total: number;
+    checks: number;
+    contests: number;
+    checkSuccess: number;
+    checkSuccessRate: number;
+  }
+
+  const DiceHistoryStatsDB = {
+    DB_NAME: 'acu_dice_history_stats',
+    STORE_NAME: 'records',
+    DB_VERSION: 1,
+    _db: null as IDBDatabase | null,
+
+    async init(): Promise<IDBDatabase> {
+      if (this._db) return this._db;
+
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(this.DB_NAME, this.DB_VERSION);
+
+        request.onerror = () => {
+          console.error('[DICE]DiceHistoryStatsDB 打开数据库失败:', request.error);
+          reject(request.error);
+        };
+
+        request.onsuccess = () => {
+          this._db = request.result;
+          resolve(this._db);
+        };
+
+        request.onupgradeneeded = event => {
+          const db = (event.target as IDBOpenDBRequest).result;
+          if (!db.objectStoreNames.contains(this.STORE_NAME)) {
+            const store = db.createObjectStore(this.STORE_NAME, {
+              keyPath: 'id',
+              autoIncrement: true,
+            });
+            store.createIndex('eventType', 'eventType', { unique: false });
+            store.createIndex('timestamp', 'timestamp', { unique: false });
+            store.createIndex('chatId', 'chatId', { unique: false });
+            store.createIndex('characterId', 'characterId', { unique: false });
+            store.createIndex('chatCharacter', ['chatId', 'characterId'], { unique: false });
+          }
+        };
+      });
+    },
+
+    async add(record: DiceHistoryStatRecord): Promise<void> {
+      try {
+        const db = await this.init();
+        await new Promise<void>(resolve => {
+          const tx = db.transaction(this.STORE_NAME, 'readwrite');
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => {
+            console.warn('[DICE]DiceHistoryStatsDB add 失败:', tx.error);
+            resolve();
+          };
+          tx.objectStore(this.STORE_NAME).add(record);
+        });
+      } catch (error) {
+        console.warn('[DICE]DiceHistoryStatsDB add error:', error);
+      }
+    },
+
+    async getAll(): Promise<DiceHistoryStatRecord[]> {
+      try {
+        const db = await this.init();
+        return await new Promise(resolve => {
+          const tx = db.transaction(this.STORE_NAME, 'readonly');
+          const request = tx.objectStore(this.STORE_NAME).getAll();
+          request.onsuccess = () => resolve((request.result || []) as DiceHistoryStatRecord[]);
+          request.onerror = () => resolve([]);
+        });
+      } catch (error) {
+        console.warn('[DICE]DiceHistoryStatsDB getAll error:', error);
+        return [];
+      }
+    },
+
+    async clear(): Promise<void> {
+      try {
+        const db = await this.init();
+        await new Promise<void>(resolve => {
+          const tx = db.transaction(this.STORE_NAME, 'readwrite');
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => resolve();
+          tx.objectStore(this.STORE_NAME).clear();
+        });
+      } catch (error) {
+        console.warn('[DICE]DiceHistoryStatsDB clear error:', error);
+      }
+    },
+
+    async recordEvent(event: string, payload: unknown): Promise<void> {
+      if (event !== 'check' && event !== 'contest') return;
+
+      const context = getDiceStatsContext();
+      const record = payload as Record<string, unknown>;
+      const now = Date.now();
+      const timestampRaw = Number(record.timestamp);
+      const timestamp = Number.isFinite(timestampRaw) ? timestampRaw : now;
+
+      const entry: DiceHistoryStatRecord = {
+        eventType: event,
+        timestamp,
+        chatId: context.chatId,
+        characterId: context.characterId,
+        success: false,
+        attrName: '',
+        formula: '',
+        total: 0,
+        target: 0,
+        outcomeText: '',
+      };
+
+      if (event === 'check') {
+        entry.success = Boolean(record.success);
+        entry.attrName = String(record.attrName || '检定');
+        entry.formula = String(record.formula || '');
+        entry.total = Number(record.total) || 0;
+        entry.target = Number(record.target) || 0;
+        entry.outcomeText = String(record.outcomeText || (entry.success ? '成功' : '失败'));
+      } else {
+        const winner = String(record.winner || 'tie');
+        entry.success = winner !== 'tie';
+        const left = (record.left || {}) as Record<string, unknown>;
+        const right = (record.right || {}) as Record<string, unknown>;
+        entry.attrName = `${String(left.attribute || '')} vs ${String(right.attribute || '')}`.trim() || '对抗检定';
+        entry.formula = 'contest';
+        entry.total = Number(left.roll) || 0;
+        entry.target = Number(left.target) || 0;
+        entry.outcomeText = String(record.message || (winner === 'tie' ? '平局' : '分出胜负'));
+      }
+
+      await this.add(entry);
+    },
+
+    summarize(records: DiceHistoryStatRecord[]): DiceHistoryStatsSummary {
+      const checks = records.filter(item => item.eventType === 'check');
+      const contests = records.filter(item => item.eventType === 'contest');
+      const checkSuccess = checks.filter(item => item.success).length;
+      const checkSuccessRate = checks.length > 0 ? Number(((checkSuccess / checks.length) * 100).toFixed(1)) : 0;
+      return {
+        total: records.length,
+        checks: checks.length,
+        contests: contests.length,
+        checkSuccess,
+        checkSuccessRate,
+      };
+    },
+
+    async getDashboardStats(): Promise<Record<DiceStatsScope, DiceHistoryStatsSummary>> {
+      const all = await this.getAll();
+      const context = getDiceStatsContext();
+      const hasChatScope = context.chatId !== 'unknown_chat';
+      const hasCharacterScope = context.characterId !== 'unknown_character';
+
+      const chatRecords = hasChatScope
+        ? all.filter(item => item.chatId === context.chatId && item.chatId !== 'unknown_chat')
+        : [];
+      const characterRecords = hasCharacterScope
+        ? all.filter(item => item.characterId === context.characterId && item.characterId !== 'unknown_character')
+        : [];
+
+      return {
+        chat: this.summarize(chatRecords),
+        character: this.summarize(characterRecords),
+        global: this.summarize(all),
+      };
+    },
+  };
+
   // ========================================
   // FavoritesManager - 收藏夹业务逻辑层
   // ========================================
@@ -4717,6 +6037,64 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     result = result.replace(/\{\{user\}\}/gi, displayName);
     return result;
   };
+
+  type DiceStatsScope = 'chat' | 'character' | 'global';
+
+  interface DiceStatsContext {
+    chatId: string;
+    characterId: string;
+  }
+
+  const getDiceStatsContext = (): DiceStatsContext => {
+    const ST = SillyTavern;
+    let chatId = 'unknown_chat';
+    let characterId = 'unknown_character';
+
+    try {
+      if (typeof getCurrentChatId === 'function') {
+        const directChatId = getCurrentChatId();
+        if (directChatId !== null && directChatId !== undefined) {
+          const parsed = String(directChatId).trim();
+          if (parsed) chatId = parsed;
+        }
+      }
+      if (typeof ST?.getCurrentChatId === 'function') {
+        const currentChatId = ST.getCurrentChatId();
+        if (currentChatId !== null && currentChatId !== undefined) {
+          const parsed = String(currentChatId).trim();
+          if (parsed) chatId = parsed;
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      if (typeof getCharData === 'function') {
+        const currentChar = getCharData('current', true);
+        const avatarId = String(currentChar?.avatar || '').trim();
+        if (avatarId) {
+          characterId = avatarId;
+        }
+      }
+
+      if (characterId === 'unknown_character') {
+        const cid = ST?.characterId;
+        const chars = ST?.characters;
+        const idx = Number.parseInt(String(cid ?? ''), 10);
+        if (!Number.isNaN(idx) && idx >= 0 && Array.isArray(chars) && idx < chars.length) {
+          const avatarId = String(chars[idx]?.avatar || '').trim();
+          if (avatarId) {
+            characterId = avatarId;
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    return { chatId, characterId };
+  };
   // 头像管理工具（支持裁剪偏移）
   const AvatarManager = {
     _cache: null,
@@ -4968,6 +6346,183 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       }
 
       return result;
+    },
+  };
+
+  // ========================================
+  // 角色名称解析与别名系统
+  // ========================================
+
+  /**
+   * 解析逗号分隔的角色名称，提取主名称（display name）和别名
+   * 规则：最长的名称为主key，长度相同时靠前的优先
+   * 例如："千早爱音,千早,爱音" → { displayName: "千早爱音", aliases: ["千早", "爱音"] }
+   * 例如："奥兹艾萨克，奥兹，艾萨克" → { displayName: "奥兹艾萨克", aliases: ["奥兹", "艾萨克"] }
+   */
+  const parseCharacterName = (rawName: string): { displayName: string; aliases: string[] } => {
+    if (!rawName) return { displayName: '', aliases: [] };
+    const trimmed = String(rawName).trim();
+    const parts = trimmed
+      .split(/[,，]/)
+      .map(s => s.trim())
+      .filter(Boolean);
+    if (parts.length <= 1) return { displayName: trimmed, aliases: [] };
+
+    // 找到最长的名称作为主key；长度相同时，靠前的优先
+    let bestIdx = 0;
+    for (let i = 1; i < parts.length; i++) {
+      if (parts[i].length > parts[bestIdx].length) bestIdx = i;
+    }
+    const displayName = parts[bestIdx];
+    const aliases = parts.filter((_, i) => i !== bestIdx);
+    return { displayName, aliases };
+  };
+
+  /**
+   * 获取角色的显示名称（主key）
+   * 如果原始名称包含逗号分隔的多个名称，返回最长的那个
+   * 如果不含逗号，原样返回
+   */
+  const getDisplayName = (rawName: string): string => {
+    return parseCharacterName(rawName).displayName;
+  };
+
+  /**
+   * 判断一个表格是否是角色相关表格（主角信息、NPC、角色等）
+   * 用于决定是否对该表格的名称列应用 getDisplayName
+   */
+  const isCharacterTable = (tableName: string): boolean => {
+    const keywords = ['主角', '角色', '人物', 'NPC', '伙伴', '队友', '宠物', '弟子', '成员', 'player', 'character'];
+    return keywords.some(kw => tableName.toLowerCase().includes(kw.toLowerCase()));
+  };
+
+  /**
+   * 全局角色名别名注册表（运行时，非持久化）
+   * 从角色表格中解析逗号分隔的名称，自动建立别名映射
+   * 与 AvatarManager 的手动别名互补：手动别名优先级更高
+   */
+  const NameAliasRegistry = {
+    // alias → primaryName（自动检测，无冲突）
+    _autoAliases: new Map<string, string>(),
+    // 冲突别名：alias → [primaryName1, primaryName2, ...]
+    _conflicts: new Map<string, string[]>(),
+    // 所有主名称 → 原始名称（含逗号）的映射
+    _displayNames: new Map<string, string>(),
+
+    /**
+     * 从所有角色表重建别名映射
+     * 扫描角色表中的名称列，解析逗号分隔格式，建立别名关系
+     * 冲突的别名（同一别名出现在多个角色中）不会自动注册
+     */
+    rebuild(allTables: Record<string, { headers: string[]; rows: (string | number | null)[][]; key?: string }>) {
+      this._autoAliases.clear();
+      this._conflicts.clear();
+      this._displayNames.clear();
+
+      // alias → 拥有该别名的所有主名称
+      const aliasOwners = new Map<string, string[]>();
+
+      for (const tableName in allTables) {
+        if (!isCharacterTable(tableName)) continue;
+        const table = allTables[tableName];
+        const headers = table.headers || [];
+        const rows = table.rows || [];
+
+        // 查找名称列
+        let nameIdx = headers.findIndex(h => h && (String(h).includes('姓名') || String(h).includes('名称')));
+        if (nameIdx < 0) nameIdx = 1; // 回退到第二列（跳过行号）
+
+        rows.forEach(row => {
+          const rawName = String(row[nameIdx] || '').trim();
+          if (!rawName) return;
+          const { displayName, aliases } = parseCharacterName(rawName);
+          if (!displayName) return;
+
+          // 记录 displayName → rawName 映射
+          this._displayNames.set(displayName, rawName);
+
+          if (aliases.length === 0) return;
+
+          for (const alias of aliases) {
+            if (!aliasOwners.has(alias)) aliasOwners.set(alias, []);
+            const owners = aliasOwners.get(alias)!;
+            if (!owners.includes(displayName)) owners.push(displayName);
+          }
+        });
+      }
+
+      // 分类：无冲突 → _autoAliases，有冲突 → _conflicts
+      for (const [alias, owners] of aliasOwners) {
+        if (owners.length === 1) {
+          this._autoAliases.set(alias, owners[0]);
+        } else {
+          this._conflicts.set(alias, [...owners]);
+        }
+      }
+
+      if (this._autoAliases.size > 0) {
+        console.info(
+          `[DICE]别名注册表: 自动注册 ${this._autoAliases.size} 个别名` +
+            (this._conflicts.size > 0 ? `, ${this._conflicts.size} 个冲突已跳过` : ''),
+        );
+      }
+    },
+
+    /**
+     * 将名称解析为主名称（display name）
+     * 优先级：直接逗号解析 > AvatarManager手动别名 > 自动检测别名 > 原名
+     */
+    resolve(name: string): string {
+      if (!name) return name;
+
+      // 1. 如果名称本身包含逗号，直接解析出主名称
+      if (name.includes(',') || name.includes('，')) {
+        return getDisplayName(name);
+      }
+
+      // 2. 检查 AvatarManager 手动别名（优先级最高）
+      const manualPrimary = AvatarManager.getPrimaryName(name);
+      if (manualPrimary !== name) return manualPrimary;
+
+      // 3. 检查自动检测的别名
+      const autoPrimary = this._autoAliases.get(name);
+      if (autoPrimary) return autoPrimary;
+
+      return name;
+    },
+
+    /**
+     * 获取某个主名称的所有别名（合并自动检测 + AvatarManager手动别名）
+     */
+    getAliases(primaryName: string): string[] {
+      const result: string[] = [];
+
+      // 自动检测的别名
+      for (const [alias, owner] of this._autoAliases) {
+        if (owner === primaryName && !result.includes(alias)) result.push(alias);
+      }
+
+      // AvatarManager 手动别名
+      const manualAliases = AvatarManager.load()[primaryName]?.aliases || [];
+      for (const a of manualAliases) {
+        if (!result.includes(a)) result.push(a);
+      }
+
+      return result;
+    },
+
+    /**
+     * 获取冲突的别名信息
+     */
+    getConflicts(): Map<string, string[]> {
+      return new Map(this._conflicts);
+    },
+
+    /**
+     * 检查某个名称是否是已知的主名称
+     */
+    isDisplayName(name: string): boolean {
+      return this._displayNames.has(name);
     },
   };
 
@@ -5406,8 +6961,8 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
             }
           }
 
-          console.log('[DICE]MvuModule 收到ERA查询结果:', JSON.stringify(detail, null, 2));
-          console.log('[DICE]MvuModule detail.result:', JSON.stringify(detail.result, null, 2));
+          // console.log('[DICE]MvuModule 收到ERA查询结果:', JSON.stringify(detail, null, 2));
+          // console.log('[DICE]MvuModule detail.result:', JSON.stringify(detail.result, null, 2));
 
           if (detail.result && detail.result.error) {
             console.error('[DICE]MvuModule ERA查询失败:', detail.result.error);
@@ -5416,7 +6971,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
           }
 
           const statData = detail.result?.statWithoutMeta || null;
-          console.log('[DICE]MvuModule 提取的 stat_data:', JSON.stringify(statData, null, 2));
+          // console.log('[DICE]MvuModule 提取的 stat_data:', JSON.stringify(statData, null, 2));
 
           const result = {
             stat_data: statData,
@@ -7735,12 +9290,8 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       const hideInput = diceCfg.hideDiceResultFromUser !== undefined ? diceCfg.hideDiceResultFromUser : false;
       const hideChat = diceCfg.hideDiceResultInChat !== undefined ? diceCfg.hideDiceResultInChat : false;
 
-      // 普通检定正则：格式: "（元叙事：角色名发起了【属性名】检定，掷出XX，判定式，【结果】）"
-      const normalDiceRegex = /（元叙事：[\u4e00-\u9fa5a-zA-Z<>]+发起了【[^】]+】检定，掷出\d+，[^【]*【[^】]+】）/g;
-
-      // 对抗检定正则：格式: "（元叙事：进行了一次【角色名 属性名 vs 角色名 属性名】的对抗检定。角色名 属性名 (目标...) 掷出 ...，判定为【...】；角色名 属性名 (目标...) 掷出 ...，判定为【...】。最终结果：【...】）"
-      const contestDiceRegex =
-        /（元叙事：进行了一次【[^】]+ vs [^】]+】的对抗检定。.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】；.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】。最终结果：【[^】]+】）/g;
+      // 统一检定结果标签正则（匹配 <meta:检定结果>...</meta:检定结果>）
+      const metaCheckResultRegex = /<meta:检定结果>[\s\S]*?<\/meta:检定结果>/g;
 
       // ========== 第一部分：处理输入栏（由 hideInput 控制） ==========
       try {
@@ -7751,15 +9302,8 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
           if (hideInput) {
             // 隐藏模式：替换为占位符
-            const contestRegex =
-              /（元叙事：进行了一次【[^】]+ vs [^】]+】的对抗检定。.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】；.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】。最终结果：【[^】]+】）/g;
-            const normalRegex = /（元叙事：[\u4e00-\u9fa5a-zA-Z<>]+发起了【[^】]+】检定，掷出\d+，[^【]*【[^】]+】）/g;
-
-            if (contestRegex.test(modifiedText)) {
-              modifiedText = modifiedText.replace(contestRegex, '[投骰结果已隐藏]');
-            }
-            if (normalRegex.test(modifiedText)) {
-              modifiedText = modifiedText.replace(normalRegex, '[投骰结果已隐藏]');
+            if (metaCheckResultRegex.test(modifiedText)) {
+              modifiedText = modifiedText.replace(metaCheckResultRegex, '[投骰结果已隐藏]');
             }
           } else {
             // 显示模式：如果有保存的原始文本，恢复它
@@ -7806,7 +9350,25 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
           let hiddenCount = 0;
           userMessages.forEach(msg => {
             try {
-              const $msgElement = retrieveDisplayedMessage(msg.message_id);
+              const getMessageElement = (messageId: number | string) => {
+                if (typeof retrieveDisplayedMessage === 'function') {
+                  try {
+                    const $el = retrieveDisplayedMessage(messageId);
+                    if ($el && $el.length) return $el;
+                  } catch (e) {
+                    // fallback to DOM selector
+                  }
+                }
+                const idText = String(messageId);
+                const $chat = $('#chat');
+                if (!$chat.length) return $();
+                const $byMesId = $chat.find(
+                  `.mes[mesid="${idText}"], .mes[data-message-id="${idText}"], .mes#mes_${idText}, .message-body[data-message-id="${idText}"]`,
+                );
+                return $byMesId.first();
+              };
+
+              const $msgElement = getMessageElement(msg.message_id);
               if (!$msgElement || !$msgElement.length) {
                 return;
               }
@@ -7835,58 +9397,70 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
                 return;
               }
 
-              // 使用原始文本进行匹配和替换
-              let modifiedText = originalText;
+              // 优先在HTML中直接替换，避免依赖消息数据
+              const currentHtml = $mesText.html() || '';
+              let modifiedHtml = currentHtml;
 
-              // 先处理对抗检定（优先级更高，格式更长）
-              // 每次使用新的正则实例，避免全局正则的 lastIndex 副作用
-              const contestRegex =
-                /（元叙事：进行了一次【[^】]+ vs [^】]+】的对抗检定。.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】；.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】。最终结果：【[^】]+】）/g;
-              const contestMatch = contestRegex.test(modifiedText);
-              if (contestMatch) {
-                modifiedText = modifiedText.replace(contestRegex, '[投骰结果已隐藏]');
+              // 使用统一的 <meta:检定结果> 标签正则（需要转义HTML实体）
+              // 注意：HTML中可能已经被转义，所以匹配时需要考虑两种情况
+              modifiedHtml = modifiedHtml.replace(
+                /(&lt;|<)meta:检定结果(&gt;|>)[\s\S]*?(&lt;|<)\/meta:检定结果(&gt;|>)/g,
+                '[投骰结果已隐藏]',
+              );
+              if (modifiedHtml === currentHtml) {
+                modifiedHtml = modifiedHtml.replace(/<meta:检定结果>[\s\S]*?<\/meta:检定结果>/g, '[投骰结果已隐藏]');
               }
 
-              // 再处理普通检定（使用新的正则实例）
-              const normalRegex =
-                /（元叙事：[\u4e00-\u9fa5a-zA-Z<>]+发起了【[^】]+】检定，掷出\d+，[^【]*【[^】]+】）/g;
-              const normalMatch = normalRegex.test(modifiedText);
-              if (normalMatch) {
-                modifiedText = modifiedText.replace(normalRegex, '[投骰结果已隐藏]');
+              if (modifiedHtml !== currentHtml) {
+                $mesText.html(modifiedHtml);
+                hiddenCount++;
+                return;
               }
 
-              // 如果有匹配且与当前DOM显示不同，更新显示内容
-              // 使用HTML替换方式，保持HTML结构，但只替换文本内容
-              if (modifiedText !== originalText && modifiedText !== currentDomText) {
-                // 获取当前HTML内容
-                const currentHtml = $mesText.html();
-                // 在HTML字符串中替换检定结果（保持HTML标签）
-                let modifiedHtml = currentHtml;
+              // HTML 未命中时，回退到文本替换（可能是纯文本渲染）
+              const metaRegex = /<meta:检定结果>[\s\S]*?<\/meta:检定结果>/g;
+              const replacedText = currentDomText.replace(metaRegex, '[投骰结果已隐藏]');
+              if (replacedText !== currentDomText) {
+                $mesText.text(replacedText);
+                hiddenCount++;
+                return;
+              }
 
-                // 先处理对抗检定
-                const contestPattern =
-                  /（元叙事：进行了一次【[^】]+ vs [^】]+】的对抗检定。.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】；.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】。最终结果：【[^】]+】）/g;
-                if (contestPattern.test(currentHtml)) {
-                  modifiedHtml = modifiedHtml.replace(contestPattern, '[投骰结果已隐藏]');
+              // DOM 中没有标签时，根据原始消息内容强制替换并重新渲染
+              const replacedFromOriginal = originalText.replace(metaRegex, '[投骰结果已隐藏]');
+              if (replacedFromOriginal !== originalText && replacedFromOriginal !== currentDomText) {
+                if (typeof formatAsDisplayedMessage === 'function') {
+                  $mesText.html(formatAsDisplayedMessage(replacedFromOriginal));
+                } else {
+                  $mesText.text(replacedFromOriginal);
                 }
-
-                // 再处理普通检定
-                const normalPattern =
-                  /（元叙事：[\u4e00-\u9fa5a-zA-Z<>]+发起了【[^】]+】检定，掷出\d+，[^【]*【[^】]+】）/g;
-                if (normalPattern.test(currentHtml)) {
-                  modifiedHtml = modifiedHtml.replace(normalPattern, '[投骰结果已隐藏]');
-                }
-
-                // 只有当HTML确实被修改时才更新
-                if (modifiedHtml !== currentHtml) {
-                  $mesText.html(modifiedHtml);
-                  hiddenCount++;
-                }
+                hiddenCount++;
               }
             } catch (e) {
               console.warn(`[DICE]ACU 隐藏第 ${msg.message_id} 楼投骰结果失败:`, e);
             }
           });
+          if (hiddenCount === 0) {
+            const $chat = $('#chat');
+            if ($chat.length) {
+              $chat.find('.mes, .message-body').each((_, elem) => {
+                const $elem = $(elem);
+                const $target = $elem.find('.mes_text').length ? $elem.find('.mes_text') : $elem;
+                const html = $target.html() || '';
+                let replaced = html.replace(
+                  /(&lt;|<)meta:检定结果(&gt;|>)[\s\S]*?(&lt;|<)\/meta:检定结果(&gt;|>)/g,
+                  '[投骰结果已隐藏]',
+                );
+                if (replaced === html) {
+                  replaced = html.replace(/<meta:检定结果>[\s\S]*?<\/meta:检定结果>/g, '[投骰结果已隐藏]');
+                }
+                if (replaced !== html) {
+                  $target.html(replaced);
+                  hiddenCount++;
+                }
+              });
+            }
+          }
           if (hiddenCount > 0) {
             console.info(`[DICE]已隐藏 ${hiddenCount} 条消息的投骰结果`);
           }
@@ -7895,7 +9469,25 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
           let restoredCount = 0;
           userMessages.forEach(msg => {
             try {
-              const $msgElement = retrieveDisplayedMessage(msg.message_id);
+              const getMessageElement = (messageId: number | string) => {
+                if (typeof retrieveDisplayedMessage === 'function') {
+                  try {
+                    const $el = retrieveDisplayedMessage(messageId);
+                    if ($el && $el.length) return $el;
+                  } catch (e) {
+                    // fallback to DOM selector
+                  }
+                }
+                const idText = String(messageId);
+                const $chat = $('#chat');
+                if (!$chat.length) return $();
+                const $byMesId = $chat.find(
+                  `.mes[mesid="${idText}"], .mes[data-message-id="${idText}"], .mes#mes_${idText}, .message-body[data-message-id="${idText}"]`,
+                );
+                return $byMesId.first();
+              };
+
+              const $msgElement = getMessageElement(msg.message_id);
               if (!$msgElement || !$msgElement.length) return;
 
               const $mesText = $msgElement.find('.mes_text');
@@ -7937,6 +9529,1225 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
   };
 
   // ========================================
+  // 高级骰子预设系统
+  // ========================================
+
+  /** 多级结果定义 */
+  interface OutcomeLevel {
+    id: string; // 唯一标识
+    name: string; // 显示名称 (如 "大成功")
+    condition: string; // 判定表达式 (使用 evaluateCondition 评估)
+    priority: number; // 优先级 (数字越小越优先)
+    contestRank?: number; // 对抗等级 (可选)
+    outputText?: string; // 输出文本模板 (可选)
+    displayExpr?: string; // 显示用的算式表达式 (可选,不填则用 condition)
+    style?: {
+      color?: string;
+    };
+    /** 触发的效果列表 */
+    effects?: Effect[];
+  }
+
+  /** 对抗规则配置 */
+  interface ContestRule {
+    /** 是否禁用对抗检定（如 PbtA 等规则不支持对抗检定） */
+    disabled?: boolean;
+    mode?: 'rank' | 'value' | 'margin' | 'custom'; // 对抗模式
+    tieBreakers?: string[]; // 链式平局处理规则
+    tieBreaker?: string; // 旧版单一平局处理(兼容)
+    customExpr?: string; // 自定义表达式 (mode='custom' 时使用)
+    hideDc?: boolean; // 对抗检定时隐藏DC字段
+    hideMod?: boolean; // 对抗检定时隐藏修正值字段
+    hideSkillMod?: boolean; // 对抗检定时隐藏技能加值字段
+  }
+
+  /** 后果系统：效果定义 */
+  interface Effect {
+    /** 唯一标识 */
+    id: string;
+    /** 目标属性名 */
+    target: string;
+    /** 操作类型 */
+    operation: 'add' | 'subtract' | 'set';
+    /** 变更值 (支持骰子表达式) */
+    value: string;
+    /** 执行条件表达式 (可选) */
+    condition?: string;
+    /** 属性不存在时的初始值 (可选) */
+    initValue?: number;
+    /** 最小值限制 (可选) */
+    min?: number;
+    /** 最大值限制 (可选) */
+    max?: number;
+    /** 自定义输出文本 (可选) */
+    outputText?: string;
+    /** 是否需要用户确认后才执行，默认 true (可选) */
+    needsConfirm?: boolean;
+    /** 确认输入框的标签文本，如 "成功时扣除" (可选) */
+    label?: string;
+    /** 确认输入框的占位符文本 (可选) */
+    inputPlaceholder?: string;
+  }
+
+  /** 后果系统：全局配置 */
+  interface EffectsConfig {
+    /** 触发模式 (用于识别哪些检定可能触发效果) */
+    triggerPatterns: string[];
+    /** 允许修改的目标属性 */
+    allowedTargets: string[];
+    /** 按结果等级分组的效果列表 (可选) */
+    outcomes?: {
+      [outcomeName: string]: Effect[];
+    };
+    /** 各结果等级的默认值 (可选) */
+    defaultValues?: {
+      [outcomeName: string]: string;
+    };
+  }
+
+  /** 后果系统：资源消耗 (Lucky Burner 等) */
+  interface ResourceBurner {
+    /** 唯一标识 */
+    id: string;
+    /** 资源属性名 */
+    resourceName: string;
+    /** 显示/可用条件 (表达式，如 "$roll > $attr" 仅失败时显示) */
+    condition?: string;
+    /** 影响目标: roll=修改投骰结果, mod=修改修正值, dc=修改难度, attribute=修改属性值 */
+    target: 'roll' | 'mod' | 'dc' | 'attribute';
+    /** 转换比例 (如 1点资源 = 1点投骰结果) */
+    ratio: number;
+    /** 影响方向 (increase=增加目标值, decrease=减少目标值) */
+    direction: 'increase' | 'decrease';
+    /** 资源操作方向: subtract=消耗/减少资源(默认), add=增加/累积资源 */
+    resourceOperation?: 'subtract' | 'add';
+    /** 建议消耗量表达式 (如 "$roll.total - $attr"，计算"刚好通过"需消耗的资源量) */
+    suggestedAmount?: string;
+    /** 适用范围选择器 (用于过滤哪些检定可以使用此消耗器) */
+    selector?: CheckSelector;
+    /** UI 显示配置 */
+    ui?: {
+      icon?: string;
+      color?: string;
+      tooltip?: string;
+    };
+  }
+
+  interface QuickActionBase {
+    /** 唯一标识 */
+    id: string;
+    /** 图标 (fa- 前缀) */
+    icon?: string;
+    /** 按钮提示 */
+    tooltip?: string;
+    /** 显示条件（基于当前面板上下文） */
+    condition?: string;
+  }
+
+  interface WorkflowQuickAction extends QuickActionBase {
+    kind: 'workflow_shortcut';
+    config: {
+      /** 目标预设ID */
+      presetId: string;
+      /** 切换时是否沿用当前输入 */
+      carryInitiator?: boolean;
+      carryAttrName?: boolean;
+      carryAttrValue?: boolean;
+      carryTarget?: boolean;
+      carryModifier?: boolean;
+      carrySkillMod?: boolean;
+      /** 未沿用属性名时可指定默认属性名 */
+      attrName?: string;
+      /** 切换后自定义字段默认值 */
+      customFieldValues?: Record<string, string | number | boolean>;
+    };
+  }
+
+  interface AttrShortcutQuickAction extends QuickActionBase {
+    kind: 'attr_shortcut';
+    config: {
+      /** 切换到目标预设（通常是常规检定预设） */
+      presetId: string;
+      /** 候选属性名（按顺序匹配角色现有属性） */
+      attrAliasCandidates: string[];
+      /** 未匹配到时的回退属性名 */
+      fallbackAttrName?: string;
+      /** 是否沿用当前发起者 */
+      carryInitiator?: boolean;
+      /** 是否沿用当前属性值 */
+      carryAttrValue?: boolean;
+      /** 是否沿用目标值 */
+      carryTarget?: boolean;
+      /** 是否沿用修正值 */
+      carryModifier?: boolean;
+      /** 是否沿用技能加值 */
+      carrySkillMod?: boolean;
+    };
+  }
+
+  type PresetQuickAction = WorkflowQuickAction | AttrShortcutQuickAction;
+
+  interface CurrentAttrAutoUpdate {
+    /** 是否启用 */
+    enabled?: boolean;
+    /** 触发时机 */
+    when?: 'success' | 'failure' | 'always';
+    /** 属性操作 */
+    operation: 'add' | 'subtract' | 'set';
+    /** 变化值表达式，支持变量 */
+    valueExpr: string;
+    /** 属性不存在时初始值 */
+    initValue?: number;
+    /** 最小值 */
+    min?: number;
+    /** 最大值 */
+    max?: number;
+    /** 属性别名候选 */
+    aliasCandidates?: string[];
+    /** 变化标签（如：成长/增加/减少） */
+    changeLabel?: string;
+    /** 已填表输出模板（可选）。可用变量：$attr, $attrPlain, $old, $new, $delta, $expr, $rolled, $operation, $changeLabel */
+    outputTextTemplate?: string;
+  }
+
+  /** 检定范围选择器 (用于 Effects 和 ResourceBurner 的过滤) */
+  interface CheckSelector {
+    /** 属性名模式匹配 */
+    namePatterns?: {
+      /** 包含模式，默认 ['*'] 匹配所有 */
+      include?: string[];
+      /** 排除模式，优先于 include，默认 [] 无排除 */
+      exclude?: string[];
+    };
+    /** 标签匹配 (用于非名称类例外，如 damage/pushed/luck) */
+    tags?: {
+      /** 包含标签 */
+      include?: string[];
+      /** 排除标签 */
+      exclude?: string[];
+    };
+  }
+
+  /** 后果系统：执行结果 */
+  interface EffectResult {
+    /** 效果 ID */
+    effectId: string;
+    /** 是否执行成功 */
+    success: boolean;
+    /** 变更前的值 */
+    oldValue: number;
+    /** 变更后的值 */
+    newValue: number;
+    /** 错误信息 */
+    error?: string;
+    /** 目标属性名 */
+    target?: string;
+    /** 效果链层级（1=一级效果） */
+    level?: number;
+    /** 触发来源（二级效果ID等） */
+    triggerSourceId?: string;
+    /** 触发阈值（若有） */
+    triggerThreshold?: number;
+    /** 触发类型（threshold/delta/primary） */
+    triggerType?: 'threshold' | 'delta' | 'primary';
+    /** 命中序号（all 模式下可用于追踪） */
+    triggerMatchIndex?: number;
+    /** 命中总数（all 模式下可用于追踪） */
+    triggerMatchCount?: number;
+    /** 信息输出文本（由 secondaryEffect.outputText 渲染，非数值变更） */
+    outputMessage?: string;
+    /** 执行来源分支标识（用于UI和提示词追踪） */
+    branchLabel?: string;
+    /** 计算公式文本（如 4d4 / 1d6 / 3） */
+    formulaText?: string;
+    /** 公式掷值（有掷骰时） */
+    rolledValue?: number;
+  }
+
+  /**
+   * 计算后的效果 (用于确认弹窗)
+   */
+  interface ComputedEffect {
+    /** 关联效果ID */
+    effectId: string;
+    /** 目标属性名 */
+    target: string;
+    /** 解析后的目标属性名（若有） */
+    resolvedTarget?: string;
+    /** 计算后的变化值 */
+    computedValue: number;
+    /** 骰子或数字求值后的绝对值 */
+    rolledValue: number;
+    /** 原始公式 */
+    formula: string;
+    /** 展开文本,如 "1d6 → 3" */
+    displayText: string;
+    /** 执行前数值（若可读取） */
+    beforeValue?: number | null;
+    /** 执行后数值（若可预测） */
+    afterValue?: number | null;
+    /** 效果条件原始表达式（为空表示命中分支即执行） */
+    conditionExpr?: string;
+    /** 效果条件替换变量后的展示文本 */
+    resolvedConditionExpr?: string;
+    /** 效果条件是否成立 */
+    conditionPassed?: boolean;
+    /** 效果条件的自然语言说明 */
+    conditionSummary?: string;
+  }
+
+  interface EffectConfirmUiConfig {
+    /** 确认弹窗标题 */
+    title?: string;
+    /** 效果列表说明文本 */
+    effectListTitle?: string;
+    /** 分支说明标题 */
+    branchReasonLabel?: string;
+  }
+
+  /**
+   * 检定历史记录扩展字段
+   * 用于在 AcuDice.CheckResult 基础上添加效果确认相关状态
+   */
+  interface CheckHistoryExtension {
+    /** 效果执行状态 */
+    effectStatus?: 'planned' | 'confirmed' | 'committed' | 'failed' | 'cancelled';
+    /** 效果执行结果列表 */
+    effectResults?: EffectResult[];
+    /** 效果执行批次ID */
+    effectRunId?: string;
+    /** 效果执行错误 */
+    effectError?: string;
+    /** 效果执行追踪（按层级展开） */
+    effectTrace?: string[];
+    /** 运行事件序号（单调递增） */
+    effectEventSeq?: number;
+    /** 是否为孤注一掷（Pushed Roll） */
+    isPushed?: boolean;
+    /** 历史详情展开ID */
+    detailId?: string;
+    /** 历史详情行 */
+    detailLines?: string[];
+    /** 发起者名称 */
+    initiatorName?: string;
+    /** 检定显示类型 */
+    historyType?: 'check' | 'contest';
+  }
+
+  interface EffectRunEventPayload {
+    seq: number;
+    runId: string;
+    status: 'planned' | 'confirmed' | 'committed' | 'failed' | 'cancelled';
+    characterName: string;
+    attributeName: string;
+    historyIndex: number;
+    effectResults: EffectResult[];
+    effectTrace: string[];
+    chainMode?: 'first' | 'all';
+    error?: string;
+    timestamp: number;
+  }
+
+  interface EffectReplayOperation {
+    characterName: string;
+    target: string;
+    operation: 'add' | 'subtract' | 'set';
+    value: number;
+    initValue?: number;
+    min?: number;
+    max?: number;
+    aliasCandidates: string[];
+    resultRef: EffectResult;
+  }
+
+  /**
+   * 二级效果定义 (预留架构)
+   * 用于定义基于属性变化触发的连锁效果
+   */
+  interface SecondaryEffect {
+    /** 唯一标识 */
+    id: string;
+    /** 触发条件 */
+    trigger: {
+      /** 触发类型: threshold=基于阈值, delta=基于变化量 */
+      type: 'threshold' | 'delta';
+      /** 目标属性名 */
+      attribute: string;
+      /** 比较运算符 */
+      operator: 'gt' | 'gte' | 'lt' | 'lte' | 'eq';
+      /** 比较值，支持表达式如 "{意志}/5" */
+      value: string;
+    };
+    /** 回调函数名或钩子标识 (可选) */
+    callback?: string;
+    /** 命中后要执行的后续效果（可选） */
+    effects?: Effect[];
+    /** 触发时输出的提示文本 (可选，支持变量: $delta, $old, $new, $attr, $depth, $tableRoll, $tableResult) */
+    outputText?: string;
+    /** 随机表: 触发时投骰并从表中查找结果，可通过 $tableRoll/$tableResult 在 outputText 中引用 */
+    randomTable?: {
+      /** 骰子表达式 (如 '1d10') */
+      dice: string;
+      /** 结果映射: key=投骰结果, value=对应文本 */
+      entries: Record<number, string>;
+    };
+    /** 命名随机表：可一次投多个骰，变量名为 $<key>Roll / $<key>Result */
+    randomTables?: Record<
+      string,
+      {
+        /** 骰子表达式 (如 '1d10') */
+        dice: string;
+        /** 可选映射，不提供时 $<key>Result 默认等于点数 */
+        entries?: Record<number, string>;
+      }
+    >;
+    /** 子检定：用于自动化三级效果（例如 INT 检定） */
+    subCheck?: {
+      /** 显示标签 */
+      label?: string;
+      /** 目标属性名（主候选） */
+      attribute: string;
+      /** 目标属性名候选（用于别名/本地化） */
+      attributeCandidates?: string[];
+      /** 子检定骰子，默认 1d100 */
+      dice?: string;
+      /** 比较符，默认 lte（低于等于成功） */
+      operator?: 'gt' | 'gte' | 'lt' | 'lte' | 'eq';
+      /** 目标值表达式，默认使用读取到的属性值 */
+      targetValue?: string;
+      /** 属性缺失时提示文本（支持模板变量） */
+      missingAttributeText?: string;
+      /** 成功分支 */
+      success?: {
+        outputText?: string;
+        randomTable?: {
+          dice: string;
+          entries: Record<number, string>;
+        };
+        randomTables?: Record<
+          string,
+          {
+            dice: string;
+            entries?: Record<number, string>;
+          }
+        >;
+        effects?: Effect[];
+      };
+      /** 失败分支 */
+      failure?: {
+        outputText?: string;
+        randomTable?: {
+          dice: string;
+          entries: Record<number, string>;
+        };
+        randomTables?: Record<
+          string,
+          {
+            dice: string;
+            entries?: Record<number, string>;
+          }
+        >;
+        effects?: Effect[];
+      };
+    };
+    /** 是否启用，默认 true */
+    enabled?: boolean;
+    /** 最大触发次数，默认 1 */
+    maxTriggerCount?: number;
+  }
+
+  /** 表单字段配置 */
+  interface FieldConfig {
+    /** 输入框上方的标签文本 */
+    label?: string;
+    /** 输入框内的 placeholder 文本 */
+    placeholder?: string;
+    /** 留空时的默认值,支持数字或表达式字符串(必填) */
+    defaultValue: number | string;
+    /** 是否隐藏整个输入框区域 */
+    hidden?: boolean;
+  }
+
+  interface AdvancedDicePreset {
+    kind: 'advanced';
+    id: string;
+    name: string;
+    description?: string;
+    version: string;
+    builtin: boolean;
+    visible?: boolean;
+    order?: number;
+    createdAt?: string;
+
+    // 骰子表达式
+    diceExpression: string;
+
+    // 属性/技能名称输入框（第一行右侧）
+    attributeName?: FieldConfig;
+
+    // 属性值来源（第二行）
+    attribute: FieldConfig & {
+      key?: string; // 属性名
+    };
+
+    // DC来源
+    dc: FieldConfig;
+
+    // 修正值来源
+    mod?: FieldConfig;
+
+    // 技能加值（与 attribute/mod 平行，用于 DND5e 等规则）
+    skillMod?: FieldConfig;
+
+    /**
+     * 属性填入目标映射
+     * - key: 目标字段 ID ('attribute' | 'skillMod' | 'mod' | customField.id)
+     * - value: 属性名数组（精确匹配）
+     * - 未匹配的属性 fallback 到 'attribute'
+     */
+    attrTargetMapping?: Record<string, string[]>;
+
+    // 自定义字段
+    customFields?: CustomFieldConfig[];
+
+    // 派生变量
+    derivedVars?: DerivedVarSpec[];
+
+    // 骰子表达式补丁
+    dicePatches?: DiceExprPatch[];
+
+    // 多级结果定义
+    outcomes: OutcomeLevel[];
+
+    // 对抗规则
+    contestRule?: ContestRule;
+
+    // 输出模板
+    outputTemplate?: string;
+
+    // 对抗检定专用输出模板（与 outputTemplate 独立）
+    contestOutputTemplate?: string;
+
+    // 判定结果检查策略
+    outcomePolicy?: OutcomePolicy;
+
+    /** 后果系统配置 */
+    effectsConfig?: EffectsConfig;
+    /** 后果确认弹窗文案配置 */
+    effectConfirmUi?: EffectConfirmUiConfig;
+    /** 资源消耗配置 */
+    resourceBurners?: ResourceBurner[];
+    /** 预设快捷操作区（标题右侧小图标） */
+    quickActions?: PresetQuickAction[];
+    /** 检定后自动修改“当前属性” */
+    currentAttrAutoUpdate?: CurrentAttrAutoUpdate;
+    /** 二级/多级效果配置（可选） */
+    secondaryEffects?: SecondaryEffect[];
+    /** 二级效果链最大深度（可选，默认 3） */
+    secondaryMaxDepth?: number;
+    /** 二级效果触发策略（first=首命中，all=全部命中） */
+    secondaryTriggerMode?: 'first' | 'all';
+
+    /** 孤注一掷配置 (COC7等规则) */
+    pushedRoll?: {
+      /** 是否启用 */
+      enabled: boolean;
+      /** 允许push的outcome ID列表 (匹配到这些outcome才显示push按钮)
+       *  未定义时: 回退到 isSuccess === false 的行为（向后兼容） */
+      pushableOutcomes?: string[];
+      /** 禁止push的outcome ID列表 (优先于pushableOutcomes) */
+      blockedOutcomes?: string[];
+      /** 排除的属性名模式 (通配符,如 'SAN*','*闪避*') */
+      excludePatterns?: string[];
+      /** @deprecated 使用 blockedOutcomes: ['crit_failure'] 替代 */
+      blockOnCritFailure?: boolean;
+      /** push后各outcome的输出标注
+       *  key: outcome ID 或 '*'(默认)
+       *  value: 标注文本 */
+      outcomeLabels?: Record<string, string>;
+    };
+
+    // 错误处理
+    errorHandling?: {
+      undefinedVariable: 'zero' | 'error';
+      parseError: 'fail' | 'warn';
+    };
+  }
+
+  interface PendingEffectContext {
+    runId: string;
+    historyIndex: number;
+    messageId?: string;
+    expiresAt?: number;
+    preset: AdvancedDicePreset;
+    matchedOutcome: OutcomeLevel;
+    context: {
+      characterName: string;
+      attributeName: string;
+      attributeValue: number;
+      roll: number;
+      modifier: number;
+      dc: number;
+    };
+    effectOverrides?: ComputedEffect[];
+    /** 进入当前结果分支的说明文本（用于确认弹窗与注入文本） */
+    branchReasonText?: string;
+    timestamp: number;
+  }
+
+  // 内置高级骰子预设
+  const BUILTIN_ADVANCED_PRESETS: AdvancedDicePreset[] = [
+    // CoC7 规则: 1d100 <= 属性值
+    {
+      kind: 'advanced',
+      id: 'coc7_check',
+      name: 'CoC7',
+      description: '克苏鲁的呼唤7版: 1d100 <= 属性值即成功',
+      version: PRESET_FORMAT_VERSION,
+      builtin: true,
+      diceExpression: '1d100',
+      attribute: {
+        label: '技能值',
+        placeholder: '留空=50',
+        defaultValue: 50,
+        key: '技能值',
+      },
+      dc: {
+        hidden: true,
+        defaultValue: 0,
+      },
+      mod: {
+        hidden: true,
+        defaultValue: 0,
+      },
+      customFields: [
+        {
+          id: 'bonusPenalty',
+          type: 'number',
+          label: '奖惩骰',
+          defaultValue: '',
+          placeholder: '+1 奖励, -1 惩罚',
+        },
+        {
+          id: 'requiredRank',
+          type: 'select',
+          label: '最低成功等级',
+          defaultValue: 1,
+          options: [
+            { label: '成功', value: 1 },
+            { label: '困难成功', value: 2 },
+            { label: '极难成功', value: 3 },
+          ],
+          contestOverride: { hidden: true },
+        },
+      ],
+      derivedVars: [{ id: 'absBp', expr: 'abs($bonusPenalty)' }],
+      dicePatches: [
+        { when: '$bonusPenalty > 0', op: 'append', template: 'b$absBp' },
+        { when: '$bonusPenalty < 0', op: 'append', template: 'p$absBp' },
+      ],
+      effectsConfig: {
+        triggerPatterns: ['SAN*', 'SAN值*', '*理智*', '*sanity*', '*Sanity*'],
+        allowedTargets: ['SAN', 'SAN值', '理智', 'Sanity', 'san'],
+      },
+      // CoC7 孤注一掷：失败时可重掷一次，大失败/SAN检定/闪避等不可
+      pushedRoll: {
+        enabled: true,
+        pushableOutcomes: ['warning', 'failure'], // 仅失败/未达标可push
+        blockedOutcomes: ['crit_failure'], // 大失败不可push
+        excludePatterns: ['SAN*', 'SAN值*', '*理智*', '*sanity*', '*Sanity*', '*闪避*', '*dodge*', '*Dodge*'],
+        outcomeLabels: {
+          crit_success: '🎲 孤注一掷 — 大成功！',
+          extreme_success: '🎲 孤注一掷 — 极难成功！',
+          success: '🎲 孤注一掷成功！',
+          '*': '⚠ 孤注一掷失败！',
+        },
+      },
+      // CoC7 燃运：消耗幸运降低骰子结果
+      // 根据规则：几乎所有检定可燃运，但 SAN检定、幸运检定、伤害骰、孤注一掷不可
+      resourceBurners: [
+        {
+          id: 'coc7_luck_burn',
+          resourceName: '幸运',
+          target: 'roll',
+          ratio: 1, // 1点幸运 = 1点骰子结果
+          direction: 'decrease', // 降低骰子结果（CoC 低好）
+          suggestedAmount: '$roll.total - $attr', // 刚好让投骰结果 <= 属性值
+          condition: '$roll.total > $attr && $isPushed == 0', // 仅在失败时显示，孤注一掷时不可燃运
+          selector: {
+            namePatterns: {
+              include: ['*'], // 适用于所有属性名
+              exclude: [
+                'SAN*',
+                'SAN值*',
+                '*理智*',
+                '*sanity*',
+                '*Sanity*', // SAN 检定不可燃运
+                '幸运*',
+                '*Luck*',
+                '*luck*', // 幸运检定不可燃运
+              ],
+            },
+          },
+          ui: {
+            icon: 'fa-clover',
+            color: 'var(--acu-accent)',
+            tooltip: '消耗幸运降低骰子结果 (1:1)',
+          },
+        },
+      ],
+      quickActions: [
+        {
+          id: 'to_san_check',
+          kind: 'attr_shortcut',
+          icon: 'fa-brain',
+          tooltip: 'SAN检定',
+          config: {
+            presetId: 'coc7_check',
+            carryInitiator: true,
+            carryAttrValue: false,
+            carryTarget: false,
+            carryModifier: false,
+            carrySkillMod: false,
+            attrAliasCandidates: ['SAN值', 'SAN', '理智', 'sanity', 'Sanity', 'san'],
+            fallbackAttrName: 'SAN值',
+          },
+        },
+        {
+          id: 'to_skill_growth',
+          kind: 'workflow_shortcut',
+          icon: 'fa-seedling',
+          tooltip: '技能成长检定',
+          config: {
+            presetId: 'coc7_growth_check',
+            carryInitiator: true,
+            carryAttrName: true,
+            carryAttrValue: true,
+          },
+        },
+      ],
+      outcomes: [
+        {
+          id: 'crit_success',
+          name: '大成功',
+          condition: '$roll.total === 1',
+          priority: 1,
+          rank: 4,
+          contestRank: 100, // 对抗等级
+          outputText: '',
+        },
+        {
+          id: 'extreme_success',
+          name: '极难成功',
+          condition: '$roll.total <= $attr / 5',
+          priority: 10,
+          rank: 3,
+          contestRank: 100, // 对抗等级
+          outputText: '',
+        },
+        {
+          id: 'hard_success',
+          name: '困难成功',
+          condition: '$roll.total <= $attr / 2',
+          priority: 20,
+          rank: 2,
+          contestRank: 80, // 对抗等级
+          outputText: '',
+        },
+        {
+          id: 'success',
+          name: '成功',
+          condition: '$roll.total <= $attr',
+          priority: 30,
+          rank: 1,
+          contestRank: 60, // 对抗等级
+          outputText: '',
+          effects: [
+            {
+              id: 'san_loss_success',
+              target: 'SAN',
+              operation: 'subtract',
+              value: '1',
+              outputText: 'SAN 减少 $effectDelta (成功)',
+            },
+          ],
+        },
+        {
+          id: 'failure',
+          name: '失败',
+          condition: '$roll.total > $attr',
+          displayExpr: '$roll.total <= $attr', // 显示成功条件，失败时显示"不成立"
+          priority: 50,
+          rank: 0,
+          contestRank: 40, // 对抗等级
+          outputText: '',
+          effects: [
+            {
+              id: 'san_loss_fail',
+              target: 'SAN',
+              operation: 'subtract',
+              value: '1d6',
+              outputText: 'SAN 减少 $effectDelta',
+            },
+          ],
+        },
+        {
+          id: 'crit_failure',
+          name: '大失败',
+          condition: '($attr < 50 && $roll.total >= 96) || ($attr >= 50 && $roll.total === 100)',
+          priority: 5,
+          rank: -1,
+          contestRank: 20, // 对抗等级
+          outputText: '',
+          effects: [
+            {
+              id: 'san_loss_fumble',
+              target: 'SAN',
+              operation: 'subtract',
+              value: '1d10',
+              outputText: 'SAN 减少 $effectDelta (大失败)',
+            },
+          ],
+        },
+        {
+          id: 'unmet',
+          name: '失败',
+          condition: 'false',
+          priority: 999,
+          rank: -2,
+        },
+      ],
+      outcomePolicy: {
+        kind: 'minRank',
+        requiredRankVarId: 'requiredRank',
+        unmetOutcomeId: 'unmet',
+        keepActualOutcome: true,
+      },
+      // CoC7 SAN疯狂判定：基于SAN损失量和SAN阈值触发
+      secondaryEffects: [
+        {
+          id: 'coc7_temp_insanity',
+          trigger: { type: 'delta', attribute: 'SAN', operator: 'gte', value: '5' },
+          outputText: '⚠ 单次SAN损失$delta点(≥5)，触发临时疯狂流程，自动进行INT检定。',
+          subCheck: {
+            label: 'INT检定',
+            attribute: 'INT',
+            attributeCandidates: ['智力', '灵感', '灵感值'],
+            dice: '1d100',
+            operator: 'lte',
+            success: {
+              outputText:
+                '🧠 $subCheckLabel：$subCheckDice=$subCheckRoll，判定 $subCheckRoll <= $subCheckTarget？$subCheckJudge，$initiator 陷入临时疯狂。\n症状：$symptomResult\n持续时间：即时发作约$durationImmediateRoll轮，整体影响约$durationSummaryRoll小时。',
+              randomTables: {
+                durationImmediate: { dice: '1d10' },
+                durationSummary: { dice: '1d10' },
+                symptom: {
+                  dice: '1d10',
+                  entries: {
+                    1: '失忆——$initiator 回过神来，发现自己身处陌生之处，不记得这段时间发生了什么',
+                    2: '假性残疾——$initiator 陷入心因性失明、失聪或肢体瘫痪',
+                    3: '暴力倾向——$initiator 陷入暴怒，不分敌我地攻击周围一切',
+                    4: '偏执——$initiator 产生严重的被害妄想，不信任任何人',
+                    5: '重要之人——$initiator 把在场某人当作了自己生命中的重要之人',
+                    6: '昏厥——$initiator 当场昏倒，不省人事',
+                    7: '惊慌逃跑——$initiator 不顾一切地逃离此地',
+                    8: '歇斯底里——$initiator 情绪彻底崩溃，无法控制地大笑、大哭或尖叫',
+                    9: '恐惧症——$initiator 获得一个新的恐惧症（由KP根据场景决定具体内容）',
+                    10: '狂躁症——$initiator 获得一个新的狂躁症（由KP根据场景决定具体内容）',
+                  },
+                },
+              },
+            },
+            failure: {
+              outputText:
+                '🧠 $subCheckLabel：$subCheckDice=$subCheckRoll，判定 $subCheckRoll <= $subCheckTarget？$subCheckJudge，$initiator 未陷入临时疯狂。',
+            },
+          },
+          enabled: true,
+          maxTriggerCount: 1,
+        },
+        {
+          id: 'coc7_permanent_insanity',
+          trigger: { type: 'threshold', attribute: 'SAN', operator: 'lte', value: '0' },
+          outputText: '💀 永久疯狂！SAN值降至$new，该角色永久疯狂，由KP接管成为NPC。',
+          enabled: true,
+          maxTriggerCount: 1,
+        },
+      ],
+      contestRule: {
+        mode: 'rank', // 对抗模式：按成功等级
+        tieBreakers: ['higher_attr', 'initiator_wins'], // 平局处理：先比属性，再判发起方胜
+      },
+      outputTemplate:
+        '<meta:检定结果>\n$outcomeText\n元叙事：$initiator 发起了 $attrName 检定，$formula=$roll，判定 $conditionExpr？$judgeResult，判定为【$outcomeName】\n</meta:检定结果>',
+    },
+    {
+      kind: 'advanced',
+      id: 'coc7_growth_check',
+      name: 'CoC7-成长',
+      description: '幕间技能成长快捷模式（检定成功可成长）',
+      version: PRESET_FORMAT_VERSION,
+      builtin: true,
+      visible: false,
+      diceExpression: '1d100',
+      attribute: {
+        label: '技能值',
+        placeholder: '留空=50',
+        defaultValue: 50,
+        key: '技能值',
+      },
+      dc: {
+        hidden: true,
+        defaultValue: 0,
+      },
+      mod: {
+        hidden: true,
+        defaultValue: 0,
+      },
+      customFields: [
+        {
+          id: 'growthGain',
+          type: 'text',
+          label: '成长值',
+          defaultValue: '1d10',
+          placeholder: '如 1d10',
+        },
+      ],
+      outcomes: [
+        {
+          id: 'growth_success',
+          name: '成功',
+          condition: '$roll.total > $attr',
+          priority: 30,
+          rank: 1,
+          outputText: '',
+        },
+        {
+          id: 'growth_failure',
+          name: '失败',
+          condition: '$roll.total <= $attr',
+          displayExpr: '$roll.total > $attr',
+          priority: 60,
+          rank: 0,
+          outputText: '',
+        },
+      ],
+      currentAttrAutoUpdate: {
+        enabled: true,
+        when: 'success',
+        operation: 'add',
+        valueExpr: '$growthGain',
+        min: 0,
+        changeLabel: '成长',
+        outputTextTemplate: '已填表：$attr成长$expr=$rolled，$attrPlain从$old变为$new',
+      },
+      outputTemplate:
+        '<meta:检定结果>\n元叙事：$initiator 发起了$attrName成长检定，$formula=$roll，判定 $conditionExpr？$judgeResult，结果为【$outcomeName】\n</meta:检定结果>',
+    },
+    // DND5e 规则: 1d20 + 调整值 >= DC (调整值 = floor((属性值-10)/2))
+    {
+      kind: 'advanced',
+      id: 'dnd5e_check',
+      name: 'DND5e',
+      description: 'D&D第五版: 1d20 + 调整值 >= DC (调整值自动从属性值计算)',
+      version: PRESET_FORMAT_VERSION,
+      builtin: true,
+      diceExpression: '1d20',
+      attribute: {
+        label: '属性值',
+        placeholder: '留空=10',
+        defaultValue: 10,
+        key: '属性值',
+        // DND特有：从属性值计算调整值
+        computeModifier: 'floor(($attr - 10) / 2)',
+      },
+      dc: {
+        label: '难度等级(DC)',
+        placeholder: '留空=10',
+        defaultValue: 10,
+      },
+      mod: {
+        label: '额外加值',
+        placeholder: '留空=0',
+        defaultValue: 0,
+      },
+      // 技能加值（DND5e 技能检定使用）
+      skillMod: {
+        label: '技能加值',
+        placeholder: '留空=0',
+        defaultValue: 0,
+      },
+      // 属性填入目标映射：技能类属性填入 skillMod，基础属性填入 attribute
+      attrTargetMapping: {
+        skillMod: [
+          // DND5e 18个技能
+          '运动', // 力量
+          '体操',
+          '巧手',
+          '隐匿', // 敏捷
+          '奥秘',
+          '历史',
+          '调查',
+          '自然',
+          '宗教', // 智力
+          '驯兽',
+          '洞悉',
+          '医药',
+          '察觉',
+          '求生', // 感知
+          '欺瞒',
+          '威吓',
+          '表演',
+          '游说', // 魅力
+        ],
+      },
+      customFields: [
+        {
+          id: 'advantage',
+          type: 'select',
+          label: '优势/劣势',
+          defaultValue: 0,
+          options: [
+            { label: '正常', value: 0 },
+            { label: '优势', value: 1 },
+            { label: '劣势', value: -1 },
+          ],
+        },
+      ],
+      dicePatches: [
+        { when: '$advantage > 0', op: 'replace', template: '2d20kh1' }, // 优势
+        { when: '$advantage < 0', op: 'replace', template: '2d20kl1' }, // 劣势
+      ],
+      outcomes: [
+        {
+          id: 'crit_success',
+          name: '大成功',
+          condition: "$roll.hasTag('nat20')",
+          priority: 1,
+          outputText: '',
+        },
+        {
+          id: 'success',
+          name: '成功',
+          // $attrMod 是从属性值计算的调整值，$skillMod 是技能加值
+          condition: '$roll.total + $attrMod + $skillMod + $mod >= $dc',
+          priority: 30,
+          outputText: '',
+        },
+        {
+          id: 'failure',
+          name: '失败',
+          condition: 'true',
+          displayExpr: '$roll.total + $attrMod + $skillMod + $mod >= $dc', // 显示成功条件，失败时显示"不成立"
+          priority: 50,
+          outputText: '',
+        },
+        {
+          id: 'crit_failure',
+          name: '大失败',
+          condition: "$roll.hasTag('nat1')",
+          priority: 2,
+          outputText: '',
+        },
+      ],
+      contestRule: {
+        mode: 'value', // 对抗模式：按总值比较
+        tieBreakers: ['status_quo'], // 平局维持现状
+        hideDc: true, // 对抗检定时隐藏DC（双方直接比较总值，不需要固定难度）
+        // hideMod: false - 对抗检定时显示额外加值字段
+      },
+      // DND对抗检定专用模板：双方总值直接比较，不使用固定DC
+      contestOutputTemplate: `<meta:检定结果>
+ 元叙事：进行了一次【$initiator $initAttrName vs $opponent $oppAttrName】的对抗检定。
+ $initiator $initAttrName：$formula=$initRoll$initAttrModText$initSkillModText$initModText，总值=$initTotal；
+ $opponent $oppAttrName：$formula=$oppRoll$oppAttrModText$oppSkillModText$oppModText，总值=$oppTotal。
+ 最终结果：【$winner】
+ </meta:检定结果>`,
+      outputTemplate:
+        '<meta:检定结果>\n$outcomeText\n元叙事：$initiator 发起了 $attrName 检定，属性值$attrValue$attrModText$skillModText，$formula=$roll，判定 $conditionExpr？$judgeResult，判定为【$outcomeName】\n</meta:检定结果>',
+    },
+    {
+      kind: 'advanced',
+      id: 'fate',
+      name: 'Fate',
+      description: 'Fate规则: 4dF + 技能值 + 修正值 >= 难度',
+      version: PRESET_FORMAT_VERSION,
+      builtin: true,
+      diceExpression: '4dF',
+      attributeName: {
+        label: '技能/风格',
+        placeholder: '自由检定',
+      },
+      attribute: {
+        label: '技能值',
+        placeholder: '留空=0',
+        defaultValue: 0,
+        key: '技能值',
+      },
+      dc: {
+        label: '难度',
+        placeholder: '留空=0',
+        defaultValue: 0,
+      },
+      mod: {
+        label: '修正值',
+        placeholder: '留空=0',
+        defaultValue: 0,
+      },
+      outcomes: [
+        {
+          id: 'succeed_with_style',
+          name: '大成功',
+          condition: '$roll.total + $attr + $mod >= $dc + 3',
+          priority: 1,
+          outputText: 'Fate: 大成功！超出难度3级或更多，可获得额外好处。',
+        },
+        {
+          id: 'success',
+          name: '成功',
+          condition: '$roll.total + $attr + $mod >= $dc',
+          priority: 10,
+          outputText: 'Fate: 成功，达成目标。',
+        },
+        {
+          id: 'tie',
+          name: '平手',
+          condition: '$roll.total + $attr + $mod === $dc - 1',
+          priority: 20,
+          outputText: 'Fate: 平手，勉强达成但可能有小代价。',
+        },
+        {
+          id: 'failure',
+          name: '失败',
+          condition: '$roll.total + $attr + $mod < $dc',
+          priority: 99,
+          outputText: 'Fate: 失败，未能达成目标。',
+        },
+      ],
+      contestRule: {
+        mode: 'margin', // 对抗模式：按总值差值裁决
+        hideDc: true, // 对抗检定时隐藏难度字段（双方直接比较）
+      },
+      outputTemplate:
+        '<meta:检定结果>\n$outcomeText\n元叙事：$initiator 发起了 $attrName 检定，技能等级$attrValue，修正值$mod，$formula=$roll，总值=$roll+$attr+$mod，判定 $conditionExpr？$judgeResult，判定为【$outcomeName】\n</meta:检定结果>',
+      contestOutputTemplate: `<meta:检定结果>
+ 元叙事：进行了一次【$initiator $initAttrName vs $opponent $oppAttrName】的Fate对抗检定。
+ $initiator $initAttrName：$formula=$initRoll，技能等级$initAttr+修正值$initMod，总值=$initTotal；
+ $opponent $oppAttrName：$formula=$oppRoll，技能等级$oppAttr+修正值$oppMod，总值=$oppTotal。
+ 差值(Shifts)：$margin（正数表示$initiator领先，负数表示$opponent领先）
+ 最终结果：【$winner】
+ </meta:检定结果>`,
+    },
+    // PbtA 规则: 2d6 + 属性值, 6-失败/7-9部分成功/10+完全成功
+    {
+      kind: 'advanced',
+      id: 'pbta_move',
+      name: 'PbtA',
+      description: 'Powered by the Apocalypse: 2d6+属性, 6-失败/7-9部分成功/10+完全成功',
+      version: PRESET_FORMAT_VERSION,
+      builtin: true,
+      diceExpression: '2d6',
+      attribute: {
+        label: '属性值',
+        placeholder: '留空=0',
+        defaultValue: 0,
+        key: '属性',
+      },
+      dc: {
+        hidden: true,
+        defaultValue: 0,
+      },
+      mod: {
+        label: '临时加值',
+        placeholder: '留空=0',
+        defaultValue: 0,
+      },
+      outcomes: [
+        {
+          id: 'strong_hit',
+          name: '完全成功',
+          condition: '$roll.total + $attr + $mod >= 10',
+          priority: 1,
+          outputText: 'PbtA:完全成功!',
+        },
+        {
+          id: 'weak_hit',
+          name: '部分成功',
+          condition: '$roll.total + $attr + $mod >= 7',
+          priority: 20,
+          outputText: 'PbtA:部分成功。',
+        },
+        {
+          id: 'miss',
+          name: '失败',
+          condition: '$roll.total + $attr + $mod < 7',
+          priority: 99,
+          outputText: 'PbtA:失败...',
+        },
+      ],
+      contestRule: {
+        disabled: true, // PbtA 规则不支持传统对抗检定
+      },
+      outputTemplate:
+        '<meta:检定结果>\n$outcomeText\n元叙事：$initiator 发起了 $attrName 检定，属性值$attrValue，临时加值$mod，$formula=$roll，总值=$roll+$attr+$mod，判定 $conditionExpr？$judgeResult，判定为【$outcomeName】\n</meta:检定结果>',
+    },
+    // 三角机构规则: 6d4统计3的个数
+    {
+      kind: 'advanced',
+      id: 'triangle_agency',
+      name: '三角机构',
+      description: '6d4统计3的个数；至少一个3成功，三个3为三重升华；无3失败',
+      version: PRESET_FORMAT_VERSION,
+      builtin: true,
+      diceExpression: '6d4=3',
+      attribute: {
+        hidden: true,
+        defaultValue: 0,
+      },
+      dc: {
+        hidden: true,
+        defaultValue: 0,
+      },
+      mod: {
+        hidden: true,
+        defaultValue: 0,
+      },
+      derivedVars: [{ id: 'chaos', expr: '6 - $roll.total' }],
+      outcomes: [
+        {
+          id: 'triple_success',
+          name: '三重升华',
+          condition: '$roll.total === 3',
+          priority: 1,
+          rank: 3,
+          outputText: '三角机构：三重升华！命中三个3，完美共鸣达成。',
+        },
+        {
+          id: 'success',
+          name: '成功',
+          condition: '$roll.total >= 1',
+          priority: 10,
+          rank: 1,
+          outputText: '三角机构：成功。至少命中一个3，行动达成。',
+        },
+        {
+          id: 'failure',
+          name: '失败',
+          condition: '$roll.total === 0',
+          priority: 50,
+          rank: 0,
+          outputText: '三角机构：失败。未能命中任何3，行动受阻。',
+        },
+      ],
+      contestRule: {
+        disabled: true, // 三角机构不支持对抗检定
+      },
+      outputTemplate:
+        '<meta:检定结果>\n$outcomeText\n元叙事：$initiator 的三角机构检定，$formula=$roll，命中3的个数：$roll.total，GM获得混沌：$chaos，判定为【$outcomeName】\n</meta:检定结果>',
+    },
+  ];
+
+  // ========================================
   // 属性规则预设系统
   // ========================================
 
@@ -7948,10 +10759,11 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       id: 'coc7',
       name: '简化COC规则',
       builtin: true,
-      description: '基于克苏鲁的呼唤第7版规则的属性预设。包含8条基本属性和16条特殊属性。',
+      description: '基于克苏鲁的呼唤第7版规则的属性预设。包含9条基本属性和18条特殊属性。',
       baseAttributes: [
         { name: '力量', formula: '3d6*5', range: [15, 90], modifier: '1d10-5' },
         { name: '体质', formula: '3d6*5', range: [15, 90], modifier: '1d10-5' },
+        { name: '体型', formula: '2d6*5+30', range: [40, 90], modifier: '1d10-5' },
         { name: '敏捷', formula: '3d6*5', range: [15, 90], modifier: '1d10-5' },
         { name: '外貌', formula: '3d6*5', range: [15, 90], modifier: '1d10-5' },
         { name: '意志', formula: '3d6*5', range: [15, 90], modifier: '1d10-5' },
@@ -7970,11 +10782,13 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
         { name: '潜行', formula: '5+4d20', range: [9, 85] },
         { name: '格斗', formula: '5+4d20', range: [9, 85] },
         { name: '射击', formula: '5+4d20', range: [9, 85] },
+        { name: '信用评级', formula: '5+4d20', range: [9, 85] },
         // 低频辅助技能（范围 8-65，平均36）
         { name: '魅惑', formula: '5+3d20', range: [8, 65] },
         { name: '恐吓', formula: '5+3d20', range: [8, 65] },
         { name: '图书馆使用', formula: '5+3d20', range: [8, 65] },
         { name: '急救', formula: '5+3d20', range: [8, 65] },
+        { name: '驾驶', formula: '5+3d20', range: [8, 65] },
         // 极低稀有技能（范围 3-41，平均22）
         { name: '神秘学', formula: '1+2d20', range: [3, 41] },
         // 公式计算
@@ -7990,7 +10804,8 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       id: 'dnd5e',
       name: '简化DND规则',
       builtin: true,
-      description: '基于龙与地下城第5版规则的属性预设。包含6条基本属性和8条特殊属性。',
+      description:
+        '基于龙与地下城第5版规则的属性预设。包含6条基本属性和19条技能/派生属性。技能使用长尾分布：多数人为0或负值，少数专家可达+10以上。',
       baseAttributes: [
         { name: '力量', formula: '4d6dl1', range: [3, 18], modifier: '1d4-2' },
         { name: '敏捷', formula: '4d6dl1', range: [3, 18], modifier: '1d4-2' },
@@ -8000,17 +10815,35 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
         { name: '魅力', formula: '4d6dl1', range: [3, 18], modifier: '1d4-2' },
       ],
       specialAttributes: [
-        // 高频技能（范围 10-20，平均15）
-        { name: '察觉', formula: '8+2d6', range: [10, 20] },
-        { name: '隐匿', formula: '8+2d6', range: [10, 20] },
-        // 中频技能（范围 7-17，平均12）
-        { name: '运动', formula: '5+2d6', range: [7, 17] },
-        { name: '巧手', formula: '5+2d6', range: [7, 17] },
-        { name: '洞悉', formula: '5+2d6', range: [7, 17] },
-        { name: '游说', formula: '5+2d6', range: [7, 17] },
-        // 低频技能（范围 4-14，平均9）
-        { name: '奥秘', formula: '2+2d6', range: [4, 14] },
-        { name: '欺瞒', formula: '2+2d6', range: [4, 14] },
+        // DND5e 18个技能 - 使用 NdMkl1-X 公式实现长尾分布
+        // 原理：取多个骰子的最低值，低值常见、高值稀有
+        // 例如 4d8kl1-3: 范围 -2 到 +5，大部分人在 -2~+1，少数专家能到 +5
+
+        // 力量系技能
+        { name: '运动', formula: '4d8kl1-3', range: [-2, 5] }, // 范围 -2 到 +5
+        // 敏捷系技能
+        { name: '杂技', formula: '4d8kl1-3', range: [-2, 5] },
+        { name: '巧手', formula: '4d8kl1-3', range: [-2, 5] },
+        { name: '隐匿', formula: '5d10kl1-4', range: [-3, 6] }, // 高频，长尾更长
+        // 智力系技能
+        { name: '奥秘', formula: '3d6kl1-2', range: [-1, 4] }, // 稀有技能，范围小
+        { name: '历史', formula: '3d6kl1-2', range: [-1, 4] },
+        { name: '调查', formula: '4d8kl1-3', range: [-2, 5] },
+        { name: '自然', formula: '3d6kl1-2', range: [-1, 4] },
+        { name: '宗教', formula: '3d6kl1-2', range: [-1, 4] },
+        // 感知系技能
+        { name: '驯兽', formula: '3d6kl1-2', range: [-1, 4] },
+        { name: '洞悉', formula: '5d10kl1-4', range: [-3, 6] }, // 高频
+        { name: '医药', formula: '3d6kl1-2', range: [-1, 4] },
+        { name: '察觉', formula: '5d10kl1-4', range: [-3, 6] }, // 高频，长尾更长
+        { name: '求生', formula: '3d6kl1-2', range: [-1, 4] },
+        // 魅力系技能
+        { name: '欺瞒', formula: '4d8kl1-3', range: [-2, 5] },
+        { name: '威吓', formula: '4d8kl1-3', range: [-2, 5] },
+        { name: '表演', formula: '3d6kl1-2', range: [-1, 4] },
+        { name: '游说', formula: '4d8kl1-3', range: [-2, 5] },
+        // 派生属性
+        { name: '先攻', formula: 'floor((敏捷-10)/2)', range: [-4, 4] },
       ],
     },
   ];
@@ -8182,6 +11015,265 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
   })();
 
   // ========================================
+  // 高级骰子预设管理器
+  // ========================================
+
+  const STORAGE_KEY_ACTIVE_ADVANCED_PRESET = 'acu_active_advanced_preset';
+
+  // 高级骰子预设管理器
+  const AdvancedDicePresetManager = (() => {
+    let _cache = null;
+
+    const getBuiltinPresetVisibilityMap = (): Record<string, boolean> => {
+      const stored = Store.get(STORAGE_KEY_BUILTIN_PRESET_VISIBILITY, {});
+      if (!stored || typeof stored !== 'object') return {};
+      return stored as Record<string, boolean>;
+    };
+
+    const getBuiltinPresetOrderMap = (): Record<string, number> => {
+      const stored = Store.get(STORAGE_KEY_BUILTIN_PRESET_ORDER, {});
+      if (!stored || typeof stored !== 'object') return {};
+      return stored as Record<string, number>;
+    };
+
+    return {
+      // 获取所有预设（内置 + 自定义）
+      getAllPresets() {
+        const stored = Store.get(STORAGE_KEY_ADVANCED_PRESETS, []);
+        // 自动检测并更新所有自定义预设的版本
+        let needsSave = false;
+        stored.forEach(preset => {
+          const presetVersion = preset.version || '0.0.0';
+          if (compareVersion(presetVersion, PRESET_FORMAT_VERSION) < 0) {
+            console.log(
+              `[DICE]AdvancedDicePresetManager 检测到预设 "${preset.name}" 版本较旧 (${presetVersion})，自动更新到 ${PRESET_FORMAT_VERSION}`,
+            );
+            preset.version = PRESET_FORMAT_VERSION;
+            needsSave = true;
+          }
+        });
+        if (needsSave) {
+          Store.set(STORAGE_KEY_ADVANCED_PRESETS, stored);
+          _cache = null;
+        }
+        // 只有在没有更新时才使用缓存
+        if (!needsSave && _cache) {
+          return _cache;
+        }
+
+        // 填充默认值并合并
+        const builtinVisibilityMap = getBuiltinPresetVisibilityMap();
+        const builtinOrderMap = getBuiltinPresetOrderMap();
+        const processedBuiltin = BUILTIN_ADVANCED_PRESETS.map((p, index) => ({
+          ...p,
+          visible: builtinVisibilityMap[p.id] ?? p.visible ?? true,
+          order: builtinOrderMap[p.id] ?? p.order ?? index,
+        }));
+
+        const processedCustom = stored.map(p => ({
+          ...p,
+          visible: p.visible ?? false,
+          order: p.order ?? 999,
+        }));
+
+        _cache = [...processedBuiltin, ...processedCustom];
+        return _cache;
+      },
+
+      // 获取当前激活的预设（null = 未激活）
+      getActivePreset() {
+        const activeId = Store.get(STORAGE_KEY_ACTIVE_ADVANCED_PRESET, null);
+        if (!activeId) return null;
+        return this.getAllPresets().find(p => p.id === activeId) || null;
+      },
+
+      // 设置激活的预设
+      setActivePreset(id) {
+        try {
+          const finalId = id === '' || id === undefined ? null : id;
+          Store.set(STORAGE_KEY_ACTIVE_ADVANCED_PRESET, finalId);
+          _cache = null;
+          console.log('[DICE]AdvancedDicePresetManager 切换预设:', finalId);
+          return true;
+        } catch (err) {
+          console.error('[DICE]AdvancedDicePresetManager 设置预设失败:', err);
+          return false;
+        }
+      },
+
+      setBuiltinPresetVisibility(id, visible) {
+        try {
+          const map = getBuiltinPresetVisibilityMap();
+          map[id] = visible;
+          Store.set(STORAGE_KEY_BUILTIN_PRESET_VISIBILITY, map);
+          _cache = null;
+          return true;
+        } catch (err) {
+          console.error('[DICE]AdvancedDicePresetManager 设置内置预设显示状态失败:', err);
+          return false;
+        }
+      },
+
+      setPresetOrder(id, order) {
+        try {
+          if (BUILTIN_ADVANCED_PRESETS.some(p => p.id === id)) {
+            const map = getBuiltinPresetOrderMap();
+            map[id] = order;
+            Store.set(STORAGE_KEY_BUILTIN_PRESET_ORDER, map);
+            _cache = null;
+            return true;
+          }
+          return this.updatePreset(id, { order });
+        } catch (err) {
+          console.error('[DICE]AdvancedDicePresetManager 设置预设排序失败:', err);
+          return false;
+        }
+      },
+
+      // 创建自定义预设
+      createPreset(preset) {
+        const stored = Store.get(STORAGE_KEY_ADVANCED_PRESETS, []);
+        const newPreset = {
+          ...preset,
+          id: preset.id || 'custom_' + Date.now(),
+          kind: 'advanced',
+          builtin: false,
+          version: preset.version || PRESET_FORMAT_VERSION,
+          createdAt: new Date().toISOString(),
+        };
+        stored.push(newPreset);
+        Store.set(STORAGE_KEY_ADVANCED_PRESETS, stored);
+        _cache = null;
+        console.log('[DICE]AdvancedDicePresetManager 创建预设:', newPreset.name);
+        return newPreset;
+      },
+
+      // 更新自定义预设
+      updatePreset(id, updates) {
+        // 禁止修改内置预设
+        if (BUILTIN_ADVANCED_PRESETS.some(p => p.id === id)) {
+          console.error('[DICE]AdvancedDicePresetManager 不能修改内置预设:', id);
+          throw new Error('不能修改内置预设');
+        }
+        const stored = Store.get(STORAGE_KEY_ADVANCED_PRESETS, []);
+        const index = stored.findIndex(p => p.id === id);
+        if (index < 0) return false;
+        stored[index] = { ...stored[index], ...updates, id }; // 保持ID不变
+        Store.set(STORAGE_KEY_ADVANCED_PRESETS, stored);
+        _cache = null;
+        console.log('[DICE]AdvancedDicePresetManager 更新预设:', id);
+        return true;
+      },
+
+      // 删除自定义预设
+      deletePreset(id) {
+        // 禁止删除内置预设
+        if (BUILTIN_ADVANCED_PRESETS.some(p => p.id === id)) {
+          console.error('[DICE]AdvancedDicePresetManager 不能删除内置预设:', id);
+          throw new Error('不能删除内置预设');
+        }
+        const stored = Store.get(STORAGE_KEY_ADVANCED_PRESETS, []);
+        const filtered = stored.filter(p => p.id !== id);
+        if (filtered.length === stored.length) return false;
+        Store.set(STORAGE_KEY_ADVANCED_PRESETS, filtered);
+        _cache = null;
+        // 如果删除的是激活预设，清除激活状态
+        if (Store.get(STORAGE_KEY_ACTIVE_ADVANCED_PRESET) === id) {
+          Store.set(STORAGE_KEY_ACTIVE_ADVANCED_PRESET, null);
+        }
+        console.log('[DICE]AdvancedDicePresetManager 删除预设:', id);
+        return true;
+      },
+
+      // 导出预设为 JSON
+      exportPreset(id) {
+        const preset = this.getAllPresets().find(p => p.id === id);
+        if (!preset) return null;
+        const exported = {
+          kind: 'advanced',
+          version: PRESET_FORMAT_VERSION,
+          ...preset,
+        };
+        delete exported.builtin; // 导出时移除内置标记
+        return JSON.stringify(exported, null, 2);
+      },
+
+      // 从 JSON 导入预设
+      importPreset(jsonStr) {
+        try {
+          const data = JSON.parse(jsonStr);
+
+          // 校验格式
+          if (data.kind !== 'advanced') {
+            throw new Error('不支持的预设格式');
+          }
+
+          // 基本校验
+          if (!data.name || !data.diceExpression) {
+            throw new Error('预设数据不完整: 缺少名称或骰子表达式');
+          }
+
+          // 校验判定条件：必须有 outcomes
+          if (!Array.isArray(data.outcomes) || data.outcomes.length === 0) {
+            throw new Error('预设数据不完整: 缺少 outcomes 判定条件');
+          }
+
+          const importedVersion = data.version || '0.0.0';
+          const needsUpdate = compareVersion(importedVersion, PRESET_FORMAT_VERSION) < 0;
+
+          // 数据迁移：合并旧版 UI 字段
+          if (data.ui) {
+            if (data.ui.attributeLabel && data.attribute) data.attribute.label = data.ui.attributeLabel;
+            if (data.ui.dcLabel && data.dc) data.dc.label = data.ui.dcLabel;
+            delete data.ui;
+          }
+
+          // 生成新ID避免冲突
+          const imported = {
+            ...data,
+            id: 'imported_' + Date.now(),
+            kind: 'advanced',
+            builtin: false,
+            version: PRESET_FORMAT_VERSION,
+            createdAt: new Date().toISOString(),
+          };
+
+          const result = this.createPreset(imported);
+          if (result && needsUpdate) {
+            console.warn(
+              `[DICE]AdvancedDicePresetManager 导入的预设 "${result.name}" 版本较旧 (${importedVersion})，已自动更新到 ${PRESET_FORMAT_VERSION}`,
+            );
+          }
+          return result;
+        } catch (e) {
+          console.error('[DICE]AdvancedDicePresetManager 导入失败:', e);
+          return null;
+        }
+      },
+
+      // 清除缓存
+      clearCache() {
+        _cache = null;
+      },
+
+      /**
+       * 检查预设是否支持对抗检定
+       * @param preset 预设对象或预设ID
+       * @returns true 表示支持对抗检定，false 表示不支持
+       */
+      supportsContest(preset: AdvancedDicePreset | string | null | undefined): boolean {
+        if (!preset) return true; // 无预设时（自定义模式）默认支持
+
+        const presetObj = typeof preset === 'string' ? this.getAllPresets().find(p => p.id === preset) : preset;
+        if (!presetObj) return true; // 找不到预设时默认支持
+
+        // 检查 contestRule.disabled 标志
+        return !(presetObj.contestRule?.disabled === true);
+      },
+    };
+  })();
+
+  // ========================================
   // 预设切换时更新表格模板
   // ========================================
 
@@ -8230,24 +11322,17 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     const debuffRange = formatRange(min, threshold1); // 能力缺失区间
     const buffRange = formatRange(threshold4 + 1, threshold5); // 精英区间上限
 
-    const baseDescription = `基准: 数值呈指数增长(每+10分强度翻倍)；分布呈长尾状(绝大多数聚集在${avgStart}-${avgEnd}，${rareThreshold}+呈断崖式稀缺)，依角色[身份背景]生成，当前值受[当前状态]修正。如:重伤→${debuffRange}; 肾上腺素→${buffRange}`;
+    const baseDescription = `基准: 数值呈指数增长；分布呈长尾状(绝大多数聚集在${avgStart}-${avgEnd}，${rareThreshold}+呈断崖式稀缺)，依角色[身份背景]生成，当前值受[当前状态]修正。如:重伤→${debuffRange}; 肾上腺素→${buffRange}`;
 
     return `${scaleStr}。${baseDescription}`;
   };
 
   // 默认规则的特有属性模板内容（用于恢复）
   const DEFAULT_SPECIAL_ATTR_TEMPLATE = {
-    // 主角信息表的特有属性默认内容
-    protagonist: {
-      range: [0, 100] as [number, number],
-      example1: '腹黑:45; 傲娇:60; 笨手笨脚:40',
-      example2: '忠诚:80; 可爱:50; 天然呆:35',
-    },
-    // 重要人物表的特有属性默认内容
-    npc: {
-      range: [0, 100] as [number, number],
-      example: '念动力:25; 点子:45; 轻飘飘:60',
-    },
+    // 主角信息表和重要人物表统一的默认内容
+    range: [0, 100] as [number, number],
+    // 默认示例（分号分隔格式）
+    example: '爆裂魔法:85; 时间回溯:70; 超电磁炮:90',
   };
 
   // 默认规则的虚拟预设定义（六维属性百分制）
@@ -8261,6 +11346,18 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       modifier: '1d10-5',
     })),
     specialAttributes: [] as { name: string; formula: string; range: [number, number]; modifier: string }[],
+  };
+
+  /**
+   * 替换标签内容的通用函数（支持多行内容）
+   * @param text 原始文本
+   * @param tag 标签名（中文标签如 "属性规则"）
+   * @param content 新内容
+   */
+  const replaceTag = (text: string, tag: string, content: string): string => {
+    // 使用 [\s\S]* 匹配任意字符（包括换行）
+    const regex = new RegExp(`<${tag}>[\\s\\S]*?</${tag}>`, 'g');
+    return text.replace(regex, `<${tag}>\n${content}\n</${tag}>`);
   };
 
   /**
@@ -8303,12 +11400,9 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       specialRangeMax = Math.max(...specialRanges.map(r => r[1]));
     }
 
-    // 4. 构建示例字符串
+    // 4. 获取生成的属性数据
     const baseEntries = Object.entries(attrs.base as Record<string, number>);
     const specialEntries = Object.entries(attrs.special as Record<string, number>);
-
-    const baseExampleStr = baseEntries.map(([name, value]) => `${name}:${value}`).join('; ');
-    const specialExampleStr = specialEntries.map(([name, value]) => `${name}:${value}`).join('; ');
 
     // 5. 获取数据库 API 并读取模板
     const dbApi = getCore().getDB();
@@ -8323,100 +11417,61 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       return;
     }
 
-    // 6. 定义正则表达式（分步处理：先定位段落，再替换内容）
+    // 6. 生成属性标尺（基于基础属性范围，不含重复的基准说明）
+    const attributeScaleStr = generateAttributeScale(baseRangeMin, baseRangeMax);
 
-    // 主角信息表：基础属性段落中的示例和范围
-    // 匹配: 基础属性: "{属性名}:{数值}"，数值范围[0,100]\n示例: "力量:35; ..."
-    const protagonistBaseExampleRegex = /(基础属性:[^\n]*数值范围)\[[\d,]+\](\n示例: )"[^"]+"/;
-    const protagonistBaseRangeRegex = /(基础属性:[^\n]*数值范围)\[\d+,\d+\]/;
+    // 7. 构建完整的 <属性规则> 内容块
+    const baseRangeStr = `[${baseRangeMin},${baseRangeMax}]`;
+    const specialRangeStr =
+      specialEntries.length > 0
+        ? `[${specialRangeMin},${specialRangeMax}]`
+        : `[${DEFAULT_SPECIAL_ATTR_TEMPLATE.range[0]},${DEFAULT_SPECIAL_ATTR_TEMPLATE.range[1]}]`;
 
-    // 主角信息表：特有属性段落中的示例和范围
-    // 匹配: 特有属性: ...数值范围[0,100]\n示例: "腹黑:45; ..." | "忠诚:80; ..."
-    const protagonistSpecialExampleRegex = /(特有属性:[^\n]*数值范围)\[[\d,]+\](\n示例: )"[^"]+"\s*\|\s*"[^"]+"/;
-    const protagonistSpecialSingleExampleRegex = /(特有属性:[^\n]*数值范围)\[[\d,]+\](\n示例: )"[^"]+"/;
-    const protagonistSpecialRangeRegex = /(特有属性:[^\n]*数值范围)\[\d+,\d+\]/;
+    // 基础属性示例（分号分隔格式）
+    const baseExampleStr =
+      baseEntries.length > 0
+        ? baseEntries.map(([name, value]) => `${name}:${value}`).join('; ')
+        : '力量:35; 敏捷:50; 体质:52; 智力:35; 感知:40; 魅力:64';
 
-    // 重要人物表：基础属性范围和示例
-    // 匹配: 基础属性: "{属性名}:{数值}"，数值范围[0,100]\n示例: "力量:41; ..."
-    const npcBaseRangeRegex = /(基础属性:[^\n]*数值范围)\[\d+,\d+\]/;
-    const npcBaseExampleRegex = /(基础属性:[^\n]*数值范围)\[[\d,]+\](\n示例: )"[^"]+"/;
+    // 特有属性示例（分号分隔格式）
+    const specialExampleStr =
+      specialEntries.length > 0
+        ? specialEntries.map(([name, value]) => `${name}:${value}`).join('; ')
+        : DEFAULT_SPECIAL_ATTR_TEMPLATE.example;
 
-    // 重要人物表：特有属性段落中的示例和范围
-    // 匹配: 特有属性: ...数值范围[0,100]\n示例: "念动力:25; ..."
-    const npcSpecialExampleRegex = /(特有属性:[^\n]*数值范围)\[[\d,]+\](\n示例: )"[^"]+"/;
-    const npcSpecialRangeRegex = /(特有属性:[^\n]*数值范围)\[\d+,\d+\]/;
+    // 构建完整的属性规则内容
+    const attributeRulesContent = `基础属性: "{基础属性}:{数值}"，数值范围${baseRangeStr}
+示例: "${baseExampleStr}"
 
-    // 属性标尺正则：匹配 【属性标尺】 后面的完整标尺描述行（包括基准说明）
-    // 格式: 0-10:能力缺失 | ... | 90-100:破格。基准: ...
-    const attributeScaleRegex = /(【属性标尺】\n)\d+-?\d*:能力缺失[^\n]+/;
+特有属性: 角色的特殊能力与技能，体现世界观特色与个体差异。
+格式: "{特有属性}:{数值}"，数值范围${specialRangeStr}，数值代表成功概率
+示例: "${specialExampleStr}"
 
-    // 生成新的属性标尺（基于基础属性范围）
-    const newAttributeScale = generateAttributeScale(baseRangeMin, baseRangeMax) + '。';
+【属性标尺】
+${attributeScaleStr}`;
 
     let modified = false;
 
-    // 7. 替换 sheet_protagonist 的 note
+    // 7.5 检测旧版模板格式（缺少 <属性规则> 标签）
+    const checkTemplateFormat = (note: string | undefined, sheetName: string): void => {
+      if (!note) return;
+      if (!note.includes('<属性规则>')) {
+        console.warn(
+          `[DICE] ${sheetName} 使用旧版模板格式，缺少 <属性规则> 标签。` +
+            `属性预设切换功能无法正常工作。请手动更新模板以添加 <属性规则>...</属性规则> 标签。`,
+        );
+      }
+    };
+    checkTemplateFormat(template.sheet_protagonist?.sourceData?.note as string, '主角信息表');
+    checkTemplateFormat(template.sheet_important_npc?.sourceData?.note as string, '重要人物表');
+
+    // 8. 替换 sheet_protagonist 的 note（使用 <属性规则> 标签）
     const protagonistSheet = template.sheet_protagonist;
     if (protagonistSheet?.sourceData?.note) {
       let note = protagonistSheet.sourceData.note as string;
       const originalNote = note;
 
-      // 替换基础属性范围
-      note = note.replace(protagonistBaseRangeRegex, `$1[${baseRangeMin},${baseRangeMax}]`);
-
-      // 替换基础属性示例（如果有基础属性）
-      if (baseEntries.length > 0) {
-        note = note.replace(protagonistBaseExampleRegex, `$1[${baseRangeMin},${baseRangeMax}]$2"${baseExampleStr}"`);
-      }
-
-      // 根据是否有特有属性来替换相关内容
-      if (specialEntries.length > 0) {
-        // 替换特有属性范围
-        note = note.replace(protagonistSpecialRangeRegex, `$1[${specialRangeMin},${specialRangeMax}]`);
-
-        // 替换特有属性示例（双示例格式）
-        if (protagonistSpecialExampleRegex.test(note)) {
-          // 生成两组不同的示例
-          const attrs2 = generateRPGAttributes(presetId === null || presetId === '__default__' ? null : preset);
-          const special2Entries = Object.entries(attrs2.special as Record<string, number>);
-          const specialExample2Str = special2Entries.map(([name, value]) => `${name}:${value}`).join('; ');
-          note = note.replace(
-            protagonistSpecialExampleRegex,
-            `$1[${specialRangeMin},${specialRangeMax}]$2"${specialExampleStr}" | "${specialExample2Str}"`,
-          );
-        } else if (protagonistSpecialSingleExampleRegex.test(note)) {
-          // 单示例格式
-          note = note.replace(
-            protagonistSpecialSingleExampleRegex,
-            `$1[${specialRangeMin},${specialRangeMax}]$2"${specialExampleStr}"`,
-          );
-        }
-      } else {
-        // 无特有属性时，恢复为默认模板内容
-        const defaultRange = DEFAULT_SPECIAL_ATTR_TEMPLATE.protagonist.range;
-        const defaultEx1 = DEFAULT_SPECIAL_ATTR_TEMPLATE.protagonist.example1;
-        const defaultEx2 = DEFAULT_SPECIAL_ATTR_TEMPLATE.protagonist.example2;
-
-        // 恢复特有属性范围
-        note = note.replace(protagonistSpecialRangeRegex, `$1[${defaultRange[0]},${defaultRange[1]}]`);
-
-        // 恢复特有属性示例（双示例格式）
-        if (protagonistSpecialExampleRegex.test(note)) {
-          note = note.replace(
-            protagonistSpecialExampleRegex,
-            `$1[${defaultRange[0]},${defaultRange[1]}]$2"${defaultEx1}" | "${defaultEx2}"`,
-          );
-        } else if (protagonistSpecialSingleExampleRegex.test(note)) {
-          // 单示例格式恢复为双示例格式
-          note = note.replace(
-            protagonistSpecialSingleExampleRegex,
-            `$1[${defaultRange[0]},${defaultRange[1]}]$2"${defaultEx1}" | "${defaultEx2}"`,
-          );
-        }
-      }
-
-      // 替换属性标尺
-      note = note.replace(attributeScaleRegex, `$1${newAttributeScale}`);
+      note = replaceTag(note, '属性规则', attributeRulesContent);
 
       if (note !== originalNote) {
         protagonistSheet.sourceData.note = note;
@@ -8424,41 +11479,13 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       }
     }
 
-    // 8. 替换 sheet_important_npc 的 note
+    // 9. 替换 sheet_important_npc 的 note（使用 <属性规则> 标签）
     const npcSheet = template.sheet_important_npc;
     if (npcSheet?.sourceData?.note) {
       let note = npcSheet.sourceData.note as string;
       const originalNote = note;
 
-      // 替换基础属性范围
-      note = note.replace(npcBaseRangeRegex, `$1[${baseRangeMin},${baseRangeMax}]`);
-
-      // 替换基础属性示例（如果有基础属性且模板中有示例行）
-      if (baseEntries.length > 0) {
-        note = note.replace(npcBaseExampleRegex, `$1[${baseRangeMin},${baseRangeMax}]$2"${baseExampleStr}"`);
-      }
-
-      // 根据是否有特有属性来替换相关内容
-      if (specialEntries.length > 0) {
-        // 替换特有属性范围
-        note = note.replace(npcSpecialRangeRegex, `$1[${specialRangeMin},${specialRangeMax}]`);
-
-        // 替换特有属性示例
-        note = note.replace(
-          npcSpecialExampleRegex,
-          `$1[${specialRangeMin},${specialRangeMax}]$2"${specialExampleStr}"`,
-        );
-      } else {
-        // 无特有属性时，恢复为默认模板内容
-        const defaultRange = DEFAULT_SPECIAL_ATTR_TEMPLATE.npc.range;
-        const defaultEx = DEFAULT_SPECIAL_ATTR_TEMPLATE.npc.example;
-
-        // 恢复特有属性范围
-        note = note.replace(npcSpecialRangeRegex, `$1[${defaultRange[0]},${defaultRange[1]}]`);
-
-        // 恢复特有属性示例
-        note = note.replace(npcSpecialExampleRegex, `$1[${defaultRange[0]},${defaultRange[1]}]$2"${defaultEx}"`);
-      }
+      note = replaceTag(note, '属性规则', attributeRulesContent);
 
       if (note !== originalNote) {
         npcSheet.sourceData.note = note;
@@ -8466,7 +11493,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       }
     }
 
-    // 9. 使用数据库 API 保存模板
+    // 10. 使用数据库 API 保存模板
     if (modified && typeof dbApi.importTemplateFromData === 'function') {
       dbApi
         .importTemplateFromData(template)
@@ -8850,10 +11877,108 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     return { name: '幸运', value: 50 };
   };
 
-  // 投 d100
-  const crazyRollD100 = () => Math.floor(Math.random() * 100) + 1;
+  // 根据预设执行疯狂模式投骰
+  const crazyRollWithPreset = (preset: AdvancedDicePreset | null, attrValue: number) => {
+    if (!preset) {
+      // 没有激活预设时，使用默认 d100 规则
+      const roll = Math.floor(Math.random() * 100) + 1;
+      let result = '失败';
+      if (roll <= 5) result = '大成功';
+      else if (roll >= 96) result = '大失败';
+      else if (roll <= attrValue) result = '成功';
+      return { roll, result, formula: '1d100' };
+    }
 
-  // 判断检定结果
+    // 使用预设的骰子表达式
+    const diceExpr = preset.diceExpression || '1d100';
+    const rollResult = rollComplexDiceExpression(diceExpr);
+    const rollTotal = rollResult.total;
+
+    // 根据预设的 outcomes 判定结果
+    if (preset.outcomes && preset.outcomes.length > 0) {
+      // 简化的条件判断：根据预设类型进行基本判定
+      const presetId = preset.id;
+
+      if (presetId === 'dnd5e_check') {
+        // DND5e: 1d20 + 调整值 >= DC
+        // 调整值 = floor((属性值-10)/2)
+        const attrMod = Math.floor((attrValue - 10) / 2);
+        const dc = 10; // 默认DC
+        const total = rollTotal + attrMod;
+
+        if (rollResult.rawDice && rollResult.rawDice[0] === 20) {
+          return { roll: rollTotal, result: '大成功', formula: diceExpr, total, dc, attrMod };
+        } else if (rollResult.rawDice && rollResult.rawDice[0] === 1) {
+          return { roll: rollTotal, result: '大失败', formula: diceExpr, total, dc, attrMod };
+        } else if (total >= dc) {
+          return { roll: rollTotal, result: '成功', formula: diceExpr, total, dc, attrMod };
+        } else {
+          return { roll: rollTotal, result: '失败', formula: diceExpr, total, dc, attrMod };
+        }
+      } else if (presetId === 'coc7_check') {
+        // CoC7: 1d100 <= 属性值
+        if (rollTotal === 1) {
+          return { roll: rollTotal, result: '大成功', formula: diceExpr };
+        } else if ((attrValue < 50 && rollTotal >= 96) || (attrValue >= 50 && rollTotal === 100)) {
+          return { roll: rollTotal, result: '大失败', formula: diceExpr };
+        } else if (rollTotal <= Math.floor(attrValue / 5)) {
+          return { roll: rollTotal, result: '极难成功', formula: diceExpr };
+        } else if (rollTotal <= Math.floor(attrValue / 2)) {
+          return { roll: rollTotal, result: '困难成功', formula: diceExpr };
+        } else if (rollTotal <= attrValue) {
+          return { roll: rollTotal, result: '成功', formula: diceExpr };
+        } else {
+          return { roll: rollTotal, result: '失败', formula: diceExpr };
+        }
+      } else if (presetId === 'fate_check') {
+        // 命运骰: 4dF + 属性值
+        const total = rollTotal + attrValue;
+        const dc = 0; // 默认DC
+        if (total >= dc + 3) {
+          return { roll: rollTotal, result: '大成功', formula: diceExpr, total };
+        } else if (total >= dc) {
+          return { roll: rollTotal, result: '成功', formula: diceExpr, total };
+        } else if (total >= dc - 2) {
+          return { roll: rollTotal, result: '失败', formula: diceExpr, total };
+        } else {
+          return { roll: rollTotal, result: '大失败', formula: diceExpr, total };
+        }
+      } else if (presetId === 'pbta_check') {
+        // PbtA: 2d6 + 属性值
+        const total = rollTotal + attrValue;
+        if (total >= 10) {
+          return { roll: rollTotal, result: '完全成功', formula: diceExpr, total };
+        } else if (total >= 7) {
+          return { roll: rollTotal, result: '部分成功', formula: diceExpr, total };
+        } else {
+          return { roll: rollTotal, result: '失败', formula: diceExpr, total };
+        }
+      }
+    }
+
+    // 通用判定逻辑：根据骰子类型自动选择成功条件
+    if (diceExpr.includes('d100') || diceExpr.includes('D100')) {
+      // d100 系统: 投骰结果 <= 目标值 为成功
+      if (rollTotal <= 5) return { roll: rollTotal, result: '大成功', formula: diceExpr };
+      if (rollTotal >= 96) return { roll: rollTotal, result: '大失败', formula: diceExpr };
+      if (rollTotal <= attrValue) return { roll: rollTotal, result: '成功', formula: diceExpr };
+      return { roll: rollTotal, result: '失败', formula: diceExpr };
+    } else if (diceExpr.includes('d20') || diceExpr.includes('D20')) {
+      // d20 系统: 投骰结果 + 修正 >= DC 为成功
+      const dc = 10;
+      if (rollTotal === 20) return { roll: rollTotal, result: '大成功', formula: diceExpr };
+      if (rollTotal === 1) return { roll: rollTotal, result: '大失败', formula: diceExpr };
+      if (rollTotal + attrValue >= dc) return { roll: rollTotal, result: '成功', formula: diceExpr };
+      return { roll: rollTotal, result: '失败', formula: diceExpr };
+    } else {
+      // 其他骰子: 简单判断高低
+      const midValue = attrValue;
+      if (rollTotal >= midValue) return { roll: rollTotal, result: '成功', formula: diceExpr };
+      return { roll: rollTotal, result: '失败', formula: diceExpr };
+    }
+  };
+
+  // 判断检定结果 (保留用于无预设时的兼容)
   const judgeCrazyRollResult = (roll, target) => {
     if (roll <= 5) return '大成功';
     if (roll >= 96) return '大失败';
@@ -8866,17 +11991,31 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     const config = getCrazyModeConfig();
     const rollType = selectCrazyRollType(config.crazyLevel);
 
+    // 获取当前激活的检定预设
+    const activePreset = AdvancedDicePresetManager.getActivePreset();
+
     if (rollType === 'normal') {
       // 普通检定
       const participant = selectCrazyParticipant();
       if (!participant) return null;
 
       const attr = selectCrazyAttribute(participant);
-      const roll = crazyRollD100();
-      const result = judgeCrazyRollResult(roll, attr.value);
+      const rollData = crazyRollWithPreset(activePreset, attr.value);
 
-      // 格式与现有骰子系统保持一致：角色名发起了【属性名】检定，掷出XX，目标YY，【结果】
-      return `（元叙事：${participant.name}发起了【${attr.name}】检定，掷出${roll}，目标${attr.value}，【${result}】）`;
+      // 根据预设类型格式化输出
+      if (activePreset) {
+        const presetName = activePreset.name;
+        if (activePreset.id === 'dnd5e_check' && rollData.attrMod !== undefined) {
+          return `<meta:检定结果>\n元叙事：${participant.name}发起了【${attr.name}】检定(${presetName})，${rollData.formula}=${rollData.roll}，调整值${rollData.attrMod >= 0 ? '+' : ''}${rollData.attrMod}，总计${rollData.total}，DC${rollData.dc}，【${rollData.result}】\n</meta:检定结果>`;
+        } else if (rollData.total !== undefined) {
+          return `<meta:检定结果>\n元叙事：${participant.name}发起了【${attr.name}】检定(${presetName})，${rollData.formula}=${rollData.roll}，总计${rollData.total}，【${rollData.result}】\n</meta:检定结果>`;
+        } else {
+          return `<meta:检定结果>\n元叙事：${participant.name}发起了【${attr.name}】检定(${presetName})，${rollData.formula}=${rollData.roll}，目标${attr.value}，【${rollData.result}】\n</meta:检定结果>`;
+        }
+      }
+
+      // 无预设时使用默认格式
+      return `<meta:检定结果>\n元叙事：${participant.name}发起了【${attr.name}】检定，掷出${rollData.roll}，目标${attr.value}，【${rollData.result}】\n</meta:检定结果>`;
     } else {
       // 对抗检定
       const participant1 = selectCrazyParticipant();
@@ -8895,37 +12034,60 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       // 如果找不到第二个参与者，降级为普通检定
       if (!participant2) {
         const attr = selectCrazyAttribute(participant1);
-        const roll = crazyRollD100();
-        const result = judgeCrazyRollResult(roll, attr.value);
-        return `（元叙事：${participant1.name}发起了【${attr.name}】检定，掷出${roll}，目标${attr.value}，【${result}】）`;
+        const rollData = crazyRollWithPreset(activePreset, attr.value);
+        if (activePreset) {
+          return `<meta:检定结果>\n元叙事：${participant1.name}发起了【${attr.name}】检定(${activePreset.name})，${rollData.formula}=${rollData.roll}，目标${attr.value}，【${rollData.result}】\n</meta:检定结果>`;
+        }
+        return `<meta:检定结果>\n元叙事：${participant1.name}发起了【${attr.name}】检定，掷出${rollData.roll}，目标${attr.value}，【${rollData.result}】\n</meta:检定结果>`;
       }
 
       const attr1 = selectCrazyAttribute(participant1);
       const attr2 = selectCrazyAttribute(participant2);
-      const roll1 = crazyRollD100();
-      const roll2 = crazyRollD100();
+      const rollData1 = crazyRollWithPreset(activePreset, attr1.value);
+      const rollData2 = crazyRollWithPreset(activePreset, attr2.value);
 
       // 计算成功度和判定结果
-      const result1 = judgeCrazyRollResult(roll1, attr1.value);
-      const result2 = judgeCrazyRollResult(roll2, attr2.value);
-      const margin1 = attr1.value - roll1;
-      const margin2 = attr2.value - roll2;
+      const result1 = rollData1.result;
+      const result2 = rollData2.result;
 
+      // 根据预设类型计算胜负
       let winner;
-      if (margin1 > margin2) {
-        winner = `${participant1.name}胜出`;
-      } else if (margin2 > margin1) {
-        winner = `${participant2.name}胜出`;
+      if (
+        activePreset &&
+        (activePreset.id === 'dnd5e_check' || activePreset.id === 'pbta_check' || activePreset.id === 'fate_check')
+      ) {
+        // 加值系统: 比较总值
+        const total1 = rollData1.total !== undefined ? rollData1.total : rollData1.roll + attr1.value;
+        const total2 = rollData2.total !== undefined ? rollData2.total : rollData2.roll + attr2.value;
+        if (total1 > total2) {
+          winner = `${participant1.name}胜出`;
+        } else if (total2 > total1) {
+          winner = `${participant2.name}胜出`;
+        } else {
+          winner = '平局';
+        }
       } else {
-        winner = '平局';
+        // d100系统: 比较成功余量 (目标值 - 投骰结果)
+        const margin1 = attr1.value - rollData1.roll;
+        const margin2 = attr2.value - rollData2.roll;
+        if (margin1 > margin2) {
+          winner = `${participant1.name}胜出`;
+        } else if (margin2 > margin1) {
+          winner = `${participant2.name}胜出`;
+        } else {
+          winner = '平局';
+        }
       }
 
       // 格式与现有对抗检定保持一致
+      const presetLabel = activePreset ? `(${activePreset.name})` : '';
       return (
-        `（元叙事：进行了一次【${participant1.name} ${attr1.name} vs ${participant2.name} ${attr2.name}】的对抗检定。` +
-        `${participant1.name} ${attr1.name} (目标${attr1.value}) 掷出 ${roll1}，判定为【${result1}】；` +
-        `${participant2.name} ${attr2.name} (目标${attr2.value}) 掷出 ${roll2}，判定为【${result2}】。` +
-        `最终结果：【${winner}】）`
+        `<meta:检定结果>\n` +
+        `元叙事：进行了一次【${participant1.name} ${attr1.name} vs ${participant2.name} ${attr2.name}】的对抗检定${presetLabel}。` +
+        `${participant1.name} ${attr1.name} (目标${attr1.value}) ${rollData1.formula}=${rollData1.roll}，判定为【${result1}】；` +
+        `${participant2.name} ${attr2.name} (目标${attr2.value}) ${rollData2.formula}=${rollData2.roll}，判定为【${result2}】。` +
+        `最终结果：【${winner}】\n` +
+        `</meta:检定结果>`
       );
     }
   };
@@ -8937,36 +12099,367 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
   /**
    * 投单个骰子表达式
    * 支持: 3d6, 4d6kh3, 4d6dl1, 4d6dh1
-   * @returns 骰子结果，解析失败返回 NaN
+   * @returns 标准化 RollResult，解析失败 total 为 NaN
    */
-  const rollDiceExpression = expr => {
-    const rollDice = sides => Math.floor(Math.random() * sides) + 1;
+  const rollDiceExpression = (expr: string): RollResult => {
+    const formula = String(expr);
+    const rollDice = (sides: number) => Math.floor(Math.random() * sides) + 1;
 
-    const match = expr.match(/^(\d+)d(\d+)(kh\d+|kl\d+|dh\d+|dl\d+)?$/i);
-    if (!match) return NaN;
+    // 匹配 XdY 或 XdF 语法，支持重掷、爆炸、保留/舍弃和成功计数
+    const match = formula.match(
+      /^(\d*)d(\d+|F)([bp]\d+)?(r[o]?(?:[><!=]+)?\d*)?(!!?(?:[><!=]+\d+)?)?(kh\d+|kl\d+|dh\d+|dl\d+)?((?:[><!=]+)\d+)?$/i,
+    );
+    if (!match) {
+      return {
+        total: Number.NaN,
+        rawDice: [],
+        keptDice: [],
+        formula,
+        breakdown: formula ? `${formula}=NaN` : 'NaN',
+        tags: [],
+      };
+    }
 
-    const [, countStr, sidesStr, keepDrop] = match;
-    const count = parseInt(countStr, 10);
-    const sides = parseInt(sidesStr, 10);
+    const [, countStr, sidesOrF, cocPart, rerollPart, explodePart, keepDrop, successPart] = match;
+    const count = countStr ? parseInt(countStr, 10) : 1;
+    const isFate = sidesOrF.toUpperCase() === 'F';
+    const sides = isFate ? 0 : parseInt(sidesOrF, 10);
 
-    let rolls = Array.from({ length: count }, () => rollDice(sides));
+    let rolls: number[] = [];
+    if (isFate) {
+      // FATE 骰子: 取值 [-1, 0, 1]
+      rolls = Array.from({ length: count }, () => Math.floor(Math.random() * 3) - 1);
+    } else {
+      // 普通骰子
+
+      // 解析重掷修饰符
+      let rerollType = null;
+      let rerollCompare = '=';
+      let rerollValue = 1;
+
+      if (rerollPart) {
+        const m = rerollPart.match(/^(r[o]?)([><!=]+)?(\d+)?$/i);
+        if (m) {
+          rerollType = m[1].toLowerCase();
+          if (m[2]) rerollCompare = m[2];
+          if (m[3]) rerollValue = parseInt(m[3], 10);
+          else if (!m[2]) rerollValue = 1; // 仅 r 或 ro 默认为 1
+        }
+      }
+
+      const checkReroll = (val: number) => {
+        if (!rerollType) return false;
+        switch (rerollCompare) {
+          case '>=':
+            return val >= rerollValue;
+          case '<=':
+            return val <= rerollValue;
+          case '=':
+          case '==':
+            return val === rerollValue;
+          case '>':
+            return val > rerollValue;
+          case '<':
+            return val < rerollValue;
+          case '!=':
+          case '<>':
+            return val !== rerollValue;
+          default:
+            return val === rerollValue;
+        }
+      };
+
+      // 解析爆炸修饰符
+      let explodeType = null;
+      let explodeCompare = '=';
+      let explodeValue = sides;
+
+      if (explodePart) {
+        const m = explodePart.match(/^(!!?)([><=!]+)?(\d+)?$/);
+        if (m) {
+          explodeType = m[1];
+          if (m[2]) explodeCompare = m[2];
+          if (m[3]) explodeValue = parseInt(m[3], 10);
+        }
+      }
+
+      const checkExplode = (val: number) => {
+        if (!explodeType) return false;
+        switch (explodeCompare) {
+          case '>=':
+            return val >= explodeValue;
+          case '<=':
+            return val <= explodeValue;
+          case '=':
+          case '==':
+            return val === explodeValue;
+          case '>':
+            return val > explodeValue;
+          case '<':
+            return val < explodeValue;
+          case '!=':
+          case '<>':
+            return val !== explodeValue;
+          default:
+            return val === sides;
+        }
+      };
+
+      // 解析 CoC 奖励/惩罚骰 (仅对 d100 生效)
+      let cocType = null;
+      let cocCount = 0;
+      if (cocPart && sides === 100) {
+        const m = cocPart.match(/^([bp])(\d+)$/i);
+        if (m) {
+          cocType = m[1].toLowerCase();
+          cocCount = parseInt(m[2], 10);
+        }
+      }
+
+      for (let i = 0; i < count; i++) {
+        let val = rollDice(sides);
+
+        // CoC 奖励/惩罚骰逻辑
+        if (cocType) {
+          const tens = Math.floor((val === 100 ? 0 : val) / 10);
+          const units = val % 10;
+          const additionalTens = Array.from({ length: cocCount }, () => Math.floor(Math.random() * 10));
+          const allTens = [tens, ...additionalTens];
+          let finalTens;
+          if (cocType === 'b') {
+            finalTens = Math.min(...allTens);
+          } else {
+            finalTens = Math.max(...allTens);
+          }
+          const result = finalTens * 10 + units;
+          val = result === 0 ? 100 : result;
+        }
+
+        // 重掷逻辑 (在爆炸之前执行)
+        if (rerollType) {
+          let rerollCount = 0;
+          while (checkReroll(val) && rerollCount < 100) {
+            rerollCount++;
+            val = rollDice(sides);
+            if (rerollType === 'ro') break; // ro 只重掷一次
+          }
+        }
+
+        if (explodeType) {
+          let currentVal = val;
+          let nextToCheck = val;
+          let explodeCount = 0;
+          while (checkExplode(nextToCheck) && explodeCount < 100) {
+            explodeCount++;
+            nextToCheck = rollDice(sides);
+            if (explodeType === '!') {
+              rolls.push(currentVal);
+              currentVal = nextToCheck;
+            } else {
+              currentVal += nextToCheck;
+            }
+          }
+          rolls.push(currentVal);
+        } else {
+          rolls.push(val);
+        }
+      }
+    }
+
+    const rawDice = [...rolls];
+    let keptDice = [...rolls];
 
     // 处理 keep/drop
     if (keepDrop) {
       const kd = keepDrop.toLowerCase();
       const n = parseInt(kd.slice(2), 10);
-      rolls.sort((a, b) => b - a); // 降序排列
+      const sorted = [...keptDice].sort((a, b) => b - a); // 降序排列
 
       if (kd.startsWith('kh'))
-        rolls = rolls.slice(0, n); // 保留最高n个
+        keptDice = sorted.slice(0, n); // 保留最高n个
       else if (kd.startsWith('kl'))
-        rolls = rolls.slice(-n); // 保留最低n个
+        keptDice = sorted.slice(-n); // 保留最低n个
       else if (kd.startsWith('dh'))
-        rolls = rolls.slice(n); // 去掉最高n个
-      else if (kd.startsWith('dl')) rolls = rolls.slice(0, -n); // 去掉最低n个
+        keptDice = sorted.slice(n); // 去掉最高n个
+      else if (kd.startsWith('dl')) keptDice = sorted.slice(0, -n); // 去掉最低n个
     }
 
-    return rolls.reduce((a, b) => a + b, 0);
+    let total = keptDice.reduce((a, b) => a + b, 0);
+
+    // 处理成功计数 (骰池)
+    if (successPart) {
+      const sm = successPart.match(/^([><!=]+)(\d+)$/);
+      if (sm) {
+        const op = sm[1];
+        const val = parseInt(sm[2], 10);
+        const isSuccess = (roll: number) => {
+          switch (op) {
+            case '>=':
+              return roll >= val;
+            case '<=':
+              return roll <= val;
+            case '=':
+            case '==':
+              return roll === val;
+            case '>':
+              return roll > val;
+            case '<':
+              return roll < val;
+            case '!=':
+            case '<>':
+              return roll !== val;
+            default:
+              return false;
+          }
+        };
+        total = keptDice.filter(isSuccess).length;
+      }
+    }
+
+    const tags: string[] = [];
+    if (!isFate && sides === 20) {
+      const diceToCheck = keptDice.length > 0 ? keptDice : rawDice;
+      if (diceToCheck.some(roll => roll === 20)) tags.push('nat20');
+      if (diceToCheck.some(roll => roll === 1)) tags.push('nat1');
+    }
+
+    const totalText = Number.isNaN(total) ? 'NaN' : String(total);
+    const diceList = rawDice.length > 0 ? `[${rawDice.join(',')}]` : '[]';
+    const showList = rawDice.length !== 1 || Boolean(keepDrop) || Boolean(successPart);
+    const breakdown = showList ? `${formula}=${diceList}→${totalText}` : `${formula}=${totalText}`;
+
+    return {
+      total,
+      rawDice,
+      keptDice,
+      formula,
+      breakdown,
+      tags,
+    };
+  };
+
+  // 计算骰子表达式的期望值（用于默认目标值）
+  const calculateDiceExpectedValue = (diceExpr: string): number => {
+    const formula = String(diceExpr).replace(/\s+/g, '');
+    if (!formula) return Number.NaN;
+
+    const parts = formula.match(/[+-]?[^+-]+/g);
+    if (!parts) return Number.NaN;
+
+    let total = 0;
+    for (const part of parts) {
+      if (!part) continue;
+      const sign = part.startsWith('-') ? -1 : 1;
+      const body = part.replace(/^[+-]/, '');
+      if (!body) continue;
+
+      const diceMatch = body.match(
+        /^(\d*)d(\d+|F)([bp]\d+)?(r[o]?(?:[><!=]+)?\d*)?(!!?(?:[><!=]+\d+)?)?(kh\d+|kl\d+|dh\d+|dl\d+)?((?:[><!=]+)\d+)?$/i,
+      );
+
+      if (diceMatch) {
+        const [, countStr, sidesOrF, , , , keepDrop] = diceMatch;
+        const count = countStr ? parseInt(countStr, 10) : 1;
+        const isFate = sidesOrF.toUpperCase() === 'F';
+        const sides = isFate ? 0 : parseInt(sidesOrF, 10);
+        const expectedPerDie = isFate ? 0 : (1 + sides) / 2;
+
+        let keptCount = count;
+        if (keepDrop) {
+          const keepDropType = keepDrop.slice(0, 2);
+          const keepDropValue = parseInt(keepDrop.slice(2), 10);
+          if (!Number.isNaN(keepDropValue)) {
+            if (keepDropType === 'kh' || keepDropType === 'kl') {
+              keptCount = Math.min(count, keepDropValue);
+            } else if (keepDropType === 'dh' || keepDropType === 'dl') {
+              keptCount = Math.max(0, count - keepDropValue);
+            }
+          }
+        }
+
+        total += sign * keptCount * expectedPerDie;
+        continue;
+      }
+
+      const numericValue = Number(body);
+      if (Number.isNaN(numericValue)) {
+        return Number.NaN;
+      }
+      total += sign * numericValue;
+    }
+
+    return total;
+  };
+
+  // 复合骰子表达式掷骰（支持 2d6+33 等算术修饰符）
+  const rollComplexDiceExpression = (expr: string): RollResult => {
+    const formula = String(expr).replace(/\s+/g, '');
+    if (!formula) {
+      return { total: Number.NaN, rawDice: [], keptDice: [], formula: '', breakdown: 'NaN', tags: [] };
+    }
+
+    // 先尝试简单表达式
+    const simpleResult = rollDiceExpression(formula);
+    if (!Number.isNaN(simpleResult.total)) {
+      return simpleResult;
+    }
+
+    // 解析复合表达式（如 2d6+33, d20-5）
+    const parts = formula.match(/[+-]?[^+-]+/g);
+    if (!parts) {
+      return { total: Number.NaN, rawDice: [], keptDice: [], formula, breakdown: `${formula}=NaN`, tags: [] };
+    }
+
+    let total = 0;
+    const allRawDice: number[] = [];
+    const allKeptDice: number[] = [];
+    const breakdownParts: string[] = [];
+    const allTags: string[] = [];
+
+    for (const part of parts) {
+      if (!part) continue;
+      const sign = part.startsWith('-') ? -1 : 1;
+      const body = part.replace(/^[+-]/, '');
+      if (!body) continue;
+
+      // 尝试作为骰子表达式解析
+      const diceResult = rollDiceExpression(body);
+      if (!Number.isNaN(diceResult.total)) {
+        total += sign * diceResult.total;
+        allRawDice.push(...diceResult.rawDice);
+        allKeptDice.push(...diceResult.keptDice);
+        breakdownParts.push(
+          sign === -1
+            ? `-${diceResult.breakdown}`
+            : breakdownParts.length > 0
+              ? `+${diceResult.breakdown}`
+              : diceResult.breakdown,
+        );
+        allTags.push(...diceResult.tags);
+        continue;
+      }
+
+      // 尝试作为数字解析
+      const numericValue = Number(body);
+      if (!Number.isNaN(numericValue)) {
+        total += sign * numericValue;
+        const signedValue = sign * numericValue;
+        breakdownParts.push(signedValue >= 0 && breakdownParts.length > 0 ? `+${signedValue}` : String(signedValue));
+        continue;
+      }
+
+      // 无法解析
+      return { total: Number.NaN, rawDice: [], keptDice: [], formula, breakdown: `${formula}=NaN`, tags: [] };
+    }
+
+    return {
+      total,
+      rawDice: allRawDice,
+      keptDice: allKeptDice,
+      formula,
+      breakdown: `${breakdownParts.join('')}=${total}`,
+      tags: allTags,
+    };
   };
 
   /**
@@ -8991,10 +12484,13 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     }
 
     // 2. 替换骰子表达式为数值
-    expr = expr.replace(/\d+d\d+(kh\d+|kl\d+|dh\d+|dl\d+)?/gi, match => {
-      const result = rollDiceExpression(match);
-      return isNaN(result) ? '0' : String(result);
-    });
+    expr = expr.replace(
+      /\d*d(?:\d+|F)(?:[bp]\d+)?(?:r[o]?(?:[><!=]+)?\d*)?(?:!!?(?:[><!=]+\d+)?)?(?:kh\d+|kl\d+|dh\d+|dl\d+)?(?:(?:[><!=]+)\d+)?/gi,
+      match => {
+        const result = rollDiceExpression(match);
+        return Number.isNaN(result.total) ? '0' : String(result.total);
+      },
+    );
 
     // 3. 安全性检查：只允许数字和基本运算符
     if (!/^[\d\s+\-*/().]+$/.test(expr)) {
@@ -9011,6 +12507,527 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       console.error('[DICE]evaluateFormula 公式计算失败:', formula, '→', expr, e);
       return 0;
     }
+  };
+
+  /**
+   * 评估条件表达式（支持比较运算和逻辑运算）
+   * @param {string} formula 表达式字符串
+   * @param {Record<string, number>} context 变量上下文
+   * @returns {{success: boolean, value?: number | boolean, error?: string}}
+   */
+  const evaluateCondition = (formula, context = {}) => {
+    if (!formula || typeof formula !== 'string') return { success: true, value: 0 };
+
+    const functionHandlers: Record<string, { minArgs: number; maxArgs: number; apply: (args: number[]) => number }> = {
+      abs: { minArgs: 1, maxArgs: 1, apply: args => Math.abs(args[0]) },
+      floor: { minArgs: 1, maxArgs: 1, apply: args => Math.floor(args[0]) },
+      min: { minArgs: 2, maxArgs: Number.POSITIVE_INFINITY, apply: args => Math.min(...args) },
+      max: { minArgs: 2, maxArgs: Number.POSITIVE_INFINITY, apply: args => Math.max(...args) },
+    };
+
+    // 支持 $roll.hasTag("tag")
+    if (context && context.$roll && typeof context.$roll === 'object') {
+      const roll = context.$roll as RollResult;
+      functionHandlers['$roll.hastag'] = {
+        minArgs: 1,
+        maxArgs: 1,
+        apply: (args: any[]) => {
+          const tag = String(args[0]);
+          return (roll.tags ?? []).includes(tag) ? 1 : 0;
+        },
+      };
+    }
+
+    function evaluateExpression(expression: string): { success: boolean; value?: number | boolean; error?: string } {
+      // 2. 安全检查
+      // 检查是否包含非法字符
+      const illegal = expression.match(/[^0-9+\-*/()><=!&| .]/g);
+      if (illegal) {
+        return { success: false, error: `包含非法字符: ${illegal.join('')}` };
+      }
+
+      // 3. 分词 (Tokenization)
+      // 需要处理多字符运算符: >=, <=, ==, !=, &&, ||
+      const tokens = [];
+      let i = 0;
+      while (i < expression.length) {
+        const char = expression[i];
+        if (/\s/.test(char)) {
+          i++;
+          continue;
+        }
+        if (/\d/.test(char)) {
+          let num = '';
+          while (i < expression.length && /[\d.]/.test(expression[i])) {
+            num += expression[i++];
+          }
+          tokens.push({ type: 'NUMBER', value: parseFloat(num) });
+          continue;
+        }
+
+        // 处理三字符操作符 (===, !==)
+        const threeChar = expression.substring(i, i + 3);
+        if (['===', '!=='].includes(threeChar)) {
+          tokens.push({ type: 'OPERATOR', value: threeChar });
+          i += 3;
+          continue;
+        }
+
+        // 处理双字符操作符
+        const twoChar = expression.substring(i, i + 2);
+        if (['>=', '<=', '==', '!=', '&&', '||'].includes(twoChar)) {
+          tokens.push({ type: 'OPERATOR', value: twoChar });
+          i += 2;
+          continue;
+        }
+
+        // 处理单字符操作符
+        if (['+', '-', '*', '/', '%', '>', '<', '(', ')'].includes(char)) {
+          // 处理一元负号：如果 '-' 出现在开头或紧跟在操作符/左括号后面，则是负号
+          if (char === '-' || char === '+') {
+            const lastToken = tokens[tokens.length - 1];
+            const isUnary = !lastToken || lastToken.type === 'OPERATOR' || lastToken.value === '(';
+            if (isUnary) {
+              // 读取后面的数字
+              let num = char;
+              i++;
+              while (i < expression.length && /[\d.]/.test(expression[i])) {
+                num += expression[i++];
+              }
+              if (num.length > 1) {
+                tokens.push({ type: 'NUMBER', value: parseFloat(num) });
+                continue;
+              }
+              // 如果只有 '-' 没有数字，回退并作为操作符处理
+              i--;
+            }
+          }
+          if (char === '>' || char === '<') {
+            const nextChar = expression[i + 1];
+            if (nextChar === char) {
+              // 处理 >> 或 <<
+              return { success: false, error: `语法错误: 无法解析操作符 "${char}${char}"` };
+            }
+          }
+          tokens.push({ type: 'OPERATOR', value: char });
+          i++;
+          continue;
+        }
+
+        // 捕获未处理的字符
+        if (['=', '!', '&', '|'].includes(char)) {
+          return { success: false, error: `语法错误: 孤立的操作符 "${char}"` };
+        }
+        return { success: false, error: `语法错误: 无法解析或孤立的字符 "${char}"` };
+      }
+
+      // 4. Shunting-yard 算法
+      const ops = {
+        '||': { prec: 1, assoc: 'L' },
+        '&&': { prec: 2, assoc: 'L' },
+        '==': { prec: 3, assoc: 'L' },
+        '!=': { prec: 3, assoc: 'L' },
+        '===': { prec: 3, assoc: 'L' },
+        '!==': { prec: 3, assoc: 'L' },
+        '>': { prec: 4, assoc: 'L' },
+        '<': { prec: 4, assoc: 'L' },
+        '>=': { prec: 4, assoc: 'L' },
+        '<=': { prec: 4, assoc: 'L' },
+        '+': { prec: 5, assoc: 'L' },
+        '-': { prec: 5, assoc: 'L' },
+        '*': { prec: 6, assoc: 'L' },
+        '/': { prec: 6, assoc: 'L' },
+        '%': { prec: 6, assoc: 'L' },
+      };
+
+      const outputQueue = [];
+      const operatorStack = [];
+
+      for (const token of tokens) {
+        if (token.type === 'NUMBER') {
+          outputQueue.push(token);
+        } else if (token.value === '(') {
+          operatorStack.push(token);
+        } else if (token.value === ')') {
+          while (operatorStack.length > 0 && operatorStack[operatorStack.length - 1].value !== '(') {
+            outputQueue.push(operatorStack.pop());
+          }
+          if (operatorStack.length === 0) return { success: false, error: '括号不匹配' };
+          operatorStack.pop(); // 弹出 '('
+        } else {
+          const o1 = token.value;
+          while (operatorStack.length > 0) {
+            const o2 = operatorStack[operatorStack.length - 1].value;
+            if (o2 === '(') break;
+            if (ops[o2].prec > ops[o1].prec || (ops[o2].prec === ops[o1].prec && ops[o1].assoc === 'L')) {
+              outputQueue.push(operatorStack.pop());
+            } else {
+              break;
+            }
+          }
+          operatorStack.push(token);
+        }
+      }
+
+      while (operatorStack.length > 0) {
+        const op = operatorStack.pop();
+        if (op.value === '(') return { success: false, error: '括号不匹配' };
+        outputQueue.push(op);
+      }
+
+      // 5. 栈求值
+      const evalStack = [];
+      for (const token of outputQueue) {
+        if (token.type === 'NUMBER') {
+          evalStack.push(token.value);
+        } else {
+          const b = evalStack.pop();
+          const a = evalStack.pop();
+          let res;
+          switch (token.value) {
+            case '+':
+              res = a + b;
+              break;
+            case '-':
+              res = a - b;
+              break;
+            case '*':
+              res = a * b;
+              break;
+            case '/':
+              res = a / b;
+              break;
+            case '%':
+              res = a % b;
+              break;
+            case '>':
+              res = a > b;
+              break;
+            case '<':
+              res = a < b;
+              break;
+            case '>=':
+              res = a >= b;
+              break;
+            case '<=':
+              res = a <= b;
+              break;
+            case '==':
+              res = a == b;
+              break;
+            case '!=':
+              res = a != b;
+              break;
+            case '===':
+              res = a === b;
+              break;
+            case '!==':
+              res = a !== b;
+              break;
+            case '&&':
+              res = a && b ? 1 : 0;
+              break;
+            case '||':
+              res = a || b ? 1 : 0;
+              break;
+            default:
+              return { success: false, error: `未知操作符: ${token.value}` };
+          }
+          evalStack.push(res);
+        }
+      }
+
+      if (evalStack.length !== 1) return { success: false, error: '无效的表达式' };
+      return { success: true, value: evalStack[0] };
+    }
+
+    function normalizeNumberLiteral(value: number): string {
+      const text = String(value);
+      if (value < 0) return `(0${text})`;
+      return `(${text})`;
+    }
+
+    function splitArguments(argsText: string): string[] {
+      const args: string[] = [];
+      let depth = 0;
+      let start = 0;
+      let inQuote = false;
+      for (let index = 0; index < argsText.length; index++) {
+        const char = argsText[index];
+        if (char === '"' || char === "'") {
+          inQuote = !inQuote;
+        }
+        if (inQuote) continue;
+
+        if (char === '(') {
+          depth++;
+        } else if (char === ')') {
+          depth--;
+        } else if (char === ',' && depth === 0) {
+          args.push(argsText.slice(start, index).trim());
+          start = index + 1;
+        }
+      }
+      args.push(argsText.slice(start).trim());
+      return args;
+    }
+
+    function findMatchingParen(source: string, startIndex: number): number {
+      let depth = 0;
+      for (let index = startIndex; index < source.length; index++) {
+        const char = source[index];
+        if (char === '(') depth++;
+        if (char === ')') {
+          depth--;
+          if (depth === 0) return index;
+        }
+      }
+      return -1;
+    }
+
+    function evaluateArgumentValue(argExpr: string): { success: boolean; value?: any; error?: string } {
+      const trimmed = argExpr.trim();
+      if (!trimmed) return { success: false, error: '函数参数不能为空' };
+
+      // 处理字符串字面量
+      if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || trimmed.startsWith("'")) {
+        return { success: true, value: trimmed.slice(1, -1) };
+      }
+
+      // [修复] 先替换变量，再处理函数
+      let exprWithVars = trimmed;
+      const varPattern = /\$[a-zA-Z_]\w*/g;
+      exprWithVars = exprWithVars.replace(varPattern, match => {
+        const val = context[match];
+        return typeof val === 'number' && !isNaN(val) ? String(val) : '0';
+      });
+
+      const resolved = resolveFunctions(exprWithVars);
+      if (!resolved.success || resolved.expr === undefined) {
+        return { success: false, error: resolved.error ?? '函数参数解析失败' };
+      }
+
+      const dicePattern = /\d*d(?:\d+|F)/i;
+      if (dicePattern.test(resolved.expr)) {
+        const formulaValue = evaluateFormula(resolved.expr, context);
+        if (typeof formulaValue === 'number' && Number.isFinite(formulaValue)) {
+          return { success: true, value: formulaValue };
+        }
+      }
+
+      const evalResult = evaluateExpression(resolved.expr);
+      if (!evalResult.success || evalResult.value === undefined) {
+        return { success: false, error: evalResult.error ?? '函数参数计算失败' };
+      }
+      const value = typeof evalResult.value === 'boolean' ? (evalResult.value ? 1 : 0) : evalResult.value;
+      if (typeof value !== 'number' || Number.isNaN(value)) {
+        return { success: false, error: '函数参数不是有效数字' };
+      }
+      return { success: true, value };
+    }
+
+    function resolveFunctions(source: string): { success: boolean; expr?: string; error?: string } {
+      let result = '';
+      let index = 0;
+      const isIdentifierStart = (char: string): boolean => /[a-zA-Z_]/.test(char);
+      const isIdentifierChar = (char: string): boolean => /[a-zA-Z0-9_]/.test(char);
+
+      while (index < source.length) {
+        const char = source[index];
+        if (isIdentifierStart(char)) {
+          let name = char;
+          index++;
+          while (index < source.length && (isIdentifierChar(source[index]) || source[index] === '.')) {
+            name += source[index];
+            index++;
+          }
+
+          // 处理 true/false 布尔字面量
+          const nameLower = name.toLowerCase();
+          if (nameLower === 'true') {
+            result += '1';
+            continue;
+          }
+          if (nameLower === 'false') {
+            result += '0';
+            continue;
+          }
+
+          let nextIndex = index;
+          while (nextIndex < source.length && /\s/.test(source[nextIndex])) {
+            nextIndex++;
+          }
+
+          if (source[nextIndex] !== '(') {
+            return { success: false, error: `未知函数或标识符: ${name}` };
+          }
+
+          const closeIndex = findMatchingParen(source, nextIndex);
+          if (closeIndex === -1) return { success: false, error: '括号不匹配' };
+
+          const argsText = source.slice(nextIndex + 1, closeIndex);
+          const args = splitArguments(argsText);
+          const key = name.toLowerCase();
+          const handler = functionHandlers[key];
+          if (!handler) return { success: false, error: `不支持的函数: ${name}` };
+          if (args.length < handler.minArgs || args.length > handler.maxArgs) {
+            return { success: false, error: `函数 ${name} 参数数量不合法` };
+          }
+
+          const values: number[] = [];
+          for (const arg of args) {
+            if (!arg) return { success: false, error: `函数 ${name} 参数不能为空` };
+            const valueResult = evaluateArgumentValue(arg);
+            if (!valueResult.success || valueResult.value === undefined) {
+              return { success: false, error: valueResult.error ?? `函数 ${name} 参数计算失败` };
+            }
+            values.push(valueResult.value);
+          }
+
+          const fnResult = handler.apply(values);
+          if (!Number.isFinite(fnResult)) {
+            return { success: false, error: `函数 ${name} 结果无效` };
+          }
+          result += normalizeNumberLiteral(fnResult);
+          index = closeIndex + 1;
+          continue;
+        }
+
+        result += char;
+        index++;
+      }
+
+      return { success: true, expr: result };
+    }
+
+    // 1. 替换变量
+    // 支持变量: $roll.total, $attr, $dc, $mod 等,未定义视为0
+    // 特殊处理 $roll 对象
+    if (context && context.$roll && typeof context.$roll === 'object') {
+      const roll = context.$roll as RollResult;
+      formula = formula.replace(/\$roll\.total/g, String(roll.total));
+      // 预处理 $roll.hasTag('tagName') 调用，在变量替换前完成
+      formula = formula.replace(/\$roll\.hasTag\s*\(\s*['"]([^'"]+)['"]\s*\)/gi, (_match, tag) => {
+        return (roll.tags ?? []).includes(tag) ? '1' : '0';
+      });
+    }
+
+    const varPattern = /\$[a-zA-Z_]\w*/g;
+    let expr = formula.trim().replace(varPattern, match => {
+      const val = context[match];
+      return typeof val === 'number' && !isNaN(val) ? String(val) : '0';
+    });
+
+    const resolved = resolveFunctions(expr);
+    if (!resolved.success || resolved.expr === undefined) {
+      return { success: false, error: resolved.error ?? '函数解析失败' };
+    }
+    expr = resolved.expr;
+
+    return evaluateExpression(expr);
+  };
+
+  /**
+   * 判断条件表达式是否为复杂条件 (包含 && 或 ||)
+   * @param expr - 条件表达式字符串
+   * @returns 如果包含 && 或 || 返回 true, 否则返回 false
+   */
+  const isComplexCondition = (expr: string): boolean => {
+    return /(\&\&|\|\|)/.test(expr);
+  };
+
+  /**
+   * 评估多级结果
+   * @param outcomes - outcomes 数组 (会被排序)
+   * @param context - 上下文对象 {$roll, $attr, $dc, $mod, ...}
+   * @returns 匹配的 outcome (如果所有条件都不满足,返回最低优先级的兜底 outcome)
+   */
+  const evaluateOutcomes = (outcomes: OutcomeLevel[], context: Record<string, number>) => {
+    if (!outcomes || outcomes.length === 0) {
+      console.warn('[DICE] outcomes 数组为空,使用默认判定');
+      return { id: 'default', name: '判定结果', condition: 'true', priority: 99 };
+    }
+    const sorted = [...outcomes].sort((a, b) => a.priority - b.priority);
+
+    for (const outcome of sorted) {
+      try {
+        const conditionResult: { success: boolean; value?: number | boolean; error?: string } = evaluateCondition(
+          outcome.condition,
+          context,
+        );
+        if (!conditionResult.success) {
+          if (conditionResult.error) {
+            console.warn(`[DICE] outcome "${outcome.name}" 条件评估失败:`, conditionResult.error);
+          }
+          continue;
+        }
+        const isMatch =
+          typeof conditionResult.value === 'number' ? conditionResult.value !== 0 : Boolean(conditionResult.value);
+        if (isMatch) {
+          return outcome;
+        }
+      } catch (error) {
+        console.warn(`[DICE] outcome "${outcome.name}" 条件评估失败:`, error);
+        continue;
+      }
+    }
+
+    return sorted[sorted.length - 1];
+  };
+
+  // 默认输出模板
+  const DEFAULT_OUTPUT_TEMPLATE = `<meta:检定结果>
+$outcomeText
+元叙事：$initiator 发起了 $attrName 检定，$formula=$roll，判定 $conditionExpr？$judgeResult，判定为【$outcomeName】
+</meta:检定结果>`;
+
+  // 默认对抗检定输出模板
+  const DEFAULT_CONTEST_OUTPUT_TEMPLATE = `<meta:检定结果>
+元叙事：进行了一次【$initiator $initAttrName vs $opponent $oppAttrName】的对抗检定。
+$initiator $initAttrName：$formula=$initRoll，判定 $initConditionExpr？$initJudgeResult，判定为【$initSuccessName】；
+$opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudgeResult，判定为【$oppSuccessName】。
+最终结果：【$winner】
+</meta:检定结果>`;
+
+  /**
+   * 格式化输出模板
+   * @param template - 模板字符串
+   * @param context - 变量上下文
+   * @returns 格式化后的文本
+   */
+  const formatOutputTemplate = (template: string, context: Record<string, string | number | undefined>): string => {
+    const missingKeys = new Set<string>();
+
+    // [修复] 先替换带点的变量（如 $roll.total），再替换普通变量（如 $roll）
+    // 这样可以避免 $roll.total 被错误地替换为 "3.total"
+    let result = template.replace(/\$([a-zA-Z_]\w*\.[a-zA-Z_]\w*)/g, match => {
+      const key = match.slice(1); // 去掉 $ 前缀，得到 "roll.total"
+      const value = context[key];
+      if (value === undefined || value === null) {
+        if (!missingKeys.has(key)) {
+          missingKeys.add(key);
+          console.warn(`[DICE] formatOutputTemplate: 未定义变量 $${key}`);
+        }
+        return '';
+      }
+      return String(value);
+    });
+
+    // 再替换普通变量
+    result = result.replace(/\$([a-zA-Z_]\w*)(?=\W|$)/g, match => {
+      const key = match.slice(1);
+      const value = context[key];
+      if (value === undefined || value === null) {
+        if (!missingKeys.has(key)) {
+          missingKeys.add(key);
+          console.warn(`[DICE] formatOutputTemplate: 未定义变量 $${key}`);
+        }
+        return '';
+      }
+      return String(value);
+    });
+    // 清理空行：将连续多个换行符替换为单个换行符
+    return result.replace(/\n\s*\n/g, '\n');
   };
 
   /**
@@ -9727,6 +13744,45 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
   let saveQueue: Promise<void> = Promise.resolve(); // 保存队列，确保并发保存按顺序执行
   let isEditingOrder = false;
   let isSettingsOpen = false;
+
+  // === 弹窗栈管理 ===
+  // 用于追踪弹窗打开顺序，关闭时自动返回上一个弹窗
+  type ModalEntry = {
+    name: string;
+    show: () => void;
+  };
+  const modalStack: ModalEntry[] = [];
+
+  /**
+   * 将弹窗推入栈中
+   * @param name 弹窗名称（用于调试）
+   * @param show 重新打开该弹窗的函数
+   */
+  const pushModal = (name: string, show: () => void) => {
+    modalStack.push({ name, show });
+  };
+
+  /**
+   * 从栈中弹出当前弹窗并返回上一个弹窗
+   * @returns 是否成功返回上一个弹窗
+   */
+  const popModal = (): boolean => {
+    modalStack.pop(); // 移除当前弹窗
+    const prev = modalStack.pop(); // 获取上一个弹窗
+    if (prev) {
+      prev.show(); // 重新打开上一个弹窗
+      return true;
+    }
+    return false;
+  };
+
+  /**
+   * 清空弹窗栈（用于关闭所有弹窗或从根弹窗关闭）
+   */
+  const clearModalStack = () => {
+    modalStack.length = 0;
+  };
+
   let currentDiffMap = new Set();
   let observer = null;
   let _boundRenderHandler = null;
@@ -10210,12 +14266,98 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
     return [];
   };
+  const normalizeAttributeName = (name: string): string => {
+    if (!name) return '';
+    return String(name)
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_:\-：]/g, '')
+      .replace(/值$/u, '');
+  };
+
+  const resolveAttributeAliasName = (
+    characterName: string,
+    targetName: string,
+    aliasCandidates: string[] = [],
+  ): { name: string | null; reason?: string } => {
+    const allAttrs = getFullAttributesForCharacter(characterName)
+      .map(attr => attr.name)
+      .filter(Boolean);
+    if (allAttrs.length === 0) {
+      return { name: targetName || null };
+    }
+
+    const orderedCandidates = [targetName, ...aliasCandidates]
+      .map(n => String(n || '').trim())
+      .filter(Boolean)
+      .filter((n, idx, arr) => arr.indexOf(n) === idx);
+    if (orderedCandidates.length === 0) {
+      return { name: null, reason: '目标属性名为空' };
+    }
+
+    for (const candidate of orderedCandidates) {
+      if (allAttrs.includes(candidate)) {
+        return { name: candidate };
+      }
+    }
+
+    const lowerMap = new Map<string, string>();
+    allAttrs.forEach(name => {
+      const lower = name.toLowerCase();
+      if (!lowerMap.has(lower)) lowerMap.set(lower, name);
+    });
+    for (const candidate of orderedCandidates) {
+      const matched = lowerMap.get(candidate.toLowerCase());
+      if (matched) {
+        return { name: matched };
+      }
+    }
+
+    const normalizedGroups = new Map<string, string[]>();
+    allAttrs.forEach(name => {
+      const key = normalizeAttributeName(name);
+      if (!key) return;
+      const list = normalizedGroups.get(key) || [];
+      list.push(name);
+      normalizedGroups.set(key, list);
+    });
+
+    for (const candidate of orderedCandidates) {
+      const normalized = normalizeAttributeName(candidate);
+      if (!normalized) continue;
+      const matched = normalizedGroups.get(normalized) || [];
+      if (matched.length === 1) {
+        return { name: matched[0] };
+      }
+      if (matched.length > 1) {
+        return {
+          name: null,
+          reason: `属性别名冲突: ${candidate} 可匹配 ${matched.join(', ')}`,
+        };
+      }
+    }
+
+    return {
+      name: null,
+      reason: `找不到属性: ${targetName}`,
+    };
+  };
+
+  const isSameAttributeAlias = (left: string, right: string): boolean => {
+    const a = normalizeAttributeName(left);
+    const b = normalizeAttributeName(right);
+    return Boolean(a) && Boolean(b) && a === b;
+  };
+
   // [新增] 根据角色名和属性名获取属性值
-  const getAttributeValue = (characterName, attrName) => {
+  const getAttributeValue = (characterName, attrName, aliasCandidates: string[] = []) => {
     const rawData = cachedRawData || getTableData();
     if (!rawData || !attrName) return null;
 
     const isUser = !characterName || characterName === '<user>' || characterName.trim() === '';
+    const resolved = resolveAttributeAliasName(characterName, attrName, aliasCandidates);
+    if (!resolved.name) return null;
+    const resolvedAttrName = resolved.name;
 
     for (const key in rawData) {
       const sheet = rawData[key];
@@ -10234,7 +14376,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
             const h = headers[idx];
             if (h && h.includes('属性')) {
               const parsed = parseAttributeString(row[idx] || '');
-              const found = parsed.find(attr => attr.name === attrName);
+              const found = parsed.find(attr => attr.name === resolvedAttrName);
               if (found) return found.value;
             }
           }
@@ -10269,7 +14411,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
               const h = headers[idx];
               if (h && h.includes('属性')) {
                 const parsed = parseAttributeString(row[idx] || '');
-                const found = parsed.find(attr => attr.name === attrName);
+                const found = parsed.find(attr => attr.name === resolvedAttrName);
                 if (found) return found.value;
               }
             }
@@ -10667,7 +14809,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     return { base: baseResult, special: specialResult };
   };
 
-  // [新增] 清空角色的规则预设属性（保留用户自定义属性）
+  // [简化] 清空角色的属性（直接清空基础属性列和特有属性列）
   const clearPresetAttributesForCharacter = async charName => {
     const rawData = cachedRawData || getTableData();
     if (!rawData) {
@@ -10679,10 +14821,11 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     const isUser = !charName || charName === '<user>' || charName.trim() === '';
     let targetSheet = null;
     let targetRowIndex = -1;
-    let targetColIndex = -1;
+    let baseColIndex = -1; // 基础属性列
+    let specialColIndex = -1; // 特有属性列
     let sheetKey = null;
 
-    // 查找目标表和行（复用查找逻辑）
+    // 查找目标表和行
     for (const key in rawData) {
       const sheet = rawData[key];
       if (!sheet || !sheet.name || !sheet.content) continue;
@@ -10699,17 +14842,19 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
           targetRowIndex = 1;
           sheetKey = key;
 
-          // 查找属性列
+          // 查找基础属性列和特有属性列
           for (let h = 0; h < headers.length; h++) {
             if (headers[h] && headers[h].includes('基础属性')) {
-              targetColIndex = h;
-              break;
+              baseColIndex = h;
+            } else if (headers[h] && headers[h].includes('特有属性')) {
+              specialColIndex = h;
             }
           }
-          if (targetColIndex < 0) {
+          // 如果没有找到基础属性列，尝试查找通用属性列
+          if (baseColIndex < 0) {
             for (let h = 0; h < headers.length; h++) {
-              if (headers[h] && headers[h].includes('属性')) {
-                targetColIndex = h;
+              if (headers[h] && headers[h].includes('属性') && !headers[h].includes('特有')) {
+                baseColIndex = h;
                 break;
               }
             }
@@ -10745,17 +14890,19 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
             targetRowIndex = i;
             sheetKey = key;
 
-            // 查找属性列
+            // 查找基础属性列和特有属性列
             for (let h = 0; h < headers.length; h++) {
               if (headers[h] && headers[h].includes('基础属性')) {
-                targetColIndex = h;
-                break;
+                baseColIndex = h;
+              } else if (headers[h] && headers[h].includes('特有属性')) {
+                specialColIndex = h;
               }
             }
-            if (targetColIndex < 0) {
+            // 如果没有找到基础属性列，尝试查找通用属性列
+            if (baseColIndex < 0) {
               for (let h = 0; h < headers.length; h++) {
-                if (headers[h] && headers[h].includes('属性')) {
-                  targetColIndex = h;
+                if (headers[h] && headers[h].includes('属性') && !headers[h].includes('特有')) {
+                  baseColIndex = h;
                   break;
                 }
               }
@@ -10774,30 +14921,20 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       return { success: false };
     }
 
-    if (targetColIndex < 0) {
+    if (baseColIndex < 0) {
       console.error('[DICE]ACU clearPresetAttributesForCharacter: 找不到属性列');
       if (window.toastr) window.toastr.error('找不到属性列');
       return { success: false };
     }
 
-    // 读取现有属性
-    const existingStr = targetSheet.content[targetRowIndex][targetColIndex] || '';
-    const existingAttrs = parseAttributeString(existingStr);
+    // 直接清空基础属性列
+    targetSheet.content[targetRowIndex][baseColIndex] = '';
 
-    // 获取当前规则预设的属性名集合
-    const standardAttrs = getStandardAttrs();
-    const preset = AttributePresetManager.getActivePreset();
-    const presetAttrNames = new Set(standardAttrs);
-    if (preset && preset.specialAttributes) {
-      preset.specialAttributes.forEach(attr => presetAttrNames.add(attr.name));
+    // 如果存在特有属性列，也清空
+    if (specialColIndex >= 0) {
+      targetSheet.content[targetRowIndex][specialColIndex] = '';
     }
 
-    // 只保留用户自定义的属性
-    const customAttrs = existingAttrs.filter(attr => !presetAttrNames.has(attr.name));
-    const newAttrString = customAttrs.map(attr => `${attr.name}:${attr.value}`).join(';');
-
-    // 写入数据
-    targetSheet.content[targetRowIndex][targetColIndex] = newAttrString;
     cachedRawData = rawData;
 
     // 保存
@@ -10805,12 +14942,17 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
     return {
       success: true,
-      attrString: newAttrString,
     };
   };
 
   // [新增] 将属性写入角色表格
-  const writeAttributesToCharacter = async (charName, newAttrs, isDND = false) => {
+  // [修复] 支持分别写入基础属性列和特有属性列
+  const writeAttributesToCharacter = async (
+    charName,
+    newAttrs,
+    isDND = false,
+    specialAttrs: Record<string, number> | null = null,
+  ) => {
     const rawData = cachedRawData || getTableData();
     if (!rawData) {
       console.error('[DICE]ACU writeAttributesToCharacter: 无法获取表格数据');
@@ -10821,7 +14963,8 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     const isUser = !charName || charName === '<user>' || charName.trim() === '';
     let targetSheet = null;
     let targetRowIndex = -1;
-    let targetColIndex = -1;
+    let baseColIndex = -1; // 基础属性列
+    let specialColIndex = -1; // 特有属性列
     let sheetKey = null;
 
     // 查找目标表和行
@@ -10841,17 +14984,19 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
           targetRowIndex = 1;
           sheetKey = key;
 
-          // 查找属性列（优先"基础属性"）
+          // 查找基础属性列和特有属性列
           for (let h = 0; h < headers.length; h++) {
             if (headers[h] && headers[h].includes('基础属性')) {
-              targetColIndex = h;
-              break;
+              baseColIndex = h;
+            } else if (headers[h] && headers[h].includes('特有属性')) {
+              specialColIndex = h;
             }
           }
-          if (targetColIndex < 0) {
+          // 如果没有找到基础属性列，尝试查找通用属性列
+          if (baseColIndex < 0) {
             for (let h = 0; h < headers.length; h++) {
-              if (headers[h] && headers[h].includes('属性')) {
-                targetColIndex = h;
+              if (headers[h] && headers[h].includes('属性') && !headers[h].includes('特有')) {
+                baseColIndex = h;
                 break;
               }
             }
@@ -10888,17 +15033,19 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
             targetRowIndex = i;
             sheetKey = key;
 
-            // 查找属性列
+            // 查找基础属性列和特有属性列
             for (let h = 0; h < headers.length; h++) {
               if (headers[h] && headers[h].includes('基础属性')) {
-                targetColIndex = h;
-                break;
+                baseColIndex = h;
+              } else if (headers[h] && headers[h].includes('特有属性')) {
+                specialColIndex = h;
               }
             }
-            if (targetColIndex < 0) {
+            // 如果没有找到基础属性列，尝试查找通用属性列
+            if (baseColIndex < 0) {
               for (let h = 0; h < headers.length; h++) {
-                if (headers[h] && headers[h].includes('属性')) {
-                  targetColIndex = h;
+                if (headers[h] && headers[h].includes('属性') && !headers[h].includes('特有')) {
+                  baseColIndex = h;
                   break;
                 }
               }
@@ -10917,98 +15064,146 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       return { success: false };
     }
 
-    if (targetColIndex < 0) {
+    if (baseColIndex < 0) {
       console.error('[DICE]ACU writeAttributesToCharacter: 找不到属性列');
       if (window.toastr) window.toastr.error('找不到属性列（需要包含"属性"关键词的列）');
       return { success: false };
     }
 
-    // 读取现有属性
-    const existingStr = targetSheet.content[targetRowIndex][targetColIndex] || '';
-    const existingAttrs = parseAttributeString(existingStr);
-
-    // 构建现有属性的映射
-    const existingMap = {};
-    existingAttrs.forEach(attr => {
-      existingMap[attr.name] = attr.value;
-    });
-
-    // 获取当前规则的所有属性列表（基本+特殊）
+    // 获取当前规则的属性列表
     const standardAttrs = getStandardAttrs();
     const preset = AttributePresetManager.getActivePreset();
-    const presetAttrNames = new Set(standardAttrs);
+    const presetSpecialAttrNames = new Set<string>();
     if (preset && preset.specialAttributes) {
-      preset.specialAttributes.forEach(attr => presetAttrNames.add(attr.name));
+      preset.specialAttributes.forEach(attr => presetSpecialAttrNames.add(attr.name));
     }
+
+    // ========== 处理基础属性列 ==========
+    const existingBaseStr = targetSheet.content[targetRowIndex][baseColIndex] || '';
+    const existingBaseAttrs = parseAttributeString(existingBaseStr);
+
+    // 构建现有基础属性的映射
+    const existingBaseMap = {};
+    existingBaseAttrs.forEach(attr => {
+      existingBaseMap[attr.name] = attr.value;
+    });
 
     // 检查标准属性（基本属性）是否完整
     let standardCount = 0;
     standardAttrs.forEach(attrName => {
-      if (existingMap[attrName] !== undefined) {
+      if (existingBaseMap[attrName] !== undefined) {
         standardCount++;
       }
     });
     const isComplete = standardCount === standardAttrs.length;
 
-    // 收集用户自定义属性（不属于当前规则预设的属性）
-    const customAttrs = [];
-    existingAttrs.forEach(attr => {
-      if (!presetAttrNames.has(attr.name)) {
-        customAttrs.push({ name: attr.name, value: attr.value });
+    // 收集基础属性列中的用户自定义属性（不属于当前规则预设的属性）
+    const customBaseAttrs: Array<{ name: string; value: number }> = [];
+    existingBaseAttrs.forEach(attr => {
+      if (!standardAttrs.includes(attr.name) && !presetSpecialAttrNames.has(attr.name)) {
+        customBaseAttrs.push({ name: attr.name, value: attr.value });
       }
     });
 
-    // 按标准顺序构建结果
-    const resultParts = [];
+    // 按标准顺序构建基础属性结果
+    const baseResultParts: string[] = [];
 
-    // 1. 写入基本属性
+    // 写入基本属性
     standardAttrs.forEach(attrName => {
       if (isComplete) {
         // 完整 → 全部用新值覆盖
-        const newValue = newAttrs[attrName] !== undefined ? newAttrs[attrName] : existingMap[attrName];
+        const newValue = newAttrs[attrName] !== undefined ? newAttrs[attrName] : existingBaseMap[attrName];
         if (newValue !== undefined) {
-          resultParts.push(`${attrName}:${newValue}`);
+          baseResultParts.push(`${attrName}:${newValue}`);
         }
       } else {
         // 不完整 → 有则保留，无则用新值
-        if (existingMap[attrName] !== undefined) {
-          resultParts.push(`${attrName}:${existingMap[attrName]}`);
+        if (existingBaseMap[attrName] !== undefined) {
+          baseResultParts.push(`${attrName}:${existingBaseMap[attrName]}`);
         } else if (newAttrs[attrName] !== undefined) {
-          resultParts.push(`${attrName}:${newAttrs[attrName]}`);
+          baseResultParts.push(`${attrName}:${newAttrs[attrName]}`);
         }
       }
     });
 
-    // 2. 写入特殊属性（如果完整则覆盖，否则补充）
-    Object.keys(newAttrs).forEach(attrName => {
-      if (!standardAttrs.includes(attrName)) {
-        // 这是特殊属性
-        if (isComplete || !existingMap[attrName]) {
-          // 完整时覆盖，或者不存在时添加
-          resultParts.push(`${attrName}:${newAttrs[attrName]}`);
+    // 如果没有独立的特有属性列，则把特有属性也写入基础属性列（兼容旧格式）
+    if (specialColIndex < 0 && specialAttrs) {
+      Object.keys(specialAttrs).forEach(attrName => {
+        if (isComplete || !existingBaseMap[attrName]) {
+          baseResultParts.push(`${attrName}:${specialAttrs[attrName]}`);
         } else {
-          // 不完整且已存在，保留旧值
-          resultParts.push(`${attrName}:${existingMap[attrName]}`);
+          baseResultParts.push(`${attrName}:${existingBaseMap[attrName]}`);
         }
+      });
+    }
+
+    // 追加用户自定义属性
+    customBaseAttrs.forEach(attr => {
+      baseResultParts.push(`${attr.name}:${attr.value}`);
+    });
+
+    const newBaseAttrString = baseResultParts.join(';');
+
+    // 写入基础属性数据
+    targetSheet.content[targetRowIndex][baseColIndex] = newBaseAttrString;
+
+    // ========== 处理特有属性列（如果存在且有特有属性需要写入） ==========
+    let newSpecialAttrString = '';
+    if (specialColIndex >= 0 && specialAttrs && Object.keys(specialAttrs).length > 0) {
+      const existingSpecialStr = targetSheet.content[targetRowIndex][specialColIndex] || '';
+      const existingSpecialAttrs = parseAttributeString(existingSpecialStr);
+
+      // 构建现有特有属性的映射
+      const existingSpecialMap = {};
+      existingSpecialAttrs.forEach(attr => {
+        existingSpecialMap[attr.name] = attr.value;
+      });
+
+      // 收集特有属性列中的用户自定义属性
+      const customSpecialAttrs: Array<{ name: string; value: number }> = [];
+      existingSpecialAttrs.forEach(attr => {
+        if (!presetSpecialAttrNames.has(attr.name)) {
+          customSpecialAttrs.push({ name: attr.name, value: attr.value });
+        }
+      });
+
+      // 构建特有属性结果
+      const specialResultParts: string[] = [];
+
+      // 按预设顺序写入特有属性
+      if (preset && preset.specialAttributes) {
+        preset.specialAttributes.forEach(attrDef => {
+          const attrName = attrDef.name;
+          if (specialAttrs[attrName] !== undefined) {
+            if (isComplete || !existingSpecialMap[attrName]) {
+              specialResultParts.push(`${attrName}:${specialAttrs[attrName]}`);
+            } else {
+              specialResultParts.push(`${attrName}:${existingSpecialMap[attrName]}`);
+            }
+          } else if (existingSpecialMap[attrName] !== undefined) {
+            specialResultParts.push(`${attrName}:${existingSpecialMap[attrName]}`);
+          }
+        });
       }
-    });
 
-    // 3. 追加用户自定义属性（不属于规则预设的）
-    customAttrs.forEach(attr => {
-      resultParts.push(`${attr.name}:${attr.value}`);
-    });
+      // 追加用户自定义属性
+      customSpecialAttrs.forEach(attr => {
+        specialResultParts.push(`${attr.name}:${attr.value}`);
+      });
 
-    const newAttrString = resultParts.join(';');
+      newSpecialAttrString = specialResultParts.join(';');
 
-    // 写入数据
-    targetSheet.content[targetRowIndex][targetColIndex] = newAttrString;
+      // 写入特有属性数据
+      targetSheet.content[targetRowIndex][specialColIndex] = newSpecialAttrString;
+    }
+
     cachedRawData = rawData;
 
     // 保存（不更新快照，保留审核面板状态）
     await saveDataOnly(rawData, [sheetKey]);
 
     // 返回写入的属性供UI更新
-    const writtenAttrs = [];
+    const writtenAttrs: Array<{ name: string; value: number }> = [];
     standardAttrs.forEach(attrName => {
       writtenAttrs.push({ name: attrName, value: newAttrs[attrName] });
     });
@@ -11016,13 +15211,252 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     return {
       success: true,
       attrs: writtenAttrs,
-      attrString: newAttrString,
+      attrString: newBaseAttrString,
+      specialAttrString: newSpecialAttrString,
       wasComplete: isComplete,
     };
   };
+
+  // [新增] 更新属性字符串中的单个属性值（用于燃运等功能）
+  const updateSingleAttribute = async (
+    charName: string,
+    attrName: string,
+    operation: 'add' | 'subtract' | 'set',
+    value: number,
+    options?: {
+      initValue?: number;
+      min?: number;
+      max?: number;
+      aliasCandidates?: string[];
+      skipSave?: boolean;
+      dataOverride?: Record<string, { name: string; content: (string | number | null)[][] }>;
+    },
+  ): Promise<{
+    success: boolean;
+    oldValue: number;
+    newValue: number;
+    error?: string;
+    resolvedAttrName?: string;
+    modifiedSheetKey?: string;
+  }> => {
+    const rawData = options?.dataOverride || cachedRawData || getTableData();
+    if (!rawData) {
+      const error = '无法获取表格数据';
+      console.error(`[DICE] updateSingleAttribute: ${error}`);
+      return { success: false, oldValue: 0, newValue: 0, error };
+    }
+
+    const isUser = !charName || charName === '<user>' || charName.trim() === '';
+    let targetSheet: { name: string; content: (string | number | null)[][] } | null = null;
+    let targetRowIndex = -1;
+    let targetColIndex = -1;
+    let fallbackAttrColIndex = -1;
+    let attrColIndices: number[] = [];
+    let sheetKey: string | null = null;
+
+    // 查找目标表和行
+    for (const key in rawData) {
+      const sheet = rawData[key];
+      if (!sheet || !sheet.name || !sheet.content) continue;
+      const sheetName = sheet.name;
+      const headers = sheet.content[0] || [];
+      const collectAttrCols = (): number[] => {
+        const cols: number[] = [];
+        for (let h = 0; h < headers.length; h++) {
+          if (headers[h] && String(headers[h]).includes('属性')) {
+            cols.push(h);
+          }
+        }
+        return cols;
+      };
+      const pickFallbackAttrCol = (cols: number[]): number => {
+        if (cols.length === 0) return -1;
+        for (const col of cols) {
+          if (String(headers[col]).includes('基础属性')) return col;
+        }
+        for (const col of cols) {
+          if (String(headers[col]).includes('特有属性')) return col;
+        }
+        return cols[0];
+      };
+
+      // 主角信息表
+      if (
+        isUser &&
+        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
+      ) {
+        if (sheet.content[1]) {
+          targetSheet = sheet;
+          targetRowIndex = 1;
+          sheetKey = key;
+          attrColIndices = collectAttrCols();
+          fallbackAttrColIndex = pickFallbackAttrCol(attrColIndices);
+          targetColIndex = fallbackAttrColIndex;
+          break;
+        }
+      }
+
+      // 重要人物表
+      if (
+        !isUser &&
+        (sheetName.includes('人物') ||
+          sheetName.includes('NPC') ||
+          sheetName.includes('角色') ||
+          sheetName.toLowerCase().includes('character'))
+      ) {
+        // 查找姓名列
+        let nameColIdx = 1;
+        for (let h = 0; h < headers.length; h++) {
+          if (
+            headers[h] &&
+            (String(headers[h]).includes('姓名') ||
+              String(headers[h]).includes('名称') ||
+              String(headers[h]).toLowerCase().includes('name'))
+          ) {
+            nameColIdx = h;
+            break;
+          }
+        }
+
+        // 查找目标行
+        for (let i = 1; i < sheet.content.length; i++) {
+          const row = sheet.content[i];
+          if (row && row[nameColIdx] === charName) {
+            targetSheet = sheet;
+            targetRowIndex = i;
+            sheetKey = key;
+            attrColIndices = collectAttrCols();
+            fallbackAttrColIndex = pickFallbackAttrCol(attrColIndices);
+            targetColIndex = fallbackAttrColIndex;
+            break;
+          }
+        }
+        if (targetRowIndex > 0) break;
+      }
+    }
+
+    // 验证是否找到目标
+    if (!targetSheet || targetRowIndex < 0) {
+      const error = `找不到角色: ${charName || '<user>'}`;
+      console.error(`[DICE] updateSingleAttribute: ${error}`);
+      return { success: false, oldValue: 0, newValue: 0, error };
+    }
+
+    if (targetColIndex < 0) {
+      const error = '找不到属性列（需要包含"属性"关键词的列）';
+      console.error(`[DICE] updateSingleAttribute: ${error}`);
+      return { success: false, oldValue: 0, newValue: 0, error };
+    }
+
+    const resolved = resolveAttributeAliasName(charName, attrName, options?.aliasCandidates || []);
+    if (!resolved.name) {
+      const error = resolved.reason || `属性 ${attrName} 不存在`;
+      console.warn(`[DICE] updateSingleAttribute: ${error}`);
+      return { success: false, oldValue: 0, newValue: 0, error };
+    }
+    const targetAttrName = resolved.name;
+
+    // 在所有属性列中，优先选择实际包含目标属性的列
+    for (const colIdx of attrColIndices) {
+      const cellStr = String(targetSheet.content[targetRowIndex][colIdx] || '');
+      const parsed = parseAttributeString(cellStr);
+      if (parsed.some(attr => attr.name === targetAttrName)) {
+        targetColIndex = colIdx;
+        break;
+      }
+    }
+    if (targetColIndex < 0) {
+      targetColIndex = fallbackAttrColIndex;
+    }
+
+    // 读取目标列现有属性并解析
+    const existingStr = String(targetSheet.content[targetRowIndex][targetColIndex] || '');
+    const existingAttrs = parseAttributeString(existingStr);
+    const existingMap: Record<string, number> = {};
+    existingAttrs.forEach(attr => {
+      existingMap[attr.name] = attr.value;
+    });
+
+    // 获取旧值或使用初始值
+    let oldValue: number;
+    if (existingMap[targetAttrName] !== undefined) {
+      oldValue = existingMap[targetAttrName];
+    } else if (options?.initValue !== undefined) {
+      oldValue = options.initValue;
+      console.info(`[DICE] updateSingleAttribute: 属性 ${targetAttrName} 不存在，初始化为 ${oldValue}`);
+    } else {
+      const error = `属性 ${targetAttrName} 不存在且未提供初始值`;
+      console.warn(`[DICE] updateSingleAttribute: ${error}`);
+      return { success: false, oldValue: 0, newValue: 0, error };
+    }
+
+    // 执行操作
+    let newValue: number;
+    switch (operation) {
+      case 'add':
+        newValue = oldValue + value;
+        break;
+      case 'subtract':
+        newValue = oldValue - value;
+        break;
+      case 'set':
+        newValue = value;
+        break;
+      default:
+        const error = `不支持的操作类型: ${operation}`;
+        console.error(`[DICE] updateSingleAttribute: ${error}`);
+        return { success: false, oldValue, newValue: oldValue, error };
+    }
+
+    // 应用 min/max 约束
+    const min = options?.min ?? 0; // 默认最小为0
+    const max = options?.max ?? Infinity;
+    newValue = Math.max(min, Math.min(max, newValue));
+
+    console.info(
+      `[DICE] updateSingleAttribute: ${charName}.${targetAttrName} ${oldValue} → ${newValue} (${operation} ${value})`,
+    );
+
+    // 更新属性映射
+    existingMap[targetAttrName] = newValue;
+
+    // 重建属性字符串（保持原有顺序，新属性追加到末尾）
+    const resultParts: string[] = [];
+    const processedNames = new Set<string>();
+
+    // 先按原有顺序处理
+    existingAttrs.forEach(attr => {
+      const val = existingMap[attr.name];
+      if (val !== undefined) {
+        resultParts.push(`${attr.name}:${val}`);
+        processedNames.add(attr.name);
+      }
+    });
+
+    // 添加新属性（如果是初始化的情况）
+    if (!processedNames.has(targetAttrName)) {
+      resultParts.push(`${targetAttrName}:${newValue}`);
+    }
+
+    const newAttrString = resultParts.join(';');
+
+    // 写入数据
+    targetSheet.content[targetRowIndex][targetColIndex] = newAttrString;
+    if (!options?.skipSave) {
+      cachedRawData = rawData;
+      await saveDataOnly(rawData, [sheetKey!]);
+    }
+
+    console.info(`[DICE] updateSingleAttribute: 成功修改 ${charName}.${targetAttrName}`);
+    return { success: true, oldValue, newValue, resolvedAttrName: targetAttrName, modifiedSheetKey: sheetKey! };
+  };
+
   // [修复] 获取角色的完整属性列表（包括基础属性和特有属性等所有包含"属性"的列）
-  const getFullAttributesForCharacter = characterName => {
-    const rawData = cachedRawData || getTableData();
+  const getFullAttributesForCharacter = (
+    characterName,
+    dataOverride?: Record<string, { name: string; content: (string | number | null)[][] }>,
+  ) => {
+    const rawData = dataOverride || cachedRawData || getTableData();
     if (!rawData) return [];
 
     const isUser = !characterName || characterName === '<user>' || characterName.trim() === '';
@@ -11202,6 +15636,9 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     });
   };
   // [新增] 统一的骰子规则设置面板
+  /**
+   * @deprecated 请使用 showAdvancedPresetManager() 替代。此函数仅保留函数体以供回退。
+   */
   const showDiceSettingsPanel = (isDND = false) => {
     const { $ } = getCore();
     $('.acu-dice-config-overlay').remove();
@@ -11300,9 +15737,9 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
                             <div class="acu-dice-cfg-item">
                                 <label>对抗平手规则</label>
                                 <select id="cfg-tie-rule">
-                                    <option value="initiator_lose" ${tieRule === 'initiator_lose' ? 'selected' : ''}>甲方判负 (默认)</option>
+                                    <option value="initiator_lose" ${tieRule === 'initiator_lose' ? 'selected' : ''}>发起方判负 (默认)</option>
                                     <option value="tie" ${tieRule === 'tie' ? 'selected' : ''}>双方平手</option>
-                                    <option value="initiator_win" ${tieRule === 'initiator_win' ? 'selected' : ''}>甲方判胜</option>
+                                    <option value="initiator_win" ${tieRule === 'initiator_win' ? 'selected' : ''}>发起方判胜</option>
                                 </select>
                             </div>
                         </div>
@@ -11452,8 +15889,8 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     const diceCfg = getDiceConfig();
     // 读取上次保存的骰子类型，必须是有效公式，否则默认1d100
     let savedDiceType = diceCfg.lastDiceType || '1d100';
-    // 验证是否是有效骰子公式，无效则回退到1d100
-    if (!/^\d+d\d+$/i.test(savedDiceType)) {
+    // 验证是否是有效公式，无效则回退到1d100
+    if (Number.isNaN(rollComplexDiceExpression(savedDiceType).total)) {
       savedDiceType = '1d100';
     }
     // [新增] 构建角色和属性下拉列表
@@ -11489,7 +15926,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     }
     const {
       targetValue = null, // [修复] 默认为 null，支持留空自动计算
-      targetName = '目标',
+      targetName = '', // 留空让 placeholder 显示，执行时若仍为空则使用 '自由检定'
       attrValue = null, // [新增] 属性值参数
       diceType = savedDiceType, // 使用上次保存的骰子类型
       successCriteria = 'lte', // [新增] 默认成功标准：小于等于（COC规则）
@@ -11527,6 +15964,36 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     if (diceType === '1d100') defaultCriteria = 'lte';
     else if (diceType === '1d20') defaultCriteria = 'gte';
 
+    // [新增] 预设快捷按钮区逻辑
+    const quickPresetsHtml = (() => {
+      const presets = AdvancedDicePresetManager.getAllPresets()
+        .filter(p => p.visible !== false) // 默认显示
+        .sort((a, b) => (a.order || 0) - (b.order || 0));
+
+      let html = `<div class="acu-dice-quick-section" style="margin-bottom: 8px;">`;
+      html += `<div class="acu-dice-section-title"><span><i class="fa-solid fa-sliders"></i> 检定规则<div id="dice-preset-quick-actions" class="acu-dice-preset-quick-actions"></div></span></div>`;
+
+      // 1. 常规预设选择器容器
+      html += `<div class="acu-dice-quick-presets" id="dice-normal-presets">`;
+      // 自定义按钮（固定在最左）
+      html += `<button class="acu-dice-quick-preset-btn" data-id="__custom__">自定义</button>`;
+
+      presets.forEach(p => {
+        html += `<button class="acu-dice-quick-preset-btn" data-id="${escapeHtml(p.id)}">${escapeHtml(p.name)}</button>`;
+      });
+      html += `</div>`;
+
+      // 2. 工作流模式下的“返回”按钮容器（默认隐藏）
+      html += `<div id="dice-workflow-return-container" style="display: none;">
+        <button class="acu-dice-return-btn" id="dice-return-normal-btn">
+            <i class="fa-solid fa-arrow-left"></i> 返回常规检定
+        </button>
+      </div>`;
+
+      html += `</div>`;
+      return html;
+    })();
+
     const panel = $(`
             <div class="acu-dice-panel acu-theme-${config.theme}">
                 <div class="acu-dice-panel-header">
@@ -11535,7 +16002,8 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
                     </div>
                     <div class="acu-dice-panel-actions">
                         <button id="dice-switch-contest-top" title="切换到对抗检定"><i class="fa-solid fa-people-arrows"></i></button>
-                        <button class="acu-dice-config-btn" title="掷骰规则设置">
+                        <button id="dice-history-btn" title="检定历史"><i class="fa-solid fa-history"></i></button>
+                        <button class="acu-dice-config-btn" title="检定设置">
                             <i class="fa-solid fa-cog"></i>
                         </button>
                         <button class="acu-dice-close">
@@ -11544,12 +16012,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
                     </div>
                 </div>
                 <div class="acu-dice-panel-body">
-                    <div class="acu-dice-presets">
-                        <button class="acu-dice-preset ${diceType === '1d20' ? 'active' : ''}" data-dice="1d20" data-criteria="gte">1d20</button>
-                        <button class="acu-dice-preset ${diceType === '1d100' ? 'active' : ''}" data-dice="1d100" data-criteria="lte">1d100</button>
-                        <button class="acu-dice-preset acu-dice-custom-btn ${!['1d20', '1d100'].includes(diceType) ? 'active' : ''}" data-dice="custom">自定义</button>
-                        <input type="text" id="dice-custom-input" class="acu-dice-input" placeholder="如2d6" value="${!['1d20', '1d100'].includes(diceType) ? diceType : ''}">
-                    </div>
+                    ${quickPresetsHtml}
 
                     <!-- 快捷选择角色 -->
                     <div class="acu-dice-quick-section">
@@ -11557,14 +16020,14 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
                     </div>
 
                     <!-- 第1行：名字 + 属性名 -->
-                    <div class="acu-dice-form-row cols-2">
-                        <div>
+                    <div class="acu-dice-form-row cols-2" id="dice-row-1">
+                        <div id="dice-name-wrapper">
                             <div class="acu-dice-form-label">名字</div>
                             <input type="text" id="dice-initiator-name" class="acu-dice-input" value="${escapeHtml(initiatorName)}" placeholder="<user>">
                         </div>
-                        <div>
-                            <div class="acu-dice-form-label">
-                                属性名
+                        <div id="dice-attr-name-wrapper">
+                            <div class="acu-dice-form-label" id="dice-attr-name-label">
+                                <span class="dice-attr-name-text">属性名</span>
                                 <button type="button" class="acu-random-skill-btn" id="dice-random-skill" title="随机技能">
                                     <i class="fa-solid fa-dice"></i>
                                 </button>
@@ -11573,22 +16036,23 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
                         </div>
                     </div>
 
-                    <!-- 第2行：属性值 + 目标值 -->
-                    <div class="acu-dice-form-row cols-2">
-                        <div>
-                            <div class="acu-dice-form-label">属性值</div>
+                    <!-- 第2行：属性值 + 技能加值 + 目标值 -->
+                    <div class="acu-dice-form-row cols-2" id="dice-row-2">
+                        <div id="dice-attr-wrapper">
+                            <div class="acu-dice-form-label" id="dice-attr-label">属性值</div>
                             <input type="text" id="dice-attr-value" class="acu-dice-input" value="${initialAttrValue !== null ? initialAttrValue : ''}" placeholder="留空=50%最大值">
                         </div>
-                        <div>
+                        <div id="dice-skill-mod-wrapper" style="display: none;">
+                            <div class="acu-dice-form-label" id="dice-skill-mod-label">技能加值</div>
+                            <input type="text" id="dice-skill-mod" class="acu-dice-input" placeholder="留空=0">
+                        </div>
+                        <div id="dice-target-wrapper">
                             <div class="acu-dice-form-label" id="dice-target-label">目标值</div>
                             <input type="text" id="dice-target" class="acu-dice-input" value="${initialTargetValue !== null ? initialTargetValue : ''}" placeholder="留空=属性值">
                         </div>
                     </div>
 
-                    <!-- 快捷选择属性（紧凑型） -->
-                    <div id="dice-attr-buttons" class="acu-dice-quick-compact"></div>
-
-                    <!-- 第3行：成功标准 + 难度等级 + 修正值 -->
+                    <!-- 第3行：成功标准 + 难度等级 + 修正值 (基础模式) -->
                     <div class="acu-dice-form-row cols-3" id="dice-row-3">
                         <div>
                             <div class="acu-dice-form-label centered">成功标准</div>
@@ -11610,11 +16074,41 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
                                 <option value="critical">大成功</option>
                             </select>
                         </div>
-                        <div>
-                            <div class="acu-dice-form-label">修正值</div>
-                            <input type="text" id="dice-modifier" class="acu-dice-input" value="0">
+                        <div id="dice-mod-wrapper">
+                            <div class="acu-dice-form-label" id="dice-mod-label">修正值</div>
+                            <input type="text" id="dice-modifier" class="acu-dice-input" placeholder="留空=0">
                         </div>
                     </div>
+
+                    <!-- [新增] 高级预设自定义字段区域 (在快捷属性上方) -->
+                    <div id="dice-custom-fields-area"></div>
+
+                    <!-- [新增] 自定义掷骰模式字段区 -->
+                    <div id="acu-dice-custom-mode-fields" style="display: none; margin-top: 8px;">
+                        <div class="acu-dice-form-row cols-3">
+                            <div>
+                                <div class="acu-dice-form-label">骰子语法</div>
+                                <input type="text" id="custom-dice-expr" class="acu-dice-input" value="${escapeHtml(diceCfg.customDiceExpr || '')}" placeholder="1d100,2d6+3...">
+                            </div>
+                            <div>
+                                <div class="acu-dice-form-label">成功条件</div>
+                                <select id="custom-judge-mode" class="acu-dice-select">
+                                    <option value=">=">>=</option>
+                                    <option value="<=" selected><=</option>
+                                    <option value=">">&gt;</option>
+                                    <option value="<">&lt;</option>
+                                    <option value="none">无判定</option>
+                                </select>
+                            </div>
+                            <div>
+                                <div class="acu-dice-form-label">目标值</div>
+                                <input type="text" id="custom-target-value" class="acu-dice-input" placeholder="留空=50%概率">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 快捷选择属性（紧凑型） -->
+                    <div id="dice-attr-buttons" class="acu-dice-quick-compact"></div>
 
                     <!-- 隐藏的骰子公式 -->
                     <input type="hidden" id="dice-formula" value="${diceType}">
@@ -11628,6 +16122,310 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
     overlay.append(panel);
     $('body').append(overlay);
+    const effectRunCleanerTimerKey = '__acuEffectRunCleanerTimer';
+
+    const expandedTraceRunIds = new Set<string>();
+    let historyFilterStatus = 'all';
+    let historyKeyword = '';
+    let historyStatsScope: DiceStatsScope = 'chat';
+
+    const renderDiceHistoryItems = (): string => {
+      type HistoryItem =
+        | (CheckHistoryEntry & { historyType: 'check' })
+        | ((AcuDice.ContestResult & { timestamp: number; detailId?: string; detailLines?: string[] }) & {
+            historyType: 'contest';
+          });
+
+      const mergedItems: HistoryItem[] = [
+        ...checkHistory.map(item => ({ ...item, historyType: 'check' as const })),
+        ...contestHistory.map(item => ({ ...item, historyType: 'contest' as const })),
+      ]
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .filter(item => {
+          if (historyFilterStatus !== 'all') {
+            const status = String((item as Record<string, unknown>).effectStatus || '');
+            if (!status || status !== historyFilterStatus) return false;
+          }
+          const keyword = historyKeyword.trim().toLowerCase();
+          if (!keyword) return true;
+          const raw = item as Record<string, unknown>;
+          const haystack = [
+            raw.attrName,
+            raw.message,
+            raw.outcomeText,
+            raw.effectStatus,
+            raw.initiatorName,
+            raw['left'] && typeof raw['left'] === 'object' ? (raw['left'] as Record<string, unknown>).name : undefined,
+            raw['right'] && typeof raw['right'] === 'object'
+              ? (raw['right'] as Record<string, unknown>).name
+              : undefined,
+          ]
+            .map(text => String(text || '').toLowerCase())
+            .join(' ');
+          return haystack.includes(keyword);
+        })
+        .slice(0, 80);
+
+      if (mergedItems.length === 0) {
+        return `<div style="padding: 24px 12px; color: var(--acu-text-sub); text-align: center; display:flex; flex-direction:column; align-items:center; gap:8px;"><i class="fa-solid fa-dice-d20" style="font-size:22px; opacity:.35;"></i><span>暂无检定历史</span></div>`;
+      }
+
+      const statusTextMap: Record<string, string> = {
+        planned: '待执行',
+        confirmed: '已确认',
+        committed: '已提交',
+        failed: '失败',
+        cancelled: '已取消',
+      };
+      const statusColorMap: Record<string, string> = {
+        planned: 'var(--acu-text-sub)',
+        confirmed: 'var(--acu-accent)',
+        committed: 'var(--acu-success-text)',
+        failed: 'var(--acu-error-text)',
+        cancelled: 'var(--acu-text-sub)',
+      };
+
+      return mergedItems
+        .map(item => {
+          const raw = item as Record<string, unknown>;
+          const isContest = item.historyType === 'contest';
+          const status = String(raw.effectStatus || '');
+          const statusText = status ? statusTextMap[status] || status : '';
+          const statusColor = status ? statusColorMap[status] || 'var(--acu-text-sub)' : 'var(--acu-text-sub)';
+
+          const detailId = String(
+            raw.detailId ||
+              raw.effectRunId ||
+              `${item.historyType}-${item.timestamp}-${String(raw.attrName || raw.message || '')}`,
+          );
+          const traceLines = Array.isArray(raw.effectTrace) ? (raw.effectTrace as string[]) : [];
+          const detailLines = Array.isArray(raw.detailLines) ? (raw.detailLines as string[]) : [];
+          const canExpand = detailLines.length > 0 || traceLines.length > 0;
+          const isExpanded = canExpand && expandedTraceRunIds.has(detailId);
+
+          let title = String(raw.attrName || '检定');
+          let subtitle = '';
+          let resultColor = raw.success ? 'var(--acu-success-text)' : 'var(--acu-error-text)';
+          let rollText = `${String(raw.total ?? '-')}/${String(raw.target ?? '-')}`;
+          let metaTag = isContest ? '对抗' : '普通';
+
+          if (isContest) {
+            const left = (raw.left || {}) as Record<string, unknown>;
+            const right = (raw.right || {}) as Record<string, unknown>;
+            title = `${String(left.name || '发起方')} vs ${String(right.name || '对抗方')}`;
+            subtitle = String(raw.message || '对抗检定');
+            const winner = String(raw.winner || 'tie');
+            resultColor = winner === 'tie' ? 'var(--acu-text-sub)' : 'var(--acu-accent)';
+            rollText = `${String(left.roll ?? '-')}:${String(right.roll ?? '-')}`;
+          } else {
+            const initiatorName = String(raw.initiatorName || '').trim();
+            if (initiatorName) {
+              title = `${initiatorName} · ${title}`;
+            }
+            subtitle = String(raw.outcomeText || (raw.success ? '成功' : '失败'));
+          }
+
+          const pushedBadge = raw.isPushed
+            ? '<i class="fa-solid fa-skull" style="font-size:10px;color:var(--acu-text-sub);margin-left:4px;" title="孤注一掷"></i>'
+            : '';
+          const expandBtn = canExpand
+            ? `<button class="acu-history-trace-toggle" data-run-id="${escapeHtml(detailId)}" style="border:none;background:transparent;color:var(--acu-text-sub);cursor:pointer;padding:2px 4px;font-size:13px;" title="${isExpanded ? '收起详情' : '展开详情'}">${isExpanded ? '▼' : '▶'}</button>`
+            : '';
+          const detailHtml =
+            canExpand && isExpanded
+              ? `<div style="margin-top:8px; padding:9px 10px; background: color-mix(in srgb, var(--acu-card-bg) 70%, transparent); border:1px solid var(--acu-border); border-radius:6px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:11px; line-height:1.5; color:var(--acu-text-sub); white-space: pre-wrap;">
+                   ${detailLines.length > 0 ? `<div style="font-weight:700; color:var(--acu-text-main); margin-bottom:4px;">检定详情</div>${detailLines.map(line => escapeHtml(line)).join('<br>')}` : ''}
+                   ${detailLines.length > 0 && traceLines.length > 0 ? '<div style="height:1px; background:var(--acu-border); margin:7px 0;"></div>' : ''}
+                   ${traceLines.length > 0 ? `<div style="font-weight:700; color:var(--acu-text-main); margin-bottom:4px;">效果链路</div>${traceLines.map(line => escapeHtml(line)).join('<br>')}` : ''}
+                 </div>`
+              : '';
+
+          return `
+            <div style="padding: 10px 12px; border:1px solid var(--acu-border); border-radius:8px; margin-bottom:8px; background:var(--acu-bg-panel);">
+              <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+                <div style="min-width:0; flex:1;">
+                  <div style="display:flex; align-items:center; gap:6px;">
+                    <span style="font-size:10px; color:var(--acu-text-sub); border:1px solid var(--acu-border); border-radius:999px; padding:1px 6px;">${metaTag}</span>
+                    <span style="font-weight:700; color:var(--acu-text-main); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(title)}${pushedBadge}</span>
+                  </div>
+                  <div style="margin-top:6px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:12px;">
+                    <span style="color:${resultColor}; font-weight:700;">${escapeHtml(subtitle)}</span>
+                    <span style="color:var(--acu-text-sub); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;">${escapeHtml(rollText)}</span>
+                    ${statusText ? `<span style="color:${statusColor}; border:1px solid color-mix(in srgb, ${statusColor} 40%, transparent); border-radius:999px; padding:1px 7px; font-size:11px;">效果:${statusText}</span>` : ''}
+                  </div>
+                </div>
+                <div style="display:flex; align-items:center; gap:4px; flex-shrink:0;">
+                  <span style="font-size:12px; color:var(--acu-text-sub);">${new Date(item.timestamp).toLocaleTimeString('zh-CN', { hour12: false })}</span>
+                  ${expandBtn}
+                </div>
+              </div>
+              ${detailHtml}
+            </div>
+          `;
+        })
+        .join('');
+    };
+
+    const showDiceHistoryDialog = () => {
+      $('.acu-dice-history-overlay').remove();
+      const currentThemeClass = `acu-theme-${config.theme}`;
+      const dialog = $(`
+        <div class="acu-edit-overlay acu-dice-history-overlay">
+          <div class="acu-edit-dialog ${currentThemeClass}" style="max-width: 600px; width: min(94vw,600px); max-height: 82vh; display:flex; flex-direction:column; padding:14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; padding-bottom:8px; border-bottom:1px solid var(--acu-border);">
+              <div style="font-size: 19px; color: var(--acu-text-main); font-weight:700; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-clock-rotate-left" style="color:var(--acu-accent);"></i> 检定历史</div>
+              <button class="acu-close-btn acu-history-close"><i class="fa-solid fa-times"></i></button>
+            </div>
+            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:8px; margin-top:10px; align-items:center;">
+              <select id="acu-history-scope-filter" class="acu-dice-select" style="width:100%; min-width:0;">
+                <option value="chat">本聊天</option>
+                <option value="character">本角色卡</option>
+                <option value="global">全局</option>
+              </select>
+              <select id="acu-history-status-filter" class="acu-dice-select" style="width:100%; min-width:0;">
+                <option value="all">全部状态</option>
+                <option value="planned">待执行</option>
+                <option value="confirmed">已确认</option>
+                <option value="committed">已提交</option>
+                <option value="failed">失败</option>
+                <option value="cancelled">已取消</option>
+              </select>
+              <div style="position:relative; min-width:0;">
+                <i class="fa-solid fa-search" style="position:absolute; left:10px; top:50%; transform:translateY(-50%); font-size:12px; color:var(--acu-text-sub);"></i>
+                <input id="acu-history-search" class="acu-dice-input" style="width:100%; padding-left:28px;" placeholder="搜索" value="${escapeHtml(historyKeyword)}">
+              </div>
+            </div>
+            <div id="acu-dice-history-stats" style="margin-top:8px; padding:10px; border:1px solid var(--acu-border); border-radius:8px; background:var(--acu-card-bg);">
+              <div style="color:var(--acu-text-sub); font-size:12px;">统计加载中...</div>
+            </div>
+            <div id="acu-dice-history-list" style="margin-top:8px; overflow-y:auto; flex:1; min-height:220px; max-height:52vh; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; touch-action:pan-y;">
+              ${renderDiceHistoryItems()}
+            </div>
+            <div style="display:flex; justify-content:space-between; gap:8px; padding-top:10px; border-top:1px solid var(--acu-border); margin-top:8px;">
+              <button class="acu-dialog-btn" id="acu-history-clear" style="background:var(--acu-btn-bg); border-color:var(--acu-border);"><i class="fa-solid fa-trash"></i> 清理历史</button>
+              <button class="acu-dialog-btn acu-history-close"><i class="fa-solid fa-times"></i> 关闭</button>
+            </div>
+          </div>
+        </div>
+      `);
+      $('body').append(dialog);
+
+      const renderHistoryStats = async () => {
+        const $stats = dialog.find('#acu-dice-history-stats');
+        if ($stats.length === 0) return;
+
+        const allStats = await DiceHistoryStatsDB.getDashboardStats();
+        const activeStats = allStats[historyStatsScope];
+        const context = getDiceStatsContext();
+        const scopeLabelMap: Record<DiceStatsScope, string> = {
+          chat: '本聊天',
+          character: '本角色卡',
+          global: '全局',
+        };
+        const scopeUnavailable =
+          (historyStatsScope === 'chat' && context.chatId === 'unknown_chat') ||
+          (historyStatsScope === 'character' && context.characterId === 'unknown_character');
+
+        $stats.html(`
+          <div style="display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-bottom:8px;">
+            <div style="padding:8px; border:1px solid var(--acu-border); border-radius:6px;">
+              <div style="font-size:11px; color:var(--acu-text-sub);">本聊天检定数</div>
+              <div style="font-size:18px; font-weight:700; color:var(--acu-text-main);">${allStats.chat.total}</div>
+            </div>
+            <div style="padding:8px; border:1px solid var(--acu-border); border-radius:6px;">
+              <div style="font-size:11px; color:var(--acu-text-sub);">本角色卡检定数</div>
+              <div style="font-size:18px; font-weight:700; color:var(--acu-text-main);">${allStats.character.total}</div>
+            </div>
+            <div style="padding:8px; border:1px solid var(--acu-border); border-radius:6px;">
+              <div style="font-size:11px; color:var(--acu-text-sub);">全局检定数</div>
+              <div style="font-size:18px; font-weight:700; color:var(--acu-text-main);">${allStats.global.total}</div>
+            </div>
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; font-size:12px;">
+            <div style="color:var(--acu-text-sub);">当前统计范围：${scopeLabelMap[historyStatsScope]}</div>
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+              <span style="color:var(--acu-text-main);">检定总数：<b>${activeStats.total}</b></span>
+              <span style="color:var(--acu-text-main);">普通检定：<b>${activeStats.checks}</b></span>
+              <span style="color:var(--acu-text-main);">对抗检定：<b>${activeStats.contests}</b></span>
+              <span style="color:var(--acu-text-main);">成功率：<b style="color:var(--acu-success-text);">${activeStats.checkSuccessRate}%</b></span>
+            </div>
+          </div>
+          ${scopeUnavailable ? '<div style="margin-top:6px; font-size:11px; color:var(--acu-text-sub);">当前环境未识别到该范围ID，仅显示已识别范围数据。</div>' : ''}
+        `);
+      };
+
+      const rerender = () => {
+        dialog.find('#acu-dice-history-list').html(renderDiceHistoryItems());
+        void renderHistoryStats();
+      };
+      dialog.find('#acu-history-status-filter').val(historyFilterStatus);
+      dialog.find('#acu-history-scope-filter').val(historyStatsScope);
+
+      const refreshByEvent = () => rerender();
+      const canListen = Boolean(window.AcuDice && typeof window.AcuDice.on === 'function');
+      if (canListen) {
+        window.AcuDice.on('check', refreshByEvent);
+        window.AcuDice.on('contest', refreshByEvent);
+        window.AcuDice.on('effect_run', refreshByEvent);
+      }
+
+      void renderHistoryStats();
+
+      dialog.on('change', '#acu-history-scope-filter', function () {
+        const val = String($(this).val() || 'chat') as DiceStatsScope;
+        historyStatsScope = val === 'character' || val === 'global' ? val : 'chat';
+        void renderHistoryStats();
+      });
+
+      dialog.on('change', '#acu-history-status-filter', function () {
+        historyFilterStatus = String($(this).val() || 'all');
+        rerender();
+      });
+
+      dialog.on('input', '#acu-history-search', function () {
+        historyKeyword = String($(this).val() || '');
+        rerender();
+      });
+
+      dialog.on('touchstart touchmove', '#acu-dice-history-list', function (e) {
+        e.stopPropagation();
+      });
+
+      dialog.on('click', '.acu-history-trace-toggle', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const runId = String($(this).data('run-id') || '');
+        if (!runId) return;
+        if (expandedTraceRunIds.has(runId)) expandedTraceRunIds.delete(runId);
+        else expandedTraceRunIds.add(runId);
+        rerender();
+      });
+
+      dialog.on('click', '#acu-history-clear', async function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const ok = window.confirm('确定清理检定历史吗？此操作会清空当前会话内历史和统计库记录。');
+        if (!ok) return;
+
+        checkHistory.length = 0;
+        contestHistory.length = 0;
+        expandedTraceRunIds.clear();
+        await DiceHistoryStatsDB.clear();
+        rerender();
+        if (window.toastr) window.toastr.success('检定历史已清理');
+      });
+
+      const closeDialog = () => {
+        if (canListen) {
+          window.AcuDice.off('check', refreshByEvent);
+          window.AcuDice.off('contest', refreshByEvent);
+          window.AcuDice.off('effect_run', refreshByEvent);
+        }
+        dialog.remove();
+      };
+      dialog.on('click', '.acu-history-close', closeDialog);
+      setupOverlayClose(dialog, 'acu-dice-history-overlay', closeDialog);
+    };
 
     // [新增] 构建角色快捷按钮
     const buildCharButtons = () => {
@@ -11643,9 +16441,11 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
       // 添加常规角色列表
       diceCharacterList.forEach(name => {
-        const displayName = name === '<user>' ? getDisplayPlayerName() : replaceUserPlaceholders(name);
+        const resolvedName = name === '<user>' ? name : NameAliasRegistry.resolve(String(name));
+        const displayName =
+          resolvedName === '<user>' ? getDisplayPlayerName() : replaceUserPlaceholders(String(resolvedName));
         const shortName = displayName.length > 4 ? displayName.substring(0, 4) + '..' : displayName;
-        html += `<button class="acu-dice-char-btn" data-char="${escapeHtml(name)}" title="${escapeHtml(displayName)}">${escapeHtml(shortName)}</button>`;
+        html += `<button class="acu-dice-char-btn" data-char="${escapeHtml(String(resolvedName))}" title="${escapeHtml(displayName)}">${escapeHtml(shortName)}</button>`;
       });
 
       // [新增] 如果从MVU面板调用，添加其他候选（如果有）
@@ -11707,24 +16507,44 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       $container.find('.acu-dice-attr-btn').click(function () {
         const attrName = $(this).data('name');
         const attrValue = $(this).data('value');
-        panel.find('#dice-attr-name').val(attrName);
-        panel.find('#dice-attr-value').val(attrValue);
 
-        // 根据成功标准设置目标值
-        const criteria = panel.find('#dice-success-criteria').val() || 'lte';
-        const isDND = criteria === 'gte';
-        const numValue = parseInt(attrValue, 10) || 0;
+        // 填入属性名
+        // 使用 change 触发提交态刷新，避免输入中每字符重绘导致焦点丢失
+        const $attrNameInput = panel.find('#dice-attr-name');
+        $attrNameInput.val(attrName).trigger('change');
 
-        if (isDND) {
-          // DND模式：DC = 20 - 属性值
-          panel.find('#dice-target').val(20 - numValue);
-        } else {
-          // COC模式：目标值 = 属性值
-          panel.find('#dice-target').val(attrValue);
+        // [新增] 根据 attrTargetMapping 决定填入哪个字段
+        let targetField = '#dice-attr-value'; // 默认填入属性值
+        if (currentAdvancedPreset?.attrTargetMapping) {
+          for (const [fieldId, names] of Object.entries(currentAdvancedPreset.attrTargetMapping)) {
+            if (Array.isArray(names) && names.includes(attrName)) {
+              if (fieldId === 'skillMod') {
+                targetField = '#dice-skill-mod';
+              } else if (fieldId === 'mod') {
+                targetField = '#dice-modifier';
+              } else if (fieldId === 'attribute') {
+                targetField = '#dice-attr-value';
+              }
+              // 其他 customField.id 可在此扩展
+              break;
+            }
+          }
         }
 
+        panel.find(targetField).val(attrValue);
+
+        // [新增] 如果处于自定义模式,同时填入目标值
+        if (panel.find('#acu-dice-custom-mode-fields').is(':visible')) {
+          panel.find('#custom-target-value').val(attrValue);
+        }
+
+        // [修复] 只填入对应字段，不自动填写DC
+        // DC留空时会在检定时根据预设的defaultValue处理
+        // - COC模式：DC = 属性值
+        // - DND模式：DC = 10（或预设的默认值）
+
         // 触发change事件以更新相关UI
-        panel.find('#dice-attr-value').trigger('change');
+        panel.find(targetField).trigger('change');
       });
 
       // 绑定生成属性按钮点击事件
@@ -11758,11 +16578,8 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
           const baseAttrs = generated.base || generated;
           const specialAttrs = generated.special || {};
 
-          // 合并基础属性和特别属性
-          const allAttrs = { ...baseAttrs, ...specialAttrs };
-
-          // 写入所有属性到表格
-          const result = await writeAttributesToCharacter(charName, allAttrs);
+          // [修复] 分别写入基础属性和特有属性到对应的列
+          const result = await writeAttributesToCharacter(charName, baseAttrs, false, specialAttrs);
 
           if (result.success) {
             // 刷新属性按钮
@@ -11787,10 +16604,6 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
         if ($btn.prop('disabled')) return;
 
         const charName = panel.find('#dice-initiator-name').val().trim() || '<user>';
-
-        if (!confirm(`确定要清空「${charName}」的规则预设属性吗？\n\n（用户自定义的属性会保留）`)) {
-          return;
-        }
 
         // 禁用按钮防止重复点击
         $btn.prop('disabled', true).css('opacity', '0.5');
@@ -11840,7 +16653,10 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     initCustomDropdown(panel.find('#dice-initiator-name'), diceCharacterList);
     initCustomDropdown(panel.find('#dice-attr-name'), diceAttrList);
     // [新增] 添加清除按钮
-    addClearButton(panel, '#dice-initiator-name, #dice-attr-name, #dice-attr-value, #dice-target');
+    addClearButton(
+      panel,
+      '#dice-initiator-name, #dice-attr-name, #dice-attr-value, #dice-skill-mod, #dice-target, #dice-modifier, #custom-dice-expr, #custom-target-value',
+    );
 
     // [修复] 角色变化时更新属性列表和快捷按钮
     panel.find('#dice-initiator-name').on('change.acuattr input.acuattr', function () {
@@ -11859,10 +16675,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       const attrValue = getAttributeValue(charName, attrName);
       if (attrValue !== null) {
         panel.find('#dice-attr-value').val(attrValue);
-        // 根据当前模式设置目标值/DC
-        const criteria = panel.find('#dice-success-criteria').val() || 'lte';
-        const isDND = criteria === 'gte';
-        panel.find('#dice-target').val(isDND ? 20 - attrValue : attrValue);
+        // [修复] 不自动填写DC，让检定时根据预设的defaultValue处理
       }
     });
 
@@ -11898,7 +16711,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
       if (isDND) {
         // DND 模式
-        $targetInput.attr('placeholder', '留空=20-属性值');
+        $targetInput.attr('placeholder', '留空=10');
         panel.find('#dice-target-label').text('DC');
         $difficultyWrapper.hide();
         $row3.css('grid-template-columns', '1fr 1fr');
@@ -11916,102 +16729,1140 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     // 初始化时执行一次
     updateRuleMode();
 
-    // 记录当前骰子类型用于转换
-    let currentDiceType = diceType;
+    // [新增] 高级预设选择器变更事件 (已重构为快捷按钮点击事件)
+    let currentAdvancedPreset: AdvancedDicePreset | LegacyAdvancedDicePreset | null = null;
+    let lastVisiblePresetId: string | null = null;
+    let pendingEffectRuns: PendingEffectContext[] = [];
+    let activeConfirmEffectRun: PendingEffectContext | null = null;
+    let effectRunRetryTimer: ReturnType<typeof setTimeout> | null = null;
+    let effectRunEventSeq = 0;
+    const EFFECT_RUN_TTL_MS = 60_000;
+    const EFFECT_RUN_FALLBACK_WINDOW_MS = 2_500;
+    const messageMutationQueues = new Map<number, Promise<unknown>>();
 
-    // 骰子预设点击 - [修复] 同时切换成功标准和转换目标值
-    panel.find('.acu-dice-preset').click(function () {
-      const newDice = $(this).data('dice');
-      // 自定义按钮有单独的处理逻辑，这里跳过
-      if (newDice === 'custom') return;
+    const getPresetQuickActions = (
+      preset: AdvancedDicePreset | LegacyAdvancedDicePreset | null,
+    ): PresetQuickAction[] => {
+      if (!preset || !('quickActions' in preset) || !Array.isArray(preset.quickActions)) return [];
+      return preset.quickActions.filter((action): action is PresetQuickAction =>
+        Boolean(action && typeof action.id === 'string' && typeof action.kind === 'string'),
+      );
+    };
 
-      panel.find('.acu-dice-preset').removeClass('active');
-      $(this).addClass('active');
-
-      // 保存本次选择的骰子类型
-      saveDiceConfig({ lastDiceType: newDice });
-      const suggestedCriteria = $(this).data('criteria') || 'lte';
-
-      // [修复] 自动转换目标值
-      const $targetInput = panel.find('#dice-target');
-      const currentTargetVal = $targetInput.val().trim();
-      if (currentTargetVal !== '') {
-        const convertedVal = convertTargetForDice(currentTargetVal, currentDiceType, newDice);
-        $targetInput.val(convertedVal);
-      }
-
-      // 更新自动提示中的范围
-      const getMaxRoll = dice => {
-        const match = dice.match(/(\d+)d(\d+)/i);
-        if (!match) return 100;
-        return parseInt(match[1], 10) * parseInt(match[2], 10);
+    const buildQuickActionContext = (): Record<string, number> => {
+      const attrRaw = String(panel.find('#dice-attr-value').val() || '').trim();
+      const modRaw = String(panel.find('#dice-modifier').val() || '').trim();
+      const targetRaw = String(panel.find('#dice-target').val() || '').trim();
+      const attr = attrRaw === '' ? 0 : parseFloat(attrRaw) || 0;
+      const mod = modRaw === '' ? 0 : parseFloat(modRaw) || 0;
+      const dc = targetRaw === '' ? 0 : parseFloat(targetRaw) || 0;
+      return {
+        $attr: attr,
+        $mod: mod,
+        $dc: dc,
       };
-      const newMax = getMaxRoll(newDice);
-      panel.find('#dice-target-auto').text(`(自动: 1~${newMax})`);
+    };
 
-      currentDiceType = newDice;
-      panel.find('#dice-formula').val(newDice);
+    const isQuickActionVisible = (action: PresetQuickAction): boolean => {
+      if (!action.condition) return true;
+      const evalResult = evaluateCondition(action.condition, buildQuickActionContext());
+      if (!evalResult.success) return false;
+      return typeof evalResult.value === 'number' ? evalResult.value !== 0 : Boolean(evalResult.value);
+    };
 
-      // [新增] 自动切换成功标准并更新提示
-      panel.find('#dice-success-criteria').val(suggestedCriteria).trigger('change');
-    });
-    // 自定义骰子按钮点击事件
-    panel.find('.acu-dice-custom-btn').click(function () {
-      // 立即高亮自定义按钮，取消其他按钮高亮
-      panel.find('.acu-dice-preset').removeClass('active');
-      $(this).addClass('active');
-
-      const customDice = panel.find('#dice-custom-input').val().trim();
-      // 如果输入框为空，聚焦并等待用户输入
-      if (!customDice) {
-        panel.find('#dice-custom-input').focus();
+    const renderPresetQuickActions = (preset: AdvancedDicePreset | LegacyAdvancedDicePreset | null): void => {
+      const $container = panel.find('#dice-preset-quick-actions');
+      if (!$container.length) return;
+      const actions = getPresetQuickActions(preset).filter(isQuickActionVisible);
+      if (actions.length === 0) {
+        $container.empty().hide();
         return;
       }
-      if (!/^\d+d\d+$/i.test(customDice)) {
-        if (window.toastr) window.toastr.warning('格式错误，请输入如 4d6');
+      let html = '';
+      actions.forEach(action => {
+        const icon = action.icon || 'fa-bolt';
+        const tooltip = action.tooltip || action.id;
+        html += `<button type="button" class="acu-dice-preset-action-btn" data-action-id="${escapeHtml(action.id)}" title="${escapeHtml(tooltip)}"><i class="fa-solid ${escapeHtml(icon)}"></i></button>`;
+      });
+      $container.html(html).show();
+    };
+
+    const waitMs = (ms: number): Promise<void> => {
+      return new Promise(resolve => {
+        setTimeout(resolve, ms);
+      });
+    };
+
+    const enqueueMessageMutation = async <T>(messageId: number, task: () => Promise<T>): Promise<T> => {
+      const prev = messageMutationQueues.get(messageId) || Promise.resolve();
+      const next: Promise<T> = prev.catch(() => undefined).then(task);
+      messageMutationQueues.set(messageId, next);
+      try {
+        return await next;
+      } finally {
+        if (messageMutationQueues.get(messageId) === next) {
+          messageMutationQueues.delete(messageId);
+        }
+      }
+    };
+
+    const injectEffectLinesIntoMeta = async (messageId: number, runId: string, lines: string[]): Promise<boolean> => {
+      if (lines.length === 0) return false;
+      console.info(`[DICE][META] inject start: run=${runId}, message=${messageId}, lines=${lines.length}`);
+      return enqueueMessageMutation(messageId, async () => {
+        const retryDelays = [0, 120, 280, 500, 900];
+        for (let attempt = 0; attempt < retryDelays.length; attempt++) {
+          const delay = retryDelays[attempt];
+          if (delay > 0) await waitMs(delay);
+
+          const msgs = getChatMessages(messageId);
+          if (msgs.length === 0) {
+            console.info(
+              `[DICE][META] inject retry=${attempt + 1}/${retryDelays.length}: message not found, run=${runId}, message=${messageId}`,
+            );
+            continue;
+          }
+
+          const msg = msgs[0];
+          const msgRole = (msg as { role?: string }).role || 'unknown';
+          const extraObj: Record<string, unknown> =
+            msg.extra && typeof msg.extra === 'object' ? (msg.extra as Record<string, unknown>) : {};
+          const injectedRunsRaw = extraObj.acuEffectInjectedRuns;
+          const injectedRuns = Array.isArray(injectedRunsRaw)
+            ? injectedRunsRaw.filter((v): v is string => typeof v === 'string')
+            : [];
+          if (injectedRuns.includes(runId)) {
+            console.info(`[DICE][META] inject skipped duplicated run: run=${runId}, message=${messageId}`);
+            return true;
+          }
+
+          const original = String(msg.message || '');
+          const closingCandidates = ['</meta:检定结果>', '&lt;/meta:检定结果&gt;', '&amp;lt;/meta:检定结果&amp;gt;'];
+          let closingIdx = -1;
+          let closingTag = '';
+          for (const candidate of closingCandidates) {
+            const idx = original.lastIndexOf(candidate);
+            if (idx > closingIdx) {
+              closingIdx = idx;
+              closingTag = candidate;
+            }
+          }
+          if (closingIdx === -1) {
+            const hasRawOpen = original.includes('<meta:检定结果>');
+            const hasRawClose = original.includes('</meta:检定结果>');
+            const hasEscapedOpen = original.includes('&lt;meta:检定结果&gt;');
+            const hasEscapedClose = original.includes('&lt;/meta:检定结果&gt;');
+            console.info(
+              `[DICE][META] inject retry=${attempt + 1}/${retryDelays.length}: closing tag not found, run=${runId}, message=${messageId}, role=${msgRole}, length=${original.length}, rawOpen=${hasRawOpen}, rawClose=${hasRawClose}, escapedOpen=${hasEscapedOpen}, escapedClose=${hasEscapedClose}`,
+            );
+            continue;
+          }
+
+          const beforeClose = original.slice(0, closingIdx);
+          const needsLeadingNewline = beforeClose.length > 0 && !beforeClose.endsWith('\n');
+          const effectBlock = `${needsLeadingNewline ? '\n' : ''}${lines.join('\n')}`;
+          const updatedMsg = beforeClose + effectBlock + '\n' + original.slice(closingIdx);
+          console.info(
+            `[DICE][META] inject apply: run=${runId}, message=${messageId}, role=${msgRole}, attempt=${attempt + 1}, oldLen=${original.length}, newLen=${updatedMsg.length}, closingIdx=${closingIdx}, closingTag=${closingTag}`,
+          );
+          await setChatMessages(
+            [
+              {
+                message_id: messageId,
+                message: updatedMsg,
+                extra: {
+                  ...extraObj,
+                  acuEffectInjectedRuns: [...injectedRuns, runId],
+                },
+              },
+            ],
+            { refresh: 'affected' },
+          );
+          const verifyMsg = getChatMessages(messageId)[0];
+          const verifyText = String(verifyMsg?.message || '');
+          const lineHitCount = lines.filter(line => verifyText.includes(line)).length;
+          console.info(
+            `[DICE][META] inject done: run=${runId}, message=${messageId}, lineHit=${lineHitCount}/${lines.length}, finalLen=${verifyText.length}`,
+          );
+          return true;
+        }
+
+        console.warn(
+          `[DICE][META] inject failed: run=${runId}, message=${messageId}, reason=message_not_ready_or_meta_missing`,
+        );
+        return false;
+      });
+    };
+
+    const injectEffectLinesIntoTextarea = (runId: string, lines: string[]): boolean => {
+      if (lines.length === 0) return false;
+      try {
+        const { $ } = getCore();
+        const $ta = $('#send_textarea');
+        if ($ta.length === 0) return false;
+        const raw = String($ta.val() || '');
+        if (!raw.includes('meta:检定结果')) return false;
+        const missingLines = lines.filter(line => !raw.includes(line));
+        if (missingLines.length === 0) {
+          console.info(`[DICE][META] textarea inject skipped duplicated run=${runId}`);
+          return true;
+        }
+
+        const closingCandidates = ['</meta:检定结果>', '&lt;/meta:检定结果&gt;', '&amp;lt;/meta:检定结果&amp;gt;'];
+        let closingIdx = -1;
+        let closingTag = '';
+        for (const candidate of closingCandidates) {
+          const idx = raw.lastIndexOf(candidate);
+          if (idx > closingIdx) {
+            closingIdx = idx;
+            closingTag = candidate;
+          }
+        }
+        if (closingIdx === -1) {
+          console.warn(`[DICE][META] textarea inject failed: closing tag missing, run=${runId}`);
+          return false;
+        }
+
+        const beforeClose = raw.slice(0, closingIdx);
+        const needsLeadingNewline = beforeClose.length > 0 && !beforeClose.endsWith('\n');
+        const effectBlock = `${needsLeadingNewline ? '\n' : ''}${missingLines.join('\n')}`;
+        const updated = beforeClose + effectBlock + '\n' + raw.slice(closingIdx);
+        $ta.val(updated).trigger('input').trigger('change');
+        console.info(
+          `[DICE][META] textarea inject done: run=${runId}, lines=${missingLines.length}, closingTag=${closingTag}`,
+        );
+        return true;
+      } catch (e) {
+        console.warn(`[DICE][META] textarea inject error: run=${runId}`, e);
+        return false;
+      }
+    };
+
+    const hasMetaInTextarea = (): boolean => {
+      try {
+        const { $ } = getCore();
+        const $ta = $('#send_textarea');
+        if ($ta.length === 0) return false;
+        const raw = String($ta.val() || '');
+        return raw.includes('meta:检定结果');
+      } catch {
+        return false;
+      }
+    };
+
+    const normalizeMessageId = (payload: unknown): string | undefined => {
+      if (payload === null || payload === undefined) return undefined;
+      if (typeof payload === 'string' || typeof payload === 'number') return String(payload);
+      if (typeof payload === 'object') {
+        const record = payload as Record<string, unknown>;
+        const candidates = [record.messageId, record.message_id, record.id, record.mid];
+        const hit = candidates.find(v => v !== undefined && v !== null && String(v).trim() !== '');
+        if (hit !== undefined && hit !== null) return String(hit);
+      }
+      return undefined;
+    };
+
+    const emitEffectRun = (payload: Omit<EffectRunEventPayload, 'seq'>): number => {
+      effectRunEventSeq += 1;
+      const fullPayload: EffectRunEventPayload = {
+        ...payload,
+        seq: effectRunEventSeq,
+      };
+      emitEvent('effect_run', fullPayload);
+      return effectRunEventSeq;
+    };
+
+    const getSecondaryTriggerMode = (preset?: AdvancedDicePreset): 'first' | 'all' => {
+      return preset?.secondaryTriggerMode === 'all' ? 'all' : 'first';
+    };
+
+    const findHistoryIndexByRunId = (runId?: string): number => {
+      if (!runId) return -1;
+      for (let index = checkHistory.length - 1; index >= 0; index--) {
+        const item = checkHistory[index] as CheckHistoryEntry;
+        if (item.effectRunId === runId) return index;
+      }
+      return -1;
+    };
+
+    const isValidEffectStatusTransition = (
+      fromStatus: CheckHistoryExtension['effectStatus'],
+      toStatus: CheckHistoryExtension['effectStatus'],
+    ): boolean => {
+      if (!fromStatus || !toStatus) return true;
+      if (fromStatus === toStatus) return true;
+      const transitions: Record<string, string[]> = {
+        planned: ['confirmed', 'cancelled', 'failed'],
+        confirmed: ['committed', 'failed', 'cancelled'],
+        committed: [],
+        failed: [],
+        cancelled: [],
+      };
+      const allowed = transitions[fromStatus] || [];
+      return allowed.includes(toStatus);
+    };
+
+    const setHistoryEffectState = (
+      historyIndex: number,
+      patch: Partial<CheckHistoryExtension>,
+    ): CheckHistoryEntry | null => {
+      if (historyIndex < 0 || historyIndex >= checkHistory.length) return null;
+      const historyEntry = checkHistory[historyIndex] as CheckHistoryEntry;
+      const nextPatch = { ...patch };
+      if (
+        nextPatch.effectStatus &&
+        historyEntry.effectStatus &&
+        !isValidEffectStatusTransition(historyEntry.effectStatus, nextPatch.effectStatus)
+      ) {
+        console.warn(
+          `[DICE] Invalid effect status transition blocked: ${historyEntry.effectStatus} -> ${nextPatch.effectStatus}`,
+        );
+        delete nextPatch.effectStatus;
+      }
+      Object.assign(historyEntry, nextPatch);
+      return historyEntry;
+    };
+
+    const setHistoryEffectStateByRun = (
+      run: PendingEffectContext,
+      patch: Partial<CheckHistoryExtension>,
+    ): CheckHistoryEntry | null => {
+      const byRunId = findHistoryIndexByRunId(run.runId);
+      if (byRunId >= 0) return setHistoryEffectState(byRunId, patch);
+      console.warn(`[DICE] setHistoryEffectStateByRun skipped: runId not found (${run.runId})`);
+      return null;
+    };
+
+    const resolveLatestMetaUserMessageId = (): number | undefined => {
+      try {
+        const lastId = getLastMessageId();
+        if (!Number.isFinite(lastId) || lastId < 0) return undefined;
+        const from = Math.max(0, lastId - 12);
+        const msgs = getChatMessages(`${from}-${lastId}`, { role: 'user' }) as Array<{
+          message_id: number;
+          message: string;
+        }>;
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          const text = String(msgs[i].message || '');
+          if (text.includes('meta:检定结果')) {
+            return msgs[i].message_id;
+          }
+        }
+      } catch {
+        // ignore
+      }
+      return undefined;
+    };
+
+    const scheduleEffectRunRetry = (): void => {
+      if (effectRunRetryTimer) return;
+      effectRunRetryTimer = setTimeout(() => {
+        effectRunRetryTimer = null;
+        void processPendingEffectRuns();
+      }, 220);
+    };
+
+    const enqueueEffectRun = (run: PendingEffectContext): void => {
+      if (!run.expiresAt) {
+        run.expiresAt = Date.now() + EFFECT_RUN_TTL_MS;
+      }
+      pendingEffectRuns.push(run);
+      console.info(
+        `[DICE] Effect run queued: ${run.runId}, message=${run.messageId || 'pending'}, expiresAt=${run.expiresAt}, pending=${pendingEffectRuns.length}`,
+      );
+    };
+
+    const processPendingEffectRuns = async (payload?: unknown): Promise<void> => {
+      const incomingMessageId = normalizeMessageId(payload);
+      if (incomingMessageId) {
+        console.info(`[DICE][META] MESSAGE_SENT captured id=${incomingMessageId}`);
+      }
+
+      // 即使队列为空，也将 messageId 捕获到正在等待确认的 run 上
+      // （确认弹窗期间 MESSAGE_SENT 可能已触发，run 还没进队列）
+      if (incomingMessageId && activeConfirmEffectRun && !activeConfirmEffectRun.messageId) {
+        activeConfirmEffectRun.messageId = incomingMessageId;
+        console.info(
+          `[DICE][META] bind activeConfirm run=${activeConfirmEffectRun.runId} message=${incomingMessageId}`,
+        );
+      }
+
+      if (pendingEffectRuns.length === 0) return;
+
+      const now = Date.now();
+      const nextPending: PendingEffectContext[] = [];
+      const executableRuns: PendingEffectContext[] = [];
+      let consumedByMessage = false;
+      let consumedByFallback = false;
+
+      for (const run of pendingEffectRuns) {
+        const expired = Boolean(run.expiresAt && run.expiresAt < now);
+        if (expired) {
+          const errMsg = '效果执行已过期，已自动取消';
+          setHistoryEffectStateByRun(run, {
+            effectStatus: 'cancelled',
+            effectError: errMsg,
+            effectTrace: ['已取消：超时未提交'],
+          });
+          const seq = emitEffectRun({
+            runId: run.runId,
+            status: 'cancelled',
+            characterName: run.context.characterName,
+            attributeName: run.context.attributeName,
+            historyIndex: run.historyIndex,
+            effectResults: [],
+            effectTrace: ['已取消：超时未提交'],
+            chainMode: getSecondaryTriggerMode(run.preset),
+            error: errMsg,
+            timestamp: now,
+          });
+          setHistoryEffectStateByRun(run, { effectEventSeq: seq });
+          continue;
+        }
+
+        if (incomingMessageId) {
+          if (run.messageId && run.messageId !== incomingMessageId) {
+            nextPending.push(run);
+            continue;
+          }
+
+          if (!consumedByMessage) {
+            if (!run.messageId) {
+              run.messageId = incomingMessageId;
+              console.info(`[DICE][META] bind queued run=${run.runId} message=${incomingMessageId}`);
+            }
+            executableRuns.push(run);
+            consumedByMessage = true;
+          } else {
+            nextPending.push(run);
+          }
+          continue;
+        }
+
+        // 无 messageId 事件参数时，使用短时间窗降级执行，避免队列永久卡住
+        const withinFallbackWindow = now - run.timestamp <= EFFECT_RUN_FALLBACK_WINDOW_MS;
+        if (withinFallbackWindow && !consumedByFallback) {
+          if (!run.messageId) {
+            const guessedMsgId = resolveLatestMetaUserMessageId();
+            if (guessedMsgId !== undefined) {
+              run.messageId = String(guessedMsgId);
+              console.warn(`[DICE][META] fallback guessed messageId: run=${run.runId}, message=${run.messageId}`);
+            }
+          }
+          if (run.messageId) {
+            console.warn(`[DICE] Effect run ${run.runId}: fallback commit with bound messageId=${run.messageId}`);
+            executableRuns.push(run);
+            consumedByFallback = true;
+          } else if (hasMetaInTextarea()) {
+            console.warn(`[DICE][META] fallback commit by textarea meta presence: run=${run.runId}`);
+            executableRuns.push(run);
+            consumedByFallback = true;
+          } else {
+            console.warn(`[DICE][META] fallback skipped: run=${run.runId} has no messageId yet`);
+            nextPending.push(run);
+          }
+        } else if (!withinFallbackWindow && !consumedByFallback) {
+          console.warn(`[DICE][META] timeout fallback commit without messageId: run=${run.runId}`);
+          executableRuns.push(run);
+          consumedByFallback = true;
+        } else {
+          nextPending.push(run);
+        }
+      }
+
+      if (executableRuns.length === 0) {
+        pendingEffectRuns = nextPending;
+        if (pendingEffectRuns.length > 0) {
+          scheduleEffectRunRetry();
+        }
         return;
       }
 
-      // 自动转换目标值
-      const $targetInput = panel.find('#dice-target');
-      const currentTargetVal = $targetInput.val().trim();
-      if (currentTargetVal !== '') {
-        const convertedVal = convertTargetForDice(currentTargetVal, currentDiceType, customDice);
-        $targetInput.val(convertedVal);
+      pendingEffectRuns = nextPending;
+      for (const run of executableRuns) {
+        try {
+          const results = await executeEffects(run);
+          const hasFailure = results.some(r => !r.success);
+          if (!hasFailure) {
+            const succeeded = results.filter(r => r.success);
+            const latestAttrResult = succeeded
+              .slice()
+              .reverse()
+              .find(r => r.target && isSameAttributeAlias(r.target, run.context.attributeName));
+            if (latestAttrResult) {
+              panel.find('#dice-attr-value').val(String(latestAttrResult.newValue));
+            }
+            buildAttrButtons(run.context.characterName);
+          }
+
+          setHistoryEffectStateByRun(run, {
+            effectStatus: hasFailure ? 'failed' : 'committed',
+            effectResults: results,
+            effectError: hasFailure ? '部分效果执行失败' : undefined,
+            effectTrace: buildEffectTraceLines(results),
+          });
+
+          const seq = emitEffectRun({
+            runId: run.runId,
+            status: hasFailure ? 'failed' : 'committed',
+            characterName: run.context.characterName,
+            attributeName: run.context.attributeName,
+            historyIndex: run.historyIndex,
+            effectResults: results,
+            effectTrace: buildEffectTraceLines(results),
+            chainMode: getSecondaryTriggerMode(run.preset),
+            error: hasFailure ? '部分效果执行失败' : undefined,
+            timestamp: Date.now(),
+          });
+          setHistoryEffectStateByRun(run, { effectEventSeq: seq });
+
+          if (hasFailure && window.toastr) {
+            window.toastr.warning('效果执行存在失败，已回滚本次全部效果', '效果执行失败');
+          }
+
+          console.info(
+            `[DICE] Effect run committed: ${run.runId}, total=${results.length}, success=${results.filter(r => r.success).length}`,
+          );
+
+          // 效果结果注入：将属性变化和 outputMessage 插入到已有的 <meta:检定结果> 闭合标签前
+          if (!hasFailure) {
+            const metaLines = buildEffectMetaLines(results, {
+              branchReasonText: run.branchReasonText,
+            });
+            if (metaLines.length > 0) {
+              try {
+                if (run.messageId) {
+                  const msgId = parseInt(run.messageId, 10);
+                  if (!isNaN(msgId) && msgId >= 0) {
+                    const injected = await injectEffectLinesIntoMeta(msgId, run.runId, metaLines);
+                    if (injected) {
+                      console.info(
+                        `[DICE] Effect results injected into meta: ${metaLines.length} line(s) in message ${msgId}`,
+                      );
+                    } else {
+                      console.warn(
+                        `[DICE][META] inject returned false: run=${run.runId}, rawMessageId=${run.messageId}, lines=${metaLines.length}`,
+                      );
+                    }
+                  } else {
+                    console.warn(
+                      `[DICE][META] invalid messageId for injection: run=${run.runId}, rawMessageId=${run.messageId}`,
+                    );
+                  }
+                } else {
+                  const textareaInjected = injectEffectLinesIntoTextarea(run.runId, metaLines);
+                  if (!textareaInjected) {
+                    console.warn(`[DICE][META] no messageId and textarea inject failed: run=${run.runId}`);
+                  }
+                }
+              } catch (injectErr) {
+                console.error('[DICE] Failed to inject effect results into meta:', injectErr);
+              }
+            }
+          }
+        } catch (error) {
+          const errMsg = error instanceof Error ? error.message : String(error);
+          setHistoryEffectStateByRun(run, {
+            effectStatus: 'failed',
+            effectError: errMsg,
+            effectTrace: [`执行失败：${errMsg}`],
+          });
+          const seq = emitEffectRun({
+            runId: run.runId,
+            status: 'failed',
+            characterName: run.context.characterName,
+            attributeName: run.context.attributeName,
+            historyIndex: run.historyIndex,
+            effectResults: [],
+            effectTrace: [`执行失败：${errMsg}`],
+            chainMode: getSecondaryTriggerMode(run.preset),
+            error: errMsg,
+            timestamp: Date.now(),
+          });
+          setHistoryEffectStateByRun(run, { effectEventSeq: seq });
+          console.error(`[DICE] Effect run failed: ${run.runId}`, error);
+        }
+      }
+    };
+
+    const cleanupExpiredEffectRuns = (): void => {
+      if (pendingEffectRuns.length === 0) return;
+      const now = Date.now();
+      const nextPending: PendingEffectContext[] = [];
+      for (const run of pendingEffectRuns) {
+        const expired = Boolean(run.expiresAt && run.expiresAt < now);
+        if (!expired) {
+          nextPending.push(run);
+          continue;
+        }
+
+        const errMsg = '效果执行已过期，已自动取消';
+        setHistoryEffectStateByRun(run, {
+          effectStatus: 'cancelled',
+          effectError: errMsg,
+          effectTrace: ['已取消：超时'],
+        });
+        const seq = emitEffectRun({
+          runId: run.runId,
+          status: 'cancelled',
+          characterName: run.context.characterName,
+          attributeName: run.context.attributeName,
+          historyIndex: run.historyIndex,
+          effectResults: [],
+          effectTrace: ['已取消：超时'],
+          chainMode: getSecondaryTriggerMode(run.preset),
+          error: errMsg,
+          timestamp: now,
+        });
+        setHistoryEffectStateByRun(run, { effectEventSeq: seq });
+      }
+      pendingEffectRuns = nextPending;
+    };
+    const existingCleaner = (window as Record<string, unknown>)[effectRunCleanerTimerKey];
+    if (typeof existingCleaner === 'number') {
+      window.clearInterval(existingCleaner);
+    }
+    (window as Record<string, unknown>)[effectRunCleanerTimerKey] = window.setInterval(() => {
+      cleanupExpiredEffectRuns();
+    }, 2000);
+
+    // 辅助函数: 应用字段配置
+    const applyFieldConfig = function (
+      $input: JQuery,
+      $label: JQuery,
+      config: FieldConfig | undefined,
+      defaults: { label: string; placeholder: string },
+    ) {
+      // 获取包含label和input的wrapper div
+      // 实际DOM结构: <div> <label/> <div.acu-input-wrapper> <input/> </div> </div>
+      // 所以需要找到label的父元素（同时也是input-wrapper的父元素）
+      const $wrapper = $label.parent();
+
+      if (config?.hidden) {
+        $wrapper.hide();
+        return;
       }
 
-      panel.find('#dice-formula').val(customDice);
-      currentDiceType = customDice;
+      $wrapper.show();
+      $input.attr('placeholder', config?.placeholder || defaults.placeholder).prop('readonly', false);
+      $label.text(config?.label || defaults.label);
+    };
 
-      // 保存自定义骰子类型
-      saveDiceConfig({ lastDiceType: customDice });
+    /**
+     * [新增] 检查属性名是否匹配 CheckSelector
+     * @param attrName - 当前检定的属性名
+     * @param selector - 选择器配置
+     * @returns 是否匹配（true=可用，false=不可用）
+     */
+    const matchesCheckSelector = (attrName: string, selector?: CheckSelector): boolean => {
+      // 如果没有定义 selector，默认匹配所有
+      if (!selector) return true;
 
-      panel.find('#dice-success-criteria').val('gte').trigger('change');
+      const normalizedName = attrName.trim().toLowerCase();
+
+      // 辅助函数：将通配符模式转换为正则表达式
+      const wildcardToRegex = (pattern: string): RegExp => {
+        const escaped = pattern
+          .replace(/[.+^${}()|[\]\\]/g, '\\$&') // 转义特殊字符
+          .replace(/\*/g, '.*') // * -> .*
+          .replace(/\?/g, '.'); // ? -> .
+        return new RegExp(`^${escaped}$`, 'i');
+      };
+
+      // 辅助函数：检查名称是否匹配任一模式
+      const matchesAnyPattern = (name: string, patterns: string[]): boolean => {
+        return patterns.some(pattern => {
+          const regex = wildcardToRegex(pattern);
+          return regex.test(name);
+        });
+      };
+
+      // 1. 检查 namePatterns.exclude（优先于 include）
+      if (selector.namePatterns?.exclude && selector.namePatterns.exclude.length > 0) {
+        if (matchesAnyPattern(normalizedName, selector.namePatterns.exclude)) {
+          return false; // 被排除
+        }
+      }
+
+      // 2. 检查 namePatterns.include
+      if (selector.namePatterns?.include && selector.namePatterns.include.length > 0) {
+        // 如果定义了 include 且不为 ['*']，需要匹配
+        const isWildcardOnly = selector.namePatterns.include.length === 1 && selector.namePatterns.include[0] === '*';
+        if (!isWildcardOnly && !matchesAnyPattern(normalizedName, selector.namePatterns.include)) {
+          return false; // 未被包含
+        }
+      }
+
+      // 3. 检查 tags（暂时跳过，因为当前掷骰上下文可能没有 tags 元数据）
+      // 未来可以扩展支持 tags.include/exclude
+
+      return true;
+    };
+
+    // [新增] 渲染效果输入区域
+    const renderEffectInputs = (preset: AdvancedDicePreset, attrName: string): string[] => {
+      if (!preset.effectsConfig) return [];
+
+      // 检查触发模式
+      const isMatched = matchesCheckSelector(attrName, {
+        namePatterns: { include: preset.effectsConfig.triggerPatterns },
+      });
+
+      if (!isMatched) return [];
+
+      const items: string[] = [];
+
+      // 从 preset.outcomes 中查找有效果的结果等级，生成输入框
+      // 注意：效果定义在 preset.outcomes[].effects 中，不是 effectsConfig.outcomes
+      if (preset.outcomes && Array.isArray(preset.outcomes)) {
+        const outcomesWithEffects = preset.outcomes.filter(outcome => outcome.effects && outcome.effects.length > 0);
+
+        outcomesWithEffects.forEach(outcome => {
+          // 获取该结果等级的默认值（从 effectsConfig.defaultValues 或 effects[0].value）
+          const defaultVal =
+            preset.effectsConfig?.defaultValues?.[outcome.name] || (outcome.effects && outcome.effects[0]?.value) || '';
+          const label = outcome.name; // 使用结果名作为标签
+
+          items.push(`
+            <div class="acu-effect-input-group">
+              <div class="acu-effect-input-label">
+                <span>${escapeHtml(label)}效果</span>
+                <span class="acu-effect-preview-text" id="effect-preview-${escapeHtml(outcome.name)}"></span>
+              </div>
+              <input type="text"
+                     class="acu-dice-input acu-effect-value-input"
+                     data-outcome="${escapeHtml(outcome.name)}"
+                     value=""
+                     placeholder="${escapeHtml(String(defaultVal || '输入效果值 (如 1d6)'))}">
+            </div>
+          `);
+        });
+      }
+
+      return items;
+    };
+
+    const applyAdvancedPreset = (presetId: string | null) => {
+      // 获取关键DOM元素
+      const $modWrapper = panel.find('#dice-mod-wrapper');
+      const $row1 = panel.find('#dice-row-1');
+      const $row2 = panel.find('#dice-row-2');
+      const $row3 = panel.find('#dice-row-3');
+      const $customArea = panel.find('#dice-custom-fields-area');
+      const $attrWrapper = panel.find('#dice-attr-wrapper');
+      const $targetWrapper = panel.find('#dice-target-wrapper');
+      const $skillModWrapper = panel.find('#dice-skill-mod-wrapper');
+      const $nameWrapper = panel.find('#dice-name-wrapper');
+      const $attrNameWrapper = panel.find('#dice-attr-name-wrapper');
+
+      // 辅助函数: 恢复 Row 1 的名字和属性名
+      const restoreRow1 = () => {
+        if ($nameWrapper.parent().attr('id') !== 'dice-row-1') {
+          $nameWrapper.detach().prependTo($row1);
+        }
+        if ($attrNameWrapper.parent().attr('id') !== 'dice-row-1') {
+          $attrNameWrapper.detach().appendTo($row1);
+        }
+        $nameWrapper.show();
+        $attrNameWrapper.show();
+        $row1.show();
+        // 恢复为2列布局
+        $row1.removeClass('cols-2 cols-3').addClass('cols-2');
+      };
+
+      // 辅助函数: 确保修正值输入框回到原来的位置
+      const restoreModifier = () => {
+        if ($modWrapper.parent().attr('id') !== 'dice-row-3') {
+          $modWrapper.detach().appendTo($row3);
+        }
+        $modWrapper.show();
+        panel.find('#dice-mod-label').text('修正值'); // 恢复默认标签
+        panel.find('#dice-modifier').attr('placeholder', '留空=0');
+      };
+
+      // 辅助函数: 恢复 Row 2 的属性值、技能加值和目标值
+      const restoreRow2 = () => {
+        if ($attrWrapper.parent().attr('id') !== 'dice-row-2') {
+          $attrWrapper.detach().prependTo($row2);
+        }
+        if ($skillModWrapper.parent().attr('id') !== 'dice-row-2') {
+          $skillModWrapper.detach().insertAfter($attrWrapper);
+        }
+        if ($targetWrapper.parent().attr('id') !== 'dice-row-2') {
+          $targetWrapper.detach().appendTo($row2);
+        }
+        $attrWrapper.show();
+        $skillModWrapper.hide(); // 默认隐藏，由预设控制显示
+        $targetWrapper.show();
+        $row2.show();
+      };
+
+      if (!presetId || presetId === '__custom__') {
+        // 恢复默认模式 (自定义或无预设)
+        currentAdvancedPreset = null;
+        lastVisiblePresetId = null;
+
+        // [新增] 显示自定义模式字段区,隐藏预设相关字段
+        panel.find('#acu-dice-custom-mode-fields').show();
+
+        // 恢复 Row 1、Row 2 和 Row 3 但隐藏 Row 2/3 (自定义模式使用专属字段)
+        restoreRow1();
+        restoreRow2();
+        restoreModifier();
+        $row2.hide();
+        $row3.hide();
+        panel.find('#dice-difficulty-wrapper').hide();
+        panel.find('#dice-success-criteria').closest('div').hide();
+
+        // 清空自定义区域
+        $customArea.empty();
+
+        // 恢复"属性名"标签
+        panel.find('.dice-attr-name-text').text('属性名');
+
+        // 恢复属性值和目标值输入框
+        applyFieldConfig(panel.find('#dice-attr-value'), panel.find('#dice-attr-label'), undefined, {
+          label: '属性值',
+          placeholder: '留空=50%最大值',
+        });
+
+        applyFieldConfig(panel.find('#dice-target'), panel.find('#dice-target-label'), undefined, {
+          label: '目标值',
+          placeholder: '留空=属性值',
+        });
+
+        // 更新按钮高亮
+        panel.find('.acu-dice-quick-preset-btn').removeClass('active');
+        panel.find('.acu-dice-quick-preset-btn[data-id="__custom__"]').addClass('active');
+
+        panel.find('#dice-normal-presets').show();
+        panel.find('#dice-workflow-return-container').hide();
+
+        updateRuleMode();
+        renderPresetQuickActions(null);
+        return;
+      }
+
+      const preset = AdvancedDicePresetManager.getAllPresets().find(p => p.id === presetId);
+      if (!preset) {
+        console.warn('[DICE] 未找到预设:', presetId);
+        // 回退到自定义模式
+        applyAdvancedPreset('__custom__');
+        return;
+      }
+
+      currentAdvancedPreset = preset;
+      if (preset.visible !== false) {
+        lastVisiblePresetId = preset.id;
+      }
+
+      // 更新按钮高亮
+      panel.find('.acu-dice-quick-preset-btn').removeClass('active');
+      panel.find(`.acu-dice-quick-preset-btn[data-id="${escapeHtml(preset.id)}"]`).addClass('active');
+
+      // 隐藏自定义输入框
+      // [新增] 隐藏自定义模式字段区
+      panel.find('#acu-dice-custom-mode-fields').hide();
+
+      // 更新骰子表达式
+      panel.find('#dice-formula').val(preset.diceExpression);
+
+      // 更新"属性名"标签（如Fate使用"技能/风格"）
+      panel.find('.dice-attr-name-text').text(preset.attributeName?.label || '属性名');
+
+      // 隐藏原始 Row 1、Row 2 和 Row 3 (所有字段将整合到 customArea 中)
+      restoreRow1();
+      restoreRow2();
+      restoreModifier();
+      $row1.hide();
+      $row2.hide();
+      $row3.hide();
+
+      // 清空自定义区域
+      $customArea.empty();
+
+      // [重构] 收集所有可见字段，统一使用智能布局
+      const gridItems: (JQuery | string)[] = [];
+
+      // 0. 名字 (始终显示)
+      gridItems.push($nameWrapper);
+
+      // 0.5 属性名 (始终显示)
+      gridItems.push($attrNameWrapper);
+
+      // 1. 属性值 (如果未隐藏)
+      if (!preset.attribute?.hidden) {
+        applyFieldConfig(panel.find('#dice-attr-value'), panel.find('#dice-attr-label'), preset.attribute, {
+          label: '属性值',
+          placeholder: '留空=50%最大值',
+        });
+        gridItems.push($attrWrapper);
+      }
+
+      // 1.5 技能加值 (如果预设定义了 skillMod 且未隐藏)
+      if (preset.skillMod && !preset.skillMod.hidden) {
+        applyFieldConfig(panel.find('#dice-skill-mod'), panel.find('#dice-skill-mod-label'), preset.skillMod, {
+          label: '技能加值',
+          placeholder: '留空=0',
+        });
+        gridItems.push($skillModWrapper);
+      }
+
+      // [新增] 效果输入区域
+      const attrName = panel.find('#dice-attr-name').val().trim();
+      const effectInputItems = renderEffectInputs(preset, attrName);
+      if (effectInputItems.length > 0) {
+        gridItems.push(...effectInputItems);
+      }
+
+      // 2. 目标值/DC (如果未隐藏)
+      if (!preset.dc?.hidden) {
+        applyFieldConfig(panel.find('#dice-target'), panel.find('#dice-target-label'), preset.dc, {
+          label: '目标值',
+          placeholder: '留空=属性值',
+        });
+        gridItems.push($targetWrapper);
+      }
+
+      // 3. 修正值 (如果未隐藏)
+      if (!preset.mod?.hidden) {
+        if (preset.mod?.label) {
+          panel.find('#dice-mod-label').text(preset.mod.label);
+        }
+        // 使用 placeholder 显示默认值
+        const modDefault = preset.mod?.defaultValue;
+        if (modDefault !== undefined && modDefault !== 0) {
+          panel.find('#dice-modifier').attr('placeholder', `留空=${modDefault}`);
+        } else {
+          panel.find('#dice-modifier').attr('placeholder', '留空=0');
+        }
+        gridItems.push($modWrapper);
+      }
+
+      // 4. 收集自定义字段
+      if ('customFields' in preset && Array.isArray(preset.customFields) && preset.customFields.length > 0) {
+        const visibleFields = preset.customFields.filter(f => !f.hidden);
+
+        visibleFields.forEach(field => {
+          let html = '<div>';
+
+          // 标签
+          if (field.type !== 'toggle') {
+            html += `<div class="acu-dice-form-label">${escapeHtml(field.label || field.id)}</div>`;
+          } else {
+            html += '<div class="acu-dice-form-label">&nbsp;</div>'; // 占位
+          }
+
+          // 控件
+          if (field.type === 'select' && field.options) {
+            html += `<select class="acu-dice-select acu-dice-custom-field" data-id="${escapeHtml(field.id)}">`;
+            field.options.forEach(opt => {
+              const isSelected = opt.value === field.defaultValue ? 'selected' : '';
+              html += `<option value="${escapeHtml(String(opt.value))}" ${isSelected}>${escapeHtml(opt.label)}</option>`;
+            });
+            html += '</select>';
+          } else if (field.type === 'toggle') {
+            const isChecked = field.defaultValue ? 'checked' : '';
+            html += `<label style="display: flex; align-items: center; cursor: pointer; height: 32px;">
+              <input type="checkbox" class="acu-dice-custom-field" data-id="${escapeHtml(field.id)}" ${isChecked} style="margin-right: 8px;">
+              ${escapeHtml(field.label || field.id)}
+            </label>`;
+          } else {
+            const type = field.type === 'number' ? 'number' : 'text';
+            // [修复] 使用 placeholder 而不是 value 显示默认值
+            const defaultVal = field.defaultValue;
+            const placeholderText =
+              field.placeholder || (defaultVal !== undefined && defaultVal !== '' ? `留空=${defaultVal}` : '');
+            html += `<input type="${type}" class="acu-dice-input acu-dice-custom-field" data-id="${escapeHtml(field.id)}"
+              placeholder="${escapeHtml(placeholderText)}">`;
+          }
+
+          html += '</div>';
+          gridItems.push(html);
+        });
+      }
+
+      // 5. 智能排版渲染网格
+      // 布局规律：最后一行优先放3个字段，前面的行放2个字段
+      // - 4个字段：2+2
+      // - 5个字段：2+3
+      // - 6个字段：3+3
+      // - 7个字段：2+2+3
+      // - 8个字段：2+3+3
+      // - 9个字段：3+3+3
+      const appendItem = ($row: JQuery, item: JQuery | string) => {
+        if (typeof item === 'string') {
+          $row.append(item);
+        } else {
+          item.detach().appendTo($row);
+          item.show();
+        }
+      };
+
+      // 计算行分配：从后往前，优先用3列填充
+      const computeRowLayout = (total: number): number[] => {
+        if (total <= 0) return [];
+        if (total <= 2) return [2]; // 最少2列，避免 cols-1
+        if (total === 3) return [3];
+        if (total === 4) return [2, 2];
+        if (total === 5) return [2, 3];
+        if (total === 6) return [3, 3];
+        // 7+ 字段：递归计算，最后一行放3个，剩余的递归处理
+        return [...computeRowLayout(total - 3), 3];
+      };
+
+      // 直接计算 gridItems 的行分配
+      const gridRowLayout = computeRowLayout(gridItems.length);
+
+      let itemIndex = 0;
+      for (const colCount of gridRowLayout) {
+        const $row = $(`<div class="acu-dice-form-row cols-${colCount}"></div>`);
+        for (let j = 0; j < colCount; j++) {
+          if (itemIndex < gridItems.length) {
+            appendItem($row, gridItems[itemIndex]);
+            itemIndex++;
+          } else {
+            $row.append('<div></div>');
+          }
+        }
+        $customArea.append($row);
+      }
+
+      // [新增] 为动态生成的 customFields 输入框添加清除按钮
+      addClearButton($customArea, '.acu-dice-custom-field[type="text"], .acu-dice-custom-field[type="number"]');
+
+      renderPresetQuickActions(preset);
+
+      // [核心修复] 检测是否为“工作流模式”并切换 UI 状态
+      // 这里的判定逻辑：如果预设是“非默认可见”的（visible: false），则视为特殊工作流（如技能成长）
+      // 此时隐藏常规预设切换按钮，显示“返回常规检定”按钮
+      const isWorkMode = preset.visible === false;
+      const $normalPresets = panel.find('#dice-normal-presets');
+      const $workflowReturn = panel.find('#dice-workflow-return-container');
+
+      if (isWorkMode) {
+        $normalPresets.hide();
+        $workflowReturn.show();
+        $workflowReturn
+          .find('button')
+          .html(`<i class="fa-solid fa-arrow-left"></i> 返回常规检定（退出${escapeHtml(preset.name)}）`);
+      } else {
+        $normalPresets.show();
+        $workflowReturn.hide();
+      }
+
+      console.log('[DICE] 应用高级预设:', preset.name, isWorkMode ? '(工作流模式)' : '');
+    };
+
+    // [新增] 动态监听属性名变化，更新效果输入区域
+    panel.find('#dice-attr-name').on('change', function () {
+      if (!currentAdvancedPreset) return;
+      // 重新渲染整个面板内容可能太重，这里只更新效果区域
+      // 但由于效果区域是作为 gridItems 动态插入的，直接重新调用 applyAdvancedPreset 最简单
+      // 必须防止死循环
+      if (panel.data('updating-preset')) return;
+      panel.data('updating-preset', true);
+      applyAdvancedPreset(currentAdvancedPreset.id);
+      panel.data('updating-preset', false);
     });
 
-    // 自定义骰子输入框回车确认
-    panel.find('#dice-custom-input').on('keydown', function (e) {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        panel.find('.acu-dice-custom-btn').click();
+    // 自定义模式下持久化骰子语法（仅自定义模式使用）
+    panel.find('#custom-dice-expr').on('input change', function () {
+      if (!panel.find('#acu-dice-custom-mode-fields').is(':visible')) return;
+      const customExpr = ($(this).val() || '').toString().trim();
+      saveDiceConfig({ customDiceExpr: customExpr });
+    });
+
+    // 绑定快捷预设按钮点击事件
+    panel.find('.acu-dice-quick-preset-btn').click(function () {
+      const presetId = $(this).data('id') as string;
+
+      // 保存到 last preset
+      if (presetId === '__custom__') {
+        AdvancedDicePresetManager.setActivePreset(null);
+        localStorage.setItem(STORAGE_KEY_LAST_PRESET, '__custom__');
+      } else {
+        AdvancedDicePresetManager.setActivePreset(presetId);
+        localStorage.setItem(STORAGE_KEY_LAST_PRESET, presetId);
+      }
+
+      applyAdvancedPreset(presetId);
+    });
+
+    // [新增] 绑定“返回常规检定”按钮点击事件
+    panel.on('click', '#dice-return-normal-btn', function (e) {
+      e.preventDefault();
+      // 返回到最近一次可见预设；若无则回退到第一个可见预设
+      let targetPresetId: string | null = lastVisiblePresetId;
+
+      // 验证 targetPresetId 是否有效且可见
+      const allPresets = AdvancedDicePresetManager.getAllPresets();
+      const targetPreset = allPresets.find(p => p.id === targetPresetId);
+      if (!targetPreset || targetPreset.visible === false) {
+        // 如果上次预设无效或不可见，则回退到第一个可见预设
+        const firstVisible = allPresets.find(p => p.visible !== false);
+        targetPresetId = firstVisible ? firstVisible.id : '__custom__';
+      }
+
+      // 执行切换
+      if (targetPresetId === '__custom__') {
+        AdvancedDicePresetManager.setActivePreset(null);
+      } else {
+        AdvancedDicePresetManager.setActivePreset(targetPresetId);
+      }
+      // 更新 localStorage
+      localStorage.setItem(STORAGE_KEY_LAST_PRESET, targetPresetId || '__custom__');
+
+      applyAdvancedPreset(targetPresetId);
+    });
+
+    panel.on('click', '.acu-dice-preset-action-btn', async function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      const actionId = String($(this).data('action-id') || '').trim();
+      if (!actionId) return;
+      const $btn = $(this);
+      if ($btn.prop('disabled')) return;
+      $btn.prop('disabled', true).addClass('disabled');
+      try {
+        await executePresetQuickAction(actionId);
+      } finally {
+        $btn.prop('disabled', false).removeClass('disabled');
+        renderPresetQuickActions(currentAdvancedPreset);
       }
     });
-    // 掷骰逻辑
+
+    panel.find('#dice-attr-value, #dice-modifier, #dice-target').on('input change', function () {
+      renderPresetQuickActions(currentAdvancedPreset);
+    });
+
+    // 初始化时应用已保存的预设
+    const savedPresetId = localStorage.getItem(STORAGE_KEY_LAST_PRESET);
+    // 兼容旧逻辑：如果 ActivePresetManager 里有值，优先使用
+    const activePreset = AdvancedDicePresetManager.getActivePreset();
+
+    if (activePreset) {
+      applyAdvancedPreset(activePreset.id);
+    } else if (savedPresetId && savedPresetId !== '__custom__') {
+      applyAdvancedPreset(savedPresetId);
+    } else {
+      applyAdvancedPreset('__custom__');
+    }
+
+    // 掷骰逻辑 - 使用 rollComplexDiceExpression 支持复合表达式
     const rollDice = formula => {
-      const match = formula.match(/(\d+)d(\d+)([+-]\d+)?/i);
-      if (!match) return { total: 0, rolls: [], formula };
-
-      const count = parseInt(match[1], 10);
-      const sides = parseInt(match[2], 10);
-      const modifier = match[3] ? parseInt(match[3], 10) : 0;
-
-      const rolls = [];
-      for (let i = 0; i < count; i++) {
-        rolls.push(Math.floor(Math.random() * sides) + 1);
+      const rollResult = rollComplexDiceExpression(formula);
+      const total = rollResult.total;
+      if (Number.isNaN(total)) {
+        return { total: 0, rolls: [], formula };
       }
-      const total = rolls.reduce((a, b) => a + b, 0) + modifier;
-
-      return { total, rolls, sides, count, modifier, formula };
+      // 尝试从公式中提取基本信息用于显示
+      const basicMatch = formula.match(/^(\d*)d(\d+|F)/i);
+      const count = basicMatch && basicMatch[1] ? parseInt(basicMatch[1], 10) : 1;
+      const sidesStr = basicMatch ? basicMatch[2] : '100';
+      const sides = sidesStr.toUpperCase() === 'F' ? 3 : parseInt(sidesStr, 10);
+      // 对于复杂语法，不提供单独的 rolls 数组
+      return { total, rolls: [], sides, count, modifier: 0, formula };
     };
 
     // 解析修正值，支持纯数字和骰子表达式（如1d6, 1d6+2等）
@@ -12025,33 +17876,1717 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
         return numValue;
       }
 
-      // 尝试解析骰子表达式
-      // 支持格式：1d6, 2d10, 1d6+2, 1d6-2, 2d6+1d4等
-      let result = 0;
-      let remaining = trimmed;
+      // 复合表达式统一走完整解析
+      const rollResult = rollComplexDiceExpression(trimmed);
+      if (!Number.isNaN(rollResult.total)) return rollResult.total;
+      return 0;
+    };
 
-      // 匹配骰子表达式（如1d6, 2d10等）
-      const dicePattern = /(\d+)d(\d+)(kh\d+|kl\d+|dh\d+|dl\d+)?/gi;
-      let match;
-      while ((match = dicePattern.exec(remaining)) !== null) {
-        const diceResult = rollDiceExpression(match[0]);
-        if (!isNaN(diceResult)) {
-          result += diceResult;
-        }
-        remaining = remaining.replace(match[0], '');
+    const resolveExpressionWithContext = (expr: string, context: Record<string, string | number | boolean>): string => {
+      let resolved = String(expr || '0');
+      Object.entries(context).forEach(([key, value]) => {
+        const safeKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        resolved = resolved.replace(new RegExp(safeKey, 'g'), String(value));
+      });
+      return resolved;
+    };
+
+    const activatePresetQuickAction = (action: WorkflowQuickAction): void => {
+      const presetId = String(action.config.presetId || '').trim();
+      if (!presetId) {
+        if (window.toastr) window.toastr.warning('快捷操作缺少目标预设');
+        return;
+      }
+      const targetPreset = AdvancedDicePresetManager.getAllPresets().find(item => item.id === presetId);
+      if (!targetPreset) {
+        if (window.toastr) window.toastr.warning(`未找到预设: ${presetId}`);
+        return;
       }
 
-      // 处理剩余的数字部分（加减号后的数字）
-      const numberPattern = /([+-]?\d+(\.\d+)?)/g;
-      let numMatch;
-      while ((numMatch = numberPattern.exec(remaining)) !== null) {
-        const num = parseFloat(numMatch[0]);
-        if (!isNaN(num) && isFinite(num)) {
-          result += num;
+      const carryInitiator = action.config.carryInitiator !== false;
+      const carryAttrName = action.config.carryAttrName !== false;
+      const carryAttrValue = action.config.carryAttrValue !== false;
+      const carryTarget = action.config.carryTarget === true;
+      const carryModifier = action.config.carryModifier === true;
+      const carrySkillMod = action.config.carrySkillMod === true;
+
+      const previousState = {
+        initiatorName: String(panel.find('#dice-initiator-name').val() || '').trim(),
+        attrName: String(panel.find('#dice-attr-name').val() || '').trim(),
+        attrValue: String(panel.find('#dice-attr-value').val() || '').trim(),
+        target: String(panel.find('#dice-target').val() || '').trim(),
+        modifier: String(panel.find('#dice-modifier').val() || '').trim(),
+        skillMod: String(panel.find('#dice-skill-mod').val() || '').trim(),
+      };
+
+      AdvancedDicePresetManager.setActivePreset(presetId);
+      localStorage.setItem(STORAGE_KEY_LAST_PRESET, presetId);
+      applyAdvancedPreset(presetId);
+
+      if (carryInitiator) {
+        panel.find('#dice-initiator-name').val(previousState.initiatorName);
+      }
+      if (carryAttrName) {
+        panel.find('#dice-attr-name').val(previousState.attrName);
+      } else if (action.config.attrName !== undefined) {
+        panel.find('#dice-attr-name').val(action.config.attrName);
+      }
+      if (carryAttrValue) {
+        panel.find('#dice-attr-value').val(previousState.attrValue);
+      }
+      if (carryTarget) {
+        panel.find('#dice-target').val(previousState.target);
+      }
+      if (carryModifier) {
+        panel.find('#dice-modifier').val(previousState.modifier);
+      }
+      if (carrySkillMod) {
+        panel.find('#dice-skill-mod').val(previousState.skillMod);
+      }
+
+      if (action.config.customFieldValues) {
+        Object.entries(action.config.customFieldValues).forEach(([fieldId, rawValue]) => {
+          const $field = panel
+            .find('.acu-dice-custom-field')
+            .filter((_index, element) => String($(element).data('id') || '') === fieldId);
+          if (!$field.length) return;
+          if ($field.is(':checkbox')) {
+            $field.prop('checked', Boolean(rawValue));
+            return;
+          }
+          $field.val(String(rawValue));
+        });
+      }
+
+      panel.find('#dice-attr-name').trigger('change');
+      panel.find('#dice-attr-value, #dice-target, #dice-modifier, #dice-skill-mod').trigger('change');
+    };
+
+    const executeAttrShortcutQuickAction = (action: AttrShortcutQuickAction): void => {
+      const presetId = String(action.config.presetId || '').trim();
+      if (!presetId) {
+        if (window.toastr) window.toastr.warning('属性快捷缺少目标预设');
+        return;
+      }
+
+      const allPresets = AdvancedDicePresetManager.getAllPresets();
+      const configuredTargetPreset = allPresets.find(item => item.id === presetId);
+      if (!configuredTargetPreset) {
+        if (window.toastr) window.toastr.warning(`属性快捷目标预设不存在: ${presetId}`);
+        return;
+      }
+
+      // 架构约束：属性快捷只能指向“常规可见预设”，若指向工作流预设则直接中止
+      if (configuredTargetPreset.visible === false) {
+        if (window.toastr) {
+          window.toastr.warning(`属性快捷目标预设不可用（工作流）: ${configuredTargetPreset.name}，已中止执行`);
+        }
+        return;
+      }
+
+      const presetAllowedTargets = Array.isArray(configuredTargetPreset.effectsConfig?.allowedTargets)
+        ? configuredTargetPreset.effectsConfig?.allowedTargets
+        : [];
+      const mergedCandidates = Array.from(
+        new Set(
+          [...(action.config.attrAliasCandidates || []), ...presetAllowedTargets]
+            .map(name => String(name || '').trim())
+            .filter(Boolean),
+        ),
+      );
+
+      const workflowAction: WorkflowQuickAction = {
+        id: action.id,
+        kind: 'workflow_shortcut',
+        icon: action.icon,
+        tooltip: action.tooltip,
+        condition: action.condition,
+        config: {
+          presetId,
+          carryInitiator: action.config.carryInitiator,
+          carryAttrName: false,
+          carryAttrValue: action.config.carryAttrValue,
+          carryTarget: action.config.carryTarget,
+          carryModifier: action.config.carryModifier,
+          carrySkillMod: action.config.carrySkillMod,
+        },
+      };
+      activatePresetQuickAction(workflowAction);
+
+      const charName = String(panel.find('#dice-initiator-name').val() || '').trim() || '<user>';
+      const candidates = mergedCandidates;
+      const fallbackName = String(action.config.fallbackAttrName || '').trim() || candidates[0] || '';
+      if (!fallbackName) return;
+
+      const resolved = resolveAttributeAliasName(charName, fallbackName, candidates);
+      const resolvedAttrName = resolved.name || fallbackName;
+      panel.find('#dice-attr-name').val(resolvedAttrName).trigger('change');
+    };
+
+    const executePresetQuickAction = async (actionId: string): Promise<void> => {
+      const preset = currentAdvancedPreset;
+      if (!preset) {
+        if (window.toastr) window.toastr.warning('请先选择一个检定预设');
+        return;
+      }
+      const action = getPresetQuickActions(preset).find(item => item.id === actionId);
+      if (!action) {
+        if (window.toastr) window.toastr.warning('未找到快捷操作配置');
+        return;
+      }
+      if (action.kind === 'workflow_shortcut') {
+        activatePresetQuickAction(action);
+        return;
+      }
+      if (action.kind === 'attr_shortcut') {
+        executeAttrShortcutQuickAction(action);
+        return;
+      }
+      if (window.toastr) window.toastr.warning('暂不支持的快捷操作类型');
+    };
+
+    // [新增] 资源消耗器按钮渲染辅助函数
+    const renderResourceBurnerButtons = (
+      preset: AdvancedDicePreset,
+      context: Record<string, number>,
+      matchedOutcome?: OutcomeLevel,
+      attrName?: string,
+    ): string => {
+      if (!preset.resourceBurners || !Array.isArray(preset.resourceBurners) || preset.resourceBurners.length === 0) {
+        return '';
+      }
+
+      let html = '';
+      preset.resourceBurners.forEach(burner => {
+        // 1. 首先检查 selector 过滤（结构性范围控制）
+        if (attrName && burner.selector) {
+          const selectorMatch = matchesCheckSelector(attrName, burner.selector);
+          if (!selectorMatch) {
+            return; // 属性名被 selector 排除
+          }
+        }
+
+        // 2. 然后检查 condition（动态状态控制）
+        if (burner.condition) {
+          const evalResult = evaluateCondition(burner.condition, context);
+          if (
+            !evalResult.success ||
+            (typeof evalResult.value === 'number' ? evalResult.value === 0 : !evalResult.value)
+          ) {
+            return;
+          }
+        }
+        const icon = burner.ui?.icon || 'fa-fire';
+        const tooltip = burner.ui?.tooltip || `消耗 ${burner.resourceName}`;
+
+        html += `<button class="acu-dice-burner-btn" data-id="${escapeHtml(burner.id)}" title="${escapeHtml(tooltip)}">
+          <i class="fa-solid ${escapeHtml(icon)}"></i>
+        </button>`;
+      });
+
+      return html ? `<div class="acu-dice-burners">${html}</div>` : '';
+    };
+
+    // [新增] 资源消耗器点击处理函数
+    const handleResourceBurnerClick = (burner: ResourceBurner, context: Record<string, number>) => {
+      // 获取角色名：保留原始值用于数据操作，解析后的值用于显示
+      const rawInitiatorName = panel.find('#dice-initiator-name').val().trim() || '<user>';
+      const displayName = replaceUserPlaceholders(rawInitiatorName);
+
+      // 获取当前资源值（使用原始值，让 getAttributeValue 内部判断是否是主角）
+      let currentResource = getAttributeValue(rawInitiatorName, burner.resourceName);
+
+      // 如果资源不存在，尝试初始化（仅限幸运值）
+      if (currentResource === undefined || currentResource === null) {
+        if (burner.resourceName === '幸运' || burner.resourceName.toLowerCase() === 'luck') {
+          // CoC7 幸运值初始化：3D6 × 5
+          const d1 = Math.floor(Math.random() * 6) + 1;
+          const d2 = Math.floor(Math.random() * 6) + 1;
+          const d3 = Math.floor(Math.random() * 6) + 1;
+          const initialLuck = (d1 + d2 + d3) * 5;
+
+          if (window.toastr) {
+            window.toastr.info(`幸运值未设置，已随机生成: ${d1}+${d2}+${d3}=${d1 + d2 + d3} × 5 = ${initialLuck}`);
+          }
+
+          // 尝试写入初始值（使用原始值，让函数内部判断是否是主角）
+          updateSingleAttribute(rawInitiatorName, burner.resourceName, 'set', initialLuck, {
+            initValue: initialLuck,
+          }).then(result => {
+            if (result.success) {
+              // 递归调用自己，现在资源已存在
+              handleResourceBurnerClick(burner, context);
+            } else {
+              if (window.toastr) window.toastr.error(`初始化幸运值失败: ${result.error}`);
+            }
+          });
+          return;
+        } else {
+          if (window.toastr) window.toastr.error(`找不到属性: ${burner.resourceName}`);
+          return;
         }
       }
 
-      return result;
+      currentResource = currentResource || 0;
+
+      // 创建自定义对话框（传递原始名字用于数据操作）
+      showBurnerInputDialog(burner, rawInitiatorName, currentResource, context);
+    };
+
+    // [新增] 显示燃运输入对话框
+    const showBurnerInputDialog = (
+      burner: ResourceBurner,
+      rawCharName: string, // 原始角色名（如 <user>），用于数据操作
+      currentResource: number,
+      context: Record<string, number>,
+    ) => {
+      const currentThemeClass = `acu-theme-${config.theme}`;
+
+      // 移除已存在的对话框
+      $('.acu-burner-overlay').remove();
+
+      // 计算建议消耗量（如果预设定义了 suggestedAmount 表达式）
+      let suggestedValue = 1; // 默认为1
+      let suggestedHint = '';
+      if (burner.suggestedAmount) {
+        const evalResult = evaluateCondition(burner.suggestedAmount, context);
+        if (evalResult.success && typeof evalResult.value === 'number' && evalResult.value > 0) {
+          // 向上取整（需要至少这么多资源才刚好通过），再除以ratio
+          const rawNeeded = Math.ceil(evalResult.value / burner.ratio);
+          if (burner.resourceOperation === 'add') {
+            suggestedValue = Math.max(1, rawNeeded);
+            suggestedHint = `建议: ${suggestedValue} (刚好通过)`;
+          } else {
+            const capped = Math.min(Math.max(1, rawNeeded), currentResource);
+            suggestedValue = capped;
+            if (rawNeeded > currentResource) {
+              suggestedHint = `建议: ${suggestedValue} (已达上限，仍无法通过)`;
+            } else {
+              suggestedHint = `建议: ${suggestedValue} (刚好通过)`;
+            }
+          }
+        }
+      }
+
+      const isAddMode = burner.resourceOperation === 'add';
+      const actionVerb = isAddMode ? '增加' : '消耗';
+      const maxAttr = isAddMode ? '' : `max="${currentResource}"`;
+
+      // 从 context 提取骰子结果和目标值，用于效果预览
+      const rollTotal = (context['$roll.total'] ?? context['$roll'] ?? 0) as number;
+      const attrValue = (context['$attr'] ?? 0) as number;
+
+      const dialog = $(`
+        <div class="acu-edit-overlay acu-burner-overlay">
+          <div class="acu-edit-dialog ${currentThemeClass}" style="max-width:350px;">
+            <div class="acu-edit-title">
+              <i class="fa-solid ${escapeHtml(burner.ui?.icon || 'fa-fire')}" style="color:${escapeHtml(burner.ui?.color || 'var(--acu-accent)')}"></i>
+              ${escapeHtml(actionVerb)} ${escapeHtml(burner.resourceName)}
+            </div>
+            <div class="acu-settings-content" style="padding:15px;">
+              <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+                <div style="flex:1;">
+                  <label style="display:block;font-size:11px;color:var(--acu-text-sub);margin-bottom:4px;">${escapeHtml(actionVerb)}数量</label>
+                  <input type="number" id="burner-amount" class="acu-input" value="${suggestedValue}" min="1" ${maxAttr} style="width:100%;">
+                  ${suggestedHint ? `<div style="font-size:10px;color:var(--acu-accent);margin-top:2px;">${escapeHtml(suggestedHint)}</div>` : ''}
+                </div>
+                <div style="flex:1;">
+                  <label style="display:block;font-size:11px;color:var(--acu-text-sub);margin-bottom:4px;">当前${isAddMode ? '数值' : '可用'}</label>
+                  <div style="font-size:18px;font-weight:bold;color:var(--acu-success-text);">${currentResource}</div>
+                </div>
+              </div>
+              <div id="burner-preview" style="padding:10px;background:var(--acu-card-bg);border-radius:6px;font-size:12px;">
+                <div id="burner-before" style="color:var(--acu-text-sub);margin-bottom:6px;"></div>
+                <div id="burner-after" style="font-weight:bold;"></div>
+              </div>
+            </div>
+            <div class="acu-dialog-btns">
+              <button class="acu-dialog-btn" id="burner-cancel"><i class="fa-solid fa-times"></i> 取消</button>
+              <button class="acu-dialog-btn acu-btn-confirm" id="burner-confirm"><i class="fa-solid fa-check"></i> 确认${escapeHtml(actionVerb)}</button>
+            </div>
+          </div>
+        </div>
+      `);
+
+      $('body').append(dialog);
+
+      // 更新效果预览：显示燃运前后的骰子结果对比
+      const updatePreview = () => {
+        const amount = parseInt(dialog.find('#burner-amount').val() as string, 10) || 0;
+        const effectValue = amount * burner.ratio;
+        // 计算燃运后的目标值变化
+        let newRoll = rollTotal;
+        let newAttr = attrValue;
+        if (burner.target === 'roll') {
+          newRoll = burner.direction === 'decrease' ? rollTotal - effectValue : rollTotal + effectValue;
+        } else if (burner.target === 'attribute') {
+          newAttr = burner.direction === 'increase' ? attrValue + effectValue : attrValue - effectValue;
+        }
+        const beforePass = rollTotal <= attrValue;
+        const afterPass = newRoll <= newAttr;
+        const beforeColor = beforePass ? 'var(--acu-success-text)' : 'var(--acu-error-text)';
+        const afterColor = afterPass ? 'var(--acu-success-text)' : 'var(--acu-error-text)';
+        dialog
+          .find('#burner-before')
+          .html(
+            `当前: <span style="color:${beforeColor};font-weight:bold;">${rollTotal} &lt;= ${attrValue} → ${beforePass ? '成功' : '失败'}</span>`,
+          );
+        dialog
+          .find('#burner-after')
+          .html(
+            `燃运后: <span style="color:${afterColor}">${newRoll} &lt;= ${newAttr} → ${afterPass ? '成功' : '失败'}</span>` +
+              `<span style="color:var(--acu-text-sub);font-weight:normal;margin-left:8px;">(${actionVerb} ${amount} 点${burner.resourceName})</span>`,
+          );
+      };
+      updatePreview();
+
+      dialog.find('#burner-amount').on('input', updatePreview);
+
+      // 取消按钮
+      dialog.on('click', '#burner-cancel', () => {
+        dialog.remove();
+      });
+
+      // 点击遮罩关闭
+      dialog.on('click', '.acu-burner-overlay', e => {
+        if ($(e.target).hasClass('acu-burner-overlay')) {
+          dialog.remove();
+        }
+      });
+
+      // 确认按钮
+      dialog.on('click', '#burner-confirm', () => {
+        const amount = parseInt(dialog.find('#burner-amount').val() as string, 10);
+
+        if (isNaN(amount) || amount <= 0) {
+          if (window.toastr) window.toastr.warning('请输入有效的正整数');
+          return;
+        }
+
+        // subtract 模式检查资源上限，add 模式不限
+        if (!isAddMode && amount > currentResource) {
+          if (window.toastr) window.toastr.error(`资源不足: 需要 ${amount}, 当前只有 ${currentResource}`);
+          return;
+        }
+
+        dialog.remove();
+
+        const op: 'add' | 'subtract' = isAddMode ? 'add' : 'subtract';
+        // 执行资源变更（使用原始角色名，让函数内部判断是否是主角）
+        updateSingleAttribute(rawCharName, burner.resourceName, op, amount).then(result => {
+          if (!result.success) {
+            if (window.toastr) window.toastr.error(`${actionVerb}资源失败: ${result.error}`);
+            return;
+          }
+
+          if (window.toastr) window.toastr.success(`已${actionVerb} ${amount} 点 ${burner.resourceName}`);
+
+          // 刷新属性显示（使用原始角色名）
+          buildAttrButtons(rawCharName);
+
+          // 应用效果并重新计算结果
+          applyBurnerEffect(burner, amount);
+        });
+      });
+
+      // 聚焦输入框
+      dialog.find('#burner-amount').trigger('focus').trigger('select');
+    };
+
+    // [新增] 显示效果确认对话框
+    const showEffectConfirmDialog = (options: {
+      preset: AdvancedDicePreset;
+      outcomeLabel: string;
+      branchReasonText?: string;
+      effects: ComputedEffect[];
+      onConfirm: () => void;
+      onCancel: () => void;
+    }) => {
+      const { preset, outcomeLabel, branchReasonText, effects, onConfirm, onCancel } = options;
+      const currentThemeClass = `acu-theme-${config.theme}`;
+      const uiCfg = preset.effectConfirmUi || {};
+      const dialogTitle = uiCfg.title || '确认效果执行';
+      const effectListTitle = uiCfg.effectListTitle || '即将应用以下效果:';
+      const branchReasonLabel = uiCfg.branchReasonLabel || '分支依据';
+
+      // 移除已存在的对话框
+      $('.acu-confirm-overlay').remove();
+
+      const dialog = $(`
+        <div class="acu-edit-overlay acu-confirm-overlay">
+          <div class="acu-edit-dialog ${currentThemeClass}" style="max-width:350px;">
+            <div class="acu-edit-title">
+              <i class="fa-solid fa-clipboard-check" style="color:var(--acu-accent)"></i>
+              ${escapeHtml(dialogTitle)}
+            </div>
+            <div class="acu-settings-content" style="padding:15px;">
+              <div style="margin-bottom:12px;font-weight:bold;font-size:14px;text-align:center;color:var(--acu-text-main);">
+                ${escapeHtml(outcomeLabel)}
+              </div>
+              ${
+                branchReasonText
+                  ? `<div style="margin-bottom:12px;padding:8px 10px;background:var(--acu-card-bg);border-radius:6px;font-size:12px;line-height:1.45;color:var(--acu-text-sub);"><span style="color:var(--acu-text-main);font-weight:bold;">${escapeHtml(branchReasonLabel)}:</span> ${escapeHtml(branchReasonText)}</div>`
+                  : ''
+              }
+
+              <div style="background:var(--acu-card-bg);border-radius:6px;padding:10px;margin-bottom:15px;max-height:200px;overflow-y:auto;">
+                <div style="font-size:12px;color:var(--acu-text-sub);margin-bottom:8px;">${escapeHtml(effectListTitle)}</div>
+                ${effects
+                  .map(
+                    e => `
+                  <div style="padding:8px 0;border-bottom:1px solid var(--acu-border);font-size:13px;display:grid;grid-template-columns:1fr auto;gap:6px 10px;align-items:start;">
+                    <div style="font-weight:bold;color:var(--acu-text-main);min-width:0;">${escapeHtml(e.resolvedTarget || e.target)}</div>
+                    <div style="color:${e.computedValue >= 0 ? 'var(--acu-success-text)' : 'var(--acu-error-text)'};font-weight:bold;text-align:right;white-space:nowrap;">
+                      ${e.computedValue > 0 ? '+' : ''}${e.computedValue}
+                    </div>
+                    <div style="grid-column:1 / -1;font-size:11px;color:var(--acu-text-sub);line-height:1.45;">
+                      算式: ${escapeHtml(e.formula)} ｜ 掷值: ${escapeHtml(String(e.rolledValue))}<br>
+                      数值: ${e.beforeValue === null || e.beforeValue === undefined ? '未知' : escapeHtml(String(e.beforeValue))}
+                      →
+                      ${e.afterValue === null || e.afterValue === undefined ? '未知' : escapeHtml(String(e.afterValue))}
+                      ${e.conditionSummary ? `<br>条件: ${escapeHtml(e.conditionSummary)}` : ''}
+                    </div>
+                  </div>
+                `,
+                  )
+                  .join('')}
+              </div>
+            </div>
+            <div class="acu-dialog-btns">
+              <button class="acu-dialog-btn" id="confirm-cancel"><i class="fa-solid fa-times"></i> 取消</button>
+              <button class="acu-dialog-btn acu-btn-confirm" id="confirm-ok"><i class="fa-solid fa-check"></i> 确认执行</button>
+            </div>
+          </div>
+        </div>
+      `);
+
+      $('body').append(dialog);
+
+      // 取消按钮
+      dialog.on('click', '#confirm-cancel', () => {
+        dialog.remove();
+        onCancel();
+      });
+
+      // 点击遮罩关闭 (视为取消)
+      dialog.on('click', '.acu-confirm-overlay', e => {
+        if ($(e.target).hasClass('acu-confirm-overlay')) {
+          dialog.remove();
+          onCancel();
+        }
+      });
+
+      // 确认按钮
+      dialog.on('click', '#confirm-ok', () => {
+        dialog.remove();
+        onConfirm();
+      });
+
+      // 自动聚焦确认按钮,方便键盘操作
+      dialog.find('#confirm-ok').focus();
+    };
+
+    /**
+     * [新增] 从效果输入框读取并计算效果值
+     * @param outcomeName 结果等级名称 (用于匹配输入框)
+     * @param defaultFormula 默认公式
+     * @returns ComputedEffect 数组
+     */
+    const resolveEffectConditionPreview = (
+      effect: Effect,
+      effectContext: PendingEffectContext['context'],
+      outcomeName: string,
+    ): Pick<ComputedEffect, 'conditionExpr' | 'resolvedConditionExpr' | 'conditionPassed' | 'conditionSummary'> => {
+      if (!effect.condition || effect.condition.trim() === '') {
+        return {
+          conditionExpr: '',
+          resolvedConditionExpr: '',
+          conditionPassed: true,
+          conditionSummary: `命中【${outcomeName}】分支后直接生效`,
+        };
+      }
+
+      const rawExpr = effect.condition.trim();
+      const condContext: Record<string, number> = {
+        $roll: effectContext.roll,
+        '$roll.total': effectContext.roll,
+        $attr: effectContext.attributeValue,
+        $mod: effectContext.modifier,
+        $dc: effectContext.dc,
+      };
+      const condResult = evaluateCondition(rawExpr, condContext);
+      const passed =
+        condResult.success &&
+        (typeof condResult.value === 'number' ? condResult.value !== 0 : Boolean(condResult.value));
+
+      const resolvedExpr = rawExpr
+        .replace(/\$roll\.total/g, String(effectContext.roll))
+        .replace(/\$roll/g, String(effectContext.roll))
+        .replace(/\$attr/g, String(effectContext.attributeValue))
+        .replace(/\$mod/g, String(effectContext.modifier))
+        .replace(/\$dc/g, String(effectContext.dc));
+
+      const summary = `命中【${outcomeName}】分支，条件 ${resolvedExpr}（原式:${rawExpr}）${passed ? '成立' : '不成立'}`;
+      return {
+        conditionExpr: rawExpr,
+        resolvedConditionExpr: resolvedExpr,
+        conditionPassed: passed,
+        conditionSummary: summary,
+      };
+    };
+
+    const computeEffectsFromInputs = (
+      outcomeName: string,
+      effects: Effect[],
+      effectContext: PendingEffectContext['context'],
+    ): ComputedEffect[] => {
+      const results: ComputedEffect[] = [];
+
+      // 查找对应结果等级的效果输入框
+      const $inputGroup = panel.find(`.acu-effect-value-input[data-outcome="${outcomeName}"]`);
+      const inputValue = $inputGroup.val()?.toString().trim() || '';
+
+      for (const effect of effects) {
+        // 如果用户输入了值,使用用户输入;否则使用效果定义的默认值
+        const formula = inputValue || String(effect.value || '0');
+        const parsedValue = parseEffectValueInput(formula, `Confirm ${outcomeName}/${effect.id}`);
+        let computedValue = parsedValue.finalValue;
+        const rolledValue = parsedValue.rolledValue;
+        const displayText = parsedValue.valid
+          ? `${parsedValue.formulaText} → ${rolledValue}`
+          : `${parsedValue.formulaText} → 解析失败(按0处理)`;
+
+        // 根据操作类型调整符号
+        if (effect.operation === 'subtract') {
+          computedValue = -Math.abs(computedValue);
+        }
+
+        const conditionPreview = resolveEffectConditionPreview(effect, effectContext, outcomeName);
+
+        results.push({
+          effectId: effect.id,
+          target: effect.target,
+          computedValue,
+          rolledValue,
+          formula: parsedValue.formulaText,
+          displayText,
+          ...conditionPreview,
+        });
+      }
+
+      return results;
+    };
+
+    /**
+     * [新增] 处理效果确认流程
+     * 检查是否有需要确认的效果,显示弹窗并在确认后执行
+     */
+    const handleEffectConfirmation = async (pendingCtx: PendingEffectContext): Promise<void> => {
+      const { preset, matchedOutcome, context: effectContext } = pendingCtx;
+      if (!matchedOutcome.effects || matchedOutcome.effects.length === 0) {
+        return;
+      }
+
+      if (activeConfirmEffectRun && activeConfirmEffectRun.runId !== pendingCtx.runId) {
+        const staleRun = activeConfirmEffectRun;
+        setHistoryEffectStateByRun(staleRun, {
+          effectStatus: 'cancelled',
+          effectError: '确认弹窗被新的检定覆盖，自动取消',
+          effectTrace: ['已取消：被新操作覆盖'],
+        });
+        const seq = emitEffectRun({
+          runId: staleRun.runId,
+          status: 'cancelled',
+          characterName: staleRun.context.characterName,
+          attributeName: staleRun.context.attributeName,
+          historyIndex: staleRun.historyIndex,
+          effectResults: [],
+          effectTrace: ['已取消：被新操作覆盖'],
+          chainMode: getSecondaryTriggerMode(staleRun.preset),
+          error: '确认弹窗被新的检定覆盖，自动取消',
+          timestamp: Date.now(),
+        });
+        setHistoryEffectStateByRun(staleRun, { effectEventSeq: seq });
+      }
+      activeConfirmEffectRun = pendingCtx;
+
+      // 检查是否有需要确认的效果 (默认 needsConfirm=true)
+      const needsConfirmEffects = matchedOutcome.effects.filter(e => e.needsConfirm !== false);
+      if (needsConfirmEffects.length === 0) {
+        // 所有效果都不需要确认,直接暂存等待 MESSAGE_SENT 执行
+        return;
+      }
+
+      // 计算效果值
+      const aliasCandidates = [...(preset.effectsConfig?.allowedTargets || []), effectContext.attributeName].filter(
+        (name, idx, arr) => Boolean(name) && arr.indexOf(name) === idx,
+      );
+      const computedEffects = computeEffectsFromInputs(matchedOutcome.name, needsConfirmEffects, effectContext).map(
+        eff => {
+          const resolvedTarget = resolveAttributeAliasName(
+            effectContext.characterName,
+            eff.target,
+            aliasCandidates,
+          ).name;
+          const beforeValue = getAttributeValue(effectContext.characterName, eff.target, aliasCandidates);
+          const afterValue = beforeValue === null || beforeValue === undefined ? null : beforeValue + eff.computedValue;
+          return {
+            ...eff,
+            resolvedTarget: resolvedTarget || undefined,
+            beforeValue,
+            afterValue,
+          };
+        },
+      );
+      if (computedEffects.length === 0) {
+        return;
+      }
+
+      // 显示确认弹窗
+      showEffectConfirmDialog({
+        preset,
+        outcomeLabel: `${effectContext.attributeName} 检定: ${matchedOutcome.name}`,
+        branchReasonText: pendingCtx.branchReasonText,
+        effects: computedEffects,
+        onConfirm: async () => {
+          const confirmedRun: PendingEffectContext = {
+            ...pendingCtx,
+            effectOverrides: computedEffects,
+            timestamp: Date.now(),
+          };
+
+          enqueueEffectRun(confirmedRun);
+          setHistoryEffectStateByRun(pendingCtx, {
+            effectStatus: 'confirmed',
+          });
+          const seq = emitEffectRun({
+            runId: pendingCtx.runId,
+            status: 'confirmed',
+            characterName: effectContext.characterName,
+            attributeName: effectContext.attributeName,
+            historyIndex: pendingCtx.historyIndex,
+            effectResults: [],
+            effectTrace: ['已确认，等待提交'],
+            chainMode: getSecondaryTriggerMode(pendingCtx.preset),
+            timestamp: Date.now(),
+          });
+          setHistoryEffectStateByRun(pendingCtx, { effectEventSeq: seq });
+          if (activeConfirmEffectRun?.runId === pendingCtx.runId) {
+            activeConfirmEffectRun = null;
+          }
+          console.info(`[DICE] Effect run confirmed: ${pendingCtx.runId}`);
+
+          // 确认后立即尝试执行（MESSAGE_SENT 可能已在弹窗显示前触发过，不会再次触发）
+          if (confirmedRun.messageId) {
+            await processPendingEffectRuns(confirmedRun.messageId);
+          } else {
+            console.info(`[DICE][META] confirm waiting MESSAGE_SENT for run=${confirmedRun.runId}`);
+            await processPendingEffectRuns();
+          }
+        },
+        onCancel: () => {
+          setHistoryEffectStateByRun(pendingCtx, { effectStatus: 'cancelled' });
+          const seq = emitEffectRun({
+            runId: pendingCtx.runId,
+            status: 'cancelled',
+            characterName: effectContext.characterName,
+            attributeName: effectContext.attributeName,
+            historyIndex: pendingCtx.historyIndex,
+            effectResults: [],
+            effectTrace: ['已取消'],
+            chainMode: getSecondaryTriggerMode(pendingCtx.preset),
+            timestamp: Date.now(),
+          });
+          setHistoryEffectStateByRun(pendingCtx, { effectEventSeq: seq });
+          if (activeConfirmEffectRun?.runId === pendingCtx.runId) {
+            activeConfirmEffectRun = null;
+          }
+          console.info('[DICE] Effect execution cancelled by user');
+        },
+      });
+    };
+
+    /**
+     * [新增] 二级效果触发点检测
+     * 在效果执行完成后检查是否触发二级效果
+     */
+    const checkSecondaryEffects = async (
+      preset: AdvancedDicePreset,
+      effectResults: EffectResult[],
+      context: { characterName: string; attributeName: string; attributeValue: number },
+    ): Promise<EffectResult[]> => {
+      return executeSecondaryEffectsChain(preset, effectResults, context);
+    };
+
+    // [新增] 应用消耗效果并更新 UI
+    const applyBurnerEffect = (burner: ResourceBurner, amount: number) => {
+      const effectValue = amount * burner.ratio;
+      const sign = burner.direction === 'increase' ? 1 : -1;
+      const totalChange = effectValue * sign;
+
+      // 修改相应的输入框值或预设值
+      // 注意: 这会改变下一次投骰的基础值，或者如果是 roll 修正则需要特殊处理
+      // 这里我们选择直接修改输入框的值，并触发重新计算
+      // 对于 target (roll), 我们无法直接修改已投出的结果，除非重新 evaluateOutcomes
+      // 但 evaluateOutcomes 接受的是 outcomes 数组，不直接接受 rollTotal
+      // 简单的做法是：修改 modifier 输入框 (对于 mod 修正) 或 target 输入框 (对于 dc 修正)
+      // 对于 roll 修正，我们可以添加一个临时的 modifier
+
+      // 为了简单可靠，我们先支持 mod 和 dc 的修改，因为它们对应输入框
+      if (burner.target === 'mod') {
+        const $modInput = panel.find('#dice-modifier');
+        const currentMod = parseModifier($modInput.val().trim());
+        const newMod = currentMod + totalChange;
+        $modInput.val(newMod >= 0 ? `+${newMod}` : String(newMod));
+        // 重新执行高级检定 (会重新投骰吗? 是的，performAdvancedCheck 会重新投骰)
+        // 如果不想重新投骰，我们需要拆分 performAdvancedCheck
+        // 但目前的架构是整体执行的。
+        // 为了"改变结果"而不"重投"，我们需要一种机制来只更新结果判定逻辑
+        // 这是一个架构限制。
+        // 妥协方案: 消耗资源后，自动触发一次带修正的"重投" (即改变了修正值后的投骰)
+        // 这符合"燃运"通常的逻辑：付出代价来获得更有利的结果
+        performAdvancedCheck();
+      } else if (burner.target === 'dc') {
+        const $dcInput = panel.find('#dice-target');
+        const currentDc = parseInt($dcInput.val().trim() || '0', 10);
+        const newDc = currentDc + totalChange;
+        $dcInput.val(newDc);
+        performAdvancedCheck();
+      } else if (burner.target === 'attribute') {
+        // 修改属性值输入框
+        const $attrInput = panel.find('#dice-attr-value');
+        const currentAttr = parseInt($attrInput.val().trim() || '0', 10);
+        const newAttr = currentAttr + totalChange;
+        $attrInput.val(newAttr);
+        performAdvancedCheck();
+      } else if (burner.target === 'roll') {
+        // 修改 roll 值通常意味着作为 modifier 加在最终结果上
+        // 因为我们不能修改骰子本身的随机结果
+        const $modInput = panel.find('#dice-modifier');
+        const currentMod = parseModifier($modInput.val().trim());
+        const newMod = currentMod + totalChange;
+        $modInput.val(newMod >= 0 ? `+${newMod}` : String(newMod));
+        performAdvancedCheck();
+      }
+    };
+
+    // [新增] 高级检定执行函数
+    const performAdvancedCheck = async function (options?: { isPushed?: boolean }) {
+      if (!currentAdvancedPreset) return;
+
+      const preset = currentAdvancedPreset;
+      const initiatorName = panel.find('#dice-initiator-name').val().trim() || '<user>';
+      const attrName = panel.find('#dice-attr-name').val().trim() || '自由检定';
+
+      // [辅助函数] 解析 defaultValue (支持表达式)
+      const resolveDefaultValue = function (
+        defaultValue: number | string | undefined,
+        context: Record<string, number>,
+      ): number {
+        if (defaultValue === undefined) return 0;
+        if (typeof defaultValue === 'number') return defaultValue;
+        // 字符串表达式,使用 evaluateFormula 解析
+        const result = evaluateFormula(defaultValue, context);
+        if (result === 0 && defaultValue !== '0' && String(defaultValue) !== '0') {
+          if (window.toastr) {
+            window.toastr.warning(`表达式 "${defaultValue}" 求值失败,使用默认值 0`);
+          }
+        }
+        return result || 0;
+      };
+
+      // 1. 解析属性值 (用户输入优先,留空用 defaultValue)
+      let attrValue = 0;
+      const attrInputVal = panel.find('#dice-attr-value').val().trim();
+      if (attrInputVal !== '') {
+        attrValue = parseInt(attrInputVal, 10) || 0;
+      } else if (preset.attribute?.mode === 'fixed' && preset.attribute?.key) {
+        // 从表格读取
+        attrValue = getAttributeValue(initiatorName, preset.attribute.key) || 0;
+      } else {
+        attrValue = resolveDefaultValue(preset.attribute?.defaultValue, {});
+      }
+
+      // 2. 解析DC (hidden 时跳过, 用户输入优先, 留空用 defaultValue)
+      let dc = 0;
+      if (!preset.dc?.hidden) {
+        const dcInputVal = panel.find('#dice-target').val().trim();
+        if (dcInputVal !== '') {
+          dc = parseInt(dcInputVal, 10) || 0;
+        } else if (preset.dc?.mode === 'fixed' && preset.dc?.value !== undefined) {
+          dc = preset.dc.value;
+        } else {
+          dc = resolveDefaultValue(preset.dc?.defaultValue, { $attr: attrValue });
+        }
+      }
+
+      // 3. 解析修正值 (hidden 时跳过, 用户输入优先, 留空用 defaultValue)
+      let mod = 0;
+      if (!preset.mod?.hidden) {
+        const modStr = panel.find('#dice-modifier').val().trim();
+        if (modStr !== '') {
+          mod = parseModifier(modStr);
+        } else {
+          mod = resolveDefaultValue(preset.mod?.defaultValue, { $attr: attrValue });
+        }
+      }
+
+      // 3.3 解析技能加值 (hidden 时跳过或预设未定义时跳过)
+      let skillMod = 0;
+      if (preset.skillMod && !preset.skillMod.hidden) {
+        const skillModStr = panel.find('#dice-skill-mod').val().trim();
+        if (skillModStr !== '') {
+          skillMod = parseModifier(skillModStr);
+        } else {
+          skillMod = resolveDefaultValue(preset.skillMod?.defaultValue, { $attr: attrValue });
+        }
+      }
+
+      // 3.5 计算属性调整值 (DND5e等规则使用)
+      let attrMod = 0;
+      if ('attribute' in preset && preset.attribute?.computeModifier) {
+        // 使用 computeModifier 公式计算调整值
+        const modFormula = preset.attribute.computeModifier;
+        // 特殊处理 DND5e 调整值公式: floor(($attr - 10) / 2)
+        if (modFormula.includes('floor') && modFormula.includes('$attr')) {
+          attrMod = Math.floor((attrValue - 10) / 2);
+        } else {
+          attrMod = resolveDefaultValue(modFormula, { $attr: attrValue });
+        }
+      }
+
+      // [新增] 收集自定义字段值
+      const customValues: Record<string, number | string | boolean> = {};
+      if ('customFields' in preset && Array.isArray(preset.customFields) && preset.customFields.length > 0) {
+        const $customFields = panel.find('.acu-dice-custom-field');
+        $customFields.each(function () {
+          const $el = $(this);
+          const id = $el.data('id');
+          // 找到配置
+          const fieldConfig = preset.customFields.find(f => f.id === id);
+          if (!fieldConfig) return;
+
+          let val: string | number | boolean;
+          if (fieldConfig.type === 'toggle') {
+            val = $el.prop('checked');
+          } else if (fieldConfig.type === 'number') {
+            const num = parseFloat($el.val() as string);
+            val = isNaN(num) ? (fieldConfig.defaultValue as number) : num;
+          } else if (fieldConfig.type === 'select') {
+            // [修复] select 类型的值需要转换为数字（如果是数字字符串）
+            const rawVal = $el.val() as string;
+            const num = parseFloat(rawVal);
+            val = isNaN(num) ? rawVal : num;
+          } else {
+            const rawVal = String($el.val() ?? '').trim();
+            if (rawVal === '' && fieldConfig.defaultValue !== undefined && fieldConfig.defaultValue !== '') {
+              val = fieldConfig.defaultValue as string | number | boolean;
+            } else {
+              val = rawVal;
+            }
+          }
+          customValues['$' + id] = val; // 添加 $ 前缀以便在表达式中使用
+        });
+      }
+
+      // [新增] 计算派生变量 (投骰前)
+      const baseContext = {
+        $attr: attrValue,
+        $attrMod: attrMod,
+        $skillMod: skillMod,
+        $dc: dc,
+        $mod: mod,
+        ...customValues,
+      };
+      const derivedValues: Record<string, number> = {};
+      if ('derivedVars' in preset && Array.isArray(preset.derivedVars) && preset.derivedVars.length > 0) {
+        preset.derivedVars.forEach(spec => {
+          const id = spec?.id?.trim();
+          if (!id) return;
+          const varName = id.startsWith('$') ? id : `$${id}`;
+          const evalResult = evaluateCondition(spec.expr, { ...baseContext, ...derivedValues });
+          if (!evalResult.success) {
+            console.warn(`[DICE] 派生变量 ${varName} 计算失败:`, evalResult.error);
+            derivedValues[varName] = 0;
+            return;
+          }
+          const rawValue = evalResult.value;
+          const numericValue = typeof rawValue === 'number' && Number.isFinite(rawValue) ? rawValue : rawValue ? 1 : 0;
+          derivedValues[varName] = numericValue;
+        });
+      }
+      const extraValues = { ...customValues, ...derivedValues };
+
+      let diceExpression = preset.diceExpression;
+      if ('dicePatches' in preset && Array.isArray(preset.dicePatches) && preset.dicePatches.length > 0) {
+        const patchContext = { ...baseContext, ...derivedValues };
+        const replacePatchTemplate = (template: string): string => {
+          const varPattern = /\$[a-zA-Z_]\w*/g;
+          return template.replace(varPattern, match => {
+            const value = patchContext[match];
+            return typeof value === 'number' && Number.isFinite(value) ? String(value) : '0';
+          });
+        };
+
+        preset.dicePatches.forEach(patch => {
+          if (!patch) return;
+          if (patch.when) {
+            const conditionResult = evaluateCondition(patch.when, patchContext);
+            if (!conditionResult.success) {
+              console.warn('[DICE] dicePatches 条件评估失败:', conditionResult.error);
+              return;
+            }
+            const shouldApply =
+              typeof conditionResult.value === 'number' ? conditionResult.value !== 0 : Boolean(conditionResult.value);
+            if (!shouldApply) return;
+          }
+
+          const resolvedTemplate = replacePatchTemplate(patch.template ?? '');
+          switch (patch.op) {
+            case 'append':
+              diceExpression = `${diceExpression}${resolvedTemplate}`;
+              break;
+            case 'prepend':
+              diceExpression = `${resolvedTemplate}${diceExpression}`;
+              break;
+            case 'replace':
+              diceExpression = resolvedTemplate;
+              break;
+          }
+        });
+      }
+
+      // 4. 投骰
+      const rollResult = rollComplexDiceExpression(diceExpression);
+      const rollTotal = rollResult.total;
+
+      // [新增] 投骰后重新计算派生变量（支持依赖 $roll.total 的派生变量，如 chaos = 6 - $roll.total）
+      const postRollDerivedValues: Record<string, number> = {};
+      if ('derivedVars' in preset && Array.isArray(preset.derivedVars) && preset.derivedVars.length > 0) {
+        const postRollContext = {
+          $roll: rollResult,
+          '$roll.total': rollTotal, // 显式添加 $roll.total 作为独立变量
+          ...baseContext,
+          ...customValues,
+        };
+        preset.derivedVars.forEach(spec => {
+          const id = spec?.id?.trim();
+          if (!id) return;
+          const varName = id.startsWith('$') ? id : `$${id}`;
+          const evalResult = evaluateCondition(spec.expr, { ...postRollContext, ...postRollDerivedValues });
+          if (!evalResult.success) {
+            console.warn(`[DICE] 派生变量 ${varName} (投骰后) 计算失败:`, evalResult.error);
+            postRollDerivedValues[varName] = 0;
+            return;
+          }
+          const rawValue = evalResult.value;
+          const numericValue = typeof rawValue === 'number' && Number.isFinite(rawValue) ? rawValue : rawValue ? 1 : 0;
+          postRollDerivedValues[varName] = numericValue;
+        });
+      }
+
+      // 5. 判定成功
+      const isPushed = options?.isPushed ?? false;
+      const context = {
+        $roll: rollResult, // 传递整个对象
+        '$roll.total': rollTotal, // 显式添加 $roll.total
+        $isPushed: isPushed ? 1 : 0, // 孤注一掷标记 (1=是,0=否)
+        ...baseContext,
+        ...postRollDerivedValues, // 使用投骰后计算的派生变量
+      };
+
+      // 判定结果: 使用 outcomes 系统
+      let outcomeText: string;
+      let resultType: string;
+      let isSuccess = false;
+      let matchedOutcome: OutcomeLevel | undefined;
+      let conditionExpr = '';
+      let displayExprResult = true; // displayExpr 的计算结果，用于判断"成立/不成立"
+      let branchReasonText = '';
+
+      if ('outcomes' in preset && Array.isArray(preset.outcomes) && preset.outcomes.length > 0) {
+        // 新系统: 使用 evaluateOutcomes
+        matchedOutcome = evaluateOutcomes(preset.outcomes, context);
+        // [修复] 保存原始结果，用于后续判断是否触发了 unmet
+        const originalOutcome = matchedOutcome;
+        // [修复] 保存用户要求的等级对应的 outcome，用于显示条件
+        let requiredOutcome: OutcomeLevel | undefined;
+
+        // 检查 outcomePolicy
+        if (preset.outcomePolicy?.kind === 'minRank') {
+          const requiredRankVarId = preset.outcomePolicy.requiredRankVarId;
+          // [修复] customFields 的值存储在 context 中时带有 $ 前缀
+          // 例如 requiredRankVarId='requiredRank'，但 context 中的键是 '$requiredRank'
+          const varKey = requiredRankVarId.startsWith('$') ? requiredRankVarId : `$${requiredRankVarId}`;
+          const requiredRank = context[varKey] ?? 0;
+          // [修复] 使用 rank（成功等级：0-4）而不是 contestRank（对抗等级：20-100）
+          // rank: 0=失败, 1=成功, 2=困难成功, 3=极难成功, 4=大成功
+          // requiredRank: 0=无要求, 1=成功, 2=困难成功, 3=极难成功
+          const actualRank = matchedOutcome.rank ?? 0;
+
+          // [修复] 找到用户要求的等级对应的 outcome（用于显示条件）
+          if (requiredRank > 0) {
+            requiredOutcome = preset.outcomes.find(o => o.rank === requiredRank);
+          }
+
+          // [修复] 只在 rank 1-3（成功/困难成功/极难成功）区间应用最低成功等级判定
+          // 大成功(rank=4)、大失败(rank=-1)、普通失败(rank=0) 不受影响
+          if (actualRank >= 1 && actualRank < requiredRank) {
+            const unmetOutcomeId = preset.outcomePolicy.unmetOutcomeId;
+            const fallbackOutcome = preset.outcomes.find(o => o.id === unmetOutcomeId);
+            if (fallbackOutcome) {
+              matchedOutcome = fallbackOutcome;
+            }
+          }
+        }
+
+        outcomeText = matchedOutcome.name || '判定完成';
+        // 使用 displayExpr（如果有）或 condition 作为显示表达式
+        // [修复] 当触发 unmet 时，显示用户要求的等级的条件（如"极难成功"的条件）
+        // 这样用户能看到"你需要达到这个条件才算成功"
+        const isUnmet = matchedOutcome !== originalOutcome;
+        const displaySourceOutcome = isUnmet && requiredOutcome ? requiredOutcome : matchedOutcome;
+        const displayExpr = displaySourceOutcome.displayExpr ?? displaySourceOutcome.condition;
+
+        // [修改] 替换所有上下文变量 (包括自定义变量)
+        conditionExpr = displayExpr;
+        // 先替换 $roll.hasTag() 方法调用 (必须在 $roll 之前)
+        if (context.$roll && typeof context.$roll === 'object') {
+          const roll = context.$roll as RollResult;
+          conditionExpr = conditionExpr.replace(/\$roll\.hasTag\s*\(\s*['"]([^'"]+)['"]\s*\)/gi, (_match, tag) => {
+            return (roll.tags ?? []).includes(tag) ? '成立' : '不成立';
+          });
+        }
+        // 再替换标准变量 (注意: $roll.total 必须在 $roll 之前替换)
+        conditionExpr = conditionExpr
+          .replace(/\$roll\.total/g, String(rollTotal))
+          .replace(/\$roll/g, String(rollTotal))
+          .replace(/\$attrMod/g, String(attrMod))
+          .replace(/\$skillMod/g, String(skillMod))
+          .replace(/\$attr/g, String(attrValue))
+          .replace(/\$dc/g, String(dc))
+          .replace(/\$mod/g, String(mod));
+
+        // 再替换自定义变量
+        Object.keys(extraValues).forEach(key => {
+          // 使用正则替换所有出现的变量 (注意转义 $ 符号)
+          const safeKey = key.replace('$', '\\$');
+          const regex = new RegExp(safeKey, 'g');
+          conditionExpr = conditionExpr.replace(regex, String(extraValues[key]));
+        });
+
+        // [新增] 清理零值显示：隐藏 "+ 0" 模式，使公式更简洁
+        // 例如 "3 + 2 + 13 + 0 >= 10" -> "3 + 2 + 13 >= 10"
+        conditionExpr = conditionExpr
+          .replace(/\s*\+\s*0(?=\s*[+\->=<]|\s*$)/g, '') // 移除 "+ 0" (后面跟运算符或结尾)
+          .replace(/^\s*0\s*\+\s*/g, ''); // 移除开头的 "0 +"
+
+        // 计算 displayExpr 的布尔值（用于判断"成立/不成立"）
+        const displayExprEvalResult = evaluateCondition(displayExpr, context);
+        displayExprResult =
+          displayExprEvalResult.success &&
+          (typeof displayExprEvalResult.value === 'number'
+            ? displayExprEvalResult.value !== 0
+            : Boolean(displayExprEvalResult.value));
+        branchReasonText = `命中【${matchedOutcome.name}】分支，分支判定式 ${conditionExpr || displayExpr}，结果${displayExprResult ? '成立' : '不成立'}`;
+        // 根据 priority 推断 resultType 和 isSuccess (用于 CSS 类名兼容)
+        if (matchedOutcome.priority <= 10) {
+          resultType = 'critSuccess';
+          isSuccess = true;
+        } else if (matchedOutcome.priority <= 30) {
+          resultType = 'extremeSuccess';
+          isSuccess = true;
+        } else if (matchedOutcome.priority < 50) {
+          resultType = 'success';
+          isSuccess = true;
+        } else if (matchedOutcome.priority === 50) {
+          resultType = 'warning';
+          isSuccess = false;
+        } else if (matchedOutcome.priority < 90) {
+          resultType = 'failure';
+          isSuccess = false;
+        } else {
+          resultType = 'critFailure';
+          isSuccess = false;
+        }
+      } else {
+        // 兜底: 无法判定
+        outcomeText = '未知';
+        resultType = 'warning';
+        branchReasonText = '未命中可识别分支，按默认路径处理';
+        console.warn('[DICE] 预设缺少 outcomes');
+      }
+
+      // 5. 格式化输出
+      const finalValue = rollTotal + attrValue + skillMod + mod;
+
+      // 生成徽章样式 (优先使用 outcome.style.color,否则使用 CSS 类名)
+      const badgeClass = getResultBadgeClass(resultType);
+      const diceCfg = getDiceConfig();
+      const hideDiceResultFromUser =
+        diceCfg.hideDiceResultFromUser !== undefined ? diceCfg.hideDiceResultFromUser : false;
+      const displayValue = hideDiceResultFromUser ? '？？' : rollTotal;
+      const displayOutcomeText = hideDiceResultFromUser ? '' : outcomeText;
+
+      // 构建显示表达式
+      // 简单条件: 显示 conditionExpr (如 21 <= 64)
+      // 复杂条件: 显示空字符串
+      // 隐藏检定结果时: 显示空字符串
+      const exprDisplay = isComplexCondition(conditionExpr) ? '' : conditionExpr;
+      const displayExpr = hideDiceResultFromUser ? '' : exprDisplay;
+
+      // 将按钮内容替换为结果显示
+      const $rollBtn = panel.find('#dice-roll-btn');
+      $rollBtn.html(`
+        <div class="acu-dice-result-display">
+          <span class="acu-dice-result-value">${displayValue}</span>
+          <span class="acu-dice-result-target" style="font-size: 11px;">${escapeHtml(displayExpr)}</span>
+          ${displayOutcomeText ? `<span class="${badgeClass}">${displayOutcomeText}</span>` : ''}
+          <button class="dice-retry-btn acu-dice-retry-btn" title="重新投骰">
+            <i class="fa-solid fa-rotate-right"></i>
+          </button>
+        </div>
+      `);
+
+      // 绑定重投按钮点击事件
+      $rollBtn.off('click', '.dice-retry-btn').on('click', '.dice-retry-btn', function (e) {
+        e.stopPropagation();
+        e.preventDefault();
+        performAdvancedCheck();
+      });
+
+      // [新增] 渲染资源消耗器按钮 (燃运等)
+      if (preset.resourceBurners && preset.resourceBurners.length > 0) {
+        // 构建上下文：包含基础属性、派生变量、投骰结果
+        const burnerContext = {
+          ...context, // 复用已构建的 context (包含 $roll, $roll.total, $attr 等)
+        };
+
+        const burnersHtml = renderResourceBurnerButtons(preset, burnerContext, matchedOutcome, attrName);
+        if (burnersHtml) {
+          // 插入到结果显示区域
+          const $burners = $(burnersHtml);
+          $rollBtn.find('.acu-dice-result-display').append($burners);
+
+          // 绑定资源消耗按钮点击事件
+          $burners.find('.acu-dice-burner-btn').on('click', function (e) {
+            e.stopPropagation();
+            e.preventDefault();
+            const burnerId = $(this).data('id');
+            const burner = preset.resourceBurners?.find(b => b.id === burnerId);
+            if (burner) {
+              handleResourceBurnerClick(burner, burnerContext);
+            }
+          });
+        }
+      }
+
+      // [新增] 渲染孤注一掷按钮 (Pushed Roll) — 基于 outcome ID 而非 isSuccess 二元值
+      if (
+        preset.pushedRoll?.enabled &&
+        !isPushed && // 已经是孤注一掷则不可再push
+        matchedOutcome &&
+        !matchesCheckSelector(attrName, {
+          namePatterns: { include: preset.pushedRoll.excludePatterns ?? [] },
+        }) // 排除特定属性名
+      ) {
+        const outcomeId = matchedOutcome.id;
+        // 判定优先级: blockedOutcomes > pushableOutcomes > legacy fallback (!isSuccess)
+        const blockedOutcomes =
+          preset.pushedRoll.blockedOutcomes ?? (preset.pushedRoll.blockOnCritFailure !== false ? ['crit_failure'] : []);
+        const isBlocked = blockedOutcomes.includes(outcomeId);
+        const isPushable = preset.pushedRoll.pushableOutcomes
+          ? preset.pushedRoll.pushableOutcomes.includes(outcomeId)
+          : !isSuccess; // legacy fallback
+        if (isPushable && !isBlocked) {
+          const $pushBtn = $(`
+           <button class="acu-dice-burner-btn" title="孤注一掷：重掷一次，失败后果更严重">
+             <i class="fa-solid fa-skull"></i>
+           </button>
+         `);
+          // 优先插入到 burners 容器中（与燃运按钮并排），否则创建一个
+          let $burnersContainer = $rollBtn.find('.acu-dice-burners');
+          if (!$burnersContainer.length) {
+            $burnersContainer = $('<span class="acu-dice-burners"></span>');
+            $rollBtn.find('.acu-dice-result-display').append($burnersContainer);
+          }
+          $burnersContainer.append($pushBtn);
+          $pushBtn.on('click', function (e) {
+            e.stopPropagation();
+            e.preventDefault();
+            performAdvancedCheck({ isPushed: true });
+          });
+        }
+      }
+
+      // 生成输出文本 (使用模板系统)
+      // judgeResultText 基于 displayExpr 的计算结果，表示显示的算式是否在数学上成立
+      const judgeResultText = displayExprResult ? '成立' : '不成立';
+      const template =
+        'outputTemplate' in preset && preset.outputTemplate ? preset.outputTemplate : DEFAULT_OUTPUT_TEMPLATE;
+      // 计算pushed标注: 按 outcome ID 查找 outcomeLabels，fallback 到 '*' 默认值
+      const pushedLabel =
+        isPushed && matchedOutcome
+          ? (preset.pushedRoll?.outcomeLabels?.[matchedOutcome.id] ?? preset.pushedRoll?.outcomeLabels?.['*'] ?? '')
+          : '';
+      const outcomeTextRaw = (pushedLabel ? pushedLabel + '\n' : '') + (matchedOutcome?.outputText ?? '');
+      // 格式化attrMod为带符号字符串 (如 +3 或 -1)
+      const attrModStr = attrMod >= 0 ? `+${attrMod}` : String(attrMod);
+      // 格式化skillMod为带符号字符串
+      const skillModStr = skillMod >= 0 ? `+${skillMod}` : String(skillMod);
+
+      // [新增] 条件文本变量：当值为0时隐藏整个片段（包括标签）
+      // skillModText: 当skillMod非0时显示 "+技能加值+N"，否则为空
+      const skillModText = skillMod !== 0 ? `+技能加值${skillModStr}` : '';
+      // modText: 当mod非0时显示 "+额外加值+N"，否则为空
+      const modText = mod !== 0 ? `+额外加值${mod >= 0 ? '+' + mod : mod}` : '';
+      // attrModText: 当attrMod非0时显示 "(调整值+N)"，否则为空
+      const attrModText = attrMod !== 0 ? `(调整值${attrModStr})` : '';
+
+      // [新增] 将派生变量转换为 outputContext 格式（去掉 $ 前缀）
+      const derivedOutputVars: Record<string, number> = {};
+      Object.entries(postRollDerivedValues).forEach(([key, value]) => {
+        const cleanKey = key.startsWith('$') ? key.slice(1) : key;
+        derivedOutputVars[cleanKey] = value;
+      });
+      const customOutputVars: Record<string, string | number | boolean> = {};
+      Object.entries(customValues).forEach(([key, value]) => {
+        const cleanKey = key.startsWith('$') ? key.slice(1) : key;
+        customOutputVars[cleanKey] = value;
+      });
+
+      // [新增] 计算后果效果变量
+      const effectVars = computePendingEffectVariables(matchedOutcome?.effects);
+
+      const outputContext = {
+        initiator: initiatorName,
+        attrName: `【${attrName}】`,
+        attrValue: attrValue,
+        attrMod: attrModStr,
+        skillMod: skillModStr,
+        // [新增] 条件文本变量（零值时隐藏整个片段）
+        skillModText: skillModText,
+        modText: modText,
+        attrModText: attrModText,
+        formula: diceExpression,
+        roll: rollTotal,
+        'roll.total': rollTotal, // [新增] 支持 $roll.total 语法
+        dc: dc,
+        mod: mod,
+        attr: attrValue,
+        conditionExpr: conditionExpr,
+        judgeResult: judgeResultText,
+        outcomeName: outcomeText,
+        outcomeText: outcomeTextRaw,
+        ...customOutputVars,
+        ...derivedOutputVars, // [新增] 添加派生变量（如 chaos）
+        ...effectVars, // [新增] 添加后果效果变量
+      };
+      // [修复] 先独立渲染 outcomeText，避免其中变量（如 $growthGain）残留
+      outputContext.outcomeText = formatOutputTemplate(String(outputContext.outcomeText || ''), outputContext);
+      const diceResultText = formatOutputTemplate(template, outputContext);
+      smartInsertToTextarea(diceResultText, 'dice');
+
+      // 构建检定结果对象
+      const checkResult: AcuDice.CheckResult = {
+        success: isSuccess,
+        total: rollTotal,
+        target: dc,
+        outcomeText,
+        attrName,
+        criteria: 'advanced',
+        isAutoTarget: false,
+        formula: diceExpression,
+      };
+
+      // 添加到历史记录
+      const detailId = `check_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const checkResultWithTimestamp = {
+        ...checkResult,
+        timestamp: Date.now(),
+        detailId,
+        initiatorName,
+        historyType: 'check' as const,
+        detailLines: [
+          `发起者: ${initiatorName}`,
+          `属性: ${attrName} (值=${attrValue})`,
+          `公式: ${diceExpression}`,
+          `掷骰: ${rollTotal}`,
+          `目标: ${dc}`,
+          `修正: attrMod=${attrModStr}, skillMod=${skillModStr}, mod=${mod >= 0 ? '+' + mod : mod}`,
+          `判定: ${judgeResultText || outcomeText}`,
+          `结果: ${outcomeText}`,
+        ],
+        ...(isPushed ? { isPushed: true } : {}),
+      };
+      checkHistory.push(checkResultWithTimestamp);
+      if (checkHistory.length > MAX_HISTORY) {
+        checkHistory.shift();
+      }
+
+      // 触发事件
+      emitEvent('check', checkResultWithTimestamp);
+
+      // 暂存后果
+      // [修复] 检查属性名是否匹配 effectsConfig.triggerPatterns
+      const shouldTriggerEffects =
+        preset.effectsConfig &&
+        matchedOutcome &&
+        matchedOutcome.effects &&
+        matchedOutcome.effects.length > 0 &&
+        matchesCheckSelector(attrName, {
+          namePatterns: { include: preset.effectsConfig.triggerPatterns },
+        });
+
+      if (shouldTriggerEffects) {
+        const historyIndex = checkHistory.length - 1;
+        const runId = `effect_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const effectContext = {
+          characterName: initiatorName,
+          attributeName: attrName,
+          attributeValue: attrValue,
+          roll: rollResult.total,
+          modifier: mod,
+          dc,
+        };
+
+        const pendingCtx: PendingEffectContext = {
+          runId,
+          historyIndex,
+          preset,
+          matchedOutcome,
+          context: effectContext,
+          branchReasonText,
+          timestamp: Date.now(),
+        };
+
+        setHistoryEffectState(historyIndex, {
+          effectStatus: 'planned',
+          effectRunId: runId,
+          effectResults: [],
+          effectError: undefined,
+          effectTrace: undefined,
+        });
+        const plannedSeq = emitEffectRun({
+          runId,
+          status: 'planned',
+          characterName: initiatorName,
+          attributeName: attrName,
+          historyIndex,
+          effectResults: [],
+          effectTrace: ['等待确认'],
+          chainMode: getSecondaryTriggerMode(preset),
+          timestamp: Date.now(),
+        });
+        setHistoryEffectState(historyIndex, { effectEventSeq: plannedSeq });
+
+        // [新增] 检查是否有需要确认的效果
+        const hasConfirmableEffects = matchedOutcome.effects.some(e => e.needsConfirm !== false);
+
+        if (hasConfirmableEffects) {
+          // 有需要确认的效果,显示确认弹窗 (异步处理)
+          handleEffectConfirmation(pendingCtx);
+          console.info(
+            `[DICE] ${matchedOutcome.effects.length} effects pending user confirmation for ${initiatorName}`,
+          );
+        } else {
+          // 所有效果都不需要确认,直接进入待执行队列
+          enqueueEffectRun(pendingCtx);
+          setHistoryEffectState(historyIndex, {
+            effectStatus: 'confirmed',
+          });
+          const confirmedSeq = emitEffectRun({
+            runId,
+            status: 'confirmed',
+            characterName: initiatorName,
+            attributeName: attrName,
+            historyIndex,
+            effectResults: [],
+            effectTrace: ['自动确认，等待提交'],
+            chainMode: getSecondaryTriggerMode(preset),
+            timestamp: Date.now(),
+          });
+          setHistoryEffectState(historyIndex, { effectEventSeq: confirmedSeq });
+          console.info(`[DICE] Queued ${matchedOutcome.effects.length} auto-execute effects for ${initiatorName}`);
+        }
+      }
+
+      if (preset.currentAttrAutoUpdate && preset.currentAttrAutoUpdate.enabled !== false) {
+        const autoUpdate = preset.currentAttrAutoUpdate;
+        const when = autoUpdate.when || 'always';
+        const shouldApply =
+          when === 'always' || (when === 'success' && isSuccess) || (when === 'failure' && !isSuccess);
+        if (shouldApply) {
+          const autoContext: Record<string, string | number | boolean> = {
+            $roll: rollTotal,
+            '$roll.total': rollTotal,
+            $attr: attrValue,
+            $dc: dc,
+            $mod: mod,
+            $success: isSuccess ? 1 : 0,
+            ...customValues,
+          };
+          const resolvedExpr = resolveExpressionWithContext(autoUpdate.valueExpr, autoContext);
+          const changeValue = parseModifier(resolvedExpr);
+          const aliasCandidates = autoUpdate.aliasCandidates || [];
+          const resolvedAlias = resolveAttributeAliasName(initiatorName, attrName, aliasCandidates).name;
+          const targetAttr = resolvedAlias || attrName;
+          const beforeValueRaw = getAttributeValue(initiatorName, attrName, aliasCandidates);
+          const beforeValue =
+            beforeValueRaw === null || beforeValueRaw === undefined ? (autoUpdate.initValue ?? 0) : beforeValueRaw;
+
+          let previewAfterValue = beforeValue;
+          if (autoUpdate.operation === 'add') {
+            previewAfterValue = beforeValue + changeValue;
+          } else if (autoUpdate.operation === 'subtract') {
+            previewAfterValue = beforeValue - changeValue;
+          } else {
+            previewAfterValue = changeValue;
+          }
+          const minValue = autoUpdate.min ?? 0;
+          const maxValue = autoUpdate.max ?? Infinity;
+          previewAfterValue = Math.max(minValue, Math.min(maxValue, previewAfterValue));
+          const previewDelta = previewAfterValue - beforeValue;
+
+          const computedAutoEffect: ComputedEffect = {
+            effectId: `auto_${autoUpdate.operation}`,
+            target: attrName,
+            resolvedTarget: targetAttr,
+            computedValue: previewDelta,
+            rolledValue: changeValue,
+            formula: resolvedExpr || '0',
+            displayText: `${resolvedExpr || '0'} → ${changeValue}`,
+            beforeValue,
+            afterValue: previewAfterValue,
+            conditionSummary: `命中【${matchedOutcome?.name || outcomeText}】分支后触发自动填表`,
+          };
+
+          const confirmed = await new Promise<boolean>(resolve => {
+            showEffectConfirmDialog({
+              preset,
+              outcomeLabel: `${attrName} 检定: ${matchedOutcome?.name || outcomeText}`,
+              branchReasonText,
+              effects: [computedAutoEffect],
+              onConfirm: () => resolve(true),
+              onCancel: () => resolve(false),
+            });
+          });
+
+          if (confirmed) {
+            const updateResult = await updateSingleAttribute(
+              initiatorName,
+              attrName,
+              autoUpdate.operation,
+              changeValue,
+              {
+                initValue: autoUpdate.initValue,
+                min: autoUpdate.min,
+                max: autoUpdate.max,
+                aliasCandidates,
+              },
+            );
+            if (updateResult.success) {
+              const finalAttr = updateResult.resolvedAttrName || attrName;
+              const delta = updateResult.newValue - updateResult.oldValue;
+              const changeLabel =
+                String(autoUpdate.changeLabel || '').trim() ||
+                (autoUpdate.operation === 'add' ? '增加' : autoUpdate.operation === 'subtract' ? '减少' : '设为');
+              const exprRaw = String(resolvedExpr || '').trim();
+              const rolledText = String(changeValue);
+              const exprNormalized = exprRaw.replace(/\s+/g, '');
+              const exprWithRoll =
+                exprRaw && exprNormalized !== rolledText ? `${exprRaw}=${rolledText}` : exprRaw || rolledText;
+
+              const settledContext: Record<string, string | number | undefined> = {
+                attr: `【${finalAttr}】`,
+                attrPlain: finalAttr,
+                old: updateResult.oldValue,
+                new: updateResult.newValue,
+                delta,
+                expr: exprRaw || rolledText,
+                rolled: changeValue,
+                operation: autoUpdate.operation,
+                changeLabel,
+              };
+
+              const settledTemplate = String(autoUpdate.outputTextTemplate || '').trim();
+              const settledLine =
+                settledTemplate !== ''
+                  ? formatOutputTemplate(settledTemplate, settledContext).trim()
+                  : `已填表：${finalAttr}从${updateResult.oldValue}变为${updateResult.newValue}，变化${changeLabel}${exprWithRoll}`;
+
+              const autoRunId = `autoupdate_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+              const injected = injectEffectLinesIntoTextarea(autoRunId, [settledLine]);
+              if (!injected) {
+                smartInsertToTextarea(settledLine, 'dice');
+              }
+
+              // 同步更新当前面板显示（属性输入框 + 快捷属性按钮）
+              const currentAttrName = String(panel.find('#dice-attr-name').val() || '').trim();
+              if (currentAttrName === attrName || currentAttrName === finalAttr) {
+                panel.find('#dice-attr-value').val(String(updateResult.newValue)).trigger('change');
+              }
+              buildAttrButtons(initiatorName);
+
+              if (window.toastr) {
+                window.toastr.success(
+                  `已完成填表更新 ${finalAttr}: ${updateResult.oldValue} -> ${updateResult.newValue}`,
+                );
+              }
+            } else if (window.toastr) {
+              window.toastr.warning(`自动更新属性失败: ${updateResult.error || '未知错误'}`);
+            }
+          } else if (window.toastr) {
+            window.toastr.info('已取消本次自动填表');
+          }
+        }
+      }
+
+      if (onResult) {
+        onResult(checkResult);
+      }
+    };
+
+    // [新增] 自定义模式掷骰逻辑
+    const performCustomRoll = function () {
+      const $btn = panel.find('#dice-roll-btn');
+
+      // 读取自定义模式字段
+      const diceExpr = panel.find('#custom-dice-expr').val().trim() || '1d100';
+      const judgeMode = panel.find('#custom-judge-mode').val() as string;
+      const targetValueStr = panel.find('#custom-target-value').val().trim();
+      const initiatorName = panel.find('#dice-initiator-name').val().trim() || '<user>';
+      const attrName = panel.find('#dice-attr-name').val().trim() || '自由检定';
+
+      // 解析目标值
+      const expectedValue = calculateDiceExpectedValue(diceExpr);
+      const autoTargetValue = Number.isFinite(expectedValue) ? Math.floor(expectedValue) : null;
+      const targetValue = targetValueStr !== '' ? parseInt(targetValueStr, 10) : autoTargetValue;
+      const hasJudgement = judgeMode !== 'none' && targetValue !== null && !isNaN(targetValue);
+
+      // 执行掷骰 - 使用 rollComplexDiceExpression 支持复合表达式如 2d6+33
+      const rollResult = rollComplexDiceExpression(diceExpr);
+      if (isNaN(rollResult.total)) {
+        if (window.toastr) window.toastr.error(`骰子语法错误: ${diceExpr}`);
+        return;
+      }
+
+      const rollTotal = rollResult.total;
+
+      // 判定结果
+      let isSuccess = false;
+      let judgeResultText = '';
+
+      if (hasJudgement) {
+        switch (judgeMode) {
+          case '>=':
+            isSuccess = rollTotal >= targetValue;
+            judgeResultText = isSuccess ? '成功' : '失败';
+            break;
+          case '<=':
+            isSuccess = rollTotal <= targetValue;
+            judgeResultText = isSuccess ? '成功' : '失败';
+            break;
+          case '>':
+            isSuccess = rollTotal > targetValue;
+            judgeResultText = isSuccess ? '成功' : '失败';
+            break;
+          case '<':
+            isSuccess = rollTotal < targetValue;
+            judgeResultText = isSuccess ? '成功' : '失败';
+            break;
+          default:
+            judgeResultText = '';
+        }
+      }
+
+      // 生成输出文本 - 使用与内置预设一致的 meta 标签格式
+      const displayInitiator = replaceUserPlaceholders(initiatorName);
+      const displayAttrName = attrName || '自由检定';
+      let outputText: string;
+
+      if (hasJudgement) {
+        const conditionExpr = `${rollTotal} ${judgeMode} ${targetValue}`;
+        const judgeResultCN = isSuccess ? '成立' : '不成立';
+        outputText = `<meta:检定结果>\n元叙事：${displayInitiator} 发起了 【${displayAttrName}】 检定，${diceExpr}=${rollTotal}，判定 ${conditionExpr}？${judgeResultCN}，判定为【${judgeResultText}】\n</meta:检定结果>`;
+      } else {
+        // 无判定模式
+        outputText = `<meta:检定结果>\n元叙事：${displayInitiator} 发起了 【${displayAttrName}】 检定，${diceExpr}=${rollTotal}\n</meta:检定结果>`;
+      }
+
+      // 插入到输入框
+      smartInsertToTextarea(outputText, 'dice');
+
+      // 生成结果显示
+      const badgeClass = hasJudgement
+        ? isSuccess
+          ? 'acu-dice-result-badge success'
+          : 'acu-dice-result-badge failure'
+        : '';
+      const diceCfg = getDiceConfig();
+      const hideDiceResultFromUser =
+        diceCfg.hideDiceResultFromUser !== undefined ? diceCfg.hideDiceResultFromUser : false;
+      const displayValue = hideDiceResultFromUser ? '？？' : rollTotal;
+      const displayOutcome = hideDiceResultFromUser ? '' : judgeResultText;
+
+      // 更新按钮显示结果
+      $btn.html(`
+        <div class="acu-dice-result-display">
+          <span class="acu-dice-result-value">${displayValue}</span>
+          ${hasJudgement && displayOutcome ? `<span class="${badgeClass}">${displayOutcome}</span>` : ''}
+          <button class="dice-retry-btn acu-dice-retry-btn" title="重新投骰">
+            <i class="fa-solid fa-rotate-right"></i>
+          </button>
+        </div>
+      `);
+
+      // 绑定重投按钮
+      $btn.off('click', '.dice-retry-btn').on('click', '.dice-retry-btn', function (e) {
+        e.stopPropagation();
+        e.preventDefault();
+        performCustomRoll();
+      });
+
+      // 构建检定结果对象
+      const checkResult: AcuDice.CheckResult = {
+        success: isSuccess,
+        total: rollTotal,
+        target: targetValue ?? 0,
+        outcomeText: judgeResultText,
+        attrName,
+        criteria: 'custom',
+        isAutoTarget: false,
+        formula: diceExpr,
+      };
+
+      // 添加到历史记录
+      const detailId = `check_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const checkResultWithTimestamp = {
+        ...checkResult,
+        timestamp: Date.now(),
+        detailId,
+        initiatorName,
+        historyType: 'check' as const,
+        detailLines: [
+          `发起者: ${initiatorName}`,
+          `属性: ${attrName}`,
+          `公式: ${diceExpr}`,
+          `掷骰: ${rollTotal}`,
+          hasJudgement ? `判定: ${rollTotal} ${judgeMode} ${targetValue}` : '判定: 无',
+          hasJudgement ? `结果: ${judgeResultText}` : '结果: 仅掷骰',
+        ],
+      };
+      checkHistory.push(checkResultWithTimestamp);
+      if (checkHistory.length > MAX_HISTORY) {
+        checkHistory.shift();
+      }
+
+      // 触发事件
+      emitEvent('check', checkResultWithTimestamp);
+
+      if (onResult) {
+        onResult(checkResult);
+      }
     };
 
     let lastDiceRollAt = 0;
@@ -12068,6 +19603,18 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       setTimeout(() => {
         $btn.prop('disabled', false).removeClass('disabled');
       }, 100);
+
+      // [新增] 如果使用高级预设,调用专用检定函数
+      if (currentAdvancedPreset) {
+        performAdvancedCheck();
+        return;
+      }
+
+      // [新增] 如果处于自定义模式,使用自定义掷骰逻辑
+      if (panel.find('#acu-dice-custom-mode-fields').is(':visible')) {
+        performCustomRoll();
+        return;
+      }
 
       const formula = panel.find('#dice-formula').val().trim() || '1d100';
       const modStr = panel.find('#dice-modifier').val().trim() || '0';
@@ -12110,14 +19657,9 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
         const parsedTarget = parseInt(targetInputVal, 10);
         target = !Number.isNaN(parsedTarget) ? parsedTarget : getDefaultTarget(formula);
       } else if (isDND) {
-        // DND 模式：留空时 DC = 20 - 属性值（若属性值为空则DC=10）
-        if (attrValue > 0) {
-          target = 20 - attrValue;
-          isAutoTarget = true;
-        } else {
-          target = 10; // 默认中等难度
-          isAutoTarget = true;
-        }
+        // DND 模式：留空时 DC = 10（中等难度）
+        target = 10;
+        isAutoTarget = true;
       } else {
         // COC 模式：留空时目标值 = 属性值，若属性值也空则取骰子最大值的一半
         if (attrValue > 0) {
@@ -12245,12 +19787,15 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
       const badgeClass = getResultBadgeClass(resultType);
 
+      // 构建显示用的条件表达式（隐藏时为空）
+      const displayConditionExpr = hideDiceResultFromUser ? '' : conditionExpr;
+
       // 将按钮内容替换为结果显示（居中布局，旋转箭头在结果后面）
       const $rollBtn = panel.find('#dice-roll-btn');
       $rollBtn.html(`
         <div class="acu-dice-result-display">
           <span class="acu-dice-result-value">${displayValue}</span>
-          <span class="acu-dice-result-target">${criteriaSymbol}${requiredTarget}${difficultyLabel ? '(' + difficultyLabel + ')' : ''}</span>
+          ${displayConditionExpr ? `<span class="acu-dice-result-target">${displayConditionExpr}</span>` : ''}
           ${displayOutcomeText ? `<span class="${badgeClass}">${displayOutcomeText}</span>` : ''}
           <button class="dice-retry-btn acu-dice-retry-btn" title="重新投骰">
             <i class="fa-solid fa-rotate-right"></i>
@@ -12268,8 +19813,29 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
       // 生成 Prompt 文本
       const initiatorName = panel.find('#dice-initiator-name').val().trim() || '<user>';
-      let judgeExpr = '';
 
+      // 构建简单条件表达式（用于界面显示）
+      let conditionExpr = '';
+      if (isCritSuccess) {
+        if (isDND) {
+          conditionExpr = `${finalValue}≥${critFailMin}`;
+        } else {
+          conditionExpr = `${finalValue}≤${critSuccessMax}`;
+        }
+      } else if (isCritFailure) {
+        if (isDND) {
+          conditionExpr = `${finalValue}≤${critSuccessMax}`;
+        } else {
+          conditionExpr = `${finalValue}≥${critFailMin}`;
+        }
+      } else if (isDND) {
+        conditionExpr = `${finalValue}≥${requiredTarget}`;
+      } else {
+        conditionExpr = `${finalValue}≤${requiredTarget}`;
+      }
+
+      // 构建详细判定表达式（用于输出文本）
+      let judgeExpr = '';
       if (isCritSuccess) {
         if (isDND) {
           judgeExpr = `${finalValue}≥${critFailMin}`;
@@ -12316,7 +19882,9 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
         }
       }
 
-      const diceResultText = `（元叙事：${initiatorName}发起了【${attrName}】检定，掷出${finalValue}，${judgeExpr}，【${outcomeText}】）`;
+      // 构建统一格式的检定结果文本
+      const metaContent = `元叙事：${initiatorName}发起了【${attrName}】检定，掷出${finalValue}，${judgeExpr}，【${outcomeText}】`;
+      const diceResultText = `<meta:检定结果>\n${metaContent}\n</meta:检定结果>`;
       smartInsertToTextarea(diceResultText, 'dice');
 
       // 构建检定结果对象
@@ -12332,7 +19900,25 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       };
 
       // 添加到历史记录
-      const checkResultWithTimestamp = { ...checkResult, timestamp: Date.now() };
+      const detailId = `check_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const checkResultWithTimestamp = {
+        ...checkResult,
+        timestamp: Date.now(),
+        detailId,
+        initiatorName,
+        historyType: 'check' as const,
+        detailLines: [
+          `发起者: ${initiatorName}`,
+          `属性: ${attrName}`,
+          `公式: ${formula}`,
+          `掷骰+修正: ${result.total} ${mod >= 0 ? '+' : ''}${mod} = ${finalValue}`,
+          `目标: ${requiredTarget} (${isAutoTarget ? '自动计算' : '手动输入'})`,
+          `成功标准: ${criteria === 'gte' ? '>=' : '<='}${requiredTarget}`,
+          difficultyLabel ? `难度: ${difficultyLabel}` : '难度: 普通',
+          `判定详情: ${judgeExpr}`,
+          `结果: ${outcomeText}`,
+        ],
+      };
       checkHistory.push(checkResultWithTimestamp);
       if (checkHistory.length > MAX_HISTORY) {
         checkHistory.shift();
@@ -12365,6 +19951,10 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
         diceType: currentDice,
       });
     });
+    panel.find('#dice-history-btn').click(function (e) {
+      e.stopPropagation();
+      showGlobalDiceHistoryDialog();
+    });
     // 关闭
     const closePanel = () => {
       overlay.remove();
@@ -12375,13 +19965,29 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     });
     overlay.click(closePanel);
     panel.find('.acu-dice-close').click(closePanel);
-    // 齿轮设置按钮点击 - 调用统一设置面板
+    // 齿轮设置按钮点击 - 调用高级检定管理
     panel.find('.acu-dice-config-btn').click(function (e) {
       e.stopPropagation();
-      const currentCriteria = panel.find('#dice-success-criteria').val();
-      const isDND = currentCriteria === 'gte';
-      showDiceSettingsPanel(isDND);
+      showAdvancedPresetManager({ fromDicePanel: true });
     });
+  };
+
+  // 判定成功等级（供对抗检定面板和 API contest() 共用）
+  const getSuccessLevel = function (roll: number, target: number, sides: number) {
+    if (sides === 100) {
+      if (roll <= 5) return { level: 3, name: '大成功', color: 'var(--acu-crit-success-text)' };
+      if (roll >= 96) return { level: -1, name: '大失败', color: 'var(--acu-crit-failure-text)' };
+      if (roll <= Math.floor(target / 5))
+        return { level: 2, name: '极难成功', color: 'var(--acu-extreme-success-text)' };
+      if (roll <= Math.floor(target / 2)) return { level: 1, name: '困难成功', color: 'var(--acu-success-text)' };
+      if (roll <= target) return { level: 0, name: '普通成功', color: 'var(--acu-warning-text)' };
+      return { level: -1, name: '失败', color: 'var(--acu-failure-text)' };
+    } else {
+      if (roll === 20) return { level: 3, name: '大成功', color: 'var(--acu-crit-success-text)' };
+      if (roll === 1) return { level: -1, name: '大失败', color: 'var(--acu-crit-failure-text)' };
+      if (roll >= target) return { level: 0, name: '成功', color: 'var(--acu-success-text)' };
+      return { level: -1, name: '失败', color: 'var(--acu-failure-text)' };
+    }
   };
 
   // [新增] 显示对抗检定面板
@@ -12394,7 +20000,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
     // 读取保存的骰子类型，必须是有效公式
     let savedDiceType = diceCfg.lastDiceType || '1d100';
-    if (!/^\d+d\d+$/i.test(savedDiceType)) {
+    if (Number.isNaN(rollComplexDiceExpression(savedDiceType).total)) {
       savedDiceType = '1d100';
     }
 
@@ -12497,6 +20103,17 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       return html;
     };
 
+    // [修复] 获取当前活跃预设，用于正确同步按钮状态
+    const contestAvailablePresets = AdvancedDicePresetManager.getAllPresets()
+      .filter(p => p.visible !== false)
+      .filter(p => AdvancedDicePresetManager.supportsContest(p))
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
+    const currentActivePreset = AdvancedDicePresetManager.getActivePreset();
+    const activePresetId =
+      currentActivePreset && AdvancedDicePresetManager.supportsContest(currentActivePreset)
+        ? currentActivePreset.id
+        : null;
+
     const overlay = $('<div class="acu-contest-overlay"></div>');
     const panelHtml =
       '<div class="acu-contest-panel acu-theme-' +
@@ -12506,57 +20123,96 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       '<div class="acu-dice-panel-title"><i class="fa-solid fa-people-arrows"></i> 对抗检定</div>' +
       '<div class="acu-dice-panel-actions">' +
       '<button id="contest-switch-normal" class="acu-dice-panel-action-btn" title="切换到普通检定"><i class="fa-solid fa-dice-d20"></i></button>' +
+      '<button id="contest-history-btn" class="acu-dice-panel-action-btn" title="检定历史"><i class="fa-solid fa-history"></i></button>' +
       '<button class="acu-contest-config-btn acu-dice-panel-action-btn" title="掷骰规则设置"><i class="fa-solid fa-cog"></i></button>' +
       '<button class="acu-contest-close acu-dice-panel-action-btn"><i class="fa-solid fa-times"></i></button>' +
       '</div>' +
       '</div>' +
       '<div class="acu-dice-panel-body">' +
+      // [修复] 添加"检定规则"标题，与普通检定一致
+      '<div class="acu-dice-section-title"><span><i class="fa-solid fa-sliders"></i> 检定规则</span></div>' +
       '<div class="acu-dice-presets">' +
-      '<button class="acu-dice-preset' +
-      (diceType === '1d20' ? ' active' : '') +
-      '" data-dice="1d20">1d20</button>' +
-      '<button class="acu-dice-preset' +
-      (diceType === '1d100' ? ' active' : '') +
-      '" data-dice="1d100">1d100</button>' +
-      '<button class="acu-dice-preset acu-contest-custom-btn' +
-      (!['1d20', '1d100'].includes(diceType) ? ' active' : '') +
-      '" data-dice="custom">自定义</button>' +
-      '<input type="text" class="acu-dice-custom-input" id="contest-custom-dice" placeholder="如2d6" value="' +
-      (!['1d20', '1d100'].includes(diceType) ? diceType : '') +
-      '" />' +
+      '<button class="acu-dice-quick-preset-btn" data-dice="custom" style="order: -999;">自定义</button>' +
+      contestAvailablePresets
+        .map(
+          p =>
+            '<button class="acu-dice-quick-preset-btn' +
+            // [修复] 使用activePresetId而不是diceExpression来判断active状态
+            (p.id === activePresetId ? ' active' : '') +
+            '" data-dice="' +
+            escapeHtml(p.diceExpression || '1d100') +
+            '" data-criteria="' +
+            escapeHtml(p.successCriteria || 'lte') +
+            '" data-preset-id="' +
+            escapeHtml(p.id) +
+            '">' +
+            escapeHtml(p.name) +
+            '</button>',
+        )
+        .join('') +
       '</div>' +
       '<input type="hidden" id="contest-dice-type" value="' +
       diceType +
       '">' +
-      '<div class="acu-dice-section-title"><span><i class="fa-solid fa-user"></i> 甲方</span><div id="contest-init-char-buttons" class="acu-dice-quick-inline"></div></div>' +
-      '<div class="acu-dice-form-row cols-2">' +
+      '<div class="acu-dice-section-title"><span><i class="fa-solid fa-user"></i> 发起方</span><div id="contest-init-char-buttons" class="acu-dice-quick-inline"></div></div>' +
+      '<div id="contest-init-primary-row" class="acu-dice-form-row cols-2">' +
       '<div><div class="acu-dice-form-label">名字</div><input type="text" class="acu-dice-input" id="contest-init-display" value="" placeholder="<user>"></div>' +
-      '<div><div class="acu-dice-form-label">属性名<button type="button" class="acu-random-skill-btn" id="contest-init-random-skill" title="随机技能"><i class="fa-solid fa-dice"></i></button></div><input type="text" class="acu-dice-input" id="contest-init-name" value="" placeholder="自由检定"></div>' +
+      '<div><div class="acu-dice-form-label"><span class="contest-attr-name-text">属性名</span><button type="button" class="acu-random-skill-btn" id="contest-init-random-skill" title="随机技能"><i class="fa-solid fa-dice"></i></button></div><input type="text" class="acu-dice-input" id="contest-init-name" value="" placeholder="自由检定"></div>' +
       '</div>' +
-      '<div class="acu-dice-form-row cols-2">' +
-      '<div><div class="acu-dice-form-label">属性值</div><input type="text" class="acu-dice-input" id="contest-init-value" value="' +
+      // [调整] 发起方骰子语法 (自定义模式时显示，半宽)
+      '<div id="contest-init-dice-syntax-row" class="acu-dice-form-row cols-2" style="display: none;">' +
+      '<div><div class="acu-dice-form-label">骰子语法</div><input type="text" id="contest-custom-dice-init" class="acu-dice-input" value="" placeholder="留空=1d100, 1d20+5..."></div>' +
+      '<div></div>' +
+      '</div>' +
+      '<div id="contest-init-values-row" class="acu-dice-form-row cols-3">' +
+      '<div id="contest-init-attr-wrapper"><div class="acu-dice-form-label" id="contest-init-attr-label">属性值</div><input type="text" class="acu-dice-input" id="contest-init-value" value="' +
       (passedInitiatorValue !== undefined ? passedInitiatorValue : '') +
       '" placeholder="留空=50%最大值"></div>' +
-      '<div><div class="acu-dice-form-label">目标值</div><input type="text" class="acu-dice-input" id="contest-init-target" value="" placeholder="自动"></div>' +
+      '<div id="contest-init-skill-mod-wrapper" style="display:none;"><div class="acu-dice-form-label" id="contest-init-skill-mod-label">技能加值</div><input type="text" class="acu-dice-input" id="contest-init-skill-mod" placeholder="留空=0"></div>' +
+      '<div id="contest-init-mod-wrapper"><div class="acu-dice-form-label" id="contest-init-mod-label">修正值</div><input type="text" class="acu-dice-input" id="contest-init-mod" placeholder="留空=0"></div>' +
+      '<div id="contest-init-target-wrapper"><div class="acu-dice-form-label" id="contest-init-target-label">目标值</div><input type="text" class="acu-dice-input" id="contest-init-target" value="" placeholder="自动"></div>' +
       '</div>' +
+      '<div id="contest-init-custom-fields"></div>' +
       '<div id="init-attr-buttons" class="acu-dice-quick-compact">' +
       buildAttrButtons(playerAttrs, 'init') +
       '</div>' +
-      '<div class="acu-dice-section-title"><span><i class="fa-solid fa-user"></i> 乙方</span><div id="contest-opp-char-buttons" class="acu-dice-quick-inline"></div></div>' +
-      '<div class="acu-dice-form-row cols-2">' +
+      '<div class="acu-dice-section-title"><span><i class="fa-solid fa-user"></i> 对抗方</span><div id="contest-opp-char-buttons" class="acu-dice-quick-inline"></div></div>' +
+      '<div id="contest-opp-primary-row" class="acu-dice-form-row cols-2">' +
       '<div><div class="acu-dice-form-label">名字</div><input type="text" class="acu-dice-input" id="contest-opponent-display" value="' +
       escapeHtml(opponentName) +
       '" placeholder="对手"></div>' +
-      '<div><div class="acu-dice-form-label">属性名<button type="button" class="acu-random-skill-btn" id="contest-opp-random-skill" title="随机技能"><i class="fa-solid fa-dice"></i></button></div><input type="text" class="acu-dice-input" id="contest-opp-name" value="" placeholder="同甲方"></div>' +
+      '<div><div class="acu-dice-form-label"><span class="contest-attr-name-text">属性名</span><button type="button" class="acu-random-skill-btn" id="contest-opp-random-skill" title="随机技能"><i class="fa-solid fa-dice"></i></button></div><input type="text" class="acu-dice-input" id="contest-opp-name" value="" placeholder="同发起方"></div>' +
       '</div>' +
-      '<div class="acu-dice-form-row cols-2">' +
-      '<div><div class="acu-dice-form-label">属性值</div><input type="text" class="acu-dice-input" id="contest-opp-value" value="' +
+      // [调整] 对抗方骰子语法 (自定义模式时显示，半宽)
+      '<div id="contest-opp-dice-syntax-row" class="acu-dice-form-row cols-2" style="display: none;">' +
+      '<div><div class="acu-dice-form-label">骰子语法</div><input type="text" id="contest-custom-dice-opp" class="acu-dice-input" value="" placeholder="留空=同发起方"></div>' +
+      '<div></div>' +
+      '</div>' +
+      '<div id="contest-opp-values-row" class="acu-dice-form-row cols-3">' +
+      '<div id="contest-opp-attr-wrapper"><div class="acu-dice-form-label" id="contest-opp-attr-label">属性值</div><input type="text" class="acu-dice-input" id="contest-opp-value" value="' +
       (passedOpponentValue !== undefined ? passedOpponentValue : '') +
       '" placeholder="留空=50%最大值"></div>' +
-      '<div><div class="acu-dice-form-label">目标值</div><input type="text" class="acu-dice-input" id="contest-opp-target" value="" placeholder="自动"></div>' +
+      '<div id="contest-opp-skill-mod-wrapper" style="display:none;"><div class="acu-dice-form-label" id="contest-opp-skill-mod-label">技能加值</div><input type="text" class="acu-dice-input" id="contest-opp-skill-mod" placeholder="留空=0"></div>' +
+      '<div id="contest-opp-mod-wrapper"><div class="acu-dice-form-label" id="contest-opp-mod-label">修正值</div><input type="text" class="acu-dice-input" id="contest-opp-mod" placeholder="留空=0"></div>' +
+      '<div id="contest-opp-target-wrapper"><div class="acu-dice-form-label" id="contest-opp-target-label">目标值</div><input type="text" class="acu-dice-input" id="contest-opp-target" value="" placeholder="自动"></div>' +
       '</div>' +
+      '<div id="contest-opp-custom-fields"></div>' +
       '<div id="opp-attr-buttons" class="acu-dice-quick-compact">' +
       buildAttrButtons(opponentAttrs, 'opp') +
+      '</div>' +
+      // [新增] 判定规则 (自定义模式时显示，只占一半宽度)
+      '<div id="contest-custom-judge-row" class="acu-dice-form-row cols-2" style="display: none; margin-top: 8px;">' +
+      '<div><div class="acu-dice-form-label">判定规则</div><select id="contest-custom-judge-rule" class="acu-dice-select">' +
+      '<option value="higher">值大者胜</option>' +
+      '<option value="lower">值小者胜</option>' +
+      '<option value="rank">成功等级比较</option>' +
+      '<option value="none">仅显示结果</option>' +
+      '</select></div>' +
+      '<div><div class="acu-dice-form-label">平手规则</div><select id="contest-custom-tie-rule" class="acu-dice-select">' +
+      '<option value="initiator_lose">发起者失败</option>' +
+      '<option value="tie" selected>平手</option>' +
+      '<option value="initiator_win">发起者胜利</option>' +
+      '</select></div>' +
       '</div>' +
       '<div id="contest-result-display" class="acu-contest-result-display">' +
       '<div class="acu-contest-result-inner">' +
@@ -12579,11 +20235,13 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       const $container = panel.find(containerId);
       let html = '';
       characterList.forEach(name => {
-        const displayName = name === '<user>' ? getDisplayPlayerName() : replaceUserPlaceholders(name);
+        const resolvedName = name === '<user>' ? name : NameAliasRegistry.resolve(String(name));
+        const displayName =
+          resolvedName === '<user>' ? getDisplayPlayerName() : replaceUserPlaceholders(String(resolvedName));
         const shortName = displayName.length > 4 ? displayName.substring(0, 4) + '..' : displayName;
         html +=
           '<button class="acu-dice-char-btn" data-char="' +
-          escapeHtml(name) +
+          escapeHtml(String(resolvedName)) +
           '" data-type="' +
           targetType +
           '" title="' +
@@ -12653,12 +20311,17 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
         const val = $(this).attr('data-val');
         const aname = $(this).attr('data-aname');
         const type = $(this).attr('data-type');
+
         if (type === 'init') {
-          panel.find('#contest-init-value').val(val);
+          const targetInput = getContestAttrTargetInput('init', aname || '');
+          panel.find(targetInput).val(val);
           panel.find('#contest-init-name').val(aname);
+          panel.find(targetInput).trigger('change');
         } else {
-          panel.find('#contest-opp-value').val(val);
+          const targetInput = getContestAttrTargetInput('opp', aname || '');
+          panel.find(targetInput).val(val);
           panel.find('#contest-opp-name').val(aname);
+          panel.find(targetInput).trigger('change');
         }
       });
 
@@ -12706,11 +20369,8 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
           const baseAttrs = generated.base || generated;
           const specialAttrs = generated.special || {};
 
-          // 合并基础属性和特别属性
-          const allAttrs = { ...baseAttrs, ...specialAttrs };
-
-          // 写入所有属性到表格
-          const result = await writeAttributesToCharacter(charName, allAttrs);
+          // [修复] 分别写入基础属性和特有属性到对应的列
+          const result = await writeAttributesToCharacter(charName, baseAttrs, false, specialAttrs);
 
           if (result.success) {
             // 刷新该方属性按钮
@@ -12750,10 +20410,6 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
           return;
         }
 
-        if (!confirm(`确定要清空「${charName}」的规则预设属性吗？\n\n（用户自定义的属性会保留）`)) {
-          return;
-        }
-
         // 禁用按钮防止重复点击
         $btn.prop('disabled', true).css('opacity', '0.5');
         const originalHtml = $btn.html();
@@ -12789,7 +20445,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     // 初始化角色快捷按钮
     buildCharBtns('init');
     buildCharBtns('opp');
-    // [新增] 甲方随机技能按钮
+    // [新增] 发起方随机技能按钮
     panel.find('#contest-init-random-skill').click(function (e) {
       e.preventDefault();
       e.stopPropagation();
@@ -12798,7 +20454,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       panel.find('#contest-init-name').val(randomSkill).trigger('change');
     });
 
-    // [新增] 乙方随机技能按钮
+    // [新增] 对抗方随机技能按钮
     panel.find('#contest-opp-random-skill').click(function (e) {
       e.preventDefault();
       e.stopPropagation();
@@ -12819,10 +20475,665 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     initCustomDropdown(panel.find('#contest-opp-name'), contestAttrList);
     addClearButton(
       panel,
-      '#contest-init-display, #contest-init-name, #contest-init-value, #contest-init-target, #contest-opponent-display, #contest-opp-name, #contest-opp-value, #contest-opp-target',
+      '#contest-init-display, #contest-init-name, #contest-init-value, #contest-init-skill-mod, #contest-init-mod, #contest-init-target, #contest-opponent-display, #contest-opp-name, #contest-opp-value, #contest-opp-skill-mod, #contest-opp-mod, #contest-opp-target, #contest-custom-dice-init, #contest-custom-dice-opp',
     );
 
-    // 甲方角色变化时更新属性
+    // [新增] 高级预设选择器（对抗检定）
+    let currentContestAdvancedPreset: AdvancedDicePreset | LegacyAdvancedDicePreset | null = null;
+
+    const getContestAttrTargetInput = (party: 'init' | 'opp', attrName: string): string => {
+      let target = party === 'init' ? '#contest-init-value' : '#contest-opp-value';
+      const mapping = currentContestAdvancedPreset?.attrTargetMapping;
+      if (!mapping || !attrName) return target;
+      for (const [fieldId, names] of Object.entries(mapping)) {
+        if (!Array.isArray(names) || !names.includes(attrName)) continue;
+        if (fieldId === 'skillMod') {
+          target = party === 'init' ? '#contest-init-skill-mod' : '#contest-opp-skill-mod';
+        } else if (fieldId === 'mod') {
+          target = party === 'init' ? '#contest-init-mod' : '#contest-opp-mod';
+        } else if (fieldId === 'attribute') {
+          target = party === 'init' ? '#contest-init-value' : '#contest-opp-value';
+        }
+        break;
+      }
+      return target;
+    };
+
+    const applyContestAdvancedPreset = (presetId: string | null) => {
+      // 获取关键DOM元素 - 使用新的wrapper ID
+      const $initValuesRow = panel.find('#contest-init-values-row');
+      const $oppValuesRow = panel.find('#contest-opp-values-row');
+      const $initPrimaryRow = panel.find('#contest-init-primary-row');
+      const $oppPrimaryRow = panel.find('#contest-opp-primary-row');
+      const $initCustomFields = panel.find('#contest-init-custom-fields');
+      const $oppCustomFields = panel.find('#contest-opp-custom-fields');
+
+      const $initAttrWrapper = panel.find('#contest-init-attr-wrapper');
+      const $initSkillModWrapper = panel.find('#contest-init-skill-mod-wrapper');
+      const $initModWrapper = panel.find('#contest-init-mod-wrapper');
+      const $initTargetWrapper = panel.find('#contest-init-target-wrapper');
+      const $oppAttrWrapper = panel.find('#contest-opp-attr-wrapper');
+      const $oppSkillModWrapper = panel.find('#contest-opp-skill-mod-wrapper');
+      const $oppModWrapper = panel.find('#contest-opp-mod-wrapper');
+      const $oppTargetWrapper = panel.find('#contest-opp-target-wrapper');
+
+      const $initAttrLabel = panel.find('#contest-init-attr-label');
+      const $initSkillModLabel = panel.find('#contest-init-skill-mod-label');
+      const $oppAttrLabel = panel.find('#contest-opp-attr-label');
+      const $oppSkillModLabel = panel.find('#contest-opp-skill-mod-label');
+      const $initTargetLabel = panel.find('#contest-init-target-label');
+      const $oppTargetLabel = panel.find('#contest-opp-target-label');
+      const $initModLabel = panel.find('#contest-init-mod-label');
+      const $oppModLabel = panel.find('#contest-opp-mod-label');
+
+      const $initAttrInput = panel.find('#contest-init-value');
+      const $oppAttrInput = panel.find('#contest-opp-value');
+      const $initSkillModInput = panel.find('#contest-init-skill-mod');
+      const $oppSkillModInput = panel.find('#contest-opp-skill-mod');
+      const $initModInput = panel.find('#contest-init-mod');
+      const $oppModInput = panel.find('#contest-opp-mod');
+
+      // 辅助函数：更新值行的列数
+      const updateRowColumns = ($row: JQuery, visibleCount: number) => {
+        $row.removeClass('cols-2 cols-3');
+        if (visibleCount <= 2) {
+          $row.addClass('cols-2');
+        } else {
+          $row.addClass('cols-3');
+        }
+      };
+
+      const buildContestCustomFieldCell = (
+        field: Record<string, unknown>,
+        party: 'init' | 'opp',
+        extraClass = '',
+      ): JQuery => {
+        const fieldId = String(field.id || '');
+        const fieldLabel = String(field.label || fieldId);
+        const fieldType = String(field.type || 'text');
+        let html = `<div class="${extraClass}">`;
+
+        if (fieldType !== 'toggle') {
+          html += `<div class="acu-dice-form-label">${escapeHtml(fieldLabel)}</div>`;
+        } else {
+          html += '<div class="acu-dice-form-label">&nbsp;</div>';
+        }
+
+        if (fieldType === 'select' && Array.isArray(field.options)) {
+          html += `<select class="acu-dice-select acu-dice-custom-field-contest" data-id="${escapeHtml(fieldId)}" data-party="${party}">`;
+          field.options.forEach(option => {
+            const opt = option as Record<string, unknown>;
+            const optValue = opt.value;
+            const isSelected = optValue === field.defaultValue ? 'selected' : '';
+            html += `<option value="${escapeHtml(String(optValue ?? ''))}" ${isSelected}>${escapeHtml(String(opt.label ?? optValue ?? ''))}</option>`;
+          });
+          html += '</select>';
+        } else if (fieldType === 'toggle') {
+          const isChecked = field.defaultValue ? 'checked' : '';
+          html += `<label style="display: flex; align-items: center; cursor: pointer; height: 32px;">
+            <input type="checkbox" class="acu-dice-custom-field-contest" data-id="${escapeHtml(fieldId)}" data-party="${party}" ${isChecked} style="margin-right: 8px;">
+            ${escapeHtml(fieldLabel)}
+          </label>`;
+        } else {
+          const inputType = fieldType === 'number' ? 'number' : 'text';
+          const defaultVal = field.defaultValue;
+          const placeholderText =
+            String(field.placeholder || '') ||
+            (defaultVal !== undefined && defaultVal !== '' ? `留空=${defaultVal}` : '');
+          html += `<input type="${inputType}" class="acu-dice-input acu-dice-custom-field-contest" data-id="${escapeHtml(fieldId)}" data-party="${party}" placeholder="${escapeHtml(placeholderText)}">`;
+        }
+
+        html += '</div>';
+        return $(html);
+      };
+
+      // 辅助函数：渲染customFields
+      const renderCustomFields = (
+        $container: JQuery,
+        party: 'init' | 'opp',
+        preset: AdvancedDicePreset | LegacyAdvancedDicePreset,
+      ) => {
+        $container.empty();
+
+        if (!('customFields' in preset) || !Array.isArray(preset.customFields) || preset.customFields.length === 0) {
+          return;
+        }
+
+        // 应用 contestOverride 配置，过滤隐藏字段
+        const visibleFields = preset.customFields.map(f => ({ ...f, ...f.contestOverride })).filter(f => !f.hidden);
+        if (visibleFields.length === 0) return;
+
+        const gridItems: string[] = visibleFields.map(field =>
+          buildContestCustomFieldCell(field, party).prop('outerHTML'),
+        );
+
+        // 智能排版渲染网格
+        // 布局规律：最后一行优先放3个字段，前面的行放2个字段
+        // - 4个字段：2+2
+        // - 5个字段：2+3
+        // - 6个字段：3+3
+        // - 7个字段：2+2+3
+        // - 8个字段：2+3+3
+        // - 9个字段：3+3+3
+        const computeRowLayout = (total: number): number[] => {
+          if (total <= 0) return [];
+          if (total <= 2) return [2]; // 最少2列，避免 cols-1
+          if (total === 3) return [3];
+          if (total === 4) return [2, 2];
+          if (total === 5) return [2, 3];
+          if (total === 6) return [3, 3];
+          // 7+ 字段：递归计算，最后一行放3个，剩余的递归处理
+          return [...computeRowLayout(total - 3), 3];
+        };
+
+        const rowLayout = computeRowLayout(gridItems.length);
+        let itemIndex = 0;
+        for (const colCount of rowLayout) {
+          const $row = $(`<div class="acu-dice-form-row cols-${colCount}"></div>`);
+          for (let j = 0; j < colCount; j++) {
+            if (itemIndex < gridItems.length) {
+              $row.append(gridItems[itemIndex]);
+              itemIndex++;
+            } else {
+              $row.append('<div></div>');
+            }
+          }
+          $container.append($row);
+        }
+      };
+
+      const restoreDefaults = () => {
+        // 恢复标签
+        $initAttrLabel.text('属性值');
+        $oppAttrLabel.text('属性值');
+        $initSkillModLabel.text('技能加值');
+        $oppSkillModLabel.text('技能加值');
+        $initTargetLabel.text('目标值');
+        $oppTargetLabel.text('目标值');
+        $initModLabel.text('修正值');
+        $oppModLabel.text('修正值');
+
+        // 恢复"属性名"标签
+        panel.find('.contest-attr-name-text').text('属性名');
+
+        // 恢复所有字段显示
+        $initAttrWrapper.show();
+        $oppAttrWrapper.show();
+        $initSkillModWrapper.hide();
+        $oppSkillModWrapper.hide();
+        $initTargetWrapper.show();
+        $oppTargetWrapper.show();
+        $initModWrapper.show();
+        $oppModWrapper.show();
+
+        // 恢复默认placeholder
+        $initAttrInput.attr('placeholder', '留空=50%最大值');
+        $oppAttrInput.attr('placeholder', '留空=50%最大值');
+        $initSkillModInput.attr('placeholder', '留空=0');
+        $oppSkillModInput.attr('placeholder', '留空=0');
+        $initModInput.attr('placeholder', '留空=0');
+        $oppModInput.attr('placeholder', '留空=0');
+
+        // 重建值行结构（移除可能嵌入的customFields）
+        const rebuildDefaultRow = (
+          $row: JQuery,
+          $attrWrapper: JQuery,
+          $skillWrapper: JQuery,
+          $modWrapper: JQuery,
+          $targetWrapper: JQuery,
+        ) => {
+          // 移除所有非原始wrapper的元素
+          $row.children().not($attrWrapper).not($skillWrapper).not($modWrapper).not($targetWrapper).remove();
+          // 确保原始wrapper在行中且顺序正确
+          if ($attrWrapper.parent()[0] !== $row[0]) $attrWrapper.detach().appendTo($row);
+          if ($skillWrapper.parent()[0] !== $row[0]) $skillWrapper.detach().appendTo($row);
+          if ($modWrapper.parent()[0] !== $row[0]) $modWrapper.detach().appendTo($row);
+          if ($targetWrapper.parent()[0] !== $row[0]) $targetWrapper.detach().appendTo($row);
+          // 恢复正确顺序
+          $row.append($attrWrapper.detach());
+          $row.append($skillWrapper.detach());
+          $row.append($modWrapper.detach());
+          $row.append($targetWrapper.detach());
+        };
+
+        rebuildDefaultRow($initValuesRow, $initAttrWrapper, $initSkillModWrapper, $initModWrapper, $initTargetWrapper);
+        rebuildDefaultRow($oppValuesRow, $oppAttrWrapper, $oppSkillModWrapper, $oppModWrapper, $oppTargetWrapper);
+
+        // 恢复3列布局
+        updateRowColumns($initValuesRow, 3);
+        updateRowColumns($oppValuesRow, 3);
+
+        // 清空customFields
+        $initPrimaryRow.find('.acu-contest-inline-custom').remove();
+        $oppPrimaryRow.find('.acu-contest-inline-custom').remove();
+        updateRowColumns($initPrimaryRow, 2);
+        updateRowColumns($oppPrimaryRow, 2);
+        $initCustomFields.empty();
+        $oppCustomFields.empty();
+      };
+
+      if (!presetId) {
+        currentContestAdvancedPreset = null;
+        restoreDefaults();
+        return;
+      }
+
+      const preset = AdvancedDicePresetManager.getAllPresets().find(p => p.id === presetId);
+      if (!preset) {
+        console.warn('[DICE] 对抗检定未找到预设:', presetId);
+        restoreDefaults();
+        return;
+      }
+
+      currentContestAdvancedPreset = preset;
+
+      // [修复] 先恢复默认结构，确保从整合布局切换时字段不会丢失
+      restoreDefaults();
+
+      // 获取标签和placeholder配置
+      const attrLabel = preset.attribute?.label || '属性值';
+      const skillModLabel = preset.skillMod?.label || '技能加值';
+      const dcLabel = preset.dc?.label || '目标值';
+      const modLabel = preset.mod?.label || '修正值';
+      const attrPlaceholder = preset.attribute?.placeholder || '留空=50%最大值';
+      const skillModPlaceholder = preset.skillMod?.placeholder || '留空=0';
+      const modPlaceholder = preset.mod?.placeholder || '留空=0';
+
+      // 更新标签
+      $initAttrLabel.text(attrLabel);
+      $oppAttrLabel.text(attrLabel);
+      $initSkillModLabel.text(skillModLabel);
+      $oppSkillModLabel.text(skillModLabel);
+      $initTargetLabel.text(dcLabel);
+      $oppTargetLabel.text(dcLabel);
+      $initModLabel.text(modLabel);
+      $oppModLabel.text(modLabel);
+
+      // 更新"属性名"标签（如Fate使用"技能/风格"）
+      panel.find('.contest-attr-name-text').text(preset.attributeName?.label || '属性名');
+
+      // 更新placeholder
+      $initAttrInput.attr('placeholder', attrPlaceholder);
+      $oppAttrInput.attr('placeholder', attrPlaceholder);
+      $initSkillModInput.attr('placeholder', skillModPlaceholder);
+      $oppSkillModInput.attr('placeholder', skillModPlaceholder);
+      $initModInput.attr('placeholder', modPlaceholder);
+      $oppModInput.attr('placeholder', modPlaceholder);
+
+      // 计算可见字段数量
+      const hideDcInContest = preset.contestRule?.hideDc === true || preset.dc?.hidden === true;
+      const hideModInContest = preset.contestRule?.hideMod === true || preset.mod?.hidden === true;
+      const hideSkillModInContest =
+        !preset.skillMod || preset.contestRule?.hideSkillMod === true || preset.skillMod.hidden === true;
+
+      // 属性值始终显示
+      $initAttrWrapper.show();
+      $oppAttrWrapper.show();
+
+      // 控制技能加值显隐
+      if (hideSkillModInContest) {
+        $initSkillModWrapper.hide();
+        $oppSkillModWrapper.hide();
+      } else {
+        $initSkillModWrapper.show();
+        $oppSkillModWrapper.show();
+      }
+
+      // 控制目标值显隐
+      if (hideDcInContest) {
+        $initTargetWrapper.hide();
+        $oppTargetWrapper.hide();
+      } else {
+        $initTargetWrapper.show();
+        $oppTargetWrapper.show();
+      }
+
+      // 控制修正值显隐
+      if (hideModInContest) {
+        $initModWrapper.hide();
+        $oppModWrapper.hide();
+      } else {
+        $initModWrapper.show();
+        $oppModWrapper.show();
+      }
+
+      // [优化] 智能布局：将基础字段和customFields整合计算
+      // 收集可见的customFields数量（应用 contestOverride）
+      const visibleContestFields =
+        'customFields' in preset && Array.isArray(preset.customFields)
+          ? preset.customFields.map(f => ({ ...f, ...f.contestOverride })).filter(f => !f.hidden)
+          : [];
+      const customFieldCount = visibleContestFields.length;
+
+      // 计算基础可见字段数
+      let baseVisibleCount = 1; // 属性值始终可见
+      if (!hideSkillModInContest) baseVisibleCount++;
+      if (!hideModInContest) baseVisibleCount++;
+      if (!hideDcInContest) baseVisibleCount++;
+
+      // 决定布局策略
+      const totalFields = baseVisibleCount + customFieldCount;
+
+      const useThreeByThreeWithPrimaryRow = customFieldCount === 1 && baseVisibleCount === 3;
+
+      if (useThreeByThreeWithPrimaryRow) {
+        const customField = visibleContestFields[0];
+        const renderPrimaryInlineField = ($row: JQuery, party: 'init' | 'opp') => {
+          $row.find('.acu-contest-inline-custom').remove();
+          updateRowColumns($row, 3);
+          $row.append(buildContestCustomFieldCell(customField, party, 'acu-contest-inline-custom'));
+        };
+
+        renderPrimaryInlineField($initPrimaryRow, 'init');
+        renderPrimaryInlineField($oppPrimaryRow, 'opp');
+        updateRowColumns($initValuesRow, 3);
+        updateRowColumns($oppValuesRow, 3);
+        $initCustomFields.empty();
+        $oppCustomFields.empty();
+      } else {
+        $initPrimaryRow.find('.acu-contest-inline-custom').remove();
+        $oppPrimaryRow.find('.acu-contest-inline-custom').remove();
+        updateRowColumns($initPrimaryRow, 2);
+        updateRowColumns($oppPrimaryRow, 2);
+
+        // 如果总字段数 <= 4，尝试将所有内容整合布局
+        // 对于 COC7: 1 (技能值) + 3 (奖励骰/惩罚骰/最低成功等级) = 4，使用整合布局
+        // 对于 FATE: 2 (技能等级/修正值) + 0 = 2，使用整合布局
+        // 对于 DND5e: 3 (属性值/修正值/DC) + 1 (优势/劣势) = 4，使用整合布局
+        if (totalFields <= 4 && customFieldCount > 0 && baseVisibleCount < 3) {
+          // 将 customFields 嵌入到值行中
+          // 首先清空单独的 customFields 容器
+          $initCustomFields.empty();
+          $oppCustomFields.empty();
+
+          // 重建值行内容，包含 customFields
+          const buildIntegratedRow = ($row: JQuery, party: 'init' | 'opp') => {
+            // 保留属性值 wrapper
+            const $attrWrapper = party === 'init' ? $initAttrWrapper : $oppAttrWrapper;
+            const $modWrapper = party === 'init' ? $initModWrapper : $oppModWrapper;
+            const $targetWrapper = party === 'init' ? $initTargetWrapper : $oppTargetWrapper;
+
+            // 收集当前可见的元素
+            const visibleItems: JQuery[] = [];
+
+            // 先从任意父容器中分离基础 wrapper，避免被后续 empty() 误删
+            const $skillWrapper = party === 'init' ? $initSkillModWrapper : $oppSkillModWrapper;
+
+            [$attrWrapper, $skillWrapper, $modWrapper, $targetWrapper].forEach($base => {
+              if ($base.length > 0 && $base.parent().length > 0) {
+                $base.detach();
+              }
+            });
+
+            // 属性值始终可见
+            visibleItems.push($attrWrapper);
+
+            // 技能加值（如果可见）
+            if (!hideSkillModInContest) {
+              visibleItems.push($skillWrapper);
+            }
+
+            // 修正值（如果可见）
+            if (!hideModInContest) {
+              visibleItems.push($modWrapper);
+            }
+
+            // 目标值（如果可见）
+            if (!hideDcInContest) {
+              visibleItems.push($targetWrapper);
+            }
+
+            // 添加 customFields（应用 contestOverride）
+            if ('customFields' in preset && Array.isArray(preset.customFields)) {
+              const visibleFields = preset.customFields
+                .map(f => ({ ...f, ...f.contestOverride }))
+                .filter(f => !f.hidden);
+              visibleFields.forEach(field => {
+                let html = '<div>';
+
+                // 标签
+                if (field.type !== 'toggle') {
+                  html += `<div class="acu-dice-form-label">${escapeHtml(field.label || field.id)}</div>`;
+                } else {
+                  html += '<div class="acu-dice-form-label">&nbsp;</div>';
+                }
+
+                // 控件
+                if (field.type === 'select' && field.options) {
+                  html += `<select class="acu-dice-select acu-dice-custom-field-contest" data-id="${escapeHtml(field.id)}" data-party="${party}">`;
+                  field.options.forEach(opt => {
+                    const isSelected = opt.value === field.defaultValue ? 'selected' : '';
+                    html += `<option value="${escapeHtml(String(opt.value))}" ${isSelected}>${escapeHtml(opt.label)}</option>`;
+                  });
+                  html += '</select>';
+                } else if (field.type === 'toggle') {
+                  const isChecked = field.defaultValue ? 'checked' : '';
+                  html += `<label style="display: flex; align-items: center; cursor: pointer; height: 32px;">
+                  <input type="checkbox" class="acu-dice-custom-field-contest" data-id="${escapeHtml(field.id)}" data-party="${party}" ${isChecked} style="margin-right: 8px;">
+                  ${escapeHtml(field.label || field.id)}
+                </label>`;
+                } else {
+                  const type = field.type === 'number' ? 'number' : 'text';
+                  // [修复] 使用 placeholder 而不是 value 显示默认值
+                  const defaultVal = field.defaultValue;
+                  const placeholderText =
+                    field.placeholder || (defaultVal !== undefined && defaultVal !== '' ? `留空=${defaultVal}` : '');
+                  html += `<input type="${type}" class="acu-dice-input acu-dice-custom-field-contest" data-id="${escapeHtml(field.id)}" data-party="${party}"
+                  placeholder="${escapeHtml(placeholderText)}">`;
+                }
+
+                html += '</div>';
+                visibleItems.push($(html) as JQuery);
+              });
+            }
+
+            // 清空行和 customFields 容器
+            $row.empty();
+            const $customContainer = party === 'init' ? $initCustomFields : $oppCustomFields;
+            $customContainer.empty();
+
+            // 智能排版：根据字段数量决定布局方式
+            // 布局规律：最后一行优先放3个字段，前面的行放2个字段
+            // - 4个字段：2+2
+            // - 5个字段：2+3
+            // - 6个字段：3+3
+            // - 7个字段：2+2+3
+            // - 8个字段：2+3+3
+            // - 9个字段：3+3+3
+            const computeRowLayout = (total: number): number[] => {
+              if (total <= 0) return [];
+              if (total <= 2) return [2]; // 最少2列，避免 cols-1
+              if (total === 3) return [3];
+              if (total === 4) return [2, 2];
+              if (total === 5) return [2, 3];
+              if (total === 6) return [3, 3];
+              // 7+ 字段：递归计算，最后一行放3个，剩余的递归处理
+              return [...computeRowLayout(total - 3), 3];
+            };
+
+            const appendItemTo = ($target: JQuery, $item: JQuery) => {
+              if ($item.parent().length > 0) {
+                $item.detach().appendTo($target);
+              } else {
+                $target.append($item);
+              }
+            };
+
+            const rowLayout = computeRowLayout(visibleItems.length);
+            let itemIndex = 0;
+
+            // 第一行放在 $row 中
+            if (rowLayout.length > 0) {
+              const firstRowCols = rowLayout[0];
+              for (let j = 0; j < firstRowCols; j++) {
+                if (itemIndex < visibleItems.length) {
+                  appendItemTo($row, visibleItems[itemIndex]);
+                  itemIndex++;
+                } else {
+                  $row.append('<div></div>');
+                }
+              }
+              updateRowColumns($row, firstRowCols);
+
+              // 剩余行放在 $customContainer 中
+              for (let rowIdx = 1; rowIdx < rowLayout.length; rowIdx++) {
+                const colCount = rowLayout[rowIdx];
+                const $gridRow = $(`<div class="acu-dice-form-row cols-${colCount}"></div>`);
+                for (let j = 0; j < colCount; j++) {
+                  if (itemIndex < visibleItems.length) {
+                    appendItemTo($gridRow, visibleItems[itemIndex]);
+                    itemIndex++;
+                  } else {
+                    $gridRow.append('<div></div>');
+                  }
+                }
+                $customContainer.append($gridRow);
+              }
+            }
+
+            // 不可见基础字段也保留在值行中（隐藏），防止后续切换时 DOM 丢失
+            if (hideSkillModInContest) {
+              if ($skillWrapper.parent().length === 0 || $skillWrapper.parent()[0] !== $row[0]) {
+                $skillWrapper.detach().appendTo($row);
+              }
+              $skillWrapper.hide();
+            }
+            if (hideModInContest) {
+              if ($modWrapper.parent().length === 0 || $modWrapper.parent()[0] !== $row[0]) {
+                $modWrapper.detach().appendTo($row);
+              }
+              $modWrapper.hide();
+            }
+            if (hideDcInContest) {
+              if ($targetWrapper.parent().length === 0 || $targetWrapper.parent()[0] !== $row[0]) {
+                $targetWrapper.detach().appendTo($row);
+              }
+              $targetWrapper.hide();
+            }
+          };
+
+          buildIntegratedRow($initValuesRow, 'init');
+          buildIntegratedRow($oppValuesRow, 'opp');
+        } else {
+          // 使用分离布局：基础字段在值行，customFields 在单独区域
+          updateRowColumns($initValuesRow, baseVisibleCount);
+          updateRowColumns($oppValuesRow, baseVisibleCount);
+
+          // 渲染 customFields 到单独区域
+          renderCustomFields($initCustomFields, 'init', preset);
+          renderCustomFields($oppCustomFields, 'opp', preset);
+        }
+      }
+
+      // 防御性兜底：切换预设后确保“修正值”输入框在应显示时不会丢失
+      if (!hideSkillModInContest) {
+        if ($initSkillModWrapper.parent().length === 0) {
+          $initSkillModWrapper.appendTo($initValuesRow);
+        }
+        if ($oppSkillModWrapper.parent().length === 0) {
+          $oppSkillModWrapper.appendTo($oppValuesRow);
+        }
+        $initSkillModWrapper.show();
+        $oppSkillModWrapper.show();
+      }
+
+      if (!hideModInContest) {
+        if ($initModWrapper.parent().length === 0) {
+          $initModWrapper.appendTo($initValuesRow);
+        }
+        if ($oppModWrapper.parent().length === 0) {
+          $oppModWrapper.appendTo($oppValuesRow);
+        }
+        $initModWrapper.show();
+        $oppModWrapper.show();
+      }
+
+      // 更新骰子表达式
+      panel.find('#contest-dice-type').val(preset.diceExpression);
+      panel.find('#contest-custom-dice-init').val(preset.diceExpression);
+      panel.find('#contest-custom-dice-opp').val('');
+      panel.find('.acu-dice-quick-preset-btn').removeClass('active');
+      // [修复] 根据 presetId 激活正确的按钮，而不是总是激活 custom 按钮
+      if (presetId) {
+        panel.find(`.acu-dice-quick-preset-btn[data-preset-id="${presetId}"]`).addClass('active');
+      }
+
+      // [新增] 为动态生成的 customFields 输入框添加清除按钮
+      addClearButton(
+        $initCustomFields,
+        '.acu-dice-custom-field-contest[type="text"], .acu-dice-custom-field-contest[type="number"]',
+      );
+      addClearButton(
+        $oppCustomFields,
+        '.acu-dice-custom-field-contest[type="text"], .acu-dice-custom-field-contest[type="number"]',
+      );
+      addClearButton(
+        $initValuesRow,
+        '.acu-dice-custom-field-contest[type="text"], .acu-dice-custom-field-contest[type="number"]',
+      );
+      addClearButton(
+        $oppValuesRow,
+        '.acu-dice-custom-field-contest[type="text"], .acu-dice-custom-field-contest[type="number"]',
+      );
+      addClearButton(
+        $initPrimaryRow,
+        '.acu-dice-custom-field-contest[type="text"], .acu-dice-custom-field-contest[type="number"]',
+      );
+      addClearButton(
+        $oppPrimaryRow,
+        '.acu-dice-custom-field-contest[type="text"], .acu-dice-custom-field-contest[type="number"]',
+      );
+
+      console.log(
+        '[DICE] 对抗检定应用高级预设:',
+        preset.name,
+        '总字段数:',
+        totalFields,
+        '基础字段:',
+        baseVisibleCount,
+        'customFields:',
+        customFieldCount,
+      );
+    };
+
+    // [统一UI] 初始化时根据活跃预设高亮对应按钮并应用配置
+    const savedContestPreset = AdvancedDicePresetManager.getActivePreset();
+    const savedSupportedContestPreset =
+      savedContestPreset && AdvancedDicePresetManager.supportsContest(savedContestPreset) ? savedContestPreset : null;
+    const defaultContestPresetId = contestAvailablePresets.length > 0 ? contestAvailablePresets[0].id : null;
+    const savedPresetId = localStorage.getItem(STORAGE_KEY_LAST_PRESET);
+
+    if (savedPresetId === '__custom__') {
+      // [修复] 如果保存的是自定义模式，激活自定义按钮并显示自定义UI
+      panel.find('.acu-dice-quick-preset-btn').removeClass('active');
+      panel.find('.acu-dice-quick-preset-btn[data-dice="custom"]').addClass('active');
+      panel.find('#contest-init-dice-syntax-row').show();
+      panel.find('#contest-opp-dice-syntax-row').show();
+      panel.find('#contest-custom-judge-row').show();
+      panel.find('#contest-init-values-row, #contest-opp-values-row').hide();
+      panel.find('#contest-init-custom-fields, #contest-opp-custom-fields').hide();
+      // [修复] 进入自定义模式时也重置对抗预设状态，避免后续切换字段丢失
+      applyContestAdvancedPreset(null);
+    } else if (savedSupportedContestPreset) {
+      // 高亮对应的预设按钮
+      panel.find('.acu-dice-quick-preset-btn').removeClass('active');
+      const $matchedBtn = panel.find(`.acu-dice-quick-preset-btn[data-preset-id="${savedSupportedContestPreset.id}"]`);
+      if ($matchedBtn.length) {
+        $matchedBtn.addClass('active');
+      }
+      applyContestAdvancedPreset(savedSupportedContestPreset.id);
+    } else if (defaultContestPresetId) {
+      // 当前活跃预设不支持对抗时，自动回退到首个可用对抗预设
+      panel.find('.acu-dice-quick-preset-btn').removeClass('active');
+      const $defaultBtn = panel.find(`.acu-dice-quick-preset-btn[data-preset-id="${defaultContestPresetId}"]`);
+      if ($defaultBtn.length) {
+        $defaultBtn.addClass('active');
+        panel.find('#contest-dice-type').val(($defaultBtn.data('dice') as string) || '1d100');
+      }
+      applyContestAdvancedPreset(defaultContestPresetId);
+    }
+
+    // 发起方角色变化时更新属性
     panel.find('#contest-init-display').on('change.acuattr input.acuattr', function () {
       const charName = $(this).val().trim() || '<user>';
       const newAttrList = getAttributesForCharacter(charName);
@@ -12831,7 +21142,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       rebuildAttrBtns(fullAttrs, 'init');
     });
 
-    // 乙方角色变化时更新属性
+    // 对抗方角色变化时更新属性
     panel.find('#contest-opponent-display').on('change.acuattr input.acuattr', function () {
       const charName = $(this).val().trim();
       const newAttrList = getAttributesForCharacter(charName);
@@ -12840,106 +21151,383 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       rebuildAttrBtns(fullAttrs, 'opp');
     });
 
-    // 甲方属性名变化时自动填入属性值
+    // 发起方属性名变化时自动填入属性值
     panel.find('#contest-init-name').on('change.acuval', function () {
       const charName = panel.find('#contest-init-display').val().trim() || '<user>';
       const attrName = $(this).val().trim();
       const attrValue = getAttributeValue(charName, attrName);
       if (attrValue !== null) {
-        panel.find('#contest-init-value').val(attrValue);
+        const targetInput = getContestAttrTargetInput('init', attrName);
+        panel.find(targetInput).val(attrValue).trigger('change');
       }
     });
 
-    // 乙方属性名变化时自动填入属性值
+    // 对抗方属性名变化时自动填入属性值
     panel.find('#contest-opp-name').on('change.acuval', function () {
       const charName = panel.find('#contest-opponent-display').val().trim();
       const attrName = $(this).val().trim();
       const attrValue = getAttributeValue(charName, attrName);
       if (attrValue !== null) {
-        panel.find('#contest-opp-value').val(attrValue);
+        const targetInput = getContestAttrTargetInput('opp', attrName);
+        panel.find(targetInput).val(attrValue).trigger('change');
       }
     });
 
     // 骰子预设切换
-    panel.find('.acu-dice-preset').click(function () {
+    panel.find('.acu-dice-quick-preset-btn').click(function () {
       const newDice = $(this).data('dice');
       // 自定义按钮有单独处理，这里跳过
       if (newDice === 'custom') return;
 
-      panel.find('.acu-dice-preset').removeClass('active');
+      // [新增] 检查预设是否支持对抗检定
+      const presetId = $(this).data('preset-id') as string | undefined;
+      if (presetId && !AdvancedDicePresetManager.supportsContest(presetId)) {
+        const preset = AdvancedDicePresetManager.getAllPresets().find(p => p.id === presetId);
+        toastr.warning(`${preset?.name || presetId} 规则不支持对抗检定`);
+        return; // 不切换预设，保持当前状态
+      }
+
+      panel.find('.acu-dice-quick-preset-btn').removeClass('active');
       $(this).addClass('active');
       panel.find('#contest-dice-type').val(newDice);
+
+      // [修复] 隐藏自定义模式字段区（使用新的元素ID）
+      panel.find('#contest-init-dice-syntax-row').hide();
+      panel.find('#contest-opp-dice-syntax-row').hide();
+      panel.find('#contest-custom-judge-row').hide();
+      panel.find('#contest-init-values-row, #contest-opp-values-row').show();
+      panel.find('#contest-init-custom-fields, #contest-opp-custom-fields').show();
+
+      // [统一UI] 如果按钮有 data-preset-id，直接应用高级预设配置
+      if (presetId) {
+        AdvancedDicePresetManager.setActivePreset(presetId);
+        applyContestAdvancedPreset(presetId);
+      } else {
+        // 没有预设ID时清除高级预设
+        AdvancedDicePresetManager.setActivePreset(null);
+        applyContestAdvancedPreset(null);
+      }
 
       // 保存骰子类型
       saveDiceConfig({ lastDiceType: newDice });
     });
 
     // 自定义骰子按钮点击事件
-    panel.find('.acu-contest-custom-btn').click(function () {
+    panel.find('.acu-dice-quick-preset-btn[data-dice="custom"]').click(function () {
       // 立即高亮自定义按钮，取消其他按钮高亮
-      panel.find('.acu-dice-preset').removeClass('active');
+      panel.find('.acu-dice-quick-preset-btn').removeClass('active');
       $(this).addClass('active');
 
-      var customDice = panel.find('#contest-custom-dice').val().trim();
-      // 如果输入框为空，聚焦并等待用户输入
-      if (!customDice) {
-        panel.find('#contest-custom-dice').focus();
-        return;
-      }
-      if (!/^\d+d\d+$/i.test(customDice)) {
-        if (window.toastr) window.toastr.warning('格式错误，请输入如 4d6');
-        return;
-      }
+      // [修复] 保存自定义模式状态（与普通检定面板保持一致）
+      AdvancedDicePresetManager.setActivePreset(null);
+      localStorage.setItem(STORAGE_KEY_LAST_PRESET, '__custom__');
 
-      panel.find('#contest-dice-type').val(customDice);
+      // [修复] 重置对抗检定预设布局（自定义模式会隐藏区域，但不应留下上一次整合布局残留）
+      applyContestAdvancedPreset(null);
 
-      // 保存自定义骰子类型
-      saveDiceConfig({ lastDiceType: customDice });
+      // [修复] 显示自定义模式字段区（使用新的元素ID）
+      panel.find('#contest-init-dice-syntax-row').show();
+      panel.find('#contest-opp-dice-syntax-row').show();
+      panel.find('#contest-custom-judge-row').show();
+      panel.find('#contest-init-values-row, #contest-opp-values-row').hide();
+      panel.find('#contest-init-custom-fields, #contest-opp-custom-fields').hide();
     });
 
-    // 自定义骰子输入框回车确认
-    panel.find('#contest-custom-dice').on('keydown', function (e) {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        panel.find('.acu-contest-custom-btn').click();
-      }
-    });
-    // 掷骰函数
+    // 掷骰函数 - 使用 rollComplexDiceExpression 支持复合表达式
     const rollDice = function (formula) {
-      const match = formula.match(/(\d+)d(\d+)([+-]\d+)?/i);
-      if (!match) return { total: 0, rolls: [], sides: 100 };
-      const count = parseInt(match[1], 10);
-      const sides = parseInt(match[2], 10);
-      const modifier = match[3] ? parseInt(match[3], 10) : 0;
-      const rolls = [];
-      for (let i = 0; i < count; i++) {
-        rolls.push(Math.floor(Math.random() * sides) + 1);
-      }
-      return {
-        total:
-          rolls.reduce(function (a, b) {
-            return a + b;
-          }, 0) + modifier,
-        rolls: rolls,
-        sides: sides,
-      };
+      const rollResult = rollComplexDiceExpression(formula);
+      const total = rollResult.total;
+      if (Number.isNaN(total)) return { total: 0, rolls: [], sides: 100 };
+      // 尝试从公式中提取基本信息用于显示
+      const basicMatch = formula.match(/^(\d*)d(\d+|F)/i);
+      const sidesStr = basicMatch ? basicMatch[2] : '100';
+      const sides = sidesStr.toUpperCase() === 'F' ? 3 : parseInt(sidesStr, 10);
+      return { total, rolls: [], sides };
     };
 
-    const getSuccessLevel = function (roll, target, sides) {
-      if (sides === 100) {
-        if (roll <= 5) return { level: 3, name: '大成功', color: 'var(--acu-crit-success-text)' };
-        if (roll >= 96) return { level: -1, name: '大失败', color: 'var(--acu-crit-failure-text)' };
-        if (roll <= Math.floor(target / 5))
-          return { level: 2, name: '极难成功', color: 'var(--acu-extreme-success-text)' };
-        if (roll <= Math.floor(target / 2)) return { level: 1, name: '困难成功', color: 'var(--acu-success-text)' };
-        if (roll <= target) return { level: 0, name: '普通成功', color: 'var(--acu-warning-text)' };
-        return { level: -1, name: '失败', color: 'var(--acu-failure-text)' };
-      } else {
-        if (roll === 20) return { level: 3, name: '大成功', color: 'var(--acu-crit-success-text)' };
-        if (roll === 1) return { level: -1, name: '大失败', color: 'var(--acu-crit-failure-text)' };
-        if (roll >= target) return { level: 0, name: '成功', color: 'var(--acu-success-text)' };
-        return { level: -1, name: '失败', color: 'var(--acu-failure-text)' };
+    const resolveContest = function (
+      preset: AdvancedDicePreset,
+      initOutcome: OutcomeLevel,
+      oppOutcome: OutcomeLevel,
+      initValue: number,
+      oppValue: number,
+      initAttr: number,
+      oppAttr: number,
+    ): 'initiator' | 'opponent' | 'tie' {
+      const contestRule = preset.contestRule;
+
+      if (!contestRule) {
+        if (initValue > oppValue) return 'initiator';
+        if (oppValue > initValue) return 'opponent';
+        return 'tie';
       }
+
+      let winner: 'initiator' | 'opponent' | 'tie' = 'tie';
+      const contestMode = contestRule.mode ?? 'custom'; // 默认自定义模式，保持旧行为
+
+      switch (contestMode) {
+        case 'rank': {
+          const initRank = initOutcome.contestRank ?? 50;
+          const oppRank = oppOutcome.contestRank ?? 50;
+          if (initRank > oppRank) winner = 'initiator';
+          else if (oppRank > initRank) winner = 'opponent';
+          break;
+        }
+        case 'value':
+        case 'margin': {
+          // 余量模式裁决与 value 相同
+          if (initValue > oppValue) winner = 'initiator';
+          else if (oppValue > initValue) winner = 'opponent';
+          break;
+        }
+        case 'custom': {
+          if (contestRule.customExpr) {
+            const context = {
+              $initValue: initValue,
+              $oppValue: oppValue,
+              $initRank: initOutcome.contestRank ?? 50,
+              $oppRank: oppOutcome.contestRank ?? 50,
+            };
+            const conditionResult: { success: boolean; value?: number | boolean; error?: string } = evaluateCondition(
+              contestRule.customExpr,
+              context,
+            );
+            if (conditionResult.success) {
+              const isMatch =
+                typeof conditionResult.value === 'number'
+                  ? conditionResult.value !== 0
+                  : Boolean(conditionResult.value);
+              winner = isMatch ? 'initiator' : 'opponent';
+            } else {
+              console.warn('[DICE] 对抗判定自定义表达式失败:', conditionResult.error);
+            }
+          }
+          break;
+        }
+      }
+
+      const tieBreakers =
+        Array.isArray(contestRule.tieBreakers) && contestRule.tieBreakers.length > 0
+          ? contestRule.tieBreakers
+          : contestRule.tieBreaker
+            ? [contestRule.tieBreaker]
+            : [];
+
+      if (winner === 'tie' && tieBreakers.length > 0) {
+        // 链式平局处理：按顺序尝试直到分出胜负
+        for (const tieBreaker of tieBreakers) {
+          if (winner !== 'tie') break;
+          switch (tieBreaker) {
+            case 'higher_attr':
+              if (initAttr > oppAttr) winner = 'initiator';
+              else if (oppAttr > initAttr) winner = 'opponent';
+              break;
+            case 'initiator_wins':
+              winner = 'initiator';
+              break;
+            case 'reroll':
+              // 重投由外层触发，此处保持平局继续后续规则
+              break;
+          }
+        }
+      }
+
+      return winner;
+    };
+
+    // [新增] 自定义模式对抗掷骰逻辑
+    const performCustomContestRoll = function () {
+      const $btn = panel.find('#contest-roll-btn');
+
+      // 读取自定义模式字段
+      const initDiceExpr = panel.find('#contest-custom-dice-init').val().trim() || '1d100';
+      const oppDiceExpr = panel.find('#contest-custom-dice-opp').val().trim() || initDiceExpr;
+      const judgeRule = panel.find('#contest-custom-judge-rule').val() as string;
+      const tieRule = (panel.find('#contest-custom-tie-rule').val() as string) ?? 'tie';
+
+      // 读取双方信息
+      try {
+        const rawDataForAlias = cachedRawData || getTableData();
+        if (rawDataForAlias) {
+          NameAliasRegistry.rebuild(processJsonData(rawDataForAlias || {}));
+        }
+      } catch (error) {
+        console.warn('[DICE] 对抗别名映射刷新失败:', error);
+      }
+      const initNameRaw = panel.find('#contest-init-display').val().trim() || '<user>';
+      const initName = initNameRaw === '<user>' ? initNameRaw : NameAliasRegistry.resolve(initNameRaw);
+      const initAttrName = panel.find('#contest-init-name').val().trim() || '自由检定';
+      const oppNameRaw = panel.find('#contest-opponent-display').val().trim() || '对手';
+      const oppName = oppNameRaw === '<user>' ? oppNameRaw : NameAliasRegistry.resolve(oppNameRaw);
+      const oppAttrName = panel.find('#contest-opp-name').val().trim() || initAttrName;
+
+      // 掷骰
+      const initRoll = rollComplexDiceExpression(initDiceExpr);
+      const oppRoll = rollComplexDiceExpression(oppDiceExpr);
+
+      if (isNaN(initRoll.total) || isNaN(oppRoll.total)) {
+        if (window.toastr) {
+          const errorExpr = isNaN(initRoll.total) ? initDiceExpr : oppDiceExpr;
+          window.toastr.error(`骰子语法错误: ${errorExpr}`);
+        }
+        return;
+      }
+
+      const initTotal = initRoll.total;
+      const oppTotal = oppRoll.total;
+
+      // 判定胜负
+      let winner: 'initiator' | 'opponent' | 'tie' = 'tie';
+      switch (judgeRule) {
+        case 'higher':
+          if (initTotal > oppTotal) winner = 'initiator';
+          else if (oppTotal > initTotal) winner = 'opponent';
+          else {
+            // 平手情况，使用 tieRule
+            if (tieRule === 'initiator_win') winner = 'initiator';
+            else if (tieRule === 'initiator_lose') winner = 'opponent';
+            // tieRule === 'tie' 时保持 winner = 'tie'
+          }
+          break;
+        case 'lower':
+          if (initTotal < oppTotal) winner = 'initiator';
+          else if (oppTotal < initTotal) winner = 'opponent';
+          else {
+            if (tieRule === 'initiator_win') winner = 'initiator';
+            else if (tieRule === 'initiator_lose') winner = 'opponent';
+          }
+          break;
+        case 'rank':
+          if (initTotal > oppTotal) winner = 'initiator';
+          else if (oppTotal > initTotal) winner = 'opponent';
+          else {
+            if (tieRule === 'initiator_win') winner = 'initiator';
+            else if (tieRule === 'initiator_lose') winner = 'opponent';
+          }
+          break;
+        case 'none':
+          break;
+      }
+
+      const winnerText =
+        winner === 'initiator'
+          ? `${replaceUserPlaceholders(initName)} 获胜`
+          : winner === 'opponent'
+            ? `${replaceUserPlaceholders(oppName)} 获胜`
+            : judgeRule === 'none'
+              ? '无判定'
+              : '平局';
+
+      const contestTitle = initAttrName === oppAttrName ? initAttrName : `${initAttrName} vs ${oppAttrName}`;
+      const compareSymbol = judgeRule === 'lower' ? '<' : '>';
+      let compareExpr = `${initTotal} ${compareSymbol} ${oppTotal}`;
+      if (winner === 'tie' || judgeRule === 'none') {
+        compareExpr = `${initTotal} = ${oppTotal}`;
+      }
+
+      // 生成输出文本（单行，避免冗余换行）
+      const outputText = `<meta:检定结果>【${contestTitle}】对抗检定：${replaceUserPlaceholders(initName)}(${initDiceExpr})=${initTotal}，${replaceUserPlaceholders(oppName)}(${oppDiceExpr})=${oppTotal}，判定 ${compareExpr}，${winnerText}</meta:检定结果>`;
+
+      // 插入到输入框
+      smartInsertToTextarea(outputText, 'dice');
+
+      // 更新结果显示
+      const diceCfg = getDiceConfig();
+      const hideDiceResultFromUser =
+        diceCfg.hideDiceResultFromUser !== undefined ? diceCfg.hideDiceResultFromUser : false;
+
+      const initDisplayRoll = hideDiceResultFromUser ? '？？' : initTotal;
+      const oppDisplayRoll = hideDiceResultFromUser ? '？？' : oppTotal;
+      const showOutcome = judgeRule !== 'none' && !hideDiceResultFromUser;
+      const initOutcomeText = showOutcome ? (winner === 'tie' ? '平局' : winner === 'initiator' ? '胜' : '负') : '';
+      const oppOutcomeText = showOutcome ? (winner === 'tie' ? '平局' : winner === 'opponent' ? '胜' : '负') : '';
+
+      panel.find('#contest-result-init').html(`
+        <div class="acu-contest-result-name">${escapeHtml(replaceUserPlaceholders(initName))}</div>
+        <div class="acu-contest-result-roll">${initDisplayRoll}</div>
+        ${showOutcome ? `<div class="acu-contest-result-outcome">${initOutcomeText}</div>` : ''}
+      `);
+
+      panel.find('#contest-result-opp').html(`
+        <div class="acu-contest-result-name">${escapeHtml(replaceUserPlaceholders(oppName))}</div>
+        <div class="acu-contest-result-roll">${oppDisplayRoll}</div>
+        ${showOutcome ? `<div class="acu-contest-result-outcome">${oppOutcomeText}</div>` : ''}
+      `);
+
+      // 高亮胜者
+      panel.find('#contest-result-init').removeClass('winner loser');
+      panel.find('#contest-result-opp').removeClass('winner loser');
+      if (!hideDiceResultFromUser && judgeRule !== 'none') {
+        if (winner === 'initiator') {
+          panel.find('#contest-result-init').addClass('winner');
+          panel.find('#contest-result-opp').addClass('loser');
+        } else if (winner === 'opponent') {
+          panel.find('#contest-result-init').addClass('loser');
+          panel.find('#contest-result-opp').addClass('winner');
+        }
+      }
+
+      // 显示结果区
+      panel.find('#contest-result-display').show();
+
+      // 更新按钮显示重投
+      $btn.html(`
+        <div class="acu-dice-result-display">
+          <span>${hideDiceResultFromUser ? '？？' : winnerText}</span>
+          <button class="dice-retry-btn acu-dice-retry-btn" title="重新投骰">
+            <i class="fa-solid fa-rotate-right"></i>
+          </button>
+        </div>
+      `);
+
+      // 绑定重投按钮
+      $btn.off('click', '.dice-retry-btn').on('click', '.dice-retry-btn', function (e) {
+        e.stopPropagation();
+        e.preventDefault();
+        performCustomContestRoll();
+      });
+
+      const winnerSide: 'left' | 'right' | 'tie' =
+        winner === 'initiator' ? 'left' : winner === 'opponent' ? 'right' : 'tie';
+      const customContestResult: AcuDice.ContestResult = {
+        left: {
+          name: initName,
+          attribute: initAttrName,
+          roll: initTotal,
+          target: 0,
+          successLevel: winner === 'initiator' ? 1 : winner === 'tie' ? 0 : -1,
+        },
+        right: {
+          name: oppName,
+          attribute: oppAttrName,
+          roll: oppTotal,
+          target: 0,
+          successLevel: winner === 'opponent' ? 1 : winner === 'tie' ? 0 : -1,
+        },
+        winner: winnerSide,
+        message: winnerText,
+      };
+
+      const customContestWithTimestamp = {
+        ...customContestResult,
+        timestamp: Date.now(),
+        detailId: `contest_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        detailLines: [
+          `发起方: ${initName} / 对抗方: ${oppName}`,
+          `属性: ${initAttrName} vs ${oppAttrName}`,
+          `公式: ${initDiceExpr} vs ${oppDiceExpr}`,
+          `掷骰: ${initTotal} vs ${oppTotal}`,
+          `判定规则: ${judgeRule}`,
+          `平手规则: ${tieRule}`,
+          `判定表达式: ${compareExpr}`,
+          `结果: ${winnerText}`,
+        ],
+      };
+      contestHistory.push(customContestWithTimestamp);
+      if (contestHistory.length > MAX_HISTORY) {
+        contestHistory.shift();
+      }
+      emitEvent('contest', customContestWithTimestamp);
     };
 
     let lastContestRollAt = 0;
@@ -12966,112 +21554,414 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       lockUI();
       setTimeout(unlockUI, 100);
 
-      var formula = panel.find('#contest-dice-type').val() || '1d100';
+      // [修复] 如果处于自定义模式,使用自定义对抗掷骰逻辑
+      // 检查骰子语法行是否可见来判断是否为自定义模式
+      if (panel.find('#contest-init-dice-syntax-row').is(':visible')) {
+        performCustomContestRoll();
+        return;
+      }
 
-      var initName = panel.find('#contest-init-display').val().trim() || '<user>';
-      var initAttrName = panel.find('#contest-init-name').val().trim() || '自由检定';
+      var formula = panel.find('#contest-dice-type').val() || '1d100';
+      const activePreset = currentContestAdvancedPreset || AdvancedDicePresetManager.getActivePreset();
+      const hasAdvancedPreset =
+        !!activePreset &&
+        'outcomes' in activePreset &&
+        Array.isArray(activePreset.outcomes) &&
+        activePreset.outcomes.length > 0;
+
+      try {
+        const rawDataForAlias = cachedRawData || getTableData();
+        if (rawDataForAlias) {
+          NameAliasRegistry.rebuild(processJsonData(rawDataForAlias || {}));
+        }
+      } catch (error) {
+        console.warn('[DICE] 对抗别名映射刷新失败:', error);
+      }
+
+      var initNameRaw = (panel.find('#contest-init-display').val() || '').toString().trim() || '<user>';
+      var initName = initNameRaw === '<user>' ? initNameRaw : NameAliasRegistry.resolve(initNameRaw);
+      var initAttrName = (panel.find('#contest-init-name').val() || '').toString().trim() || '自由检定';
       // 辅助函数：根据骰子公式计算最大值的一半
       var getHalfMax = function (formulaStr) {
         var m = formulaStr.match(/(\d+)d(\d+)/i);
         if (m) return Math.round((parseInt(m[1], 10) * parseInt(m[2], 10)) / 2);
         return 50;
       };
+      const resolveDefaultValue = function (
+        defaultValue: number | string | undefined,
+        context: Record<string, number>,
+      ): number {
+        if (defaultValue === undefined) return 0;
+        if (typeof defaultValue === 'number') return defaultValue;
+        const result = evaluateFormula(defaultValue, context);
+        if (result === 0 && defaultValue !== '0' && String(defaultValue) !== '0') {
+          if (window.toastr) {
+            window.toastr.warning(`表达式 "${defaultValue}" 求值失败,使用默认值 0`);
+          }
+        }
+        return result || 0;
+      };
 
-      var initValueInput = panel.find('#contest-init-value').val().trim();
+      // 解析修正值，支持纯数字和骰子表达式
+      const parseModifier = function (modStr: string): number {
+        if (!modStr || modStr.trim() === '') return 0;
+        const trimmed = modStr.trim();
+
+        // 尝试直接解析为数字
+        const numValue = parseFloat(trimmed);
+        if (!isNaN(numValue) && isFinite(numValue) && trimmed.match(/^-?\d+(\.\d+)?$/)) {
+          return numValue;
+        }
+
+        const rollResult = rollComplexDiceExpression(trimmed);
+        if (!Number.isNaN(rollResult.total)) return rollResult.total;
+        return 0;
+      };
+
+      var initValueInput = (panel.find('#contest-init-value').val() || '').toString().trim();
       var initValue;
       if (initValueInput === '') {
-        // 属性值留空：使用骰子最大值的一半作为默认
-        initValue = getHalfMax(formula);
+        // 属性值留空：高级预设使用默认值，否则使用骰子最大值的一半
+        if (hasAdvancedPreset && activePreset && 'attribute' in activePreset) {
+          initValue = resolveDefaultValue(activePreset.attribute?.defaultValue, {});
+        } else {
+          initValue = getHalfMax(formula);
+        }
       } else {
         initValue = parseInt(initValueInput, 10) || getHalfMax(formula);
       }
-      var initTargetInput = panel.find('#contest-init-target').val().trim();
+      var initTargetInput = (panel.find('#contest-init-target').val() || '').toString().trim();
       var initTarget;
       if (initTargetInput !== '') {
         initTarget = parseInt(initTargetInput, 10);
       } else {
-        // 目标值留空：使用属性值（若属性值也是默认的，则两者相等）
-        initTarget = initValue;
+        // 目标值留空：高级预设使用默认值，否则使用属性值（若属性值也是默认的，则两者相等）
+        if (hasAdvancedPreset && activePreset && 'dc' in activePreset) {
+          initTarget = resolveDefaultValue(activePreset.dc?.defaultValue, { $attr: initValue });
+        } else {
+          initTarget = initValue;
+        }
       }
 
-      var oppName = panel.find('#contest-opponent-display').val().trim() || '对手';
-      var oppAttrName = panel.find('#contest-opp-name').val().trim() || initAttrName;
-      var oppValueInput = panel.find('#contest-opp-value').val().trim();
+      var oppNameRaw = (panel.find('#contest-opponent-display').val() || '').toString().trim() || '对手';
+      var oppName = oppNameRaw === '<user>' ? oppNameRaw : NameAliasRegistry.resolve(oppNameRaw);
+      var oppAttrName = (panel.find('#contest-opp-name').val() || '').toString().trim() || initAttrName;
+      var oppValueInput = (panel.find('#contest-opp-value').val() || '').toString().trim();
       var oppValue;
       if (oppValueInput === '') {
-        // 属性值留空：使用骰子最大值的一半作为默认
-        oppValue = getHalfMax(formula);
+        // 属性值留空：高级预设使用默认值，否则使用骰子最大值的一半
+        if (hasAdvancedPreset && activePreset && 'attribute' in activePreset) {
+          oppValue = resolveDefaultValue(activePreset.attribute?.defaultValue, {});
+        } else {
+          oppValue = getHalfMax(formula);
+        }
       } else {
         oppValue = parseInt(oppValueInput, 10) || getHalfMax(formula);
       }
-      var oppTargetInput = panel.find('#contest-opp-target').val().trim();
+      var oppTargetInput = (panel.find('#contest-opp-target').val() || '').toString().trim();
       var oppTarget;
       if (oppTargetInput !== '') {
         oppTarget = parseInt(oppTargetInput, 10);
       } else {
-        // 目标值留空：使用属性值
-        oppTarget = oppValue;
+        // 目标值留空：高级预设使用默认值，否则使用属性值
+        if (hasAdvancedPreset && activePreset && 'dc' in activePreset) {
+          oppTarget = resolveDefaultValue(activePreset.dc?.defaultValue, { $attr: oppValue });
+        } else {
+          oppTarget = oppValue;
+        }
       }
 
-      var initResult = rollDice(formula);
-      var oppResult = rollDice(formula);
-      var initSuccess = getSuccessLevel(initResult.total, initTarget, initResult.sides);
-      var oppSuccess = getSuccessLevel(oppResult.total, oppTarget, oppResult.sides);
+      var initModInput = (panel.find('#contest-init-mod').val() || '').toString().trim();
+      var oppModInput = (panel.find('#contest-opp-mod').val() || '').toString().trim();
+      var initSkillModInput = (panel.find('#contest-init-skill-mod').val() || '').toString().trim();
+      var oppSkillModInput = (panel.find('#contest-opp-skill-mod').val() || '').toString().trim();
+      var initMod = initModInput !== '' ? parseModifier(initModInput) : 0;
+      var oppMod = oppModInput !== '' ? parseModifier(oppModInput) : 0;
 
-      var winner, winnerResultType, resultDesc;
+      // 解析技能加值（若预设启用 skillMod）
+      var initSkillMod = 0;
+      var oppSkillMod = 0;
+
+      const allPresets = AdvancedDicePresetManager.getAllPresets();
+      const fallbackPresetId = /d100/i.test(formula) ? 'coc7_check' : 'dnd5e_check';
+      const fallbackPreset = allPresets.find(p => p.id === fallbackPresetId);
+      const preset =
+        activePreset &&
+        'outcomes' in activePreset &&
+        Array.isArray(activePreset.outcomes) &&
+        activePreset.outcomes.length > 0
+          ? activePreset
+          : fallbackPreset;
+
+      if (!preset || !Array.isArray(preset.outcomes) || preset.outcomes.length === 0) {
+        console.warn('[DICE] 对抗检定未找到可用预设或 outcomes');
+        return;
+      }
+
+      if (preset.mod?.hidden) {
+        initMod = 0;
+        oppMod = 0;
+      }
+
+      if (preset.dc?.hidden) {
+        initTarget = resolveDefaultValue(preset.dc?.defaultValue, { $attr: initValue });
+        oppTarget = resolveDefaultValue(preset.dc?.defaultValue, { $attr: oppValue });
+      }
+
+      const hideSkillModInContest =
+        !preset.skillMod || preset.contestRule?.hideSkillMod === true || preset.skillMod.hidden === true;
+      if (!hideSkillModInContest && preset.skillMod) {
+        if (initSkillModInput !== '') {
+          initSkillMod = parseModifier(initSkillModInput);
+        } else {
+          initSkillMod = resolveDefaultValue(preset.skillMod.defaultValue, { $attr: initValue });
+        }
+
+        if (oppSkillModInput !== '') {
+          oppSkillMod = parseModifier(oppSkillModInput);
+        } else {
+          oppSkillMod = resolveDefaultValue(preset.skillMod.defaultValue, { $attr: oppValue });
+        }
+      }
+
+      // [新增] 收集双方的 customFields
+      const collectContestCustomFields = (party: 'init' | 'opp'): Record<string, number | string | boolean> => {
+        const customValues: Record<string, number | string | boolean> = {};
+        if (!('customFields' in preset) || !Array.isArray(preset.customFields) || preset.customFields.length === 0) {
+          return customValues;
+        }
+
+        const $customFields = panel.find(`.acu-dice-custom-field-contest[data-party="${party}"]`);
+        $customFields.each(function () {
+          const $el = $(this);
+          const id = $el.data('id');
+          const fieldConfig = preset.customFields.find(f => f.id === id);
+          if (!fieldConfig) return;
+
+          let val: string | number | boolean;
+          if (fieldConfig.type === 'toggle') {
+            val = $el.prop('checked');
+          } else if (fieldConfig.type === 'number') {
+            const num = parseFloat($el.val() as string);
+            val = isNaN(num) ? (fieldConfig.defaultValue as number) : num;
+          } else if (fieldConfig.type === 'select') {
+            const rawVal = $el.val() as string;
+            const num = parseFloat(rawVal);
+            val = isNaN(num) ? rawVal : num;
+          } else {
+            const rawVal = String($el.val() ?? '').trim();
+            if (rawVal === '' && fieldConfig.defaultValue !== undefined && fieldConfig.defaultValue !== '') {
+              val = fieldConfig.defaultValue as string | number | boolean;
+            } else {
+              val = rawVal;
+            }
+          }
+          customValues['$' + id] = val;
+        });
+        return customValues;
+      };
+
+      // [新增] 计算派生变量
+      const computeDerivedVars = (
+        customValues: Record<string, number | string | boolean>,
+        attrValue: number,
+        modValue: number,
+        dcValue: number,
+      ): Record<string, number> => {
+        const derivedValues: Record<string, number> = {};
+        if (!('derivedVars' in preset) || !Array.isArray(preset.derivedVars) || preset.derivedVars.length === 0) {
+          return derivedValues;
+        }
+
+        const baseContext = {
+          $attr: attrValue,
+          $dc: dcValue,
+          $mod: modValue,
+          ...customValues,
+        };
+
+        preset.derivedVars.forEach(spec => {
+          const id = spec?.id?.trim();
+          if (!id) return;
+          const varName = id.startsWith('$') ? id : `$${id}`;
+          const evalResult = evaluateCondition(spec.expr, { ...baseContext, ...derivedValues });
+          if (!evalResult.success) {
+            console.warn(`[DICE] 对抗检定派生变量 ${varName} 计算失败:`, evalResult.error);
+            derivedValues[varName] = 0;
+            return;
+          }
+          const rawValue = evalResult.value;
+          const numericValue = typeof rawValue === 'number' && Number.isFinite(rawValue) ? rawValue : rawValue ? 1 : 0;
+          derivedValues[varName] = numericValue;
+        });
+        return derivedValues;
+      };
+
+      // [新增] 应用 dicePatches
+      const applyDicePatches = (
+        baseFormula: string,
+        customValues: Record<string, number | string | boolean>,
+        derivedValues: Record<string, number>,
+        attrValue: number,
+        modValue: number,
+        dcValue: number,
+      ): string => {
+        if (!('dicePatches' in preset) || !Array.isArray(preset.dicePatches) || preset.dicePatches.length === 0) {
+          return baseFormula;
+        }
+
+        const patchContext = {
+          $attr: attrValue,
+          $dc: dcValue,
+          $mod: modValue,
+          ...customValues,
+          ...derivedValues,
+        };
+
+        const replacePatchTemplate = (template: string): string => {
+          const varPattern = /\$[a-zA-Z_]\w*/g;
+          return template.replace(varPattern, match => {
+            const value = patchContext[match];
+            return typeof value === 'number' && Number.isFinite(value) ? String(value) : '0';
+          });
+        };
+
+        let diceExpression = baseFormula;
+        preset.dicePatches.forEach(patch => {
+          if (!patch) return;
+          if (patch.when) {
+            const conditionResult = evaluateCondition(patch.when, patchContext);
+            if (!conditionResult.success) {
+              console.warn('[DICE] 对抗检定 dicePatches 条件评估失败:', conditionResult.error);
+              return;
+            }
+            const shouldApply =
+              typeof conditionResult.value === 'number' ? conditionResult.value !== 0 : Boolean(conditionResult.value);
+            if (!shouldApply) return;
+          }
+
+          const resolvedTemplate = replacePatchTemplate(patch.template ?? '');
+          switch (patch.op) {
+            case 'append':
+              diceExpression = `${diceExpression}${resolvedTemplate}`;
+              break;
+            case 'prepend':
+              diceExpression = `${resolvedTemplate}${diceExpression}`;
+              break;
+            case 'replace':
+              diceExpression = resolvedTemplate;
+              break;
+          }
+        });
+        return diceExpression;
+      };
+
+      // 收集发起方 customFields 并计算公式
+      const initCustomValues = collectContestCustomFields('init');
+      const initDerivedValues = computeDerivedVars(initCustomValues, initValue, initMod, initTarget);
+      const initFormula = applyDicePatches(
+        formula,
+        initCustomValues,
+        initDerivedValues,
+        initValue,
+        initMod,
+        initTarget,
+      );
+
+      // 收集对抗方 customFields 并计算公式
+      const oppCustomValues = collectContestCustomFields('opp');
+      const oppDerivedValues = computeDerivedVars(oppCustomValues, oppValue, oppMod, oppTarget);
+      const oppFormula = applyDicePatches(formula, oppCustomValues, oppDerivedValues, oppValue, oppMod, oppTarget);
+
+      // 投骰（使用各自的公式）
+      var initResult = rollDice(initFormula);
+      var oppResult = rollDice(oppFormula);
+      var initRollTotal = initResult.total;
+      var oppRollTotal = oppResult.total;
+
+      console.log('[DICE] 对抗检定公式 - 发起方:', initFormula, '对抗方:', oppFormula);
+
+      // 计算 attrMod（如果预设有 computeModifier）
+      let initAttrMod = 0;
+      let oppAttrMod = 0;
+      if ('attribute' in preset && preset.attribute?.computeModifier) {
+        const modFormula = preset.attribute.computeModifier;
+        if (modFormula === 'floor(($attr - 10) / 2)') {
+          // DND5e 特殊处理
+          initAttrMod = Math.floor((initValue - 10) / 2);
+          oppAttrMod = Math.floor((oppValue - 10) / 2);
+        } else {
+          initAttrMod = resolveDefaultValue(modFormula, { $attr: initValue });
+          oppAttrMod = resolveDefaultValue(modFormula, { $attr: oppValue });
+        }
+      }
+
+      const initContext = {
+        $roll: initResult,
+        $attr: initValue,
+        $attrMod: initAttrMod,
+        $skillMod: initSkillMod,
+        $dc: initTarget,
+        $mod: initMod,
+        ...initCustomValues,
+        ...initDerivedValues,
+      };
+      const oppContext = {
+        $roll: oppResult,
+        $attr: oppValue,
+        $attrMod: oppAttrMod,
+        $skillMod: oppSkillMod,
+        $dc: oppTarget,
+        $mod: oppMod,
+        ...oppCustomValues,
+        ...oppDerivedValues,
+      };
+
+      const initOutcome = evaluateOutcomes(preset.outcomes, initContext);
+      const oppOutcome = evaluateOutcomes(preset.outcomes, oppContext);
+      const winnerSide = resolveContest(
+        preset,
+        initOutcome,
+        oppOutcome,
+        initRollTotal + initAttrMod + initSkillMod + initMod,
+        oppRollTotal + oppAttrMod + oppSkillMod + oppMod,
+        initValue,
+        oppValue,
+      );
+
+      let winnerText = '平局';
+      let winnerResultType = 'warning';
+      if (winnerSide === 'initiator') {
+        winnerText = initName + ' 胜利';
+        winnerResultType = 'success';
+      } else if (winnerSide === 'opponent') {
+        winnerText = oppName + ' 胜利';
+        winnerResultType = 'failure';
+      }
+
       var diceCfg = getDiceConfig();
-      var tieRule = diceCfg.contestTieRule || 'initiator_lose';
       var hideDiceResultFromUser =
         diceCfg.hideDiceResultFromUser !== undefined ? diceCfg.hideDiceResultFromUser : false;
-      var displayInitValue = hideDiceResultFromUser ? '？？' : initResult.total;
-      var displayOppValue = hideDiceResultFromUser ? '？？' : oppResult.total;
-      var displayInitSuccessName = hideDiceResultFromUser ? '' : initSuccess.name;
-      var displayOppSuccessName = hideDiceResultFromUser ? '' : oppSuccess.name;
+      var displayInitValue = hideDiceResultFromUser ? '？？' : initRollTotal;
+      var displayOppValue = hideDiceResultFromUser ? '？？' : oppRollTotal;
+      var displayInitSuccessName = hideDiceResultFromUser ? '' : initOutcome.name;
+      var displayOppSuccessName = hideDiceResultFromUser ? '' : oppOutcome.name;
+      var displayWinner = hideDiceResultFromUser ? '' : winnerText;
 
-      if (initSuccess.level > oppSuccess.level) {
-        winner = initName + ' 胜利';
-        winnerResultType = 'success';
-        resultDesc = initSuccess.name + ' 胜过 ' + oppSuccess.name;
-      } else if (initSuccess.level < oppSuccess.level) {
-        winner = oppName + ' 胜利';
-        winnerResultType = 'failure';
-        resultDesc = oppSuccess.name + ' 胜过 ' + initSuccess.name;
-      } else {
-        // 平手情况，根据配置决定结果
-        resultDesc = '双方均为 ' + initSuccess.name;
-        if (tieRule === 'initiator_win') {
-          winner = '平手，' + initName + ' 判胜';
-          winnerResultType = 'success';
-        } else if (tieRule === 'tie') {
-          winner = '双方平手';
-          winnerResultType = 'warning';
-        } else {
-          // 默认: initiator_lose
-          winner = '平手，' + initName + ' 判负';
-          winnerResultType = 'failure';
-        }
-      }
-
-      var displayWinner = hideDiceResultFromUser ? '' : winner;
-
-      // 确定结果类型（用于统一样式）
-      const getResultTypeFromSuccess = success => {
-        if (success.level === 3) return 'critSuccess';
-        if (success.level === 2) return 'extremeSuccess';
-        if (success.level === 1) return 'success';
-        if (success.level === 0) return 'warning';
-        if (success.level === -1) {
-          // 根据name判断是大失败还是普通失败
-          return success.name === '大失败' ? 'critFailure' : 'failure';
-        }
-        return 'failure';
+      const getResultTypeFromOutcome = (outcome: OutcomeLevel) => {
+        if (outcome.priority <= 10) return 'critSuccess';
+        if (outcome.priority <= 30) return 'extremeSuccess';
+        if (outcome.priority < 50) return 'success';
+        if (outcome.priority === 50) return 'warning';
+        if (outcome.priority < 90) return 'failure';
+        return 'critFailure';
       };
-      const initResultType = getResultTypeFromSuccess(initSuccess);
-      const oppResultType = getResultTypeFromSuccess(oppSuccess);
+
+      const initResultType = getResultTypeFromOutcome(initOutcome);
+      const oppResultType = getResultTypeFromOutcome(oppOutcome);
 
       const initBadgeClass = getResultBadgeClass(initResultType);
       const oppBadgeClass = getResultBadgeClass(oppResultType);
-      const winnerBadgeClass = getResultBadgeClass(winnerResultType);
       // 胜者文字颜色类名
       const winnerColorClass =
         winnerResultType === 'success'
@@ -13085,7 +21975,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       const $resultInit = panel.find('#contest-result-init');
       const $resultOpp = panel.find('#contest-result-opp');
 
-      // 显示甲方结果
+      // 显示发起方结果
       $resultInit.html(
         '<span class="acu-contest-result-name">' +
           escapeHtml(initName) +
@@ -13096,7 +21986,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
           (displayInitSuccessName ? '<span class="' + initBadgeClass + '">' + displayInitSuccessName + '</span>' : ''),
       );
 
-      // 显示乙方结果
+      // 显示对抗方结果
       $resultOpp.html(
         (displayOppSuccessName ? '<span class="' + oppBadgeClass + '">' + displayOppSuccessName + '</span>' : '') +
           '<span class="acu-contest-result-value">' +
@@ -13158,35 +22048,175 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       const $contestBtn = panel.find('#contest-roll-btn');
       $contestBtn.hide();
 
-      const contestResultText =
-        `（元叙事：进行了一次【${initName} ${initAttrName} vs ${oppName} ${oppAttrName}】的对抗检定。` +
-        `${initName} ${initAttrName} (目标${initTarget}) 掷出 ${initResult.total}，判定为【${initSuccess.name}】；` +
-        `${oppName} ${oppAttrName} (目标${oppTarget}) 掷出 ${oppResult.total}，判定为【${oppSuccess.name}】。` +
-        `最终结果：【${winner}】）`;
+      // 构建对抗检定结果文本 (使用模板系统)
+      const template = preset.contestOutputTemplate || DEFAULT_CONTEST_OUTPUT_TEMPLATE;
+      // 使用 displayExpr（如果有）或 condition 作为显示表达式
+      const initDisplayExpr = initOutcome.displayExpr ?? initOutcome.condition;
+      const oppDisplayExpr = oppOutcome.displayExpr ?? oppOutcome.condition;
+      // 先处理 $roll.hasTag() 方法调用
+      let initConditionExpr = initDisplayExpr.replace(
+        /\$roll\.hasTag\s*\(\s*['"]([^'"]+)['"]\s*\)/gi,
+        (_match, tag) => {
+          return (initResult.tags ?? []).includes(tag) ? '成立' : '不成立';
+        },
+      );
+      initConditionExpr = initConditionExpr
+        .replace(/\$roll\.total/g, String(initRollTotal)) // 先替换 $roll.total
+        .replace(/\$roll/g, String(initRollTotal))
+        .replace(/\$attrMod/g, String(initAttrMod))
+        .replace(/\$skillMod/g, String(initSkillMod))
+        .replace(/\$attr/g, String(initValue))
+        .replace(/\$dc/g, String(initTarget))
+        .replace(/\$mod/g, String(initMod));
+      let oppConditionExpr = oppDisplayExpr.replace(/\$roll\.hasTag\s*\(\s*['"]([^'"]+)['"]\s*\)/gi, (_match, tag) => {
+        return (oppResult.tags ?? []).includes(tag) ? '成立' : '不成立';
+      });
+      oppConditionExpr = oppConditionExpr
+        .replace(/\$roll\.total/g, String(oppRollTotal)) // 先替换 $roll.total
+        .replace(/\$roll/g, String(oppRollTotal))
+        .replace(/\$attrMod/g, String(oppAttrMod))
+        .replace(/\$skillMod/g, String(oppSkillMod))
+        .replace(/\$attr/g, String(oppValue))
+        .replace(/\$dc/g, String(oppTarget))
+        .replace(/\$mod/g, String(oppMod));
+      // 计算 displayExpr 的布尔值来决定"成立/不成立"
+      // 注意：复用前面已定义的 initContext 和 oppContext
+      const initDisplayExprResult = evaluateCondition(initDisplayExpr, initContext);
+      const oppDisplayExprResult = evaluateCondition(oppDisplayExpr, oppContext);
+      const initJudgeResult =
+        initDisplayExprResult.success &&
+        (typeof initDisplayExprResult.value === 'number'
+          ? initDisplayExprResult.value !== 0
+          : Boolean(initDisplayExprResult.value))
+          ? '成立'
+          : '不成立';
+      const oppJudgeResult =
+        oppDisplayExprResult.success &&
+        (typeof oppDisplayExprResult.value === 'number'
+          ? oppDisplayExprResult.value !== 0
+          : Boolean(oppDisplayExprResult.value))
+          ? '成立'
+          : '不成立';
+      const initOutcomeText = initOutcome.outputText || initOutcome.name || '判定完成';
+      const oppOutcomeText = oppOutcome.outputText || oppOutcome.name || '判定完成';
+      // 计算总值（投骰 + 属性调整值 + 技能加值 + 额外修正）和差值
+      const initTotal = initRollTotal + initAttrMod + initSkillMod + initMod;
+      const oppTotal = oppRollTotal + oppAttrMod + oppSkillMod + oppMod;
+      const margin = initTotal - oppTotal;
+
+      // [新增] 条件文本变量：当值为0时隐藏整个片段（包括标签）
+      // 发起方
+      const initAttrModStr = initAttrMod >= 0 ? `+${initAttrMod}` : String(initAttrMod);
+      const initSkillModStr = initSkillMod >= 0 ? `+${initSkillMod}` : String(initSkillMod);
+      const initAttrModText = initAttrMod !== 0 ? `，调整值${initAttrModStr}` : '';
+      const initSkillModText = initSkillMod !== 0 ? `+技能加值${initSkillModStr}` : '';
+      const initModText = initMod !== 0 ? `+额外加值${initMod >= 0 ? '+' + initMod : initMod}` : '';
+      // 对抗方
+      const oppAttrModStr = oppAttrMod >= 0 ? `+${oppAttrMod}` : String(oppAttrMod);
+      const oppSkillModStr = oppSkillMod >= 0 ? `+${oppSkillMod}` : String(oppSkillMod);
+      const oppAttrModText = oppAttrMod !== 0 ? `，调整值${oppAttrModStr}` : '';
+      const oppSkillModText = oppSkillMod !== 0 ? `+技能加值${oppSkillModStr}` : '';
+      const oppModText = oppMod !== 0 ? `+额外加值${oppMod >= 0 ? '+' + oppMod : oppMod}` : '';
+
+      const contestOutputContext = {
+        initiator: initName,
+        opponent: oppName,
+        initAttrName: initAttrName,
+        oppAttrName: oppAttrName,
+        initRoll: initRollTotal,
+        oppRoll: oppRollTotal,
+        initTarget: initTarget,
+        oppTarget: oppTarget,
+        initSuccessName: initOutcome.name,
+        oppSuccessName: oppOutcome.name,
+        winner: winnerText, // "XXX 胜利" 或 "平局"
+        outcomeText: initOutcomeText,
+        outcomeName: initOutcome.name,
+        conditionExpr: initConditionExpr,
+        judgeResult: initJudgeResult,
+        formula: formula,
+        roll: initRollTotal,
+        dc: initTarget,
+        mod: initMod,
+        attr: initValue,
+        attrName: `【${initAttrName}】`,
+        initOutcomeText: initOutcomeText,
+        oppOutcomeText: oppOutcomeText,
+        initConditionExpr: initConditionExpr,
+        oppConditionExpr: oppConditionExpr,
+        initJudgeResult: initJudgeResult,
+        oppJudgeResult: oppJudgeResult,
+        // 属性调整值（用于 DND 等系统）
+        initAttrMod: initAttrMod,
+        oppAttrMod: oppAttrMod,
+        // 技能加值（用于 DND 等系统）
+        initSkillMod: initSkillMod,
+        oppSkillMod: oppSkillMod,
+        initMod: initMod,
+        oppMod: oppMod,
+        // [新增] 条件文本变量（零值时隐藏整个片段）
+        initAttrModText: initAttrModText,
+        oppAttrModText: oppAttrModText,
+        initSkillModText: initSkillModText,
+        oppSkillModText: oppSkillModText,
+        initModText: initModText,
+        oppModText: oppModText,
+        // 总值和差值（用于 DND/Fate 等系统）
+        initTotal: initTotal,
+        oppTotal: oppTotal,
+        margin: margin,
+        shifts: margin, // Fate 术语别名
+        // [新增] 双方原始属性值（技能等级）
+        initAttr: initValue,
+        oppAttr: oppValue,
+      };
+      const contestResultText = formatOutputTemplate(template, contestOutputContext);
       smartInsertToTextarea(contestResultText, 'dice');
 
       // 构建对抗检定结果对象
+      const getOutcomeLevel = (outcome: OutcomeLevel) => {
+        if (outcome.priority <= 10) return 3;
+        if (outcome.priority <= 30) return 2;
+        if (outcome.priority < 50) return 1;
+        if (outcome.priority === 50) return 0;
+        return -1;
+      };
       const contestResult: AcuDice.ContestResult = {
         left: {
           name: initName,
           attribute: initAttrName,
-          roll: initResult.total,
+          roll: initRollTotal,
           target: initTarget,
-          successLevel: initSuccess.level,
+          successLevel: getOutcomeLevel(initOutcome),
         },
         right: {
           name: oppName,
           attribute: oppAttrName,
-          roll: oppResult.total,
+          roll: oppRollTotal,
           target: oppTarget,
-          successLevel: oppSuccess.level,
+          successLevel: getOutcomeLevel(oppOutcome),
         },
-        winner: initSuccess.level > oppSuccess.level ? 'left' : initSuccess.level < oppSuccess.level ? 'right' : 'tie',
-        message: winner,
+        winner: winnerSide === 'initiator' ? 'left' : winnerSide === 'opponent' ? 'right' : 'tie',
+        message: winnerText,
       };
 
       // 添加到历史记录
-      const contestResultWithTimestamp = { ...contestResult, timestamp: Date.now() };
+      const contestDetailId = `contest_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const contestResultWithTimestamp = {
+        ...contestResult,
+        timestamp: Date.now(),
+        detailId: contestDetailId,
+        historyType: 'contest' as const,
+        detailLines: [
+          `发起方: ${initName} / 对抗方: ${oppName}`,
+          `属性: ${initAttrName} vs ${oppAttrName}`,
+          `公式: ${initFormula} vs ${oppFormula}`,
+          `掷骰: ${initRollTotal} vs ${oppRollTotal}`,
+          `总值: ${initTotal} vs ${oppTotal}`,
+          `判定: ${initConditionExpr} | ${oppConditionExpr}`,
+          `结果: ${winnerText}`,
+        ],
+      };
       contestHistory.push(contestResultWithTimestamp);
       if (contestHistory.length > MAX_HISTORY) {
         contestHistory.shift();
@@ -13210,19 +22240,26 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       closePanel();
       showDicePanel({
         // 只有用户实际输入了值才传递，否则传 null 让普通检定面板显示 placeholder
-        targetValue: initValueInput !== '' ? parseInt(initValueInput, 10) : null,
+        attrValue: initValueInput !== '' ? parseInt(initValueInput, 10) : null,
+        targetValue: null,
         targetName: currentInitName,
         diceType: currentDice,
         initiatorName: initiatorNameVal,
       });
     });
+    panel.find('#contest-history-btn').click(function (e) {
+      e.stopPropagation();
+      showGlobalDiceHistoryDialog();
+    });
     // 齿轮设置按钮点击 - 调用统一设置面板
     // 对抗检定根据当前骰子类型判断规则：1d20 -> DND, 其他 -> COC
     panel.find('.acu-contest-config-btn').click(function (e) {
       e.stopPropagation();
-      const currentDice = panel.find('#contest-dice-type').val() || '1d100';
-      const isDND = currentDice === '1d20';
-      showDiceSettingsPanel(isDND);
+      // [废弃] 旧的规则设置弹窗调用已替换为高级检定管理
+      // const currentDice = panel.find('#contest-dice-type').val() || '1d100';
+      // const isDND = currentDice === '1d20';
+      // showDiceSettingsPanel(isDND);
+      showAdvancedPresetManager({ fromDicePanel: true });
     });
     var closePanel = function () {
       overlay.remove();
@@ -13252,6 +22289,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
   const buildMapViewModel = async () => {
     const rawData = cachedRawData || getTableData();
     const allTables = processJsonData(rawData || {});
+    NameAliasRegistry.rebuild(allTables);
     if (!rawData || Object.keys(allTables).length === 0) return null;
 
     const globalResult = DashboardDataParser.findTable(allTables, 'global');
@@ -13405,7 +22443,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       const playerPosIdx = DashboardDataParser.findColumnIndex(playerHeaders, 'position', playerConfig);
       const playerNameRaw = playerNameIdx >= 0 ? playerRow[playerNameIdx] : getPlayerName();
       const playerPosRaw = playerPosIdx >= 0 ? playerRow[playerPosIdx] : '';
-      const playerName = String(playerNameRaw || '').trim();
+      const playerName = getDisplayName(String(playerNameRaw || '').trim());
       playerLocation = String(playerPosRaw || '').trim();
 
       if (!playerLocation && detailLocation) {
@@ -13434,7 +22472,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
       for (let idx = 0; idx < npcRows.length; idx++) {
         const row = npcRows[idx];
-        const npcName = String(row[npcNameIdx] || '').trim();
+        const npcName = getDisplayName(String(row[npcNameIdx] || '').trim());
         if (!npcName) continue;
         const locationName = String(row[npcPosIdx] || '').trim();
         if (!locationName) continue;
@@ -13965,15 +23003,17 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       return AvatarManager.getPrimaryName(name);
     };
 
-    const resolveName = name => resolveUserPlaceholder(name);
+    const resolveName = name => resolveUserPlaceholder(getDisplayName(name));
 
     const rawData = cachedRawData || getTableData();
+    // 重建别名注册表
+    NameAliasRegistry.rebuild(processJsonData(rawData || {}));
     let playerName = '主角';
     if (rawData) {
       for (const key in rawData) {
         const sheet = rawData[key];
         if (sheet?.name?.includes('主角') && sheet.content?.[1]) {
-          playerName = sheet.content[1][1] || '主角';
+          playerName = getDisplayName(sheet.content[1][1] || '主角');
           break;
         }
       }
@@ -17290,32 +26330,79 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     }
   };
 
-  // 手动更新确认弹窗
-  const showManualUpdateDialog = () => {
+  const clearDiceLocalCacheData = async (): Promise<number> => {
+    let removedLocalStorageKeys = 0;
+
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+      if (key.startsWith('acu_')) {
+        localStorage.removeItem(key);
+        removedLocalStorageKeys++;
+      }
+    }
+
+    await Promise.allSettled([LocalAvatarDB.clearAll(), FavoritesDB.clear(), DiceHistoryStatsDB.clear()]);
+    await clearDiceSystemCache();
+
+    return removedLocalStorageKeys;
+  };
+
+  // 手动更新/确认弹窗（支持复用）
+  const showManualUpdateDialog = (options?: {
+    title?: string;
+    iconClass?: string;
+    description?: string;
+    safeTitle?: string;
+    safeDescription?: string;
+    confirmText?: string;
+    loadingText?: string;
+    onConfirm?: () => Promise<void>;
+    isDanger?: boolean;
+    safeIconClass?: string;
+  }) => {
     const { $ } = getCore();
     $('.acu-manual-update-overlay').remove();
 
     const config = getConfig();
+    const title = options?.title || '手动更新';
+    const iconClass = options?.iconClass || 'fa-rotate';
+    const description = options?.description || '将清理脚本缓存并刷新页面，以获取最新版本。';
+    const safeTitle = options?.safeTitle || '数据安全';
+    const safeDescription =
+      options?.safeDescription || '您的自定义规则、预设、正则转换、黑名单等数据存储在本地游览器中，不会受到影响。';
+    const confirmText = options?.confirmText || '立即更新';
+    const loadingText = options?.loadingText || '更新中...';
+    const onConfirm = options?.onConfirm;
+    const isDanger = options?.isDanger || false;
+    const safeIconClass = options?.safeIconClass || (isDanger ? 'fa-triangle-exclamation' : 'fa-shield-check');
+
+    // 颜色统一跟随主题变量，避免硬编码色与主题不协调
+    const headerBg = 'var(--acu-table-head)';
+    const headerTextColor = 'var(--acu-text-main)';
+    const confirmBtnBg = 'var(--acu-accent)';
+    const safeBoxBorder = 'var(--acu-border)';
+    const safeBoxIconColor = 'var(--acu-accent)';
 
     const dialogHtml = `
     <div class="acu-manual-update-overlay acu-theme-${config.theme}">
-      <div class="acu-manual-update-dialog" style="background:var(--acu-bg-panel);border-color:var(--acu-border);">
-        <div class="acu-manual-update-header" style="background:var(--acu-table-head);color:var(--acu-text-main);border-color:var(--acu-border);">
-          <i class="fa-solid fa-rotate"></i> 手动更新
+      <div class="acu-manual-update-dialog" style="background:var(--acu-bg-panel);border-color:var(--acu-border);max-width:420px;box-shadow:0 8px 24px rgba(0,0,0,0.3);">
+        <div class="acu-manual-update-header" style="background:${headerBg};color:${headerTextColor};border-bottom:1px solid var(--acu-border);padding:12px 16px;font-weight:bold;font-size:1.1em;display:flex;align-items:center;gap:8px;">
+          <i class="fa-solid ${escapeHtml(iconClass)}" style="font-size:1.1em;"></i> ${escapeHtml(title)}
         </div>
-        <div class="acu-manual-update-body" style="color:var(--acu-text-main);">
-          <p style="color:var(--acu-text-main);">将清理脚本缓存并刷新页面，以获取最新版本。</p>
-          <div class="acu-manual-update-safe-box" style="background:var(--acu-btn-bg);border:1px solid var(--acu-border);">
-            <i class="fa-solid fa-shield-check" style="color:var(--acu-accent);"></i>
-            <div class="safe-text">
-              <strong style="color:var(--acu-text-main);">数据安全</strong>
-              <span style="color:var(--acu-text-sub);">您的自定义规则、预设、正则转换、黑名单等数据存储在本地游览器中，不会受到影响。</span>
+        <div class="acu-manual-update-body" style="color:var(--acu-text-main);padding:20px 16px;">
+          <p style="color:var(--acu-text-main);margin-bottom:16px;line-height:1.5;">${escapeHtml(description)}</p>
+          <div class="acu-manual-update-safe-box" style="background:var(--acu-btn-bg);border:1px solid ${safeBoxBorder};border-radius:6px;padding:12px;display:flex;gap:12px;align-items:flex-start;">
+            <i class="fa-solid ${escapeHtml(safeIconClass)}" style="color:${safeBoxIconColor};font-size:1.2em;margin-top:2px;"></i>
+            <div class="safe-text" style="display:flex;flex-direction:column;gap:4px;">
+              <strong style="color:var(--acu-text-main);font-size:0.95em;">${escapeHtml(safeTitle)}</strong>
+              <span style="color:var(--acu-text-sub);font-size:0.85em;line-height:1.4;">${escapeHtml(safeDescription)}</span>
             </div>
           </div>
         </div>
-        <div class="acu-manual-update-footer" style="background:var(--acu-table-head);border-color:var(--acu-border);">
-          <button class="acu-manual-update-cancel-btn" style="background:var(--acu-btn-bg);color:var(--acu-text-sub);border-color:var(--acu-border);">取消</button>
-          <button class="acu-manual-update-confirm-btn" style="background:var(--acu-accent);color:var(--acu-btn-active-text);">立即更新</button>
+        <div class="acu-manual-update-footer" style="background:var(--acu-table-head);border-top:1px solid var(--acu-border);padding:12px 16px;display:flex;justify-content:flex-end;gap:10px;">
+          <button class="acu-manual-update-cancel-btn" style="background:transparent;color:var(--acu-text-sub);border:1px solid var(--acu-border);padding:6px 16px;border-radius:4px;cursor:pointer;transition:all 0.2s;">取消</button>
+          <button class="acu-manual-update-confirm-btn" style="background:${confirmBtnBg};color:var(--acu-btn-active-text, #fff);border:none;padding:6px 20px;border-radius:4px;cursor:pointer;font-weight:bold;box-shadow:0 2px 4px rgba(0,0,0,0.2);transition:all 0.2s;">${escapeHtml(confirmText)}</button>
         </div>
       </div>
     </div>
@@ -17333,14 +26420,26 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
     $dialog.find('.acu-manual-update-confirm-btn').on('click', async () => {
       const $btn = $dialog.find('.acu-manual-update-confirm-btn');
-      $btn.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i> 更新中...');
+      $btn.prop('disabled', true).html(`<i class="fa-solid fa-spinner fa-spin"></i> ${escapeHtml(loadingText)}`);
 
-      await clearDiceSystemCache();
-      // 刷新整个酒馆页面并绕过缓存（相当于 Ctrl+Shift+R）
-      if (window.parent !== window) {
-        window.parent.location.reload();
-      } else {
-        window.location.reload();
+      try {
+        if (onConfirm) {
+          await onConfirm();
+          $dialog.remove();
+          return;
+        }
+
+        await clearDiceSystemCache();
+        // 刷新整个酒馆页面并绕过缓存（相当于 Ctrl+Shift+R）
+        if (window.parent !== window) {
+          window.parent.location.reload();
+        } else {
+          window.location.reload();
+        }
+      } catch (err) {
+        console.error('[DICE] 手动弹窗操作失败:', err);
+        if (window.toastr) window.toastr.error('操作失败，请查看控制台日志');
+        $btn.prop('disabled', false).html(escapeHtml(confirmText));
       }
     });
 
@@ -18054,82 +27153,88 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     }
   };
 
-  // [新增] 轻量级保存：只保存数据到数据库，不更新快照
-  // 使用队列模式确保快速连续编辑时所有修改都能保存成功
-  const saveDataOnly = async (tableData, modifiedSheetKeys?: string[]) => {
-    // 将保存操作加入队列，确保按顺序执行
-    const saveOperation = saveQueue
-      .then(async () => {
-        try {
-          const dataToSave = {};
-          if (!tableData.mate) dataToSave.mate = { type: 'chatSheets', version: 1 };
-          else dataToSave.mate = tableData.mate;
+  const performSaveDataOnly = async (tableData, modifiedSheetKeys?: string[]) => {
+    try {
+      const dataToSave = {};
+      if (!tableData.mate) dataToSave.mate = { type: 'chatSheets', version: 1 };
+      else dataToSave.mate = tableData.mate;
 
-          Object.keys(tableData).forEach(k => {
-            if (k.startsWith('sheet_')) {
-              dataToSave[k] = tableData[k];
-            }
-          });
-
-          // 验证数据并序列化
-          let jsonString;
-          try {
-            jsonString = JSON.stringify(dataToSave);
-            // 检查数据大小（约 10MB 限制）
-            const sizeInMB = new Blob([jsonString]).size / (1024 * 1024);
-            if (sizeInMB > 10) {
-              throw new Error(`数据太大 (${sizeInMB.toFixed(2)}MB)，超过 10MB 限制`);
-            }
-          } catch (stringifyError) {
-            console.error('[DICE]ACU JSON 序列化失败:', stringifyError);
-            throw new Error(`数据序列化失败: ${stringifyError.message || stringifyError}`);
-          }
-
-          const api = getCore().getDB();
-          if (!api || !api.importTableAsJson) {
-            throw new Error('数据库 API 不可用');
-          }
-          const anchorIndex = findLatestDbMessageIndex();
-
-          try {
-            // 调用 importTableAsJson，它内部会调用 saveChat()
-            const result = await api.importTableAsJson(jsonString);
-            // 检查返回值，某些实现可能返回 false 表示失败
-            if (result === false) {
-              throw new Error('数据导入失败（返回 false）');
-            }
-            await relocateDbPayloadToAnchor(anchorIndex);
-          } catch (apiError) {
-            console.error('[DICE]ACU API 保存失败:', apiError);
-            // 检查是否是 "Settings could not be saved" 相关的错误
-            const errorMsg = apiError.message || String(apiError);
-            if (
-              errorMsg.includes('Settings could not be saved') ||
-              errorMsg.includes('server connection') ||
-              errorMsg.includes('data loss')
-            ) {
-              throw new Error('保存失败：服务器连接问题或数据过大，请检查网络连接或减少数据量');
-            }
-            throw new Error(`保存到数据库失败: ${errorMsg}`);
-          }
-
-          cachedRawData = dataToSave;
-          // 注意：不调用 saveSnapshot()，不更新 hasUnsavedChanges
-        } catch (e) {
-          console.error('[DICE]ACU saveDataOnly error:', e);
-          // 重新抛出错误以便上层处理
-          throw e;
+      Object.keys(tableData).forEach(k => {
+        if (k.startsWith('sheet_')) {
+          dataToSave[k] = tableData[k];
         }
-      })
-      .catch(e => {
-        // 队列中的错误不应阻塞后续保存操作
-        console.error('[DICE]ACU saveDataOnly queue error:', e);
       });
 
-    // 更新队列引用，确保下一个保存操作等待当前操作完成
-    saveQueue = saveOperation;
-    return saveOperation;
+      // 验证数据并序列化
+      let jsonString;
+      try {
+        jsonString = JSON.stringify(dataToSave);
+        // 检查数据大小（约 10MB 限制）
+        const sizeInMB = new Blob([jsonString]).size / (1024 * 1024);
+        if (sizeInMB > 10) {
+          throw new Error(`数据太大 (${sizeInMB.toFixed(2)}MB)，超过 10MB 限制`);
+        }
+      } catch (stringifyError) {
+        console.error('[DICE]ACU JSON 序列化失败:', stringifyError);
+        throw new Error(`数据序列化失败: ${stringifyError.message || stringifyError}`);
+      }
+
+      const api = getCore().getDB();
+      if (!api || !api.importTableAsJson) {
+        throw new Error('数据库 API 不可用');
+      }
+      const anchorIndex = findLatestDbMessageIndex();
+
+      try {
+        // 调用 importTableAsJson，它内部会调用 saveChat()
+        const result = await api.importTableAsJson(jsonString);
+        // 检查返回值，某些实现可能返回 false 表示失败
+        if (result === false) {
+          throw new Error('数据导入失败（返回 false）');
+        }
+        await relocateDbPayloadToAnchor(anchorIndex);
+      } catch (apiError) {
+        console.error('[DICE]ACU API 保存失败:', apiError);
+        // 检查是否是 "Settings could not be saved" 相关的错误
+        const errorMsg = apiError.message || String(apiError);
+        if (
+          errorMsg.includes('Settings could not be saved') ||
+          errorMsg.includes('server connection') ||
+          errorMsg.includes('data loss')
+        ) {
+          throw new Error('保存失败：服务器连接问题或数据过大，请检查网络连接或减少数据量');
+        }
+        throw new Error(`保存到数据库失败: ${errorMsg}`);
+      }
+
+      cachedRawData = dataToSave;
+      // 注意：不调用 saveSnapshot()，不更新 hasUnsavedChanges
+      return dataToSave;
+    } catch (e) {
+      console.error('[DICE]ACU saveDataOnly error:', e, modifiedSheetKeys ? { modifiedSheetKeys } : undefined);
+      throw e;
+    }
   };
+
+  const runInSaveQueue = async <T>(task: () => Promise<T>): Promise<T> => {
+    const operation = saveQueue
+      .catch(error => {
+        console.warn('[DICE]ACU runInSaveQueue previous step failed, continue next task:', error);
+      })
+      .then(task);
+
+    saveQueue = operation
+      .then(() => undefined)
+      .catch(e => {
+        console.error('[DICE]ACU runInSaveQueue error:', e);
+      });
+    return operation;
+  };
+
+  // [新增] 轻量级保存：只保存数据到数据库，不更新快照
+  // 使用队列模式确保快速连续编辑时所有修改都能保存成功
+  const saveDataOnly = async (tableData, modifiedSheetKeys?: string[]) =>
+    runInSaveQueue(() => performSaveDataOnly(tableData, modifiedSheetKeys));
 
   // [新增] 即时保存单行数据并只更新该行快照
   // 用途：弹窗编辑后立即保存，同时保留其他行的AI变更高亮
@@ -20509,7 +29614,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
               </div>
             </div>
             <div style="display: flex; gap: 8px; margin-top: 15px;">
-              <button id="blacklist-reset-btn" style="flex: 1; padding: 10px; background: var(--acu-btn-bg); color: var(--acu-text-main); border: 1px solid var(--acu-border); border-radius: 4px; cursor: pointer; font-size: 13px;">
+              <button id="blacklist-reset-btn" style="flex: 1; padding: 10px; background: var(--acu-btn-bg); color: var(--acu-text-main); border: 1px solid var(--acu-text-sub); border-radius: 4px; cursor: pointer; font-size: 13px;">
                 <i class="fa-solid fa-undo"></i> 重置为默认
               </button>
               <button id="blacklist-close-btn" style="flex: 1; padding: 10px; background: var(--acu-accent); color: var(--acu-btn-active-text); border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
@@ -20641,6 +29746,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
   const showAttributePresetManager = () => {
     const { $ } = getCore();
     $('.acu-edit-overlay').remove();
+    pushModal('showAttributePresetManager', showAttributePresetManager);
 
     const config = getConfig();
     const presets = AttributePresetManager.getAllPresets();
@@ -20730,10 +29836,10 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
             <button id="acu-preset-new" style="flex: 1; padding: 10px; background: var(--acu-accent); border: none; border-radius: 6px; color: var(--acu-btn-active-text); cursor: pointer; font-size: 13px;">
               <i class="fa-solid fa-plus"></i> 新建预设
             </button>
-            <button id="acu-preset-import" style="flex: 1; padding: 10px; background: var(--acu-btn-bg); border: 1px solid var(--acu-border); border-radius: 6px; color: var(--acu-text-main); cursor: pointer; font-size: 13px;">
+            <button id="acu-preset-import" style="flex: 1; padding: 10px; background: var(--acu-btn-bg); border: 1px solid var(--acu-text-sub); border-radius: 6px; color: var(--acu-text-main); cursor: pointer; font-size: 13px;">
               <i class="fa-solid fa-file-import"></i> 导入
             </button>
-            <button id="acu-preset-back" style="padding: 10px 16px; background: var(--acu-btn-bg); border: 1px solid var(--acu-border); border-radius: 6px; color: var(--acu-text-main); cursor: pointer; font-size: 13px;">
+            <button id="acu-preset-back" style="padding: 10px 16px; background: var(--acu-btn-bg); border: 1px solid var(--acu-text-sub); border-radius: 6px; color: var(--acu-text-main); cursor: pointer; font-size: 13px;">
               <i class="fa-solid fa-arrow-left"></i> 返回
             </button>
           </div>
@@ -20748,7 +29854,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     // 关闭按钮
     overlay.find('.acu-close-btn, #acu-preset-back').on('click', () => {
       overlay.remove();
-      showSettingsModal();
+      popModal();
     });
 
     // Toggle切换预设激活状态
@@ -20978,7 +30084,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     // 点击遮罩关闭
     setupOverlayClose(overlay, 'acu-edit-overlay', () => {
       overlay.remove();
-      showSettingsModal();
+      popModal();
     });
   };
 
@@ -20986,6 +30092,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
   const showAttributePresetEditor = (presetId = null) => {
     const { $ } = getCore();
     $('.acu-edit-overlay').remove();
+    pushModal('showAttributePresetEditor', () => showAttributePresetEditor(presetId));
 
     const config = getConfig();
     const isEdit = !!presetId;
@@ -21046,7 +30153,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
             <button id="preset-save" style="flex: 1; padding: 10px; background: var(--acu-accent); border: none; border-radius: 6px; color: var(--acu-btn-active-text); cursor: pointer; font-size: 13px; font-weight: bold;">
               <i class="fa-solid fa-check"></i> 保存
             </button>
-            <button id="preset-cancel" style="padding: 10px 16px; background: var(--acu-btn-bg); border: 1px solid var(--acu-border); border-radius: 6px; color: var(--acu-text-main); cursor: pointer; font-size: 13px;">
+            <button id="preset-cancel" style="padding: 10px 16px; background: var(--acu-btn-bg); border: 1px solid var(--acu-text-sub); border-radius: 6px; color: var(--acu-text-main); cursor: pointer; font-size: 13px;">
               <i class="fa-solid fa-times"></i> 取消
             </button>
           </div>
@@ -21071,7 +30178,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     // 关闭
     overlay.find('.acu-close-btn, #preset-cancel').on('click', () => {
       overlay.remove();
-      showAttributePresetManager();
+      popModal();
     });
 
     // 保存
@@ -21118,7 +30225,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
         }
 
         overlay.remove();
-        showAttributePresetManager();
+        popModal();
       } catch (err) {
         console.error('[DICE]ACU 保存预设失败:', err);
         if (window.toastr) window.toastr.error('保存失败：' + (err.message || 'JSON格式错误'));
@@ -21128,7 +30235,916 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     // 点击遮罩关闭
     setupOverlayClose(overlay, 'acu-edit-overlay', () => {
       overlay.remove();
-      showSettingsModal();
+      popModal();
+    });
+  };
+
+  // ========================================
+  // 高级骰子预设UI
+  // ========================================
+  type SortableListOptions = {
+    container: JQuery | HTMLElement;
+    itemSelector: string;
+    handleSelector?: string;
+    cancelSelector?: string;
+    onOrderChange: (newOrder: string[]) => void;
+    getItemId: (item: HTMLElement) => string | null;
+    ghostClass?: string;
+    dragClass?: string;
+    placeholderClass?: string;
+    indicatorClass?: string;
+    longPressDelay?: number;
+  };
+
+  const createSortableList = (options: SortableListOptions) => {
+    const containerEl = options.container instanceof HTMLElement ? options.container : options.container[0];
+    if (!containerEl) return;
+
+    const ghostClass = options.ghostClass ?? 'acu-drag-ghost';
+    const dragClass = options.dragClass ?? 'acu-dragging';
+    const placeholderClass = options.placeholderClass ?? 'acu-drag-placeholder';
+    const indicatorClass = options.indicatorClass ?? 'acu-drag-indicator';
+    const longPressDelay = options.longPressDelay ?? 350;
+
+    const state = {
+      isDragging: false,
+      draggedItem: null as HTMLElement | null,
+      ghost: null as HTMLElement | null,
+      indicator: null as HTMLElement | null,
+      timer: null as number | null,
+      startX: 0,
+      startY: 0,
+      pointerId: null as number | null,
+      offsetX: 0,
+      offsetY: 0,
+      startOrder: [] as string[],
+    };
+
+    const buildOrder = () => {
+      const ids: string[] = [];
+      const items = containerEl.querySelectorAll<HTMLElement>(options.itemSelector);
+      items.forEach(item => {
+        const id = options.getItemId(item);
+        if (id) ids.push(id);
+      });
+      return ids;
+    };
+
+    const clearTimer = () => {
+      if (state.timer) {
+        window.clearTimeout(state.timer);
+        state.timer = null;
+      }
+    };
+
+    const cleanupGhost = () => {
+      if (state.ghost && state.ghost.parentElement) {
+        state.ghost.parentElement.removeChild(state.ghost);
+      }
+      state.ghost = null;
+    };
+
+    const cleanupIndicator = () => {
+      if (state.indicator && state.indicator.parentElement) {
+        state.indicator.parentElement.removeChild(state.indicator);
+      }
+      state.indicator = null;
+    };
+
+    const updateGhostPosition = (clientX: number, clientY: number) => {
+      if (!state.ghost) return;
+      state.ghost.style.left = `${clientX - state.offsetX}px`;
+      state.ghost.style.top = `${clientY - state.offsetY}px`;
+    };
+
+    const ensureIndicator = () => {
+      if (!state.indicator) {
+        const indicator = document.createElement('div');
+        indicator.className = indicatorClass;
+        state.indicator = indicator;
+      }
+      return state.indicator;
+    };
+
+    const placeIndicator = (clientY: number) => {
+      if (!state.draggedItem) return;
+      const items = Array.from(containerEl.querySelectorAll<HTMLElement>(options.itemSelector)).filter(
+        item => item !== state.draggedItem,
+      );
+      let target: HTMLElement | null = null;
+      let insertBefore = true;
+
+      for (const item of items) {
+        const rect = item.getBoundingClientRect();
+        const midY = rect.top + rect.height / 2;
+        if (clientY < midY) {
+          target = item;
+          insertBefore = true;
+          break;
+        }
+        if (clientY >= rect.top && clientY <= rect.bottom) {
+          target = item;
+          insertBefore = false;
+        }
+      }
+
+      const indicator = ensureIndicator();
+      if (target) {
+        if (insertBefore) containerEl.insertBefore(indicator, target);
+        else containerEl.insertBefore(indicator, target.nextSibling);
+      } else {
+        containerEl.appendChild(indicator);
+      }
+    };
+
+    const startDrag = (
+      item: HTMLElement,
+      clientX: number,
+      clientY: number,
+      pointerId: number,
+      captureEl: HTMLElement,
+    ) => {
+      if (state.isDragging) return;
+      state.isDragging = true;
+      state.draggedItem = item;
+      state.pointerId = pointerId;
+      state.startOrder = buildOrder();
+
+      const rect = item.getBoundingClientRect();
+      state.offsetX = clientX - rect.left;
+      state.offsetY = clientY - rect.top;
+
+      const ghost = item.cloneNode(true) as HTMLElement;
+      ghost.classList.add(ghostClass);
+      ghost.style.width = `${rect.width}px`;
+      ghost.style.height = `${rect.height}px`;
+      ghost.style.left = `${rect.left}px`;
+      ghost.style.top = `${rect.top}px`;
+      ghost.style.position = 'fixed';
+      ghost.style.margin = '0';
+      ghost.style.pointerEvents = 'none';
+      document.body.appendChild(ghost);
+      state.ghost = ghost;
+
+      item.classList.add(placeholderClass);
+      item.classList.add(dragClass);
+
+      updateGhostPosition(clientX, clientY);
+      placeIndicator(clientY);
+
+      if (captureEl.setPointerCapture) {
+        captureEl.setPointerCapture(pointerId);
+      }
+    };
+
+    const finishDrag = () => {
+      if (!state.isDragging || !state.draggedItem) {
+        clearTimer();
+        cleanupIndicator();
+        cleanupGhost();
+        return;
+      }
+
+      if (state.indicator && state.indicator.parentElement === containerEl) {
+        containerEl.replaceChild(state.draggedItem, state.indicator);
+      }
+
+      const finalRect = state.draggedItem.getBoundingClientRect();
+      const draggedItem = state.draggedItem;
+      const ghost = state.ghost;
+      if (ghost) {
+        ghost.style.transition = 'left 0.18s ease, top 0.18s ease, opacity 0.18s ease';
+        ghost.style.left = `${finalRect.left}px`;
+        ghost.style.top = `${finalRect.top}px`;
+        ghost.style.opacity = '0';
+        window.setTimeout(() => {
+          if (ghost.parentElement) ghost.parentElement.removeChild(ghost);
+        }, 180);
+      }
+
+      window.setTimeout(() => {
+        draggedItem.classList.remove(placeholderClass);
+        draggedItem.classList.remove(dragClass);
+      }, 180);
+
+      cleanupIndicator();
+      if (!ghost) cleanupGhost();
+
+      const newOrder = buildOrder();
+      const orderChanged = state.startOrder.join('|') !== newOrder.join('|');
+
+      state.isDragging = false;
+      state.draggedItem = null;
+      state.pointerId = null;
+      state.startOrder = [];
+      clearTimer();
+
+      if (orderChanged) options.onOrderChange(newOrder);
+    };
+
+    containerEl.addEventListener(
+      'pointerdown',
+      e => {
+        const target = e.target as HTMLElement | null;
+        if (!target) return;
+        if (options.cancelSelector && target.closest(options.cancelSelector)) return;
+
+        const item = target.closest(options.itemSelector) as HTMLElement | null;
+        if (!item) return;
+
+        const handle = options.handleSelector ? (target.closest(options.handleSelector) as HTMLElement | null) : null;
+
+        if (handle) {
+          e.preventDefault();
+          startDrag(item, e.clientX, e.clientY, e.pointerId, handle);
+          return;
+        }
+
+        if (!options.handleSelector) {
+          e.preventDefault();
+          startDrag(item, e.clientX, e.clientY, e.pointerId, item);
+          return;
+        }
+
+        state.startX = e.clientX;
+        state.startY = e.clientY;
+        state.pointerId = e.pointerId;
+        clearTimer();
+        state.timer = window.setTimeout(() => {
+          startDrag(item, state.startX, state.startY, state.pointerId ?? e.pointerId, item);
+        }, longPressDelay);
+      },
+      { passive: false },
+    );
+
+    containerEl.addEventListener(
+      'pointermove',
+      e => {
+        if (state.timer && (Math.abs(e.clientY - state.startY) > 8 || Math.abs(e.clientX - state.startX) > 8)) {
+          clearTimer();
+        }
+
+        if (!state.isDragging || !state.draggedItem) return;
+        e.preventDefault();
+        updateGhostPosition(e.clientX, e.clientY);
+        placeIndicator(e.clientY);
+      },
+      { passive: false },
+    );
+
+    containerEl.addEventListener('pointerup', finishDrag);
+    containerEl.addEventListener('pointercancel', finishDrag);
+    containerEl.addEventListener(
+      'touchmove',
+      e => {
+        if (state.isDragging) {
+          e.preventDefault();
+        }
+      },
+      { passive: false },
+    );
+  };
+
+  // 刷新已打开的检定面板的预设按钮
+  const refreshDicePanelPresets = () => {
+    const { $ } = getCore();
+    const $panel = $('.acu-dice-panel');
+    if ($panel.length === 0) return; // 面板未打开，无需刷新
+
+    // 重新生成预设按钮HTML
+    const presets = AdvancedDicePresetManager.getAllPresets()
+      .filter(p => p.visible !== false)
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
+
+    let html = `<button class="acu-dice-quick-preset-btn" data-id="__custom__">自定义</button>`;
+    presets.forEach(p => {
+      html += `<button class="acu-dice-quick-preset-btn" data-id="${escapeHtml(p.id)}">${escapeHtml(p.name)}</button>`;
+    });
+
+    // 替换预设按钮区域内容
+    $panel.find('.acu-dice-quick-presets').html(html);
+  };
+
+  const showPresetListDialog = (options: { fromDicePanel?: boolean } = {}) => {
+    const { $ } = getCore();
+    $('.acu-edit-overlay').remove();
+
+    const config = getConfig();
+    const presets = AdvancedDicePresetManager.getAllPresets();
+    const fromDicePanel = options.fromDicePanel === true;
+
+    // 将当前弹窗推入栈中
+    pushModal('showPresetListDialog', () => showPresetListDialog(options));
+
+    const presetsHtml = presets
+      .sort((a, b) => (a.order ?? 999) - (b.order ?? 999))
+      .map(preset => {
+        const isBuiltin = preset.builtin;
+        const isVisible = preset.visible !== false;
+
+        return `
+        <div class="acu-preset-item${!isVisible ? ' acu-preset-hidden' : ''}" data-id="${preset.id}" draggable="false">
+           <div class="acu-preset-check" title="点击切换显示/隐藏" style="padding: 8px; cursor: pointer; color: var(--acu-text-sub); display: flex; align-items: center; justify-content: center; width: 30px;">
+            <i class="fa-solid ${isVisible ? 'fa-eye' : 'fa-eye-slash'}" style="${!isVisible ? 'opacity: 0.6;' : ''}"></i>
+          </div>
+          <div class="acu-preset-info" style="flex: 1;">
+            <div class="acu-preset-name">
+              ${escapeHtml(preset.name)}
+              ${isBuiltin ? `<span style="font-size: 10px; color: var(--acu-text-sub); margin-left: 6px;">(内置)</span>` : ''}
+            </div>
+            ${preset.description ? `<div class="acu-preset-desc">${escapeHtml(preset.description)}</div>` : ''}
+            <div class="acu-preset-stats">
+              骰子: ${escapeHtml(preset.diceExpression)} | 判定分支: ${preset.outcomes?.length || 0}个
+            </div>
+          </div>
+          <div class="acu-preset-actions" style="display: flex; align-items: center; gap: 8px;">
+            ${
+              isBuiltin
+                ? `<button class="acu-preset-btn acu-advanced-preset-copy" data-id="${preset.id}" title="复制为自定义预设"><i class="fa-solid fa-copy"></i></button>`
+                : `<button class="acu-preset-btn acu-advanced-preset-edit" data-id="${preset.id}" title="编辑"><i class="fa-solid fa-pen"></i></button>`
+            }
+            <button class="acu-preset-btn acu-advanced-preset-export" data-id="${preset.id}" title="导出"><i class="fa-solid fa-download"></i></button>
+            ${!isBuiltin ? `<button class="acu-preset-btn acu-advanced-preset-delete" data-id="${preset.id}" title="删除" style="color: var(--acu-error-text);"><i class="fa-solid fa-trash"></i></button>` : ''}
+          </div>
+          <div class="acu-preset-handle" title="拖拽排序" style="cursor: grab; padding: 4px; color: var(--acu-text-sub); touch-action: none; display: flex; align-items: center; justify-content: center; width: 22px;">
+            <i class="fa-solid fa-grip-vertical"></i>
+          </div>
+        </div>
+      `;
+      })
+      .join('');
+
+    const overlay = $(`
+      <div class="acu-edit-overlay">
+        <div class="acu-edit-dialog acu-theme-${config.theme}" style="width: 600px; max-width: 92vw; max-height: 85vh; display: flex; flex-direction: column;">
+          <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px solid var(--acu-border); flex-shrink: 0;">
+            <div style="font-size: 16px; font-weight: bold; color: var(--acu-text-main);">
+              <i class="fa-solid fa-sliders"></i> 检定预设管理
+            </div>
+            <button class="acu-close-btn"><i class="fa-solid fa-times"></i></button>
+          </div>
+
+          <div style="flex: 1; overflow-y: auto; padding: 12px 0;">
+            <div class="acu-table-manager-hint" style="font-size:11px;color:var(--acu-text-sub);margin-bottom:8px;padding:0 4px;">
+              <i class="fa-solid fa-info-circle"></i> 点击眼睛图标切换显示，拖拽条目或手柄排序
+            </div>
+            <div id="acu-advanced-presets-list" style="display: flex; flex-direction: column; gap: 8px;">
+              ${presetsHtml || `<div style="text-align: center; padding: 40px; color: var(--acu-text-sub);">暂无预设</div>`}
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--acu-border); flex-shrink: 0;">
+            <button id="acu-advanced-preset-new" style="flex: 1; padding: 10px; background: var(--acu-accent); border: none; border-radius: 6px; color: var(--acu-btn-active-text); cursor: pointer; font-size: 13px;">
+              <i class="fa-solid fa-plus"></i> 新建预设
+            </button>
+            <button id="acu-advanced-preset-import" style="flex: 1; padding: 10px; background: var(--acu-btn-bg); border: 1px solid var(--acu-text-sub); border-radius: 6px; color: var(--acu-text-main); cursor: pointer; font-size: 13px;">
+              <i class="fa-solid fa-file-import"></i> 导入
+            </button>
+            <button id="acu-advanced-preset-back" style="padding: 10px 16px; background: var(--acu-btn-bg); border: 1px solid var(--acu-text-sub); border-radius: 6px; color: var(--acu-text-main); cursor: pointer; font-size: 13px;">
+              <i class="fa-solid fa-arrow-left"></i> 返回
+            </button>
+          </div>
+
+          <input type="file" id="acu-advanced-preset-file-input" accept=".json" style="display: none;" />
+        </div>
+      </div>
+    `);
+
+    $('body').append(overlay);
+
+    overlay.find('.acu-close-btn, #acu-advanced-preset-back').on('click', () => {
+      overlay.remove();
+      popModal(); // 返回上一个弹窗
+    });
+
+    overlay.on('click', '.acu-preset-check', function (e) {
+      e.stopPropagation();
+      const $item = $(this).closest('.acu-preset-item');
+      const id = $item.data('id');
+      const preset = presets.find(p => p.id === id);
+      if (!preset) return;
+
+      const isVisible = preset.visible !== false;
+      if (preset.builtin) {
+        AdvancedDicePresetManager.setBuiltinPresetVisibility(id, !isVisible);
+      } else {
+        AdvancedDicePresetManager.updatePreset(id, { visible: !isVisible });
+      }
+      showPresetListDialog({ fromDicePanel });
+      refreshDicePanelPresets();
+    });
+
+    overlay.on('click', '.acu-advanced-preset-edit', function () {
+      const id = $(this).data('id');
+      overlay.remove();
+      showAdvancedPresetEditor(id);
+    });
+
+    overlay.on('click', '.acu-advanced-preset-copy', function () {
+      const id = $(this).data('id');
+      const preset = presets.find(p => p.id === id);
+      if (!preset) return;
+
+      const copied = {
+        ...preset,
+        name: preset.name + ' (副本)',
+        id: undefined,
+        builtin: false,
+      };
+      AdvancedDicePresetManager.createPreset(copied);
+      overlay.remove();
+      showPresetListDialog({ fromDicePanel });
+      refreshDicePanelPresets();
+    });
+
+    overlay.on('click', '.acu-advanced-preset-export', function () {
+      const id = $(this).data('id');
+      const json = AdvancedDicePresetManager.exportPreset(id);
+      if (!json) {
+        if (window.toastr) window.toastr.error('导出失败');
+        return;
+      }
+      const preset = presets.find(p => p.id === id);
+      const filename = `acu_advanced_preset_${preset?.name || id}_${Date.now()}.json`;
+
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+
+    overlay.on('click', '.acu-advanced-preset-delete', function () {
+      const id = $(this).data('id');
+      const preset = presets.find(p => p.id === id);
+
+      if (confirm(`确定要删除预设「${preset?.name}」吗？`)) {
+        try {
+          AdvancedDicePresetManager.deletePreset(id);
+          overlay.remove();
+          showPresetListDialog({ fromDicePanel });
+          refreshDicePanelPresets();
+        } catch (err) {
+          if (window.toastr) window.toastr.error('删除失败: ' + err.message);
+        }
+      }
+    });
+
+    overlay.find('#acu-advanced-preset-new').on('click', () => {
+      overlay.remove();
+      showAdvancedPresetEditor();
+    });
+
+    overlay.find('#acu-advanced-preset-import').on('click', () => {
+      overlay.find('#acu-advanced-preset-file-input').trigger('click');
+    });
+
+    const $list = overlay.find('#acu-advanced-presets-list');
+    createSortableList({
+      container: $list,
+      itemSelector: '.acu-preset-item',
+      handleSelector: '.acu-preset-handle',
+      cancelSelector: '.acu-preset-actions button, .acu-toggle, .acu-preset-check',
+      getItemId: item => {
+        const id = $(item).data('id');
+        if (typeof id === 'string') return id;
+        if (id !== undefined && id !== null) return String(id);
+        return null;
+      },
+      onOrderChange: newOrderIds => {
+        newOrderIds.forEach((id, index) => {
+          AdvancedDicePresetManager.setPresetOrder(id, index);
+        });
+        refreshDicePanelPresets();
+      },
+    });
+
+    overlay.find('#acu-advanced-preset-file-input').on('change', function (e) {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = ev => {
+        try {
+          const jsonStr = ev.target?.result as string;
+          const result = AdvancedDicePresetManager.importPreset(jsonStr);
+          if (result) {
+            overlay.remove();
+            showPresetListDialog({ fromDicePanel });
+            refreshDicePanelPresets();
+          } else {
+            if (window.toastr) window.toastr.error('导入失败: 格式错误');
+          }
+        } catch (err) {
+          if (window.toastr) window.toastr.error('导入失败: ' + (err.message || '未知错误'));
+        }
+      };
+      reader.readAsText(file);
+    });
+
+    setupOverlayClose(overlay, 'acu-edit-overlay', () => {
+      overlay.remove();
+      popModal(); // 返回上一个弹窗
+    });
+  };
+
+  const showAdvancedPresetManager = (options: { fromDicePanel?: boolean } = {}) => {
+    const { $ } = getCore();
+    $('.acu-edit-overlay').remove();
+    pushModal('showAdvancedPresetManager', () => showAdvancedPresetManager(options));
+
+    const config = getConfig();
+    const diceCfg = getDiceConfig();
+    const fromDicePanel = options.fromDicePanel === true;
+
+    const overlay = $(`
+      <div class="acu-edit-overlay">
+        <div class="acu-edit-dialog acu-theme-${config.theme}" style="width: 600px; max-width: 92vw; max-height: 85vh; display: flex; flex-direction: column;">
+          <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px solid var(--acu-border); flex-shrink: 0;">
+            <div style="font-size: 16px; font-weight: bold; color: var(--acu-text-main);">
+              <i class="fa-solid fa-dice-d20"></i> 检定设置
+            </div>
+            <button class="acu-close-btn"><i class="fa-solid fa-times"></i></button>
+          </div>
+
+           <div style="flex: 1; overflow-y: auto; padding: 12px 0;">
+              <div class="acu-setting-row">
+                  <div class="acu-setting-info">
+                      <span class="acu-setting-label"><i class="fa-solid fa-sliders"></i> 检定预设</span>
+                  </div>
+                  <button id="acu-open-preset-list" class="acu-setting-action-btn" style="width: 90px; padding: 6px 12px; font-size: 12px; margin-bottom: 0;">
+                      <i class="fa-solid fa-cog"></i> 管理
+                  </button>
+              </div>
+              <div class="acu-setting-row" style="margin-top: 12px;">
+                  <div class="acu-setting-info">
+                      <span class="acu-setting-label"><i class="fa-solid fa-gem"></i> 自定义属性预设</span>
+                  </div>
+                  <button id="acu-open-attr-preset" class="acu-setting-action-btn" style="width: 90px; padding: 6px 12px; font-size: 12px; margin-bottom: 0;">
+                      <i class="fa-solid fa-cog"></i> 管理
+                  </button>
+              </div>
+              <div class="acu-setting-row" style="margin-top: 12px;">
+                  <div class="acu-setting-info">
+                      <span class="acu-setting-label"><i class="fa-solid fa-fire"></i> 疯狂模式</span>
+                  </div>
+                  <select id="cfg-crazy-mode" class="acu-setting-select" style="width: 90px; min-width: 90px; text-align: center; text-align-last: center;">
+                      <option value="0">○ 关闭</option>
+                      <option value="25">◔ 低</option>
+                      <option value="50">◑ 中</option>
+                      <option value="75">◕ 高</option>
+                      <option value="100">● 极限</option>
+                  </select>
+              </div>
+              <div style="padding-top: 12px; border-top: 1px solid var(--acu-border);">
+                <div class="acu-setting-row acu-setting-row-toggle" style="margin-bottom: 8px;">
+                    <div class="acu-setting-info">
+                        <span class="acu-setting-label">隐藏输入栏中的检定结果</span>
+                    </div>
+                    <label class="acu-toggle">
+                        <input type="checkbox" id="cfg-hide-dice-result" ${diceCfg.hideDiceResultFromUser ? 'checked' : ''}>
+                        <span class="acu-toggle-slider"></span>
+                    </label>
+                </div>
+                 <div class="acu-setting-row acu-setting-row-toggle">
+                    <div class="acu-setting-info">
+                        <span class="acu-setting-label">隐藏聊天记录中的检定结果</span>
+                    </div>
+                    <label class="acu-toggle">
+                        <input type="checkbox" id="cfg-hide-dice-result-chat" ${diceCfg.hideDiceResultInChat ? 'checked' : ''}>
+                        <span class="acu-toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+           </div>
+         </div>
+      </div>
+    `);
+
+    $('body').append(overlay);
+
+    // 关闭按钮
+    overlay.find('.acu-close-btn').on('click', () => {
+      overlay.remove();
+      popModal();
+    });
+
+    overlay.find('#acu-open-preset-list').on('click', () => {
+      overlay.remove();
+      showPresetListDialog({ fromDicePanel });
+    });
+
+    overlay.find('#acu-open-attr-preset').on('click', () => {
+      overlay.remove();
+      showAttributePresetManager();
+    });
+
+    // 疯狂模式设置
+    const initCrazyModeUI = () => {
+      const crazyConfig = getCrazyModeConfig();
+      // 根据enabled和crazyLevel设置下拉框的值
+      const selectValue = crazyConfig.enabled ? crazyConfig.crazyLevel : 0;
+      overlay.find('#cfg-crazy-mode').val(selectValue);
+
+      // 下拉选择事件
+      overlay.find('#cfg-crazy-mode').on('change', function () {
+        const value = parseInt($(this).val() as string, 10);
+        if (value === 0) {
+          saveCrazyModeConfig({ enabled: false, crazyLevel: 50 });
+        } else {
+          saveCrazyModeConfig({ enabled: true, crazyLevel: value });
+        }
+      });
+    };
+    initCrazyModeUI();
+
+    // 隐藏设置开关
+    overlay.find('#cfg-hide-dice-result').on('change', function () {
+      const hide = $(this).is(':checked');
+      saveDiceConfig({ hideDiceResultFromUser: hide });
+      console.info('[DICE]应用投骰结果隐藏/显示设置(输入栏)...', hide);
+      hideDiceResultsInUserMessages();
+    });
+
+    overlay.find('#cfg-hide-dice-result-chat').on('change', function () {
+      const hide = $(this).is(':checked');
+      saveDiceConfig({ hideDiceResultInChat: hide });
+      console.info('[DICE]应用投骰结果隐藏/显示设置(聊天记录)...', hide);
+      // 这里不需要立即重新渲染聊天，因为只有新生成的才会受影响，
+      // 或者如果需要立即生效可能需要重新处理dom，但通常只需保存配置
+    });
+
+    // 点击遮罩关闭
+    setupOverlayClose(overlay, 'acu-edit-overlay', () => {
+      overlay.remove();
+      popModal();
+    });
+  };
+
+  const showAdvancedPresetEditor = (presetId = null) => {
+    const { $ } = getCore();
+    $('.acu-edit-overlay').remove();
+    pushModal('showAdvancedPresetEditor', () => showAdvancedPresetEditor(presetId));
+
+    const config = getConfig();
+    const isEdit = !!presetId;
+    const existingPreset = isEdit ? AdvancedDicePresetManager.getAllPresets().find(p => p.id === presetId) : null;
+
+    // 默认值 - 完整示例模板，展示所有可用字段
+    const defaultData = existingPreset
+      ? JSON.parse(JSON.stringify(existingPreset))
+      : {
+          name: '新检定预设',
+          description: '自定义检定规则示例',
+          diceExpression: '1d20',
+          attribute: {
+            label: '属性值',
+            placeholder: '留空=10',
+            defaultValue: 10,
+            key: '属性值',
+          },
+          dc: {
+            label: '难度等级(DC)',
+            placeholder: '留空=10',
+            defaultValue: 10,
+          },
+          mod: {
+            label: '修正值',
+            placeholder: '留空=0',
+            defaultValue: 0,
+          },
+          customFields: [
+            {
+              id: 'advantage',
+              type: 'select',
+              label: '优势/劣势',
+              defaultValue: 0,
+              options: [
+                { label: '正常', value: 0 },
+                { label: '优势', value: 1 },
+                { label: '劣势', value: -1 },
+              ],
+            },
+          ],
+          derivedVars: [{ id: 'attrMod', expr: 'floor(($attr - 10) / 2)' }],
+          dicePatches: [
+            { when: '$advantage > 0', op: 'replace', template: '2d20kh1' },
+            { when: '$advantage < 0', op: 'replace', template: '2d20kl1' },
+          ],
+          outcomes: [
+            {
+              id: 'crit_success',
+              name: '大成功',
+              condition: "$roll.hasTag('nat20')",
+              priority: 1,
+              rank: 3,
+              contestRank: 100,
+            },
+            {
+              id: 'success',
+              name: '成功',
+              condition: '$roll.total + $attrMod + $mod >= $dc',
+              priority: 10,
+              rank: 1,
+              contestRank: 60,
+            },
+            {
+              id: 'failure',
+              name: '失败',
+              condition: '$roll.total + $attrMod + $mod < $dc',
+              displayExpr: '$roll.total + $attrMod + $mod >= $dc',
+              priority: 50,
+              rank: 0,
+              contestRank: 40,
+            },
+            {
+              id: 'crit_failure',
+              name: '大失败',
+              condition: "$roll.hasTag('nat1')",
+              priority: 2,
+              rank: -1,
+              contestRank: 20,
+            },
+          ],
+          contestRule: {
+            mode: 'rank',
+            tieBreakers: ['higher_roll', 'initiator_wins'],
+          },
+          outputTemplate:
+            '<meta:检定结果>\n$outcomeText\n元叙事：$initiator 发起了 $attrName 检定，$formula=$roll，判定 $conditionExpr？$judgeResult，判定为【$outcomeName】\n</meta:检定结果>',
+          contestOutputTemplate: '',
+          secondaryTriggerMode: 'first',
+          secondaryMaxDepth: 3,
+          secondaryEffects: [],
+        };
+
+    const overlay = $(`
+      <div class="acu-edit-overlay">
+        <div class="acu-edit-dialog acu-theme-${config.theme}" style="width: 650px; max-width: 95vw; max-height: 85vh;">
+          <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px solid var(--acu-border);">
+            <div style="font-size: 16px; font-weight: bold; color: var(--acu-text-main);">
+              <i class="fa-solid fa-pen"></i> ${isEdit ? '编辑' : '新建'}检定设置
+            </div>
+            <button class="acu-close-btn"><i class="fa-solid fa-times"></i></button>
+          </div>
+
+          <div style="flex: 1; overflow-y: auto; padding: 12px 0;">
+            <div style="margin-bottom: 16px;">
+              <label style="display: block; font-size: 12px; color: var(--acu-text-sub); margin-bottom: 4px;">预设名称</label>
+              <input id="advanced-preset-name" type="text" value="${escapeHtml(defaultData.name)}" class="acu-preset-editor-input" style="width: 100%; padding: 8px; border: 1px solid var(--acu-border) !important; border-radius: 6px; background: var(--acu-input-bg) !important; color: var(--acu-text-main) !important; box-sizing: border-box;" />
+            </div>
+
+            <div style="margin-bottom: 16px;">
+              <label style="display: block; font-size: 12px; color: var(--acu-text-sub); margin-bottom: 4px;">描述</label>
+              <input id="advanced-preset-desc" type="text" value="${escapeHtml(defaultData.description)}" placeholder="可选" class="acu-preset-editor-input" style="width: 100%; padding: 8px; border: 1px solid var(--acu-border) !important; border-radius: 6px; background: var(--acu-input-bg) !important; color: var(--acu-text-main) !important; box-sizing: border-box;" />
+            </div>
+
+            <div style="margin-bottom: 16px;">
+              <label style="display: block; font-size: 12px; color: var(--acu-text-sub); margin-bottom: 8px;">
+                JSON配置 <span style="font-size: 10px; color: var(--acu-text-sub);">(支持直接编辑或导入)</span>
+              </label>
+              <textarea id="advanced-preset-json" class="acu-preset-editor-textarea" style="width: 100%; height: 400px; padding: 10px; border: 1px solid var(--acu-border) !important; border-radius: 6px; background: var(--acu-input-bg) !important; color: var(--acu-text-main) !important; font-family: 'Consolas', 'Monaco', monospace !important; font-size: 12px; resize: vertical; box-sizing: border-box;"></textarea>
+            </div>
+
+            <div style="font-size: 11px; color: var(--acu-text-sub); padding: 8px; background: var(--acu-table-head); border-radius: 6px; line-height: 1.6;">
+              <strong>配置格式说明：</strong><br/>
+              <strong>骰子表达式 (diceExpression)</strong><br/>
+              • 基础: "1d20", "3d6", "4dF" (Fate骰)<br/>
+              • 保留/舍弃: "4d6kh3" (保留最高3个), "2d20kl1" (保留最低1个)<br/>
+              • 成功计数: "4d6=3" (统计=3的个数), "6d10>=7" (统计≥7的个数)<br/>
+              • CoC奖惩骰: "1d100b1" (奖励骰), "1d100p2" (2个惩罚骰)<br/>
+              • 爆炸骰: "4d6!" (最大值爆炸), "4d6!!" (累加爆炸)<br/>
+              <br/>
+              <strong>$roll 对象属性</strong><br/>
+              • $roll.total: 骰子结果总和（或成功计数）<br/>
+              • $roll.hasTag('nat20'): 检查是否有自然20（仅d20）<br/>
+              • $roll.hasTag('nat1'): 检查是否有自然1（仅d20）<br/>
+              <br/>
+              <strong>输入字段配置</strong><br/>
+              • attribute: 属性值 { label, placeholder, defaultValue, hidden, key? }<br/>
+              • dc: 目标值 { label, placeholder, defaultValue, hidden }<br/>
+              • mod: 修正值 { label, placeholder, defaultValue, hidden }<br/>
+              <br/>
+              <strong>判定结果 (outcomes)</strong><br/>
+              • 数组，每项: { id, name, condition, priority, rank?, contestRank? }<br/>
+              • condition: 表达式如 "$roll.total >= $dc", "$roll.total == 4"<br/>
+              • priority: 数字越小越优先匹配<br/>
+              <br/>
+              <strong>高级功能</strong><br/>
+              • customFields: 自定义字段 [{ id, type, label, defaultValue, options? }]<br/>
+              • derivedVars: 派生变量 [{ id, expr }] 如 { id: "mod", expr: "floor(($attr-10)/2)" }<br/>
+              • dicePatches: 条件骰子 [{ when?, op, template }]<br/>
+              • contestRule: 对抗规则 { disabled?, mode, tieBreakers }<br/>
+              <br/>
+              <strong>输出模板变量</strong><br/>
+              • $roll, $attr, $dc, $mod, $outcomeName, $formula, $initiator 等<br/>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--acu-border);">
+            <button id="advanced-preset-save" style="flex: 1; padding: 10px; background: var(--acu-accent); border: none; border-radius: 6px; color: var(--acu-btn-active-text); cursor: pointer; font-size: 13px; font-weight: bold;">
+              <i class="fa-solid fa-check"></i> 保存
+            </button>
+            <button id="advanced-preset-cancel" style="padding: 10px 16px; background: var(--acu-btn-bg); border: 1px solid var(--acu-text-sub); border-radius: 6px; color: var(--acu-text-main); cursor: pointer; font-size: 13px;">
+              <i class="fa-solid fa-times"></i> 取消
+            </button>
+          </div>
+        </div>
+      </div>
+    `);
+
+    $('body').append(overlay);
+
+    const $jsonTextarea = overlay.find('#advanced-preset-json');
+
+    // 初始化JSON
+    $jsonTextarea.val(JSON.stringify(defaultData, null, 2));
+
+    // 关闭
+    overlay.find('.acu-close-btn, #advanced-preset-cancel').on('click', () => {
+      overlay.remove();
+      popModal();
+    });
+
+    // 保存
+    overlay.find('#advanced-preset-save').on('click', () => {
+      try {
+        const name = overlay.find('#advanced-preset-name').val().trim();
+        const description = overlay.find('#advanced-preset-desc').val().trim();
+        const jsonStr = $jsonTextarea.val().trim();
+
+        if (!name) {
+          if (window.toastr) window.toastr.warning('请输入预设名称');
+          return;
+        }
+
+        // 解析JSON
+        const jsonData = JSON.parse(jsonStr);
+
+        // 校验必需字段
+        if (
+          !jsonData.diceExpression ||
+          !jsonData.outcomes ||
+          !Array.isArray(jsonData.outcomes) ||
+          jsonData.outcomes.length === 0
+        ) {
+          if (window.toastr) window.toastr.error('骰子表达式和判定结果列表(outcomes)不能为空');
+          return;
+        }
+
+        // 验证每个 outcome 必填字段
+        for (const outcome of jsonData.outcomes) {
+          if (!outcome.id || !outcome.name || outcome.condition === undefined || outcome.priority === undefined) {
+            if (window.toastr)
+              window.toastr.error(
+                `判定结果 "${outcome.name || outcome.id || '未知'}" 缺少必填字段(id, name, condition, priority)`,
+              );
+            return;
+          }
+        }
+
+        // 构建预设
+        const preset = {
+          ...(isEdit && existingPreset ? existingPreset : {}),
+          ...(isEdit ? {} : { builtin: false }),
+          ...jsonData,
+          kind: 'advanced' as const,
+          version: PRESET_FORMAT_VERSION,
+          id: presetId || `custom_${Date.now()}`,
+          name,
+          description,
+        };
+
+        // 保存
+        if (isEdit) {
+          AdvancedDicePresetManager.updatePreset(presetId, preset);
+        } else {
+          AdvancedDicePresetManager.createPreset(preset);
+        }
+
+        overlay.remove();
+        popModal();
+        refreshDicePanelPresets(); // 刷新检定面板预设按钮
+      } catch (err) {
+        console.error('[DICE]ACU 保存高级预设失败:', err);
+        const errMsg = err.message || '';
+        if (errMsg.includes('JSON') || errMsg.includes('position') || errMsg.includes('token')) {
+          if (window.toastr)
+            window.toastr.error('JSON格式错误：请确保所有键名和字符串值都用双引号包裹，例如 "name": "值"');
+        } else {
+          if (window.toastr) window.toastr.error('保存失败：' + (errMsg || '未知错误'));
+        }
+      }
+    });
+
+    // 点击遮罩关闭
+    setupOverlayClose(overlay, 'acu-edit-overlay', () => {
+      overlay.remove();
+      popModal();
     });
   };
 
@@ -21138,6 +31154,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
   const showActionPresetManager = () => {
     const { $ } = getCore();
     $('.acu-edit-overlay').remove();
+    pushModal('showActionPresetManager', showActionPresetManager);
 
     const config = getConfig();
     const presets = ActionPresetManager.getAllPresets();
@@ -21209,10 +31226,10 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
             <button id="acu-action-preset-new" style="flex: 1; padding: 10px; background: var(--acu-accent); border: none; border-radius: 6px; color: var(--acu-btn-active-text); cursor: pointer; font-size: 13px;">
               <i class="fa-solid fa-plus"></i> 新建规则
             </button>
-            <button id="acu-action-preset-import" style="flex: 1; padding: 10px; background: var(--acu-btn-bg); border: 1px solid var(--acu-border); border-radius: 6px; color: var(--acu-text-main); cursor: pointer; font-size: 13px;">
+            <button id="acu-action-preset-import" style="flex: 1; padding: 10px; background: var(--acu-btn-bg); border: 1px solid var(--acu-text-sub); border-radius: 6px; color: var(--acu-text-main); cursor: pointer; font-size: 13px;">
               <i class="fa-solid fa-file-import"></i> 导入
             </button>
-            <button id="acu-action-preset-back" style="padding: 10px 16px; background: var(--acu-btn-bg); border: 1px solid var(--acu-border); border-radius: 6px; color: var(--acu-text-main); cursor: pointer; font-size: 13px;">
+            <button id="acu-action-preset-back" style="padding: 10px 16px; background: var(--acu-btn-bg); border: 1px solid var(--acu-text-sub); border-radius: 6px; color: var(--acu-text-main); cursor: pointer; font-size: 13px;">
               <i class="fa-solid fa-arrow-left"></i> 返回
             </button>
           </div>
@@ -21225,7 +31242,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     // 关闭按钮
     overlay.find('.acu-close-btn, #acu-action-preset-back').on('click', () => {
       overlay.remove();
-      showSettingsModal();
+      popModal();
     });
 
     // Toggle切换预设激活状态（单选）
@@ -21361,7 +31378,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     // 点击遮罩关闭
     setupOverlayClose(overlay, 'acu-edit-overlay', () => {
       overlay.remove();
-      showSettingsModal();
+      popModal();
     });
   };
 
@@ -21369,6 +31386,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
   const showActionPresetEditor = (presetId?: string) => {
     const { $ } = getCore();
     $('.acu-edit-overlay').remove();
+    pushModal('showActionPresetEditor', () => showActionPresetEditor(presetId));
 
     const config = getConfig();
     const isEdit = !!presetId;
@@ -21432,7 +31450,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
             <div style="margin-bottom: 16px;">
               <label style="display: block; font-size: 12px; color: var(--acu-text-sub); margin-bottom: 8px;">
-                规则配置 <span style="font-size: 10px; color: var(--acu-text-sub);">(JSON格式，支持直接编辑)</span>
+                JSON配置 <span style="font-size: 10px; color: var(--acu-text-sub);">(必须使用标准JSON格式：键名和字符串值都要用双引号)</span>
               </label>
               <textarea id="action-preset-json" class="acu-preset-editor-textarea" style="width: 100%; height: 300px; padding: 10px; border: 1px solid var(--acu-border) !important; border-radius: 6px; background: var(--acu-input-bg) !important; color: var(--acu-text-main) !important; font-family: 'Consolas', 'Monaco', monospace; font-size: 12px; resize: vertical; box-sizing: border-box;"></textarea>
             </div>
@@ -21449,7 +31467,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
             <button id="action-preset-save" style="flex: 1; padding: 10px; background: var(--acu-accent); border: none; border-radius: 6px; color: var(--acu-btn-active-text); cursor: pointer; font-size: 13px; font-weight: bold;">
               <i class="fa-solid fa-check"></i> 保存
             </button>
-            <button id="action-preset-cancel" style="padding: 10px 16px; background: var(--acu-btn-bg); border: 1px solid var(--acu-border); border-radius: 6px; color: var(--acu-text-main); cursor: pointer; font-size: 13px;">
+            <button id="action-preset-cancel" style="padding: 10px 16px; background: var(--acu-btn-bg); border: 1px solid var(--acu-text-sub); border-radius: 6px; color: var(--acu-text-main); cursor: pointer; font-size: 13px;">
               <i class="fa-solid fa-times"></i> 取消
             </button>
           </div>
@@ -21467,7 +31485,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     // 关闭
     overlay.find('.acu-close-btn, #action-preset-cancel').on('click', () => {
       overlay.remove();
-      showActionPresetManager();
+      popModal();
     });
 
     // 保存
@@ -21515,7 +31533,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
         }
 
         overlay.remove();
-        showActionPresetManager();
+        popModal();
       } catch (e) {
         if (window.toastr) window.toastr.error('JSON 格式错误: ' + (e as Error).message);
       }
@@ -21524,7 +31542,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     // 点击遮罩关闭
     setupOverlayClose(overlay, 'acu-edit-overlay', () => {
       overlay.remove();
-      showActionPresetManager();
+      popModal();
     });
   };
   // ========================================
@@ -21544,38 +31562,25 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       $logContainer.empty();
 
       if (filteredLogs.length === 0) {
-        $logContainer.html(
-          '<div style="text-align:center;padding:40px;color:var(--acu-text-sub);"><i class="fa-solid fa-inbox"></i><br/>暂无日志</div>',
-        );
+        $logContainer.html(`
+          <div class="acu-debug-empty">
+            <i class="fa-solid fa-inbox"></i>
+            <div class="acu-debug-empty-text">暂无日志</div>
+            <div class="acu-debug-empty-hint">开启 Console 抓取后，日志将显示在这里</div>
+          </div>
+        `);
         return;
       }
 
       filteredLogs.forEach(log => {
-        const typeColors = {
-          error: 'var(--acu-error-text)',
-          warn: 'var(--acu-warning-text)',
-          info: 'var(--acu-hl-diff)',
-          log: 'var(--acu-text-sub)',
-        };
-        const typeIcons = {
-          error: 'fa-exclamation-circle',
-          warn: 'fa-exclamation-triangle',
-          info: 'fa-info-circle',
-          log: 'fa-circle',
-        };
-        const color = typeColors[log.type] || typeColors.log;
-        const icon = typeIcons[log.type] || typeIcons.log;
-
         const logItem = $(`
-          <div class="acu-debug-log-item" data-type="${log.type}" style="padding:8px 12px;border-bottom:1px solid var(--acu-border);font-family:monospace;font-size:12px;line-height:1.5;">
-            <div style="display:flex;align-items:flex-start;gap:8px;">
-              <span style="color:${color};min-width:60px;font-size:11px;">
-                <i class="fa-solid ${icon}"></i> [${log.timeStr}]
-              </span>
-              <span style="color:${color};min-width:50px;font-size:11px;text-transform:uppercase;">[${log.type}]</span>
-              <span style="flex:1;color:var(--acu-text-main);word-break:break-word;white-space:pre-wrap;">${escapeHtml(log.content)}</span>
+          <div class="acu-debug-log-item" data-type="${log.type}">
+            <div class="acu-debug-log-header">
+              <span class="acu-debug-log-time">${log.timeStr}</span>
+              <span class="acu-debug-log-type ${log.type}">${log.type.toUpperCase()}</span>
             </div>
-            ${log.stack ? `<div style="margin-top:4px;margin-left:128px;color:var(--acu-text-sub);font-size:11px;white-space:pre-wrap;font-family:monospace;">${escapeHtml(log.stack)}</div>` : ''}
+            <div class="acu-debug-log-content">${escapeHtml(log.content)}</div>
+            ${log.stack ? `<div class="acu-debug-log-stack">${escapeHtml(log.stack)}</div>` : ''}
           </div>
         `);
         $logContainer.append(logItem);
@@ -21584,63 +31589,70 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
     const dialog = $(`
       <div class="acu-edit-overlay">
-        <div class="acu-edit-dialog acu-debug-console-dialog ${currentThemeClass}" style="max-width:90vw;max-height:90vh;width:800px;height:600px;display:flex;flex-direction:column;">
-          <div class="acu-settings-header" style="flex-shrink:0;">
+        <div class="acu-edit-dialog acu-debug-console-dialog ${currentThemeClass}">
+          <div class="acu-settings-header">
             <div class="acu-settings-title"><i class="fa-solid fa-bug"></i> Debug控制台</div>
             <button class="acu-close-btn" id="debug-console-close"><i class="fa-solid fa-times"></i></button>
           </div>
 
           <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
             <!-- 工具栏 -->
-            <div style="padding:12px;border-bottom:1px solid var(--acu-border);flex-shrink:0;display:flex;flex-direction:column;gap:8px;">
+            <div class="acu-debug-toolbar">
               <!-- Console抓取开关 -->
-              <div style="display:flex;align-items:center;gap:8px;padding-bottom:8px;border-bottom:1px solid var(--acu-border);">
-                <span style="font-size:12px;color:var(--acu-text-sub);flex:1;">Console抓取:</span>
+              <div class="acu-debug-capture-row">
+                <span class="acu-debug-capture-label">Console 抓取</span>
                 <label class="acu-toggle">
                   <input type="checkbox" id="debug-console-capture-toggle" ${ConsoleCaptureManager.enabled ? 'checked' : ''}>
                   <span class="acu-toggle-slider"></span>
                 </label>
-                <span id="debug-console-capture-status" style="font-size:11px;color:var(--acu-text-sub);">${ConsoleCaptureManager.enabled ? '已启用' : '已关闭'}</span>
+                <span id="debug-console-capture-status" class="acu-debug-capture-status ${ConsoleCaptureManager.enabled ? 'enabled' : 'disabled'}">${ConsoleCaptureManager.enabled ? '已启用' : '已关闭'}</span>
               </div>
-              <!-- 过滤和操作按钮 -->
-              <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
-                <div style="display:flex;gap:8px;align-items:center;flex:1;">
-                  <span style="font-size:12px;color:var(--acu-text-sub);">过滤:</span>
-                  <button class="acu-btn ${savedFilters.log ? 'acu-btn-primary' : 'acu-btn-secondary'}" data-filter-type="log" style="padding:4px 10px;font-size:12px;${savedFilters.log ? '' : 'opacity:0.5;'}">
-                    <span style="color:var(--acu-text-main);">Log</span>
-                  </button>
-                  <button class="acu-btn ${savedFilters.info ? 'acu-btn-primary' : 'acu-btn-secondary'}" data-filter-type="info" style="padding:4px 10px;font-size:12px;${savedFilters.info ? '' : 'opacity:0.5;'}">
-                    <span style="color:var(--acu-text-main);">Info</span>
-                  </button>
-                  <button class="acu-btn ${savedFilters.warn ? 'acu-btn-primary' : 'acu-btn-secondary'}" data-filter-type="warn" style="padding:4px 10px;font-size:12px;${savedFilters.warn ? '' : 'opacity:0.5;'}">
-                    <span style="color:var(--acu-text-main);">Warn</span>
-                  </button>
-                  <button class="acu-btn ${savedFilters.error ? 'acu-btn-primary' : 'acu-btn-secondary'}" data-filter-type="error" style="padding:4px 10px;font-size:12px;${savedFilters.error ? '' : 'opacity:0.5;'}">
-                    <span style="color:var(--acu-text-main);">Error</span>
-                  </button>
-                </div>
-                <div style="display:flex;gap:6px;">
-                  <button class="acu-btn acu-btn-secondary" id="debug-console-clear" style="padding:6px 12px;font-size:12px;">
-                    <i class="fa-solid fa-trash"></i> 清空
-                  </button>
-                  <button class="acu-btn acu-btn-secondary" id="debug-console-copy" style="padding:6px 12px;font-size:12px;">
-                    <i class="fa-solid fa-copy"></i> 复制
-                  </button>
-                  <button class="acu-btn acu-btn-primary" id="debug-console-export" style="padding:6px 12px;font-size:12px;">
-                    <i class="fa-solid fa-download"></i> 导出
-                  </button>
-                </div>
+              <!-- 过滤按钮组 -->
+              <div class="acu-debug-filter-group">
+                <button class="acu-debug-filter-btn ${savedFilters.log ? 'active' : ''}" data-filter-type="log">
+                  <i class="fa-solid fa-circle indicator"></i> Log
+                </button>
+                <button class="acu-debug-filter-btn ${savedFilters.info ? 'active' : ''}" data-filter-type="info">
+                  <i class="fa-solid fa-info-circle indicator"></i> Info
+                </button>
+                <button class="acu-debug-filter-btn ${savedFilters.warn ? 'active' : ''}" data-filter-type="warn">
+                  <i class="fa-solid fa-exclamation-triangle indicator"></i> Warn
+                </button>
+                <button class="acu-debug-filter-btn ${savedFilters.error ? 'active' : ''}" data-filter-type="error">
+                  <i class="fa-solid fa-exclamation-circle indicator"></i> Error
+                </button>
+              </div>
+              <!-- 操作按钮 -->
+              <div class="acu-debug-actions">
+                <button class="acu-debug-action-btn danger" id="debug-console-clear">
+                  <i class="fa-solid fa-trash"></i> <span class="btn-text">清空</span>
+                </button>
+                <button class="acu-debug-action-btn" id="debug-console-copy">
+                  <i class="fa-solid fa-copy"></i> <span class="btn-text">复制</span>
+                </button>
+                <button class="acu-debug-action-btn primary" id="debug-console-export">
+                  <i class="fa-solid fa-download"></i> <span class="btn-text">导出</span>
+                </button>
               </div>
             </div>
 
             <!-- 日志显示区域 -->
-            <div class="acu-debug-log-scroll" style="flex:1;overflow-y:auto;overflow-x:hidden;background:var(--acu-card-bg);">
+            <div class="acu-debug-log-scroll">
               <div class="acu-debug-log-container"></div>
             </div>
 
             <!-- 底部状态栏 -->
-            <div style="padding:8px 12px;border-top:1px solid var(--acu-border);flex-shrink:0;font-size:11px;color:var(--acu-text-sub);display:flex;justify-content:space-between;">
-              <span>总计: <span id="debug-total-count">0</span> | 显示: <span id="debug-filtered-count">0</span></span>
+            <div class="acu-debug-footer">
+              <div class="acu-debug-stats">
+                <div class="acu-debug-stat">
+                  <span>总计</span>
+                  <span class="acu-debug-stat-value" id="debug-total-count">0</span>
+                </div>
+                <div class="acu-debug-stat">
+                  <span>显示</span>
+                  <span class="acu-debug-stat-value" id="debug-filtered-count">0</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -21667,28 +31679,26 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       const $status = dialog.find('#debug-console-capture-status');
       if (checked) {
         ConsoleCaptureManager.enable();
-        $status.text('已启用');
+        $status.text('已启用').removeClass('disabled').addClass('enabled');
         // 添加启动日志
         console.log('[DICE]Debug控制台抓取模式已开启');
       } else {
         ConsoleCaptureManager.disable();
-        $status.text('已关闭');
+        $status.text('已关闭').removeClass('enabled').addClass('disabled');
       }
     });
 
     // 过滤选项变化
-    dialog.find('[data-filter-type]').on('click', function () {
+    dialog.find('.acu-debug-filter-btn').on('click', function () {
       const type = $(this).data('filter-type');
-      const isActive = $(this).hasClass('acu-btn-primary');
+      const isActive = $(this).hasClass('active');
       const newState = !isActive;
 
       // 更新按钮样式
       if (newState) {
-        $(this).removeClass('acu-btn-secondary').addClass('acu-btn-primary');
-        $(this).css('opacity', '1');
+        $(this).addClass('active');
       } else {
-        $(this).removeClass('acu-btn-primary').addClass('acu-btn-secondary');
-        $(this).css('opacity', '0.5');
+        $(this).removeClass('active');
       }
 
       // 更新过滤器
@@ -22093,11 +32103,403 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
   // 事件系统
   const eventHandlers: Map<string, Set<Function>> = new Map();
-  const checkHistory: Array<AcuDice.CheckResult & { timestamp: number }> = [];
-  const contestHistory: Array<AcuDice.ContestResult & { timestamp: number }> = [];
-  const MAX_HISTORY = 100;
+  type CheckHistoryEntry = AcuDice.CheckResult & CheckHistoryExtension & { timestamp: number };
+  type ContestHistoryEntry = AcuDice.ContestResult & { timestamp: number; detailId?: string; detailLines?: string[] };
+  type AcuDiceSharedHistoryStore = {
+    checkHistory: CheckHistoryEntry[];
+    contestHistory: ContestHistoryEntry[];
+    maxHistory: number;
+  };
+  type RootWindowWithAcuDiceHistory = Window & {
+    __AcuDiceHistoryStore__?: AcuDiceSharedHistoryStore;
+  };
+  const rootWindowWithHistory = rootWindow as RootWindowWithAcuDiceHistory;
+  if (!rootWindowWithHistory.__AcuDiceHistoryStore__) {
+    rootWindowWithHistory.__AcuDiceHistoryStore__ = {
+      checkHistory: [],
+      contestHistory: [],
+      maxHistory: 100,
+    };
+  }
+  const sharedHistoryStore = rootWindowWithHistory.__AcuDiceHistoryStore__;
+  const checkHistory: CheckHistoryEntry[] = sharedHistoryStore.checkHistory;
+  const contestHistory: ContestHistoryEntry[] = sharedHistoryStore.contestHistory;
+  const MAX_HISTORY = sharedHistoryStore.maxHistory;
+
+  const globalExpandedHistoryIds = new Set<string>();
+  let globalHistoryFilterStatus = 'all';
+  let globalHistoryKeyword = '';
+  let globalHistoryStatsScope: DiceStatsScope = 'chat';
+
+  const copyTextWithTavernApi = async (text: string): Promise<boolean> => {
+    try {
+      if (window.TavernHelper && window.TavernHelper.triggerSlash) {
+        const safeContent = text
+          .replace(/\\/g, '\\\\')
+          .replace(/"/g, '\\"')
+          .replace(/\n/g, '\\n')
+          .replace(/\{/g, '\\{')
+          .replace(/\}/g, '\\}');
+        await window.TavernHelper.triggerSlash(`/clipboard-set "${safeContent}"`);
+        return true;
+      }
+    } catch (error) {
+      console.warn('[DICE] history copy via TavernHelper failed:', error);
+    }
+
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (error) {
+      console.warn('[DICE] history copy via navigator.clipboard failed:', error);
+    }
+
+    try {
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-9999px';
+      textArea.style.top = '0';
+      textArea.setAttribute('readonly', '');
+      document.body.appendChild(textArea);
+      textArea.select();
+      textArea.setSelectionRange(0, 99999);
+      const successful = document.execCommand('copy');
+      document.body.removeChild(textArea);
+      return successful;
+    } catch (error) {
+      console.error('[DICE] history copy fallback failed:', error);
+      return false;
+    }
+  };
+
+  const showGlobalDiceHistoryDialog = () => {
+    $('.acu-dice-history-overlay').remove();
+    const config = getConfig();
+    const currentThemeClass = `acu-theme-${config.theme}`;
+    const detailCopyTextMap = new Map<string, string>();
+
+    const renderHistoryItems = (): string => {
+      type UnifiedItem =
+        | (CheckHistoryEntry & { historyType: 'check' })
+        | (ContestHistoryEntry & { historyType: 'contest' });
+
+      detailCopyTextMap.clear();
+
+      const items: UnifiedItem[] = [
+        ...checkHistory.map(item => ({ ...item, historyType: 'check' as const })),
+        ...contestHistory.map(item => ({ ...item, historyType: 'contest' as const })),
+      ]
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .filter(item => {
+          if (globalHistoryFilterStatus !== 'all') {
+            const status = String((item as Record<string, unknown>).effectStatus || '');
+            if (!status || status !== globalHistoryFilterStatus) return false;
+          }
+          const keyword = globalHistoryKeyword.trim().toLowerCase();
+          if (!keyword) return true;
+          const raw = item as Record<string, unknown>;
+          const left = (raw.left || {}) as Record<string, unknown>;
+          const right = (raw.right || {}) as Record<string, unknown>;
+          const haystack = [
+            raw.attrName,
+            raw.message,
+            raw.outcomeText,
+            raw.initiatorName,
+            left.name,
+            right.name,
+            raw.effectStatus,
+          ]
+            .map(text => String(text || '').toLowerCase())
+            .join(' ');
+          return haystack.includes(keyword);
+        })
+        .slice(0, 80);
+
+      if (items.length === 0) {
+        return `<div style="padding:20px 12px; color:var(--acu-text-sub); text-align:center; display:flex; flex-direction:column; gap:8px; align-items:center;"><i class="fa-solid fa-dice-d20" style="font-size:20px; opacity:.35;"></i><span>暂无检定历史</span></div>`;
+      }
+
+      const statusTextMap: Record<string, string> = {
+        planned: '待执行',
+        confirmed: '已确认',
+        committed: '已提交',
+        failed: '失败',
+        cancelled: '已取消',
+      };
+      const statusColorMap: Record<string, string> = {
+        planned: 'var(--acu-text-sub)',
+        confirmed: 'var(--acu-accent)',
+        committed: 'var(--acu-success-text)',
+        failed: 'var(--acu-error-text)',
+        cancelled: 'var(--acu-text-sub)',
+      };
+
+      return items
+        .map(item => {
+          const raw = item as Record<string, unknown>;
+          const isContest = item.historyType === 'contest';
+          const left = (raw.left || {}) as Record<string, unknown>;
+          const right = (raw.right || {}) as Record<string, unknown>;
+          const status = String(raw.effectStatus || '');
+          const statusText = status ? statusTextMap[status] || status : '';
+          const statusColor = status ? statusColorMap[status] || 'var(--acu-text-sub)' : 'var(--acu-text-sub)';
+
+          const detailId = String(raw.detailId || raw.effectRunId || `${item.historyType}-${item.timestamp}`);
+          const detailLinesRaw = Array.isArray(raw.detailLines) ? (raw.detailLines as unknown[]) : [];
+          const traceLinesRaw = Array.isArray(raw.effectTrace) ? (raw.effectTrace as unknown[]) : [];
+          const detailLines = detailLinesRaw.map(line => String(line || '').trim()).filter(Boolean);
+          const traceLines = traceLinesRaw.map(line => String(line || '').trim()).filter(Boolean);
+          const canExpand = detailLines.length > 0 || traceLines.length > 0;
+          const isExpanded = canExpand && globalExpandedHistoryIds.has(detailId);
+
+          let title = String(raw.attrName || '检定');
+          let subtitle = String(raw.outcomeText || (raw.success ? '成功' : '失败'));
+          let resultColor = raw.success ? 'var(--acu-success-text)' : 'var(--acu-error-text)';
+          let rollText = `${String(raw.total ?? '-')}/${String(raw.target ?? '-')}`;
+          let typeTag = '普通';
+
+          if (isContest) {
+            typeTag = '对抗';
+            title = `${String(left.name || '发起方')} vs ${String(right.name || '对抗方')}`;
+            subtitle = String(raw.message || '对抗检定');
+            const winner = String(raw.winner || 'tie');
+            resultColor = winner === 'tie' ? 'var(--acu-text-sub)' : 'var(--acu-accent)';
+            rollText = `${String(left.roll ?? '-')} : ${String(right.roll ?? '-')}`;
+          } else {
+            const initiator = String(raw.initiatorName || '').trim();
+            if (initiator) title = `${initiator} · ${title}`;
+          }
+
+          const pushedBadge = raw.isPushed
+            ? '<i class="fa-solid fa-skull" style="font-size:10px;color:var(--acu-text-sub);margin-left:4px;" title="孤注一掷"></i>'
+            : '';
+
+          const sections: string[] = [];
+          if (detailLines.length > 0) {
+            sections.push(
+              `<div><div style="font-weight:700; color:var(--acu-text-main); margin-bottom:4px;">检定详情</div>${detailLines.map(line => escapeHtml(line)).join('<br>')}</div>`,
+            );
+          }
+          if (traceLines.length > 0) {
+            sections.push(
+              `<div><div style="font-weight:700; color:var(--acu-text-main); margin-bottom:4px;">效果链路</div>${traceLines.map(line => escapeHtml(line)).join('<br>')}</div>`,
+            );
+          }
+
+          if (canExpand) {
+            const copyParts: string[] = [
+              `[${typeTag}] ${title}`,
+              `时间: ${new Date(item.timestamp).toLocaleString('zh-CN')}`,
+            ];
+            if (subtitle) copyParts.push(`结果: ${subtitle}`);
+            if (rollText) copyParts.push(`数值: ${rollText}`);
+            if (detailLines.length > 0) copyParts.push('--- 检定详情 ---', ...detailLines);
+            if (traceLines.length > 0) copyParts.push('--- 效果链路 ---', ...traceLines);
+            detailCopyTextMap.set(detailId, copyParts.join('\n'));
+          }
+
+          const detailHtml =
+            canExpand && isExpanded
+              ? `<div style="margin-top:8px; padding:9px 10px; background: color-mix(in srgb, var(--acu-card-bg) 72%, transparent); border:1px solid var(--acu-border); border-radius:6px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:11px; line-height:1.45; color:var(--acu-text-sub); white-space: normal;">${sections.join('<div style="height:1px; background:var(--acu-border); margin:8px 0;"></div>')}</div>`
+              : '';
+
+          return `
+            <div style="padding:10px 12px; border:1px solid var(--acu-border); border-radius:10px; margin-bottom:8px; background:var(--acu-bg-panel);">
+              <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+                <div style="min-width:0; flex:1;">
+                  <div style="display:flex; align-items:center; gap:6px;">
+                    <span style="font-size:10px; color:var(--acu-text-sub); border:1px solid var(--acu-border); border-radius:999px; padding:1px 7px;">${typeTag}</span>
+                    <span style="font-weight:700; color:var(--acu-text-main); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(title)}${pushedBadge}</span>
+                    ${canExpand ? `<button class="acu-history-detail-copy" data-detail-id="${escapeHtml(detailId)}" title="复制详情" style="border:1px solid var(--acu-border); background:var(--acu-btn-bg); color:var(--acu-text-sub); border-radius:6px; width:24px; height:24px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0;"><i class="fa-solid fa-copy"></i></button>` : ''}
+                  </div>
+                  <div style="margin-top:6px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:12px;">
+                    <span style="color:${resultColor}; font-weight:700;">${escapeHtml(subtitle)}</span>
+                    <span style="color:var(--acu-text-sub); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;">${escapeHtml(rollText)}</span>
+                    ${statusText ? `<span style="color:${statusColor}; border:1px solid color-mix(in srgb, ${statusColor} 40%, transparent); border-radius:999px; padding:1px 7px; font-size:11px;">效果:${statusText}</span>` : ''}
+                  </div>
+                </div>
+                <div style="display:flex; align-items:center; gap:5px; flex-shrink:0;">
+                  <span style="font-size:12px; color:var(--acu-text-sub);">${new Date(item.timestamp).toLocaleTimeString('zh-CN', { hour12: false })}</span>
+                  ${canExpand ? `<button class="acu-history-trace-toggle" data-run-id="${escapeHtml(detailId)}" style="border:none;background:transparent;color:var(--acu-text-sub);cursor:pointer;padding:2px 4px;font-size:13px;" title="${isExpanded ? '收起详情' : '展开详情'}">${isExpanded ? '▼' : '▶'}</button>` : ''}
+                </div>
+              </div>
+              ${detailHtml}
+            </div>
+          `;
+        })
+        .join('');
+    };
+
+    const dialog = $(`
+      <div class="acu-edit-overlay acu-dice-history-overlay">
+        <div class="acu-edit-dialog ${currentThemeClass}" style="max-width:600px; width:min(94vw,600px); max-height:82vh; display:flex; flex-direction:column; padding:14px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; padding-bottom:8px; border-bottom:1px solid var(--acu-border);">
+            <div style="font-size:19px; color:var(--acu-text-main); font-weight:700; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-clock-rotate-left" style="color:var(--acu-accent);"></i> 检定历史</div>
+            <button class="acu-close-btn acu-history-close"><i class="fa-solid fa-times"></i></button>
+          </div>
+          <div style="display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-top:6px; align-items:center;">
+            <select id="acu-history-scope-filter" class="acu-dice-select" style="width:100%; min-width:0;">
+              <option value="chat">本聊天</option>
+              <option value="character">本角色卡</option>
+              <option value="global">全局</option>
+            </select>
+            <select id="acu-history-status-filter" class="acu-dice-select" style="width:100%; min-width:0;">
+              <option value="all">全部状态</option>
+              <option value="planned">待执行</option>
+              <option value="confirmed">已确认</option>
+              <option value="committed">已提交</option>
+              <option value="failed">失败</option>
+              <option value="cancelled">已取消</option>
+            </select>
+            <div style="position:relative; min-width:0;">
+              <i class="fa-solid fa-search" style="position:absolute; left:11px; top:50%; transform:translateY(-50%); font-size:12px; color:var(--acu-text-sub); pointer-events:none;"></i>
+              <input id="acu-history-search" class="acu-dice-input" style="width:100%; padding-left:34px !important;" placeholder="搜索" value="${escapeHtml(globalHistoryKeyword)}">
+            </div>
+          </div>
+          <div id="acu-dice-history-stats" style="margin-top:2px; padding:9px; border:1px solid var(--acu-border); border-radius:8px; background:var(--acu-card-bg);"></div>
+          <div id="acu-dice-history-list" style="margin-top:8px; overflow-y:auto; flex:1; min-height:220px; max-height:52vh; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; touch-action:pan-y;">
+            ${renderHistoryItems()}
+          </div>
+          <div style="display:flex; justify-content:flex-end; gap:8px; padding-top:10px; border-top:1px solid var(--acu-border); margin-top:8px;">
+            <button class="acu-dialog-btn" id="acu-history-clear" style="background:var(--acu-btn-bg); border-color:var(--acu-border);"><i class="fa-solid fa-trash"></i> 清理历史</button>
+            <button class="acu-dialog-btn acu-history-close"><i class="fa-solid fa-times"></i> 关闭</button>
+          </div>
+        </div>
+      </div>
+    `);
+    $('body').append(dialog);
+
+    const renderHistoryStats = async () => {
+      const $stats = dialog.find('#acu-dice-history-stats');
+      if ($stats.length === 0) return;
+      const allStats = await DiceHistoryStatsDB.getDashboardStats();
+      const activeStats = allStats[globalHistoryStatsScope];
+      const context = getDiceStatsContext();
+      const mobile = window.innerWidth <= 640;
+      const scopeLabelMap: Record<DiceStatsScope, string> = {
+        chat: '本聊天',
+        character: '本角色卡',
+        global: '全局',
+      };
+      const scopeUnavailable =
+        (globalHistoryStatsScope === 'chat' && context.chatId === 'unknown_chat') ||
+        (globalHistoryStatsScope === 'character' && context.characterId === 'unknown_character');
+
+      $stats.html(`
+        <div style="display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:${mobile ? '6px' : '8px'}; margin-bottom:8px;">
+          <div style="padding:${mobile ? '6px' : '8px'}; border:1px solid var(--acu-border); border-radius:6px;"><div style="font-size:${mobile ? '10px' : '11px'}; color:var(--acu-text-sub);">本聊天检定数</div><div style="font-size:${mobile ? '16px' : '18px'}; font-weight:700; color:var(--acu-text-main);">${allStats.chat.total}</div></div>
+          <div style="padding:${mobile ? '6px' : '8px'}; border:1px solid var(--acu-border); border-radius:6px;"><div style="font-size:${mobile ? '10px' : '11px'}; color:var(--acu-text-sub);">本角色卡检定数</div><div style="font-size:${mobile ? '16px' : '18px'}; font-weight:700; color:var(--acu-text-main);">${allStats.character.total}</div></div>
+          <div style="padding:${mobile ? '6px' : '8px'}; border:1px solid var(--acu-border); border-radius:6px;"><div style="font-size:${mobile ? '10px' : '11px'}; color:var(--acu-text-sub);">全局检定数</div><div style="font-size:${mobile ? '16px' : '18px'}; font-weight:700; color:var(--acu-text-main);">${allStats.global.total}</div></div>
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; font-size:${mobile ? '11px' : '12px'};">
+          <div style="color:var(--acu-text-sub);">当前统计范围：${scopeLabelMap[globalHistoryStatsScope]}</div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <span style="color:var(--acu-text-main);">总数：<b>${activeStats.total}</b></span>
+            <span style="color:var(--acu-text-main);">普通：<b>${activeStats.checks}</b></span>
+            <span style="color:var(--acu-text-main);">对抗：<b>${activeStats.contests}</b></span>
+            <span style="color:var(--acu-text-main);">成功率：<b style="color:var(--acu-success-text);">${activeStats.checkSuccessRate}%</b></span>
+          </div>
+        </div>
+        ${scopeUnavailable ? '<div style="margin-top:6px; font-size:11px; color:var(--acu-text-sub);">当前环境未识别到该范围ID，仅显示可识别范围数据。</div>' : ''}
+      `);
+    };
+
+    const rerender = () => {
+      dialog.find('#acu-dice-history-list').html(renderHistoryItems());
+      void renderHistoryStats();
+    };
+
+    dialog.find('#acu-history-status-filter').val(globalHistoryFilterStatus);
+    dialog.find('#acu-history-scope-filter').val(globalHistoryStatsScope);
+
+    const refreshByEvent = () => rerender();
+    const canListen = Boolean(window.AcuDice && typeof window.AcuDice.on === 'function');
+    if (canListen) {
+      window.AcuDice.on('check', refreshByEvent);
+      window.AcuDice.on('contest', refreshByEvent);
+      window.AcuDice.on('effect_run', refreshByEvent);
+    }
+
+    void renderHistoryStats();
+
+    dialog.on('change', '#acu-history-scope-filter', function () {
+      const val = String($(this).val() || 'chat') as DiceStatsScope;
+      globalHistoryStatsScope = val === 'character' || val === 'global' ? val : 'chat';
+      void renderHistoryStats();
+    });
+
+    dialog.on('change', '#acu-history-status-filter', function () {
+      globalHistoryFilterStatus = String($(this).val() || 'all');
+      rerender();
+    });
+
+    dialog.on('input', '#acu-history-search', function () {
+      globalHistoryKeyword = String($(this).val() || '');
+      rerender();
+    });
+
+    dialog.on('touchstart touchmove', '#acu-dice-history-list', function (e) {
+      e.stopPropagation();
+    });
+
+    dialog.on('click', '.acu-history-trace-toggle', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      const runId = String($(this).data('run-id') || '');
+      if (!runId) return;
+      if (globalExpandedHistoryIds.has(runId)) globalExpandedHistoryIds.delete(runId);
+      else globalExpandedHistoryIds.add(runId);
+      rerender();
+    });
+
+    dialog.on('click', '.acu-history-detail-copy', async function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      const detailId = String($(this).data('detail-id') || '');
+      const detailText = (detailCopyTextMap.get(detailId) || '').trim();
+      if (!detailText) {
+        if (window.toastr) window.toastr.warning('没有可复制的详情');
+        return;
+      }
+      const ok = await copyTextWithTavernApi(detailText);
+      if (window.toastr) {
+        if (ok) window.toastr.success('详情已复制');
+        else window.toastr.error('复制失败');
+      }
+    });
+
+    dialog.on('click', '#acu-history-clear', async function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      const ok = window.confirm('确定清理检定历史吗？此操作会清空当前会话内历史和统计库记录。');
+      if (!ok) return;
+      checkHistory.length = 0;
+      contestHistory.length = 0;
+      globalExpandedHistoryIds.clear();
+      await DiceHistoryStatsDB.clear();
+      rerender();
+      if (window.toastr) window.toastr.success('检定历史已清理');
+    });
+
+    const closeDialog = () => {
+      if (canListen) {
+        window.AcuDice.off('check', refreshByEvent);
+        window.AcuDice.off('contest', refreshByEvent);
+        window.AcuDice.off('effect_run', refreshByEvent);
+      }
+      dialog.remove();
+    };
+    dialog.on('click', '.acu-history-close', closeDialog);
+    setupOverlayClose(dialog, 'acu-dice-history-overlay', closeDialog);
+  };
 
   function emitEvent(event: string, data: any) {
+    if (event === 'check' || event === 'contest') {
+      void DiceHistoryStatsDB.recordEvent(event, data);
+    }
     const handlers = eventHandlers.get(event);
     if (handlers) {
       handlers.forEach(handler => {
@@ -22116,7 +32518,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
    */
   const AcuDiceAPI = {
     /** API 版本号 */
-    version: '1.0.0',
+    version: '1.2.0',
 
     /**
      * 骰子投掷（同步）
@@ -22129,6 +32531,12 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     roll(formula: string): { total: number; formula: string; breakdown: string } {
       if (!formula || typeof formula !== 'string') {
         throw new Error('[AcuDice] roll() 需要一个有效的骰子表达式字符串');
+      }
+      // 校验公式：必须包含骰子表达式（如 2d6）或是纯数学运算（如 3+5）
+      const hasDice = /\d*d(\d+|F)/i.test(formula);
+      const isMath = /^[\d\s+\-*/().]+$/.test(formula.trim());
+      if (!hasDice && !isMath) {
+        throw new Error(`[AcuDice] 无效的骰子表达式: ${formula}`);
       }
       const total = evaluateFormula(formula, {});
       return {
@@ -22213,12 +32621,12 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       }
 
       // 投骰
-      const rollResult = rollDiceExpression(diceType);
-      if (isNaN(rollResult)) {
+      const rollResult = rollComplexDiceExpression(diceType);
+      if (Number.isNaN(rollResult.total)) {
         throw new Error(`[AcuDice] 无效的骰子表达式: ${diceType}`);
       }
 
-      const finalRoll = rollResult + modifier;
+      const finalRoll = rollResult.total + modifier;
       const target = targetValue;
 
       // 判定结果
@@ -22230,15 +32638,15 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       if (isDND) {
         // DND 规则: roll >= target 成功
         success = finalRoll >= target;
-        criticalSuccess = rollResult === diceCfg.dndCritSuccess;
-        criticalFailure = rollResult === diceCfg.dndCritFail;
+        criticalSuccess = rollResult.total === diceCfg.dndCritSuccess;
+        criticalFailure = rollResult.total === diceCfg.dndCritFail;
 
         if (criticalSuccess) {
           success = true;
-          message = `大成功！掷出 ${rollResult}${modifier ? ` + ${modifier}` : ''} = ${finalRoll}，DC ${target}`;
+          message = `大成功！掷出 ${rollResult.total}${modifier ? ` + ${modifier}` : ''} = ${finalRoll}，DC ${target}`;
         } else if (criticalFailure) {
           success = false;
-          message = `大失败！掷出 ${rollResult}${modifier ? ` + ${modifier}` : ''} = ${finalRoll}，DC ${target}`;
+          message = `大失败！掷出 ${rollResult.total}${modifier ? ` + ${modifier}` : ''} = ${finalRoll}，DC ${target}`;
         } else if (success) {
           message = `成功！掷出 ${finalRoll} >= DC ${target}`;
         } else {
@@ -22270,6 +32678,44 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
           message = `失败！掷出 ${finalRoll} > ${target}`;
         }
       }
+
+      const checkResult: AcuDice.CheckResult = {
+        success,
+        total: finalRoll,
+        target,
+        outcomeText: message,
+        attrName: options.attribute || options.skill || '',
+        formula: diceType,
+        criteria: isDND ? 'gte' : 'lte',
+        isAutoTarget: options.targetValue === undefined,
+      };
+
+      // 写入历史记录
+      const detailId = `check_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const attrLabel = options.attribute || options.skill || '未指定';
+      const checkResultWithTimestamp = {
+        ...checkResult,
+        timestamp: Date.now(),
+        detailId,
+        initiatorName: 'API',
+        historyType: 'check' as const,
+        detailLines: [
+          `发起者: API`,
+          `属性: ${attrLabel} (值=${target})`,
+          `公式: ${diceType}`,
+          `掷骰: ${finalRoll}`,
+          `目标: ${target}`,
+          ...(modifier ? [`修正: ${modifier >= 0 ? '+' + modifier : modifier}`] : []),
+          `结果: ${message}`,
+        ],
+      };
+      checkHistory.push(checkResultWithTimestamp);
+      if (checkHistory.length > MAX_HISTORY) {
+        checkHistory.shift();
+      }
+
+      // 触发事件
+      emitEvent('check', checkResultWithTimestamp);
 
       return {
         success,
@@ -22368,6 +32814,45 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       }
 
       return results;
+    },
+
+    /**
+     * 获取所有预设列表（摘要信息）
+     * @returns 预设摘要数组
+     */
+    listPresets(): Array<{ id: string; name: string; description?: string; builtin: boolean }> {
+      const allPresets = ActionPresetManager.getAllPresets();
+      return allPresets.map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        description: p.description || '',
+        builtin: !!p.builtin,
+      }));
+    },
+
+    /**
+     * 获取当前激活的预设 ID
+     * @returns 预设 ID 字符串，无激活预设时返回 null
+     */
+    getActivePresetId(): string | null {
+      const id = ActionPresetManager.getActivePresetId();
+      return id === '__none__' ? null : id;
+    },
+
+    /**
+     * 获取指定预设的摘要信息
+     * @param presetId 预设 ID
+     * @returns 预设摘要，未找到时返回 null
+     */
+    getPresetSummary(presetId: string): { id: string; name: string; description?: string; builtin: boolean } | null {
+      const preset = ActionPresetManager.getPresetById(presetId);
+      if (!preset) return null;
+      return {
+        id: preset.id,
+        name: preset.name,
+        description: preset.description || '',
+        builtin: !!preset.builtin,
+      };
     },
 
     /**
@@ -22493,8 +32978,12 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
      * })
      */
     async contest(options: {
-      left: { name: string; attribute: string };
-      right: { name: string; attribute: string };
+      left?: { name: string; attribute: string; targetValue?: number };
+      right?: { name: string; attribute: string; targetValue?: number };
+      /** @deprecated 使用 left 代替 */
+      attacker?: { name: string; attribute: string; targetValue?: number };
+      /** @deprecated 使用 right 代替 */
+      defender?: { name: string; attribute: string; targetValue?: number };
       rule?: 'initiator_win' | 'initiator_lose' | 'tie';
     }): Promise<{
       left: { name: string; attribute: string; roll: number; target: number; successLevel: number };
@@ -22502,22 +32991,44 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       winner: 'left' | 'right' | 'tie';
       message: string;
     }> {
-      if (!options?.left?.name || !options?.left?.attribute) {
+      // 兼容 attacker/defender 别名
+      const left = options?.left || options?.attacker;
+      const right = options?.right || options?.defender;
+
+      if (!left?.name || !left?.attribute) {
         throw new Error('[AcuDice] contest() 需要 left.name 和 left.attribute 参数');
       }
-      if (!options?.right?.name || !options?.right?.attribute) {
+      if (!right?.name || !right?.attribute) {
         throw new Error('[AcuDice] contest() 需要 right.name 和 right.attribute 参数');
       }
 
-      // 获取双方属性值
-      const leftTarget = getAttributeValue(options.left.name, options.left.attribute);
-      if (leftTarget === null) {
-        throw new Error(`[AcuDice] 未找到角色 "${options.left.name}" 的属性 "${options.left.attribute}"`);
+      try {
+        const rawDataForAlias = cachedRawData || getTableData();
+        if (rawDataForAlias) {
+          NameAliasRegistry.rebuild(processJsonData(rawDataForAlias || {}));
+        }
+      } catch (error) {
+        console.warn('[AcuDice] contest() 别名映射刷新失败', error);
       }
 
-      const rightTarget = getAttributeValue(options.right.name, options.right.attribute);
+      const leftName = left.name === '<user>' ? left.name : NameAliasRegistry.resolve(left.name);
+      const rightName = right.name === '<user>' ? right.name : NameAliasRegistry.resolve(right.name);
+
+      // 获取双方属性值（优先使用 targetValue，否则从角色数据查找）
+      let leftTarget = left.targetValue ?? null;
+      if (leftTarget === null) {
+        leftTarget = getAttributeValue(leftName, left.attribute);
+        if (leftTarget === null) {
+          throw new Error(`[AcuDice] 未找到角色 "${leftName}" 的属性 "${left.attribute}"`);
+        }
+      }
+
+      let rightTarget = right.targetValue ?? null;
       if (rightTarget === null) {
-        throw new Error(`[AcuDice] 未找到角色 "${options.right.name}" 的属性 "${options.right.attribute}"`);
+        rightTarget = getAttributeValue(rightName, right.attribute);
+        if (rightTarget === null) {
+          throw new Error(`[AcuDice] 未找到角色 "${rightName}" 的属性 "${right.attribute}"`);
+        }
       }
 
       // 获取骰子配置
@@ -22525,8 +33036,11 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       const formula = diceCfg.lastDiceType || '1d100';
 
       // 投骰
-      const leftResult = rollDiceExpression(formula);
-      const rightResult = rollDiceExpression(formula);
+      const leftResult = rollComplexDiceExpression(formula).total;
+      const rightResult = rollComplexDiceExpression(formula).total;
+      if (Number.isNaN(leftResult) || Number.isNaN(rightResult)) {
+        throw new Error(`[AcuDice] 无效的骰子公式: ${formula}`);
+      }
 
       // 解析骰子类型获取 sides
       const sidesMatch = formula.match(/\d+d(\d+)/i);
@@ -22542,10 +33056,10 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
       if (leftSuccessLevel.level > rightSuccessLevel.level) {
         winner = 'left';
-        message = `${options.left.name} 胜利！(${leftSuccessLevel.name} 胜过 ${rightSuccessLevel.name})`;
+        message = `${leftName} 胜利！(${leftSuccessLevel.name} 胜过 ${rightSuccessLevel.name})`;
       } else if (leftSuccessLevel.level < rightSuccessLevel.level) {
         winner = 'right';
-        message = `${options.right.name} 胜利！(${rightSuccessLevel.name} 胜过 ${leftSuccessLevel.name})`;
+        message = `${rightName} 胜利！(${rightSuccessLevel.name} 胜过 ${leftSuccessLevel.name})`;
       } else {
         // 平手情况
         const tieRule = options.rule || diceCfg.contestTieRule || 'initiator_lose';
@@ -22553,27 +33067,27 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
         if (tieRule === 'initiator_win') {
           winner = 'left';
-          message += ` - ${options.left.name} 判胜`;
+          message += ` - ${leftName} 判胜`;
         } else if (tieRule === 'tie') {
           winner = 'tie';
         } else {
           // initiator_lose
           winner = 'right';
-          message += ` - ${options.left.name} 判负`;
+          message += ` - ${leftName} 判负`;
         }
       }
 
       const result = {
         left: {
-          name: options.left.name,
-          attribute: options.left.attribute,
+          name: leftName,
+          attribute: left.attribute,
           roll: leftResult,
           target: leftTarget,
           successLevel: leftSuccessLevel.level,
         },
         right: {
-          name: options.right.name,
-          attribute: options.right.attribute,
+          name: rightName,
+          attribute: right.attribute,
           roll: rightResult,
           target: rightTarget,
           successLevel: rightSuccessLevel.level,
@@ -22586,7 +33100,19 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       emitEvent('contest', result);
 
       // 记录到历史
-      contestHistory.push({ ...result, timestamp: Date.now() });
+      contestHistory.push({
+        ...result,
+        timestamp: Date.now(),
+        detailId: `contest_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        detailLines: [
+          `发起方: ${result.left.name} / 对抗方: ${result.right.name}`,
+          `属性: ${result.left.attribute} vs ${result.right.attribute}`,
+          `掷骰: ${result.left.roll} vs ${result.right.roll}`,
+          `目标: ${result.left.target} vs ${result.right.target}`,
+          `胜者: ${result.winner === 'left' ? result.left.name : result.winner === 'right' ? result.right.name : '平局'}`,
+          `说明: ${result.message}`,
+        ],
+      });
       if (contestHistory.length > MAX_HISTORY) {
         contestHistory.shift();
       }
@@ -22612,7 +33138,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     dispatchReadyEvent(rootWindow);
   }
 
-  console.info('[AcuDice] API v1.0.0 已加载');
+  console.info('[AcuDice] API v1.2.0 已加载');
 
   // ========================================
   // ========================================
@@ -23233,6 +33759,9 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
   const showSettingsModal = () => {
     const { $ } = getCore();
     $('.acu-edit-overlay').not(':has(.acu-settings-dialog)').remove();
+    clearModalStack();
+    pushModal('showSettingsModal', showSettingsModal);
+
     isSettingsOpen = true;
     const config = getConfig();
     const currentThemeClass = `acu-theme-${config.theme}`;
@@ -23677,24 +34206,19 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
                             <i class="fa-solid fa-sliders-h"></i> 高级设置
                         </div>
                         <div class="acu-settings-group-body">
-                            <!-- 疯狂模式设置 -->
-                            <div class="acu-setting-row">
-                                <div class="acu-setting-info">
-                                    <span class="acu-setting-label"><i class="fa-solid fa-fire"></i> 疯狂模式</span>
-                                </div>
-                                <select id="cfg-crazy-mode" class="acu-setting-select" style="width: 90px; min-width: 90px; text-align: center; text-align-last: center;">
-                                    <option value="0">○ 关闭</option>
-                                    <option value="25">◔ 低</option>
-                                    <option value="50">◑ 中</option>
-                                    <option value="75">◕ 高</option>
-                                    <option value="100">● 极限</option>
-                                </select>
-                            </div>
                             <div class="acu-setting-row">
                                 <div class="acu-setting-info">
                                     <span class="acu-setting-label"><i class="fa-solid fa-dice-d20"></i> 自定义属性规则</span>
                                 </div>
                                 <button id="cfg-attr-preset-manage" class="acu-setting-action-btn" style="width: 90px; padding: 6px 12px; font-size: 12px; margin-bottom: 0;">
+                                    <i class="fa-solid fa-cog"></i> 管理
+                                </button>
+                            </div>
+                            <div class="acu-setting-row">
+                                <div class="acu-setting-info">
+                                    <span class="acu-setting-label"><i class="fa-solid fa-dice"></i> 检定设置</span>
+                                </div>
+                                <button id="cfg-advanced-preset-manage" class="acu-setting-action-btn" style="width: 90px; padding: 6px 12px; font-size: 12px; margin-bottom: 0;">
                                     <i class="fa-solid fa-cog"></i> 管理
                                 </button>
                             </div>
@@ -23720,6 +34244,14 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
                                 </div>
                                 <button id="btn-open-debug-console" class="acu-setting-action-btn" style="width: 90px; padding: 6px 12px; font-size: 12px; margin-bottom: 0;">
                                     <i class="fa-solid fa-terminal"></i> 打开
+                                </button>
+                            </div>
+                            <div class="acu-setting-row">
+                                <div class="acu-setting-info">
+                                    <span class="acu-setting-label"><i class="fa-solid fa-trash-can"></i> 清空本地缓存</span>
+                                </div>
+                                <button id="cfg-clear-local-cache" class="acu-setting-action-btn" style="width: 90px; padding: 6px 12px; font-size: 12px; margin-bottom: 0;">
+                                    <i class="fa-solid fa-eraser"></i> 清空
                                 </button>
                             </div>
                             <div class="acu-setting-row acu-setting-row-toggle">
@@ -23815,24 +34347,13 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       showActionPresetManager();
     });
 
-    // 疯狂模式设置
-    const initCrazyModeUI = () => {
-      const crazyConfig = getCrazyModeConfig();
-      // 根据enabled和crazyLevel设置下拉框的值
-      const selectValue = crazyConfig.enabled ? crazyConfig.crazyLevel : 0;
-      dialog.find('#cfg-crazy-mode').val(selectValue);
-
-      // 下拉选择事件
-      dialog.find('#cfg-crazy-mode').on('change', function () {
-        const value = parseInt($(this).val() as string, 10);
-        if (value === 0) {
-          saveCrazyModeConfig({ enabled: false, crazyLevel: 50 });
-        } else {
-          saveCrazyModeConfig({ enabled: true, crazyLevel: value });
-        }
-      });
-    };
-    initCrazyModeUI();
+    // 管理检定设置按钮
+    dialog.find('#cfg-advanced-preset-manage').on('click', function (e) {
+      e.stopPropagation();
+      dialog.remove();
+      isSettingsOpen = false;
+      showAdvancedPresetManager();
+    });
 
     dialog.find('#cfg-db-toast-mute').on('change', function () {
       saveConfig({ muteDatabaseToasts: $(this).is(':checked') });
@@ -23924,144 +34445,21 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
     // === 表格管理：拖拽排序 ===
     const $list = dialog.find('#table-manager-list');
-    let dragState = {
-      isDragging: false,
-      element: null,
-      timer: null,
-      startY: 0,
-    };
-
-    const clearDragState = () => {
-      if (dragState.timer) {
-        clearTimeout(dragState.timer);
-        dragState.timer = null;
-      }
-      if (dragState.element) {
-        $(dragState.element).removeClass('acu-dragging');
-      }
-      $list.find('.acu-drag-above, .acu-drag-below').removeClass('acu-drag-above acu-drag-below');
-      dragState.isDragging = false;
-      dragState.element = null;
-    };
-
-    const startDrag = $item => {
-      dragState.isDragging = true;
-      dragState.element = $item[0];
-      $item.addClass('acu-dragging');
-    };
-
-    const finishDrag = () => {
-      if (!dragState.isDragging || !dragState.element) {
-        clearDragState();
-        return;
-      }
-
-      const $dragged = $(dragState.element);
-      const $target = $list.find('.acu-drag-above, .acu-drag-below').first();
-
-      if ($target.length && $target[0] !== dragState.element) {
-        if ($target.hasClass('acu-drag-above')) {
-          $dragged.insertBefore($target);
-        } else {
-          $dragged.insertAfter($target);
-        }
-
-        // 保存新顺序
-        const newOrder = [];
-        $list.find('.acu-table-manager-item').each(function () {
-          newOrder.push($(this).data('table-name'));
-        });
+    createSortableList({
+      container: $list,
+      itemSelector: '.acu-table-manager-item',
+      handleSelector: '.acu-table-item-handle',
+      cancelSelector: '.acu-table-item-check',
+      getItemId: item => {
+        const tableName = $(item).data('table-name');
+        if (typeof tableName === 'string') return tableName;
+        if (tableName !== undefined && tableName !== null) return String(tableName);
+        return null;
+      },
+      onOrderChange: newOrder => {
         saveTableOrder(newOrder);
-      }
-
-      clearDragState();
-    };
-
-    // 手柄：立即开始拖拽
-    $list[0].addEventListener(
-      'pointerdown',
-      function (e) {
-        const handle = e.target.closest('.acu-table-item-handle');
-        if (!handle) return;
-
-        e.preventDefault();
-        const $item = $(handle).closest('.acu-table-manager-item');
-        dragState.startY = e.clientY;
-        startDrag($item);
-        handle.setPointerCapture(e.pointerId);
       },
-      { passive: false },
-    );
-
-    // 列表项：长按开始拖拽
-    $list[0].addEventListener('pointerdown', function (e) {
-      const item = e.target.closest('.acu-table-manager-item');
-      if (!item) return;
-      // 跳过眼睛图标和手柄
-      if (e.target.closest('.acu-table-item-check, .acu-table-item-handle')) return;
-
-      dragState.startY = e.clientY;
-      const $item = $(item);
-
-      dragState.timer = setTimeout(() => {
-        startDrag($item);
-      }, 350);
     });
-
-    // 指针移动
-    $list[0].addEventListener(
-      'pointermove',
-      function (e) {
-        // 移动超过阈值取消长按
-        if (dragState.timer && Math.abs(e.clientY - dragState.startY) > 8) {
-          clearTimeout(dragState.timer);
-          dragState.timer = null;
-        }
-
-        if (!dragState.isDragging || !dragState.element) return;
-        e.preventDefault();
-
-        // 查找目标位置
-        const items = $list.find('.acu-table-manager-item').not('.acu-dragging');
-        let targetItem = null;
-        let insertBefore = true;
-
-        items.each(function () {
-          const rect = this.getBoundingClientRect();
-          const midY = rect.top + rect.height / 2;
-
-          if (e.clientY < midY && !targetItem) {
-            targetItem = this;
-            insertBefore = true;
-          } else if (e.clientY >= rect.top && e.clientY <= rect.bottom) {
-            targetItem = this;
-            insertBefore = e.clientY < midY;
-          }
-        });
-
-        // 更新视觉指示
-        $list.find('.acu-drag-above, .acu-drag-below').removeClass('acu-drag-above acu-drag-below');
-        if (targetItem && targetItem !== dragState.element) {
-          $(targetItem).addClass(insertBefore ? 'acu-drag-above' : 'acu-drag-below');
-        }
-      },
-      { passive: false },
-    );
-
-    // 指针释放
-    $list[0].addEventListener('pointerup', finishDrag);
-    $list[0].addEventListener('pointercancel', clearDragState);
-
-    // 触摸移动时阻止页面滚动
-    $list[0].addEventListener(
-      'touchmove',
-      function (e) {
-        if (dragState.isDragging) {
-          e.preventDefault();
-        }
-      },
-      { passive: false },
-    );
 
     // === Stepper 步进器事件 ===
     dialog.find('.acu-stepper').each(function () {
@@ -24779,6 +35177,32 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       showDebugConsoleModal();
     });
 
+    // === 清空本地缓存 ===
+    dialog.find('#cfg-clear-local-cache').on('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      showManualUpdateDialog({
+        title: '清空本地缓存',
+        iconClass: 'fa-trash-can',
+        description: '您确定要清空本地缓存数据吗？此操作主要用于解决缓存冲突或空间不足问题。',
+        safeTitle: '高风险操作',
+        safeDescription: '注意：此操作将永久删除本地保存的所有配置（包括主题色、布局、规则设置等）。',
+        confirmText: '确认清空',
+        loadingText: '正在清理...',
+        isDanger: true,
+        safeIconClass: 'fa-triangle-exclamation',
+        onConfirm: async () => {
+          const removedLocalStorageKeys = await clearDiceLocalCacheData();
+          if (window.toastr) {
+            window.toastr.success(
+              `本地缓存已清理（localStorage ${removedLocalStorageKeys} 项，含 IndexedDB/脚本缓存）。建议刷新页面以重新初始化设置。`,
+            );
+          }
+        },
+      });
+    });
+
     // === 关闭 ===
     const closeDialog = () => {
       isSettingsOpen = false;
@@ -25083,7 +35507,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
               row.forEach((cell, idx) => {
                 if (idx > 0 && cell && String(cell).trim()) {
                   const cellStr = String(cell).trim();
-                  buttonsHtml += `<button class="acu-opt-btn" data-val="${encodeURIComponent(cellStr)}">${escapeHtml(cellStr)}</button>`;
+                  buttonsHtml += `<button class="acu-opt-btn" data-val="${safeEncodeURIComponent(cellStr)}">${escapeHtml(cellStr)}</button>`;
                   optionValues.push(cellStr);
                   hasBtns = true;
                 }
@@ -25555,7 +35979,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
         e.stopPropagation();
 
         const config = getConfig();
-        const val = decodeURIComponent($(this).data('val'));
+        const val = safeDecodeURIComponent($(this).data('val'));
 
         // 情况1: 没勾选自动发送 -> 填入输入框
         if (!config.clickOptionToAutoSend) {
@@ -26089,7 +36513,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
                             data-table-key="${change.tableKey}"
                             data-row-index="${change.rowIndex}"
                             data-col-index="${change.colIndex}"
-                            data-old-value="${encodeURIComponent(change.oldValue)}">
+  data-old-value="${safeEncodeURIComponent(change.oldValue)}">
                             <span class="acu-change-badge acu-badge-modified">更</span>
                             <span class="acu-change-field">${fieldDisplay}</span>
                             <span class="acu-change-diff">
@@ -26424,7 +36848,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
         const tableKey = $item.data('table-key');
         const rowIndex = $item.data('row-index');
         const colIndex = $item.data('col-index');
-        const oldValue = decodeURIComponent($item.data('old-value') || '');
+        const oldValue = safeDecodeURIComponent($item.data('old-value') || '');
 
         const snapshot = loadSnapshot();
         let rawData = cachedRawData || getTableData();
@@ -26886,40 +37310,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
         if (hasChanges) {
           // 1. 保存到数据库（不更新快照）
           try {
-            const api = getCore().getDB();
-            if (!api || !api.importTableAsJson) {
-              throw new Error('数据库 API 不可用');
-            }
-            const anchorIndex = findLatestDbMessageIndex();
-
-            const dataToSave = { mate: rawData.mate || { type: 'chatSheets', version: 1 } };
-            Object.keys(rawData).forEach(k => {
-              if (k.startsWith('sheet_')) dataToSave[k] = rawData[k];
-            });
-
-            // 验证数据并序列化
-            let jsonString;
-            try {
-              jsonString = JSON.stringify(dataToSave);
-              // 检查数据大小（约 10MB 限制）
-              const sizeInMB = new Blob([jsonString]).size / (1024 * 1024);
-              if (sizeInMB > 10) {
-                throw new Error(`数据太大 (${sizeInMB.toFixed(2)}MB)，超过 10MB 限制`);
-              }
-            } catch (stringifyError) {
-              console.error('[DICE]ACU JSON 序列化失败:', stringifyError);
-              throw new Error(`数据序列化失败: ${stringifyError.message || stringifyError}`);
-            }
-
-            // 调用 importTableAsJson，它内部会调用 saveChat()
-            const result = await api.importTableAsJson(jsonString);
-            // 检查返回值，某些实现可能返回 false 表示失败
-            if (result === false) {
-              throw new Error('数据导入失败（返回 false）');
-            }
-            await relocateDbPayloadToAnchor(anchorIndex);
-
-            cachedRawData = rawData;
+            await saveDataOnly(rawData, [tableKey]);
           } catch (e) {
             console.error('[DICE]ACU 保存失败:', e);
             let errorMessage = e.message || '保存出错，请检查数据格式和大小';
@@ -27168,6 +37559,8 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
   };
   const renderDashboard = allTables => {
     console.info('[DICE]开始抓取仪表盘数据...');
+    // 重建角色名别名注册表
+    NameAliasRegistry.rebuild(allTables);
     const config = getConfig();
 
     // [重构] 使用统一配置中心查找表格
@@ -27177,7 +37570,6 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     const npcResult = DashboardDataParser.findTable(allTables, 'npc');
     const questResult = DashboardDataParser.findTable(allTables, 'quest');
     const bagResult = DashboardDataParser.findTable(allTables, 'bag');
-    const skillResult = DashboardDataParser.findTable(allTables, 'skill');
     const equipResult = DashboardDataParser.findTable(allTables, 'equip');
 
     // [重构] 主角数据 - 使用新解析器
@@ -27341,16 +37733,6 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       type: item.type || '',
     }));
 
-    // [重构] 技能数据 - 使用新解析器
-    const skillTableName = skillResult?.name || '主角技能表';
-
-    const skillParsed = DashboardDataParser.parseRows(skillResult, 'skill');
-    let skills = skillParsed.map(s => ({
-      name: s.name || '未知技能',
-      level: s.level || '',
-      type: s.type || '',
-    }));
-
     // [重构] 装备数据 - 使用新解析器 + 过滤器
     const equipTableName = equipResult?.name || '装备表';
 
@@ -27384,114 +37766,97 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
         </div>
         <div class="acu-panel-content acu-dashboard-content">
             <div class="acu-dash-body ${config.layout === 'horizontal' ? 'acu-dash-horizontal' : ''}">
-            <!-- 左列：主角状态 + 技能 -->
+            <!-- 左列：主角状态 + 基础属性 + 特有属性 -->
                 <div class="acu-dash-player">
                     <h3 class="acu-dash-clickable acu-dash-preview-trigger"
                         data-table-key="${playerResult?.key || ''}"
                         data-row-index="0"
                         data-preview-type="player"
                         style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;">
-                        <span><i class="fa-solid fa-user-circle"></i> ${escapeHtml(replaceUserPlaceholders(player.name))}</span>
+                        <span><i class="fa-solid fa-user-circle"></i> ${escapeHtml(replaceUserPlaceholders(getDisplayName(player.name)))}</span>
                         <span style="font-size:11px;font-weight:normal;color:var(--acu-text-main);background:var(--acu-badge-bg);padding:2px 8px;border-radius:10px;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(player.status)}">${escapeHtml(player.status.length > 6 ? player.status.substring(0, 6) + '..' : player.status)}</span>
                     </h3>
-                    <div class="acu-player-status" style="min-height:110px;max-height:110px;overflow-y:auto;margin-bottom:10px;">
-                        ${(() => {
-                          // 解析资源数据
-                          const resourcesStr = player.resources || player.money || '';
-                          const parsedResources = parseAttributeString(resourcesStr);
+                    ${(() => {
+                      // 解析资源数据
+                      const resourcesStr = player.resources || player.money || '';
+                      const parsedResources = parseAttributeString(resourcesStr);
 
-                          // 收集所有属性列的数据
-                          let allAttrs = [];
-                          if (playerRows.length > 0 && playerHeaders.length > 0) {
-                            const row = playerRows[0];
-                            playerHeaders.forEach((h, idx) => {
-                              if (h && h.includes('属性')) {
-                                const parsed = parseAttributeString(row[idx] || '');
-                                parsed.forEach(attr => {
-                                  if (!allAttrs.some(a => a.name === attr.name)) {
-                                    allAttrs.push(attr);
-                                  }
-                                });
+                      // 分别收集基础属性和特有属性
+                      let baseAttrs = [];
+                      let specialAttrs = [];
+                      if (playerRows.length > 0 && playerHeaders.length > 0) {
+                        const row = playerRows[0];
+                        playerHeaders.forEach((h, idx) => {
+                          if (h && h.includes('基础属性')) {
+                            const parsed = parseAttributeString(row[idx] || '');
+                            parsed.forEach(attr => {
+                              if (!baseAttrs.some(a => a.name === attr.name)) {
+                                baseAttrs.push(attr);
+                              }
+                            });
+                          } else if (h && h.includes('特有属性')) {
+                            const parsed = parseAttributeString(row[idx] || '');
+                            parsed.forEach(attr => {
+                              if (!specialAttrs.some(a => a.name === attr.name)) {
+                                specialAttrs.push(attr);
                               }
                             });
                           }
+                        });
+                      }
 
-                          // 如果资源和属性都为空，显示空状态
-                          if (parsedResources.length === 0 && allAttrs.length === 0) {
-                            return '<div class="acu-empty-hint">暂无主角信息</div>';
-                          }
+                      let html = '';
 
-                          let html = '';
-                          if (parsedResources.length > 0) {
-                            html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 6px;max-height:52px;overflow-y:auto;margin-bottom:6px;padding-bottom:6px;border-bottom:1px dashed var(--acu-border);">
-                                    ${parsedResources
-                                      .map(
-                                        res => `
-                                        <div style="display:flex;justify-content:space-between;align-items:center;padding:2px 3px;">
-                                            <span style="color:var(--acu-text-sub);font-size:10px;white-space:nowrap;" title="${escapeHtml(res.name)}">${escapeHtml(res.name.substring(0, 3))}</span>
-                                            <div style="display:flex;align-items:center;gap:2px;flex-shrink:0;">
-                                                <span style="color:var(--acu-accent);font-size:11px;font-weight:bold;">${res.value}</span>
-                                                <i class="fa-solid fa-dice-d20 acu-dash-dice-btn" data-target="${res.value}" data-name="${escapeHtml(res.name)}" style="cursor:pointer;color:var(--acu-text-sub);opacity:0.4;font-size:10px;" title="以${res.name}(${res.value})进行检定"></i>
-                                            </div>
+                      // 资源区块
+                      if (parsedResources.length > 0) {
+                        html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 6px;max-height:44px;overflow-y:auto;margin-bottom:4px;padding-bottom:4px;border-bottom:1px dashed var(--acu-border);">
+                                ${parsedResources
+                                  .map(
+                                    res => `
+                                    <div style="display:flex;justify-content:space-between;align-items:center;padding:2px 3px;">
+                                        <span style="color:var(--acu-text-sub);font-size:10px;white-space:nowrap;" title="${escapeHtml(res.name)}">${escapeHtml(res.name.substring(0, 3))}</span>
+                                        <div style="display:flex;align-items:center;gap:2px;flex-shrink:0;">
+                                            <span style="color:var(--acu-accent);font-size:11px;font-weight:bold;">${res.value}</span>
+                                            <i class="fa-solid fa-dice-d20 acu-dash-dice-btn" data-target="${res.value}" data-name="${escapeHtml(res.name)}" style="cursor:pointer;color:var(--acu-text-sub);opacity:0.4;font-size:10px;" title="以${res.name}(${res.value})进行检定"></i>
                                         </div>
-                                    `,
-                                      )
-                                      .join('')}
-                                </div>`;
-                          }
+                                    </div>
+                                `,
+                                  )
+                                  .join('')}
+                            </div>`;
+                      }
 
-                          if (allAttrs.length > 0) {
-                            // 三列网格布局，最大5行（约98px），超出滚动
-                            html += `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px 6px;max-height:98px;overflow-y:auto;overflow-x:hidden;">
-                                    ${allAttrs
-                                      .map(
-                                        attr => `
-                                        <div style="display:flex;justify-content:space-between;align-items:center;padding:2px 3px;border-bottom:1px dashed var(--acu-border);min-width:0;">
-                                            <span style="color:var(--acu-text-sub);font-size:10px;white-space:nowrap;" title="${escapeHtml(attr.name)}">${escapeHtml(attr.name.substring(0, 2))}</span>
-                                            <div style="display:flex;align-items:center;gap:2px;flex-shrink:0;">
-                                                <span style="color:var(--acu-text-main);font-size:11px;font-weight:bold;">${attr.value}</span>
-                                                <i class="fa-solid fa-dice-d20 acu-dash-dice-btn" data-target="${attr.value}" data-name="${escapeHtml(attr.name)}" style="cursor:pointer;color:var(--acu-text-sub);opacity:0.4;font-size:10px;" title="以${attr.name}(${attr.value})进行检定"></i>
-                                            </div>
+                      // 属性区块标题（合并基础属性和特有属性），点击打开主角卡片
+                      html += `<h4 class="acu-dash-clickable acu-dash-preview-trigger"
+                          data-table-key="${playerResult?.key || ''}"
+                          data-row-index="0"
+                          data-preview-type="player"
+                          style="font-size:12px;color:var(--acu-accent);margin:4px 0 2px 0;display:flex;align-items:center;gap:4px;cursor:pointer;"><i class="fa-solid fa-chart-bar" style="font-size:10px;"></i> 属性 (${baseAttrs.length + specialAttrs.length})</h4>`;
+
+                      // 合并所有属性：3列，最多4行（移动端行高更大，按约24px计算，4行≈96px），超出滚动
+                      const allAttrs = [...baseAttrs, ...specialAttrs];
+                      if (allAttrs.length > 0) {
+                        html += `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px 4px;max-height:104px;overflow-y:auto;overflow-x:hidden;padding-bottom:2px;">
+                                ${allAttrs
+                                  .map(
+                                    attr => `
+                                    <div style="display:flex;justify-content:space-between;align-items:center;padding:2px 3px;border-bottom:1px dashed var(--acu-border);min-width:0;">
+                                        <span style="color:var(--acu-text-sub);font-size:10px;white-space:nowrap;" title="${escapeHtml(attr.name)}">${escapeHtml(attr.name.substring(0, 2))}</span>
+                                        <div style="display:flex;align-items:center;gap:2px;flex-shrink:0;">
+                                            <span style="color:var(--acu-text-main);font-size:11px;font-weight:bold;">${attr.value}</span>
+                                            <i class="fa-solid fa-dice-d20 acu-dash-dice-btn" data-target="${attr.value}" data-name="${escapeHtml(attr.name)}" style="cursor:pointer;color:var(--acu-text-sub);opacity:0.4;font-size:10px;" title="以${attr.name}(${attr.value})进行检定"></i>
                                         </div>
-                                    `,
-                                      )
-                                      .join('')}
-                                </div>`;
-                          }
+                                    </div>
+                                `,
+                                  )
+                                  .join('')}
+                            </div>`;
+                      } else {
+                        html += `<div class="acu-empty-hint">暂无属性</div>`;
+                      }
 
-                          return html;
-                        })()}
-                    </div>
-
-                    <h4 class="acu-dash-table-link" data-table="${escapeHtml(skillTableName)}" style="font-size:14px;color:var(--acu-accent);margin:10px 0 6px 0;"><i class="fa-solid fa-bolt"></i> 技能 (${skillParsed.length})</h4>
-                    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:2px 6px;max-height:78px;overflow-y:auto;overflow-x:hidden;">
-                    ${
-                      skills.length > 0
-                        ? skills
-                            .map((skill, idx) => {
-                              const skillValue = extractNumericValue(skill.level);
-                              const hasNumeric = skillValue > 0;
-                              const skillRowIndex = skillParsed.findIndex(s => s.name === skill.name);
-                              return `<div class="acu-dash-clickable acu-dash-preview-trigger"
-                            data-table-key="${skillResult?.key || ''}"
-                            data-row-index="${skillRowIndex >= 0 ? skillRowIndex : idx}"
-                            data-preview-type="skill"
-                            style="display:flex;justify-content:space-between;align-items:center;padding:2px 3px;border-bottom:1px dashed var(--acu-border);min-width:0;cursor:pointer;">
-                            <span style="color:var(--acu-text-sub);font-size:10px;white-space:nowrap;" title="${escapeHtml(skill.name)}">${escapeHtml(skill.name.length > 5 ? skill.name.substring(0, 5) + '..' : skill.name)}</span>
-                            <div style="display:flex;align-items:center;gap:2px;flex-shrink:0;">
-                                ${
-                                  hasNumeric
-                                    ? `<span style="color:var(--acu-text-main);font-size:11px;font-weight:bold;">${skillValue}</span>
-                                <i class="fa-solid fa-dice-d20 acu-dash-dice-btn" data-target="${skillValue}" data-name="${escapeHtml(skill.name)}" style="cursor:pointer;color:var(--acu-text-sub);opacity:0.4;font-size:10px;" title="以${skill.name}(${skillValue})进行检定"></i>`
-                                    : `<span style="color:var(--acu-text-sub);font-size:10px;">${escapeHtml(skill.level || '-')}</span>`
-                                }
-                            </div>
-                        </div>`;
-                            })
-                            .join('')
-                        : '<div class="acu-empty-hint">暂无技能</div>'
-                    }
-                    </div>
+                      return html;
+                    })()}
                 </div>
 
                 <!-- 中列：地点 + NPC -->
@@ -27572,12 +37937,17 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
                             <div style="display:flex;justify-content:space-between;align-items:center;">
                                 <span class="acu-task-name" style="font-size:12px;display:flex;align-items:center;gap:6px;">
                                     <span class="acu-dash-npc-avatar" style="width:22px;height:22px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:var(--acu-btn-bg);border:1.5px solid ${isInScene ? 'var(--acu-accent)' : 'var(--acu-border)'};${avatarStyle}${offSceneFilter}" title="${isInScene ? '在场' : '不在场'}">
-                                        ${!npcAvatar ? `<span style="font-size:10px;font-weight:bold;color:var(--acu-text-sub);${offSceneFilter}">${escapeHtml(npc.name.charAt(0))}</span>` : ''}
+                                        ${!npcAvatar ? `<span style="font-size:10px;font-weight:bold;color:var(--acu-text-sub);${offSceneFilter}">${escapeHtml(getDisplayName(npc.name).charAt(0))}</span>` : ''}
                                     </span>
-                                    <span title="${escapeHtml(npc.name)}" style="${isInScene ? '' : 'opacity:0.6;'}">${escapeHtml(npc.name.length > 4 ? npc.name.substring(0, 4) + '..' : npc.name)}</span>
+                                    <span title="${escapeHtml(getDisplayName(npc.name))}" style="${isInScene ? '' : 'opacity:0.6;'}">${escapeHtml(
+                                      (() => {
+                                        const dn = getDisplayName(npc.name);
+                                        return dn.length > 4 ? dn.substring(0, 4) + '..' : dn;
+                                      })(),
+                                    )}</span>
                                 </span>
                                 <div style="display:flex;align-items:center;">
-                                    <i class="fa-solid fa-people-arrows acu-dash-contest-btn" data-npc="${escapeHtml(npc.name)}" style="cursor:pointer;color:var(--acu-text-sub);opacity:0.4;font-size:8px;" title="与${npc.name}进行对抗检定"></i>
+                                    <i class="fa-solid fa-people-arrows acu-dash-contest-btn" data-npc="${escapeHtml(npc.name)}" style="cursor:pointer;color:var(--acu-text-sub);opacity:0.4;font-size:8px;" title="与${getDisplayName(npc.name)}进行对抗检定"></i>
                                 </div>
                             </div>
                         </div>`;
@@ -27707,7 +38077,6 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       npcResult ? 'NPC' : null,
       questResult ? '任务' : null,
       bagResult ? '背包' : null,
-      skillResult ? '技能' : null,
       equipResult ? '装备' : null,
     ].filter(Boolean);
 
@@ -27753,15 +38122,17 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       const tagsHtml = fav.tags.map(tag => `<span class="acu-fav-tag">${escapeHtml(tag)}</span>`).join('');
       const sourceLabel = fav.sourceInfo ? escapeHtml(fav.sourceInfo.tableName) : '';
 
-      // 复用 acu-data-card 结构
+      // 复用 acu-data-card 结构，来源标签移到底部与tags一起显示
       return `
         <div class="acu-data-card acu-fav-card" data-id="${escapeHtml(fav.id)}">
           <div class="acu-card-header">
-            <span class="acu-card-index">${sourceLabel}</span>
             <span class="acu-editable-title">${escapeHtml(String(fav.rowData[0] || '未命名'))}</span>
           </div>
           <div class="acu-card-body view-list">${rowsHtml}</div>
-          ${tagsHtml ? `<div class="acu-fav-card-tags">${tagsHtml}</div>` : ''}
+          <div class="acu-fav-card-tags">
+            ${sourceLabel ? `<span class="acu-fav-card-source">${sourceLabel}</span>` : ''}
+            ${tagsHtml}
+          </div>
         </div>
       `;
     };
@@ -28262,6 +38633,8 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
         const realRowIdx = item.originalIndex;
         const row = item.data;
         const cardTitle = row[titleColIndex] || '未命名';
+        // 角色相关表格：将逗号分隔名称转为主key显示
+        const cardTitleDisplay = isCharacterTable(tableName) ? getDisplayName(String(cardTitle)) : String(cardTitle);
         const showDefaultIndex = titleColIndex === 1;
         const titleCellId = `${tableData.key}-${realRowIdx}-${titleColIndex}`;
         const isTitleModified = window.acuModifiedSet && window.acuModifiedSet.has(titleCellId);
@@ -28530,7 +38903,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
               '" data-col="' +
               cIdx +
               '" data-val="' +
-              encodeURIComponent(cell ?? '') +
+              safeEncodeURIComponent(cell ?? '') +
               '"><div class="acu-card-label"><span data-locked="' +
               isThisFieldLocked +
               '">' +
@@ -28576,7 +38949,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
         // [移除] 不再需要右上角的整行锁定图标，因为每个单元格都会显示锁图标
         // const rowLockBadge = isCardRowLocked ? '...' : '';
 
-        return `<div class="acu-data-card"><div class="acu-card-header"><span class="acu-card-index">${showDefaultIndex ? '#' + (realRowIdx + 1) : ''}</span><span class="acu-cell acu-editable-title ${rowClass}" data-key="${escapeHtml(tableData.key)}" data-tname="${escapeHtml(tableName)}" data-row="${realRowIdx}" data-col="${titleColIndex}" data-val="${encodeURIComponent(cardTitle ?? '')}" data-locked="${isTitleLocked}" title="点击编辑标题">${escapeHtml(cardTitle)}</span>${bookmarkIcon}</div><div class="acu-card-body ${isGridMode ? 'view-grid' : 'view-list'}">${cardBody}</div>${actionsHtml}</div>`;
+        return `<div class="acu-data-card"><div class="acu-card-header"><span class="acu-card-index">${showDefaultIndex ? '#' + (realRowIdx + 1) : ''}</span><span class="acu-cell acu-editable-title ${rowClass}" data-key="${escapeHtml(tableData.key)}" data-tname="${escapeHtml(tableName)}" data-row="${realRowIdx}" data-col="${titleColIndex}" data-val="${safeEncodeURIComponent(cardTitle ?? '')}" data-locked="${isTitleLocked}" title="点击编辑标题">${escapeHtml(cardTitleDisplay)}</span>${bookmarkIcon}</div><div class="acu-card-body ${isGridMode ? 'view-grid' : 'view-list'}">${cardBody}</div>${actionsHtml}</div>`;
       })
       .join('');
     html += `</div></div>`;
@@ -29119,7 +39492,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
         if (isEditingOrder) return;
         showDicePanel({
           targetValue: null,
-          targetName: '自由检定',
+          targetName: '', // 留空让 placeholder 显示
           // 不传 diceType，让函数内部使用保存的值
         });
       });
@@ -29148,7 +39521,6 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
         if (api && typeof api.manualUpdate === 'function') {
           try {
             console.log('[DICE]ACU 手动填表触发');
-            // 包装 manualUpdate 调用，捕获可能的保存错误
             await api.manualUpdate();
           } catch (err) {
             console.error('[DICE]ACU 手动填表失败:', err);
@@ -29490,7 +39862,8 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
           // 如果有有效数值，打开掷骰面板
           if (checkValue !== null && checkValue > 0) {
             showDicePanel({
-              targetValue: checkValue,
+              attrValue: checkValue,
+              targetValue: null,
               targetName: skillName,
               initiatorName: '<user>',
             });
@@ -29521,7 +39894,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
                                 </div>
                                 <input type="text" id="acu-msg-input" placeholder="输入消息内容..." style="width:100%;padding:10px 12px;background:var(--acu-input-bg) !important;border:1px solid var(--acu-border);border-radius:6px;color:var(--acu-text-main) !important;font-size:14px;box-sizing:border-box;" autofocus>
                                 <div style="display:flex;gap:8px;margin-top:12px;">
-                                    <button id="acu-msg-cancel" style="flex:1;padding:8px;background:var(--acu-input-bg);border:1px solid var(--acu-border);border-radius:6px;color:var(--acu-text-main);cursor:pointer;">取消</button>
+                                    <button id="acu-msg-cancel" style="flex:1;padding:8px;background:var(--acu-input-bg);border:1px solid var(--acu-text-sub);border-radius:6px;color:var(--acu-text-main);cursor:pointer;">取消</button>
                                     <button id="acu-msg-send" style="flex:1;padding:8px;background:var(--acu-btn-active-bg);border:none;border-radius:6px;color:var(--acu-btn-active-text);cursor:pointer;font-weight:bold;">发送</button>
                                 </div>
                             </div>
@@ -29679,7 +40052,8 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
           });
         } else {
           showDicePanel({
-            targetValue: targetValue,
+            attrValue: targetValue,
+            targetValue: null,
             targetName: targetName,
             initiatorName: '<user>',
           });
@@ -29765,7 +40139,8 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
         // 如果有有效数值，打开掷骰面板进行检定
         if (checkValue !== null && checkValue > 0) {
           showDicePanel({
-            targetValue: checkValue,
+            attrValue: checkValue,
+            targetValue: null,
             targetName: skillName,
             initiatorName: '<user>',
           });
@@ -29805,7 +40180,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
                     </div>
                     <input type="text" id="acu-msg-input" placeholder="输入消息内容..." style="width:100%;padding:10px 12px;background:var(--acu-input-bg) !important;border:1px solid var(--acu-border);border-radius:6px;color:var(--acu-text-main) !important;font-size:14px;box-sizing:border-box;" autofocus>
                     <div style="display:flex;gap:8px;margin-top:12px;">
-                        <button id="acu-msg-cancel" style="flex:1;padding:8px;background:var(--acu-input-bg);border:1px solid var(--acu-border);border-radius:6px;color:var(--acu-text-main);cursor:pointer;">取消</button>
+                        <button id="acu-msg-cancel" style="flex:1;padding:8px;background:var(--acu-input-bg);border:1px solid var(--acu-text-sub);border-radius:6px;color:var(--acu-text-main);cursor:pointer;">取消</button>
                         <button id="acu-msg-send" style="flex:1;padding:8px;background:var(--acu-btn-active-bg);border:none;border-radius:6px;color:var(--acu-btn-active-text);cursor:pointer;font-weight:bold;">发送</button>
                     </div>
                 </div>
@@ -29973,6 +40348,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
         const config = getConfig();
         const title = rowData[1] || '未命名';
+        const titleDisplay = isCharacterTable(tableName) ? getDisplayName(String(title)) : String(title);
 
         // 复用 renderTableContent 中的卡片渲染逻辑
         const titleColIndex = 1;
@@ -30081,7 +40457,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
           }
 
           const rowClass = 'acu-card-row acu-cell' + (hideLabel ? ' acu-hide-label' : '');
-          cardBody += `<div class="${rowClass}" data-key="${escapeHtml(tableKey)}" data-tname="${escapeHtml(tableName)}" data-row="${realRowIdx}" data-col="${cIdx}" data-val="${encodeURIComponent(cell ?? '')}">
+          cardBody += `<div class="${rowClass}" data-key="${escapeHtml(tableKey)}" data-tname="${escapeHtml(tableName)}" data-row="${realRowIdx}" data-col="${cIdx}" data-val="${safeEncodeURIComponent(cell ?? '')}">
                 <div class="acu-card-label"><span data-locked="${isThisFieldLocked}">${escapeHtml(headerName)}</span></div>
                 <div class="acu-card-value">${contentHtml}</div>
             </div>`;
@@ -30107,7 +40483,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
                 <div class="acu-data-card" style="width:90vw;max-width:420px;max-height:85vh;overflow-y:auto;">
                     <div class="acu-card-header">
                         <span class="acu-card-index">#${realRowIdx + 1}</span>
-                        <span class="acu-cell acu-editable-title" data-key="${escapeHtml(tableKey)}" data-tname="${escapeHtml(tableName)}" data-row="${realRowIdx}" data-col="${titleColIndex}" data-val="${encodeURIComponent(title)}" data-locked="${isTitleLocked}">${escapeHtml(title)}</span>
+                    <span class="acu-cell acu-editable-title" data-key="${escapeHtml(tableKey)}" data-tname="${escapeHtml(tableName)}" data-row="${realRowIdx}" data-col="${titleColIndex}" data-val="${safeEncodeURIComponent(title)}" data-locked="${isTitleLocked}">${escapeHtml(titleDisplay)}</span>
                         <button class="acu-preview-close" style="margin-left:auto;background:none;border:none;color:var(--acu-text-sub);cursor:pointer;font-size:16px;padding:4px;"><i class="fa-solid fa-times"></i></button>
                     </div>
                     <div class="acu-card-body view-list">${cardBody}</div>
@@ -30521,7 +40897,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
     const tableKey = $cell.data('key');
     // v19.x 可能没有 tname，尝试获取
     const tableName = $cell.data('tname') || $cell.closest('.acu-data-card').find('.acu-editable-title').text();
-    const content = decodeURIComponent($cell.data('val'));
+    const content = safeDecodeURIComponent($cell.data('val'));
     const config = getConfig();
 
     // 保存卡片引用用于整行操作
@@ -30872,8 +41248,8 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
         }
 
         const $cell = $(cell);
-        $cell.attr('data-val', encodeURIComponent(originalValue));
-        $cell.data('val', encodeURIComponent(originalValue));
+        $cell.attr('data-val', safeEncodeURIComponent(originalValue));
+        $cell.data('val', safeEncodeURIComponent(originalValue));
 
         // [核心修复1] 正确查找显示目标，防止覆盖 Label
         let $displayTarget = $cell;
@@ -31051,7 +41427,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
         // 2. 准备 UI 元素
         const $cell = $(cell);
-        $cell.attr('data-val', encodeURIComponent(newVal)).data('val', encodeURIComponent(newVal));
+        $cell.attr('data-val', safeEncodeURIComponent(newVal)).data('val', safeEncodeURIComponent(newVal));
 
         let $displayTarget = $cell;
         if ($cell.find('.acu-card-value').length) $displayTarget = $cell.find('.acu-card-value');
@@ -31594,10 +41970,9 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 
       const hasDiceResultInText = (text: string) => {
         if (!text) return false;
-        const contestRegex =
-          /（元叙事：进行了一次【[^】]+ vs [^】]+】的对抗检定。.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】；.*?\(目标\d+\) 掷出 \d+，判定为【[^】]+】。最终结果：【[^】]+】）/g;
-        const normalRegex = /（元叙事：[\u4e00-\u9fa5a-zA-Z<>]+发起了【[^】]+】检定，掷出\d+，[^【]*【[^】]+】）/g;
-        return contestRegex.test(text) || normalRegex.test(text);
+        // 统一使用 <meta:检定结果> 标签格式检测
+        const metaRegex = /<meta:检定结果>[\s\S]*?<\/meta:检定结果>/g;
+        return metaRegex.test(text);
       };
 
       const insertDiceIntoUserInputBlock = (text: string, diceResult: string) => {
@@ -31698,53 +42073,55 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
           return;
         }
 
-        const stChat = ST?.chat || window.parent?.SillyTavern?.chat;
-        const stMsg = stChat && typeof id === 'number' ? stChat[id] : null;
-        const msg = getChatMessages(id)[0];
-        if (!msg || msg.role !== 'user') {
-          if (!stMsg || !stMsg.is_user) {
-            pendingCrazyAppend.delete(id);
-            return;
-          }
-        }
-
-        const originalText = String(stMsg?.mes ?? msg?.message ?? '');
-        if (hasDiceResultInText(originalText)) {
-          pendingCrazyAppend.delete(id);
-          return;
-        }
-
-        const extra = msg?.extra || stMsg?.extra || {};
-        if ((extra as { acuCrazyModeApplied?: boolean }).acuCrazyModeApplied) {
-          pendingCrazyAppend.delete(id);
-          return;
-        }
-
-        let newMessage = '';
-        if (originalText.includes('<本轮用户输入>')) {
-          const inserted = insertDiceIntoUserInputBlock(originalText, pending.result);
-          newMessage = inserted && inserted !== originalText ? inserted : `${originalText} ${pending.result}`.trim();
-        } else {
-          newMessage = originalText ? `${originalText} ${pending.result}` : pending.result;
-        }
         pendingCrazyAppend.delete(id);
-
-        if (stMsg && stMsg.is_user) {
-          stMsg.mes = newMessage;
-        }
+        let newMessage = '';
 
         try {
-          await setChatMessages(
-            [{ message_id: id, message: newMessage, extra: { ...extra, acuCrazyModeApplied: true } }],
-            { refresh: 'affected' },
-          );
+          await enqueueMessageMutation(id, async () => {
+            const stChat = ST?.chat || window.parent?.SillyTavern?.chat;
+            const stMsg = stChat && typeof id === 'number' ? stChat[id] : null;
+            const msg = getChatMessages(id)[0];
+            if (!msg || msg.role !== 'user') {
+              if (!stMsg || !stMsg.is_user) {
+                return;
+              }
+            }
+
+            const originalText = String(stMsg?.mes ?? msg?.message ?? '');
+            if (hasDiceResultInText(originalText)) {
+              return;
+            }
+
+            const extraObj: Record<string, unknown> =
+              msg?.extra && typeof msg.extra === 'object' ? (msg.extra as Record<string, unknown>) : {};
+            if (extraObj.acuCrazyModeApplied === true) {
+              return;
+            }
+
+            if (originalText.includes('<本轮用户输入>')) {
+              const inserted = insertDiceIntoUserInputBlock(originalText, pending.result);
+              newMessage =
+                inserted && inserted !== originalText ? inserted : `${originalText} ${pending.result}`.trim();
+            } else {
+              newMessage = originalText ? `${originalText} ${pending.result}` : pending.result;
+            }
+
+            if (stMsg && stMsg.is_user) {
+              stMsg.mes = newMessage;
+            }
+
+            await setChatMessages(
+              [{ message_id: id, message: newMessage, extra: { ...extraObj, acuCrazyModeApplied: true } }],
+              { refresh: 'affected' },
+            );
+          });
         } catch (e) {
           console.warn('[DICE]疯狂模式: 附加骰子结果失败', e);
         }
 
         const { $ } = getCore();
         const $ta = $('#send_textarea');
-        if ($ta.length) {
+        if ($ta.length && newMessage) {
           const currentVal = ($ta.val() || '').toString();
           if (currentVal === newMessage) {
             $ta.val('').trigger('input').trigger('change');
@@ -31909,9 +42286,12 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       if (ST?.eventSource) {
         ST.eventSource.on(evtName, hideOptionPanel);
         // [新增] 同时监听消息发送事件，应用投骰结果隐藏
-        ST.eventSource.on(evtName, messageId => {
+        ST.eventSource.on(evtName, async messageId => {
           // 先尝试附加疯狂模式结果（发送后）
           queueCrazyAppend(messageId);
+
+          // [新增] 执行待处理的检定后果
+          await processPendingEffectRuns(messageId);
 
           // 延迟执行，确保消息已渲染到DOM
           const diceCfg = getDiceConfig();
@@ -31941,9 +42321,12 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       if (typeof window.eventOn === 'function') {
         window.eventOn(evtName, hideOptionPanel);
         // [新增] 同时监听消息发送事件，应用投骰结果隐藏
-        window.eventOn(evtName, messageId => {
+        window.eventOn(evtName, async messageId => {
           // 先尝试附加疯狂模式结果（发送后）
           queueCrazyAppend(messageId);
+
+          // [新增] 执行待处理的检定后果
+          await processPendingEffectRuns(messageId);
 
           // 延迟执行，确保消息已渲染到DOM
           const diceCfg = getDiceConfig();
@@ -32001,12 +42384,21 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
       .off('beforeunload.acu pagehide.acu')
       .on('beforeunload.acu pagehide.acu', () => {
         try {
+          // 取消所有挂起的异步请求
+          abortAllPendingRequests();
+          const timer = (window as Record<string, unknown>).__acuEffectRunCleanerTimer;
+          if (typeof timer === 'number') {
+            window.clearInterval(timer);
+            delete (window as Record<string, unknown>).__acuEffectRunCleanerTimer;
+          }
           localStorage.setItem(STORAGE_KEY_SCROLL, JSON.stringify(tableScrollStates));
           if (observer) {
             observer.disconnect();
             observer = null;
           }
-        } catch (e) {}
+        } catch (e) {
+          console.warn('[DICE]页面卸载清理出错:', e);
+        }
       });
   };
 
