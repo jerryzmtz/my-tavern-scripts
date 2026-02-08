@@ -3,7 +3,11 @@
     "build:dev": "webpack --mode development",
     "build": "webpack --mode production",
     "watch": "webpack --mode development --watch --progress",
+<<<<<<< HEAD
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,css,scss,html,vue}\"",
+=======
+    "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,css,scss,html,vue}\" --no-error-on-unmatched-pattern",
+>>>>>>> 0ec95e792bbd1451e45badc1c5b13888d2f7f007
     "lint": "eslint",
     "lint:fix": "eslint --fix",
     "dump": "node dump_schema.ts",
@@ -88,6 +92,11 @@
     "gsap": "^3.14.2",
     "jquery": "^3.7.1",
     "jqueryui": "^1.11.1",
+<<<<<<< HEAD
+=======
+    "json5": "^2.2.3",
+    "jsonrepair": "^3.13.2",
+>>>>>>> 0ec95e792bbd1451e45badc1c5b13888d2f7f007
     "klona": "^2.0.6",
     "lodash": "^4.17.23",
     "pinia": "^3.0.4",
@@ -98,6 +107,10 @@
     "vue": "^3.5.27",
     "vue-final-modal": "^4.5.5",
     "vue-router": "^4.6.4",
+<<<<<<< HEAD
+=======
+    "vue-word-highlighter": "^1.2.6",
+>>>>>>> 0ec95e792bbd1451e45badc1c5b13888d2f7f007
     "vue3-pixi": "1.0.0-beta.3",
     "yaml": "^2.8.2",
     "zod": "^4.3.6"
