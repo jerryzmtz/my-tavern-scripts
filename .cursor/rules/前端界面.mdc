@@ -31,6 +31,7 @@ alwaysApply: false
 
 你可以任意使用 fontawesome 的免费图标.
 
+<<<<<<< HEAD
 ## 样式设计
 
 ### 简单内嵌样式
@@ -45,6 +46,9 @@ alwaysApply: false
 - 或新建 scss 文件并在 Typescript 文件中以 `import './index.scss'` 的形式应用到界面上.
 
 ### iframe 适配要求
+=======
+## iframe 适配要求
+>>>>>>> 3190fb176c50753bdb03667e72b85fbcffe909d1
 
 - 当对前端界面高度进行调整时, 禁止使用 `vh` 单位等会受宿主高度影响的单位, 而是使用 `width` 和 `aspect-ratio` 来让高度根据宽度动态调整.
 - 避免使用会强制撑高父容器的元素 (如 `min-height`、`overflow: auto`).
