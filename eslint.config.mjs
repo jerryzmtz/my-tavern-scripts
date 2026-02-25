@@ -26,12 +26,20 @@ export default [
     rules: {
       ...eslintPluginBetterTailwindcss.configs['recommended-warn'].rules,
       ...eslintPluginBetterTailwindcss.configs['recommended-error'].rules,
+<<<<<<< HEAD
       'better-tailwindcss/enforce-consistent-line-wrapping': ['off', { printWidth: 120 }],
+=======
+      'better-tailwindcss/enforce-consistent-line-wrapping': ['off', { preferSingleLine: true, printWidth: 120 }],
+>>>>>>> 95299edcaebf7bb81b1a8d87fb1226c74ed1188a
       'better-tailwindcss/no-unregistered-classes': ['off', { ignore: ['fa-*'] }],
     },
     settings: {
       'better-tailwindcss': {
+<<<<<<< HEAD
         entryPoint: 'src/global.css',
+=======
+        entryPoint: 'tailwind.css',
+>>>>>>> 95299edcaebf7bb81b1a8d87fb1226c74ed1188a
         tailwindConfig: 'tailwind.config.js',
       },
     },
