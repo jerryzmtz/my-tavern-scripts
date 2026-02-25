@@ -1791,7 +1791,7 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.7.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v4.02'; // 脚本版本号
+  const SCRIPT_VERSION = 'v4.03'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -3469,9 +3469,7 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
 
     // 获取按表名分组的规则
     getRulesByTable(tableName) {
-      return this.getEnabledRules().filter(
-        rule => rule.targetTable === tableName || (isNpcTableName(rule.targetTable) && isNpcTableName(tableName)),
-      );
+      return this.getEnabledRules().filter(rule => rule.targetTable === tableName || (isNpcTableName(rule.targetTable) && isNpcTableName(tableName)));
     },
   };
 
@@ -4744,19 +4742,13 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
         let oldSheet = null,
           newSheet = null;
         for (const sheetId in snapshot) {
-          if (
-            snapshot[sheetId]?.name === rule.targetTable ||
-            (isNpcTableName(snapshot[sheetId]?.name) && isNpcTableName(rule.targetTable))
-          ) {
+          if (snapshot[sheetId]?.name === rule.targetTable || (isNpcTableName(snapshot[sheetId]?.name) && isNpcTableName(rule.targetTable))) {
             oldSheet = snapshot[sheetId];
             break;
           }
         }
         for (const sheetId in newData) {
-          if (
-            newData[sheetId]?.name === rule.targetTable ||
-            (isNpcTableName(newData[sheetId]?.name) && isNpcTableName(rule.targetTable))
-          ) {
+          if (newData[sheetId]?.name === rule.targetTable || (isNpcTableName(newData[sheetId]?.name) && isNpcTableName(rule.targetTable))) {
             newSheet = newData[sheetId];
             break;
           }
@@ -4865,8 +4857,7 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
       const rowTitle = row[1] || row[0] || `行 ${rowIndex + 1}`;
 
       for (const rule of rules) {
-        if (rule.targetTable !== tableName && !(isNpcTableName(rule.targetTable) && isNpcTableName(tableName)))
-          continue;
+        if (rule.targetTable !== tableName && !(isNpcTableName(rule.targetTable) && isNpcTableName(tableName))) continue;
         if (!rule.enabled) continue;
 
         // 找到目标列
@@ -14219,7 +14210,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const sheetName = sheet.name;
 
       // 主角信息表 -> <user> 或通过真名匹配
-      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
+      if (
+        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
+      ) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与characterName一致
           if (!isUser) {
@@ -14381,7 +14374,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const sheetName = sheet.name;
 
       // 主角信息表 -> <user> 或通过真名匹配
-      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
+      if (
+        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
+      ) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与characterName一致
           if (!isUser) {
@@ -14851,7 +14846,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const headers = sheet.content[0] || [];
 
       // 主角信息表
-      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
+      if (
+        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
+      ) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与charName一致
           if (!isUser) {
@@ -14995,7 +14992,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const headers = sheet.content[0] || [];
 
       // 主角信息表
-      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
+      if (
+        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
+      ) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与charName一致
           if (!isUser) {
@@ -15303,7 +15302,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       };
 
       // 主角信息表
-      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
+      if (
+        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
+      ) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与charName一致
           if (!isUser) {
@@ -15492,7 +15493,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const sheetName = sheet.name;
 
       // 主角信息表 -> <user> 或通过真名匹配
-      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
+      if (
+        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
+      ) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与characterName一致
           if (!isUser) {
@@ -39093,7 +39096,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     <div class="acu-title-sub">(${startIdx + 1}-${Math.min(endIdx, totalItems)} / 共${totalItems}项)${isReversed ? ' <span style="color:var(--acu-accent);">↓倒序</span>' : ''}</div>
 </div>
                 <div class="acu-header-actions">
-                    ${tableName.includes('人物') ? `<button class="acu-view-btn" id="acu-btn-relation-graph" data-table="${escapeHtml(tableName)}" title="查看人物关系图"><i class="fa-solid fa-project-diagram"></i></button>` : ''}
+                    ${isCharacterTable(tableName) ? `<button class="acu-view-btn" id="acu-btn-relation-graph" data-table="${escapeHtml(tableName)}" title="查看人物关系图"><i class="fa-solid fa-project-diagram"></i></button>` : ''}
                     ${tableName.includes('地图') ? `<button class="acu-view-btn acu-table-map-btn" title="地图可视化"><i class="fa-solid fa-map"></i></button>` : ''}
                     ${reverseBtnHtml}
                     <button class="acu-view-btn" id="acu-btn-switch-style" data-table="${escapeHtml(tableName)}" title="🔄 点击切换视图模式 (当前: ${isGridMode ? '双列网格' : '单列列表'})">
@@ -40114,15 +40117,26 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const tableName = $(this).data('table');
         const rawData = cachedRawData || getTableData();
         if (rawData) {
-          for (const key in rawData) {
-            const sheet = rawData[key];
-            if (sheet?.name === tableName) {
-              const tableData = {
-                headers: sheet.content?.[0] || [],
-                rows: sheet.content?.slice(1) || [],
-                key: key,
-              };
-              showRelationshipGraph(tableData);
+          // NPC表（重要人物表/重要角色表）直接使用该表数据
+          if (isNpcTableName(tableName)) {
+            for (const key in rawData) {
+              const sheet = rawData[key];
+              if (sheet?.name === tableName) {
+                const tableData = {
+                  headers: sheet.content?.[0] || [],
+                  rows: sheet.content?.slice(1) || [],
+                  key: key,
+                };
+                showRelationshipGraph(tableData);
+                return;
+              }
+            }
+          } else {
+            // 非NPC表（如主角信息），通过DashboardDataParser查找NPC表
+            const allTables = processJsonData(rawData);
+            const npcResult = DashboardDataParser.findTable(allTables, 'npc');
+            if (npcResult && npcResult.data) {
+              showRelationshipGraph(npcResult.data);
               return;
             }
           }
@@ -42449,6 +42463,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const pendingCrazyAppend = new Map<number, { result: string; createdAt: number }>();
       const CRAZY_APPEND_TTL_MS = 12000;
       let lastCrazyPreSendAt = 0;
+      // [疯狂模式] MESSAGE_SENT 同步注入的骰点结果，供 GENERATION_AFTER_COMMANDS 合并到 params.prompt
+      let pendingCrazySyncResult: string | null = null;
 
       const normalizeMessageId = (messageId: number | string) => {
         const id = typeof messageId === 'string' ? Number(messageId) : messageId;
@@ -42486,12 +42502,39 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         if (alreadyApplied || automaticTrigger) return;
         if (type === 'quiet' || quietPrompt.trim().length > 0) return;
 
+        const originalPrompt = typeof safeParams.prompt === 'string' ? safeParams.prompt : '';
+        if (!originalPrompt || !originalPrompt.trim()) return;
+
+        // [合并器] 如果 MESSAGE_SENT 已同步注入骰点，确保 params.prompt 也包含
+        // 这是关键步骤：神-数据库可能已读取 lastMessage.mes（含骰点）并重写 params.prompt
+        // 此时需确保骰点不会丢失
+        if (pendingCrazySyncResult) {
+          const storedResult = pendingCrazySyncResult;
+          pendingCrazySyncResult = null;
+          if (!hasDiceResultInText(originalPrompt)) {
+            let finalPrompt = '';
+            if (originalPrompt.includes('<本轮用户输入>')) {
+              const inserted = insertDiceIntoUserInputBlock(originalPrompt, storedResult);
+              finalPrompt =
+                inserted && inserted !== originalPrompt ? inserted : `${originalPrompt.trim()} ${storedResult}`.trim();
+            } else {
+              finalPrompt = `${originalPrompt.trim()} ${storedResult}`.trim();
+            }
+            safeParams.prompt = finalPrompt;
+            safeParams._acu_crazy_applied = true;
+            console.info('[DICE]疯狂模式: 已合并骰点到 params.prompt');
+          }
+          return;
+        }
+
+        // 已经有骰点结果，跳过
+        if (hasDiceResultInText(originalPrompt)) return;
+
+        // 300ms 防抖（仅用于 triggerCrazyModeBeforeSend 的场景，如发送按钮点击）
         const now = Date.now();
         if (now - lastCrazyPreSendAt < 300) return;
 
-        const originalPrompt = typeof safeParams.prompt === 'string' ? safeParams.prompt : '';
-        if (!originalPrompt || !originalPrompt.trim()) return;
-        if (hasDiceResultInText(originalPrompt)) return;
+        // 兆底：如果前面的路径都没触发，尝试独立触发
         if (!shouldTriggerCrazyMode()) return;
 
         const crazyRollResult = generateCrazyRoll();
@@ -42536,6 +42579,39 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         lastCrazyPreSendAt = now;
       };
 
+      // [疯狂模式] 在 MESSAGE_SENT 中同步注入骰点到用户消息
+      // 确保在 GENERATION_AFTER_COMMANDS 之前完成，使神-数据库读 lastMessage.mes 时能看到骰点
+      const syncInjectCrazyToMessage = (messageId: number | string) => {
+        const id = normalizeMessageId(messageId);
+        if (id === null) return;
+
+        const stChat = ST?.chat || window.parent?.SillyTavern?.chat;
+        if (!stChat) return;
+
+        const msg = stChat[id];
+        if (!msg || !msg.is_user) return;
+
+        const text = String(msg.mes || '').trim();
+        if (!text) return;
+        if (hasDiceResultInText(text)) return;
+        if (!shouldTriggerCrazyMode()) return;
+
+        const crazyRollResult = generateCrazyRoll();
+        if (!crazyRollResult) return;
+
+        // 同步写入聊天记录
+        if (text.includes('<本轮用户输入>')) {
+          const inserted = insertDiceIntoUserInputBlock(text, crazyRollResult);
+          msg.mes = inserted && inserted !== text ? inserted : `${text} ${crazyRollResult}`.trim();
+        } else {
+          msg.mes = `${text} ${crazyRollResult}`.trim();
+        }
+
+        // 存储结果供 GENERATION_AFTER_COMMANDS 合并到 params.prompt
+        pendingCrazySyncResult = crazyRollResult;
+        lastCrazyPreSendAt = Date.now();
+        console.info('[DICE]疯狂模式: 已同步注入到用户消息', id);
+      };
       const queueCrazyAppend = (messageId: number | string) => {
         const id = normalizeMessageId(messageId);
         if (id === null) return;
@@ -42645,52 +42721,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             restoreDiceResultBeforeSend();
           });
 
-        // 监听回车发送（在输入框中按回车）
-        const textarea = document.getElementById('send_textarea');
-        if (textarea) {
-          textarea.addEventListener(
-            'keydown',
-            function (e) {
-              // 如果按的是回车且没有按 Shift（Shift+Enter 是换行）
-              if (e.key === 'Enter' || e.key === 'NumpadEnter') {
-                // 在发送前注入疯狂模式
-                triggerCrazyModeBeforeSend();
-                // 在发送前恢复真实结果
-                restoreDiceResultBeforeSend();
-              }
-            },
-            true, // 使用捕获阶段
-          );
-          textarea.addEventListener(
-            'keyup',
-            function (e) {
-              if (e.key === 'Enter' || e.key === 'NumpadEnter') {
-                triggerCrazyModeBeforeSend();
-                restoreDiceResultBeforeSend();
-              }
-            },
-            true,
-          );
-        }
-
-        $('#send_textarea')
-          .off('keydown.acu_restore_dice')
-          .on('keydown.acu_restore_dice', function (e) {
-            // 如果按的是回车且没有按 Shift（Shift+Enter 是换行）
-            if (e.key === 'Enter' || e.key === 'NumpadEnter') {
-              // 在发送前注入疯狂模式
-              triggerCrazyModeBeforeSend();
-              // 在发送前恢复真实结果
-              restoreDiceResultBeforeSend();
-            }
-          })
-          .off('keyup.acu_restore_dice')
-          .on('keyup.acu_restore_dice', function (e) {
-            if (e.key === 'Enter' || e.key === 'NumpadEnter') {
-              triggerCrazyModeBeforeSend();
-              restoreDiceResultBeforeSend();
-            }
-          });
 
         // [新增] 监听输入框的创建/替换，重新拦截新的输入框
         const observer = new MutationObserver(() => {
@@ -42774,8 +42804,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         ST.eventSource.on(evtName, hideOptionPanel);
         // [新增] 同时监听消息发送事件，应用投骰结果隐藏
         ST.eventSource.on(evtName, async messageId => {
-          // 先尝试附加疯狂模式结果（发送后）
-          queueCrazyAppend(messageId);
+          // 同步注入疯狂模式到用户消息（确保在 GENERATION_AFTER_COMMANDS 之前完成）
+          syncInjectCrazyToMessage(messageId);
 
           // [新增] 执行待处理的检定后果
           await processPendingEffectRuns(messageId);
@@ -42809,8 +42839,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         window.eventOn(evtName, hideOptionPanel);
         // [新增] 同时监听消息发送事件，应用投骰结果隐藏
         window.eventOn(evtName, async messageId => {
-          // 先尝试附加疯狂模式结果（发送后）
-          queueCrazyAppend(messageId);
+          // 同步注入疯狂模式到用户消息（确保在 GENERATION_AFTER_COMMANDS 之前完成）
+          syncInjectCrazyToMessage(messageId);
 
           // [新增] 执行待处理的检定后果
           await processPendingEffectRuns(messageId);
