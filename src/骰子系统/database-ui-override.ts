@@ -1581,8 +1581,8 @@ export function injectDatabaseStyles(themeId: string, fontFamily?: string) {
           align-items: center !important;
           justify-content: center !important;
           gap: 6px !important;
-          min-height: 84px !important;
-          padding: 10px 12px !important;
+          min-height: 48px !important;
+          padding: 6px 12px !important;
           cursor: pointer !important;
           transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
         }
@@ -1598,7 +1598,7 @@ export function injectDatabaseStyles(themeId: string, fontFamily?: string) {
         #acu-visualizer-content .acu-data-card#acu-vis-add-row > i,
         #acu-vis-add-row i[style] {
           color: ${t.accent} !important;
-          font-size: 28px !important;
+          font-size: 20px !important;
           line-height: 1 !important;
           transition: all 0.25s ease !important;
         }
@@ -1607,7 +1607,7 @@ export function injectDatabaseStyles(themeId: string, fontFamily?: string) {
         #acu-visualizer-content .acu-data-card#acu-vis-add-row > div,
         #acu-vis-add-row div[style] {
           color: ${t.accent} !important;
-          font-size: 14px !important;
+          font-size: 12px !important;
           line-height: 1.2 !important;
           font-weight: 650 !important;
           transition: all 0.25s ease !important;
@@ -2200,8 +2200,8 @@ export function injectDatabaseStyles(themeId: string, fontFamily?: string) {
           #acu-visualizer-content .acu-vis-toolbar {
             flex-direction: column !important;
             align-items: stretch !important;
-            padding: 8px !important;
-            gap: 8px !important;
+            padding: 6px !important;
+            gap: 4px !important;
           }
 
           #acu-visualizer-content .acu-mode-switch {
@@ -2212,8 +2212,8 @@ export function injectDatabaseStyles(themeId: string, fontFamily?: string) {
           #acu-visualizer-content .acu-mode-btn {
             flex: 1 !important;
             text-align: center !important;
-            padding: 10px 8px !important;
-            min-height: 44px !important;
+            padding: 6px 8px !important;
+            min-height: 32px !important;
           }
 
           #acu-visualizer-content .acu-vis-actions {
@@ -2225,8 +2225,8 @@ export function injectDatabaseStyles(themeId: string, fontFamily?: string) {
           #acu-visualizer-content .acu-btn-secondary {
             flex: 1 !important;
             text-align: center !important;
-            padding: 10px 12px !important;
-            min-height: 44px !important;
+            padding: 6px 10px !important;
+            min-height: 32px !important;
           }
 
           #acu-visualizer-content .acu-vis-header {

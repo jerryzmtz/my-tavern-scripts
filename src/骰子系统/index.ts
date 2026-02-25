@@ -17,6 +17,7 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
     地图元素表: '元素名称',
     主角信息: '姓名',
     重要人物表: '姓名',
+    重要角色表: '姓名',
     技能表: '技能名称',
     物品表: '物品名称',
     装备表: '装备名称',
@@ -26,6 +27,9 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
     重要情报: '情报名称',
     势力: '名称',
   };
+
+  // 兼容新旧模板表名（重要人物表 = 旧名, 重要角色表 = 新名）
+  const isNpcTableName = (name: string): boolean => name === '重要人物表' || name === '重要角色表';
 
   /**
    * 获取行的主键值
@@ -1787,7 +1791,7 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.7.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v4.01'; // 脚本版本号
+  const SCRIPT_VERSION = 'v4.02'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -2410,7 +2414,7 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
         '[^;：:\\s]*(绝望|崩溃|崩坏|恐惧|NTR|羞耻|快感|顺从|侵犯|服从|逻辑|决绝|臣服|屈服|敏感|洗脑)[^;：:\\s]*[:：]\\d+;?\\s?',
       flags: { global: false, caseInsensitive: false, multiline: false },
       replacement: '',
-      scope: { type: 'table', tableNames: ['主角信息', '重要人物表'] },
+      scope: { type: 'table', tableNames: ['主角信息', '重要人物表', '重要角色表'] },
       enabled: true,
       priority: 50,
       executeMode: 'auto',
@@ -3465,7 +3469,7 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
 
     // 获取按表名分组的规则
     getRulesByTable(tableName) {
-      return this.getEnabledRules().filter(rule => rule.targetTable === tableName);
+      return this.getEnabledRules().filter(rule => rule.targetTable === tableName || (isNpcTableName(rule.targetTable) && isNpcTableName(tableName)));
     },
   };
 
@@ -4738,13 +4742,13 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
         let oldSheet = null,
           newSheet = null;
         for (const sheetId in snapshot) {
-          if (snapshot[sheetId]?.name === rule.targetTable) {
+          if (snapshot[sheetId]?.name === rule.targetTable || (isNpcTableName(snapshot[sheetId]?.name) && isNpcTableName(rule.targetTable))) {
             oldSheet = snapshot[sheetId];
             break;
           }
         }
         for (const sheetId in newData) {
-          if (newData[sheetId]?.name === rule.targetTable) {
+          if (newData[sheetId]?.name === rule.targetTable || (isNpcTableName(newData[sheetId]?.name) && isNpcTableName(rule.targetTable))) {
             newSheet = newData[sheetId];
             break;
           }
@@ -4853,7 +4857,7 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
       const rowTitle = row[1] || row[0] || `行 ${rowIndex + 1}`;
 
       for (const rule of rules) {
-        if (rule.targetTable !== tableName) continue;
+        if (rule.targetTable !== tableName && !(isNpcTableName(rule.targetTable) && isNpcTableName(tableName))) continue;
         if (!rule.enabled) continue;
 
         // 找到目标列
@@ -5989,7 +5993,7 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
       for (const key in rawData) {
         const sheet = rawData[key];
         if (sheet?.name?.includes('主角') && sheet.content?.[1]?.[1]) {
-          return sheet.content[1][1];
+          return getDisplayName(sheet.content[1][1]);
         }
       }
     }
@@ -13104,6 +13108,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       // 新增: 弟子, 成员, 队友, 伙伴, 宠物, 灵宠
       tableKeywords: [
         '重要人物表',
+        '重要角色表',
         '重要人物',
         'NPC',
         '人物表',
@@ -14204,12 +14209,16 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       if (!sheet || !sheet.name || !sheet.content) continue;
       const sheetName = sheet.name;
 
-      // 主角信息表 -> <user> (模糊匹配)
+      // 主角信息表 -> <user> 或通过真名匹配
       if (
-        isUser &&
         (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
       ) {
         if (sheet.content[1]) {
+          // 通过真名匹配：非<user>时检查主角表中的姓名是否与characterName一致
+          if (!isUser) {
+            const protagonistName = getDisplayName(String(sheet.content[1][1] || ''));
+            if (protagonistName !== getDisplayName(characterName)) continue;
+          }
           const headers = sheet.content[0] || [];
           const row = sheet.content[1];
           let attrs = [];
@@ -14364,12 +14373,16 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       if (!sheet || !sheet.name || !sheet.content) continue;
       const sheetName = sheet.name;
 
-      // 主角信息表 -> <user> (模糊匹配)
+      // 主角信息表 -> <user> 或通过真名匹配
       if (
-        isUser &&
         (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
       ) {
         if (sheet.content[1]) {
+          // 通过真名匹配：非<user>时检查主角表中的姓名是否与characterName一致
+          if (!isUser) {
+            const protagonistName = getDisplayName(String(sheet.content[1][1] || ''));
+            if (protagonistName !== getDisplayName(characterName)) continue;
+          }
           const headers = sheet.content[0] || [];
           const row = sheet.content[1];
           for (let idx = 0; idx < headers.length; idx++) {
@@ -14834,10 +14847,14 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
       // 主角信息表
       if (
-        isUser &&
         (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
       ) {
         if (sheet.content[1]) {
+          // 通过真名匹配：非<user>时检查主角表中的姓名是否与charName一致
+          if (!isUser) {
+            const protagonistName = getDisplayName(String(sheet.content[1][1] || ''));
+            if (protagonistName !== getDisplayName(charName)) continue;
+          }
           targetSheet = sheet;
           targetRowIndex = 1;
           sheetKey = key;
@@ -14976,10 +14993,14 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
       // 主角信息表
       if (
-        isUser &&
         (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
       ) {
         if (sheet.content[1]) {
+          // 通过真名匹配：非<user>时检查主角表中的姓名是否与charName一致
+          if (!isUser) {
+            const protagonistName = getDisplayName(String(sheet.content[1][1] || ''));
+            if (protagonistName !== getDisplayName(charName)) continue;
+          }
           targetSheet = sheet;
           targetRowIndex = 1;
           sheetKey = key;
@@ -15282,10 +15303,14 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
       // 主角信息表
       if (
-        isUser &&
         (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
       ) {
         if (sheet.content[1]) {
+          // 通过真名匹配：非<user>时检查主角表中的姓名是否与charName一致
+          if (!isUser) {
+            const protagonistName = getDisplayName(String(sheet.content[1][1] || ''));
+            if (protagonistName !== getDisplayName(charName)) continue;
+          }
           targetSheet = sheet;
           targetRowIndex = 1;
           sheetKey = key;
@@ -15467,12 +15492,16 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       if (!sheet || !sheet.name || !sheet.content) continue;
       const sheetName = sheet.name;
 
-      // 主角信息表 -> <user> (模糊匹配)
+      // 主角信息表 -> <user> 或通过真名匹配
       if (
-        isUser &&
         (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
       ) {
         if (sheet.content[1]) {
+          // 通过真名匹配：非<user>时检查主角表中的姓名是否与characterName一致
+          if (!isUser) {
+            const protagonistName = getDisplayName(String(sheet.content[1][1] || ''));
+            if (protagonistName !== getDisplayName(characterName)) continue;
+          }
           const headers = sheet.content[0] || [];
           const row = sheet.content[1];
           headers.forEach((h, idx) => {
@@ -15895,7 +15924,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     }
     // [新增] 构建角色和属性下拉列表
     const rawDataForList = cachedRawData || getTableData();
-    let diceCharacterList = ['<user>'];
+    let diceCharacterList: string[] = [];
     let diceAttrList = [];
 
     if (rawDataForList) {
@@ -15903,15 +15932,17 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const sheet = rawDataForList[key];
         if (!sheet || !sheet.name || !sheet.content) continue;
 
-        if (sheet.name === '重要人物表') {
+        if (isNpcTableName(sheet.name)) {
           for (let i = 1; i < sheet.content.length; i++) {
             const row = sheet.content[i];
             if (row && row[1]) diceCharacterList.push(row[1]);
           }
         }
 
-        if (sheet.name === '主角信息' && sheet.content[1]) {
+        if (sheet.name?.includes('主角') && sheet.content[1]) {
           const row = sheet.content[1];
+          // 主角真名加入角色列表（作为第一个）
+          if (row[1]) diceCharacterList.unshift(getDisplayName(String(row[1])));
           const headers = sheet.content[0] || [];
           headers.forEach((h, idx) => {
             if (h && h.includes('属性')) {
@@ -16439,11 +16470,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         html += `<button class="acu-dice-char-btn acu-dice-char-btn-mvu" data-char="${escapeHtml(initiator)}" title="从变量路径提取: ${escapeHtml(initiator)}">${escapeHtml(shortName)}</button>`;
       }
 
-      // 添加常规角色列表
+      // 添加常规角色列表（所有名字统一处理，不再区分 <user>）
       diceCharacterList.forEach(name => {
-        const resolvedName = name === '<user>' ? name : NameAliasRegistry.resolve(String(name));
-        const displayName =
-          resolvedName === '<user>' ? getDisplayPlayerName() : replaceUserPlaceholders(String(resolvedName));
+        const resolvedName = NameAliasRegistry.resolve(String(name));
+        const displayName = replaceUserPlaceholders(String(resolvedName));
         const shortName = displayName.length > 4 ? displayName.substring(0, 4) + '..' : displayName;
         html += `<button class="acu-dice-char-btn" data-char="${escapeHtml(String(resolvedName))}" title="${escapeHtml(displayName)}">${escapeHtml(shortName)}</button>`;
       });
@@ -16638,8 +16668,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     // 初始化角色按钮
     buildCharButtons();
-    // 初始化属性按钮（默认<user>）
-    buildAttrButtons('<user>');
+    // 初始化属性按钮（默认主角）
+    buildAttrButtons(diceCharacterList[0] || '<user>');
     // [新增] 随机技能按钮点击事件
     panel.find('#dice-random-skill').click(function (e) {
       e.preventDefault();
@@ -20015,17 +20045,21 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     let playerAttrs = [];
     let opponentAttrs = [];
 
-    // [新增] 构建角色下拉列表（<user> + 重要人物表）
-    let characterList = ['<user>'];
+    // [新增] 构建角色下拉列表（主角真名 + 重要角色表）
+    let characterList: string[] = [];
     if (rawData) {
       for (const key in rawData) {
         const sheet = rawData[key];
-        if (sheet && sheet.name === '重要人物表' && sheet.content) {
+        if (!sheet || !sheet.name || !sheet.content) continue;
+        if (isNpcTableName(sheet.name)) {
           for (let i = 1; i < sheet.content.length; i++) {
             const row = sheet.content[i];
             if (row && row[1]) characterList.push(row[1]);
           }
-          break;
+        }
+        if (sheet.name?.includes('主角') && sheet.content[1]) {
+          const row = sheet.content[1];
+          if (row[1]) characterList.unshift(getDisplayName(String(row[1])));
         }
       }
     }
@@ -20034,7 +20068,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     if (rawData) {
       for (const key in rawData) {
         const sheet = rawData[key];
-        if (sheet && sheet.name === '主角信息' && sheet.content && sheet.content[1]) {
+        if (sheet && sheet.name?.includes('主角') && sheet.content && sheet.content[1]) {
           const headers = sheet.content[0] || [];
           const row = sheet.content[1];
           headers.forEach((h, idx) => {
@@ -20054,12 +20088,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const sheet = rawData[key];
         if (!sheet || !sheet.name || !sheet.content) continue;
 
-        if (sheet.name === '主角信息' && sheet.content[1]) {
+        if (sheet.name?.includes('主角') && sheet.content[1]) {
           const attrStr = sheet.content[1][7] || '';
           playerAttrs = parseAttributeString(attrStr);
         }
 
-        if (sheet.name === '重要人物表' && opponentName) {
+        if (isNpcTableName(sheet.name) && opponentName) {
           for (let i = 1; i < sheet.content.length; i++) {
             const row = sheet.content[i];
             if (row && row[1] === opponentName) {
@@ -20235,9 +20269,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const $container = panel.find(containerId);
       let html = '';
       characterList.forEach(name => {
-        const resolvedName = name === '<user>' ? name : NameAliasRegistry.resolve(String(name));
-        const displayName =
-          resolvedName === '<user>' ? getDisplayPlayerName() : replaceUserPlaceholders(String(resolvedName));
+        const resolvedName = NameAliasRegistry.resolve(String(name));
+        const displayName = replaceUserPlaceholders(String(resolvedName));
         const shortName = displayName.length > 4 ? displayName.substring(0, 4) + '..' : displayName;
         html +=
           '<button class="acu-dice-char-btn" data-char="' +
@@ -20463,7 +20496,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       panel.find('#contest-opp-name').val(randomSkill).trigger('change');
     });
     // 始终调用 rebuildAttrBtns 来绑定事件（即使属性为空也需要生成/清空按钮可用）
-    const initAttrs = getFullAttributesForCharacter(passedInitiatorName || '<user>');
+    const initAttrs = getFullAttributesForCharacter(passedInitiatorName || characterList[0] || '<user>');
     rebuildAttrBtns(initAttrs, 'init');
     const oppAttrs = getFullAttributesForCharacter(opponentName || '');
     rebuildAttrBtns(oppAttrs, 'opp');
@@ -22985,8 +23018,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const isPersonaName = personaName && name === personaName;
 
       // 检查是否是主角表名称（模糊匹配：表名包含"主角"）
+      // 仅在 autoMergeProtagonist 开启时才将主角名映射为 {{user}}
       const isPlayerName = (() => {
         if (!playerName) return false;
+        if (diceCfg.autoMergeProtagonist === false) return false;
         // 精确匹配
         if (name === playerName) return true;
         // 或者通过别名系统检查
@@ -37892,7 +37927,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       (player.position.includes('-') ? player.position.split('-')[0].trim() : player.position);
 
     // [重构] NPC数据 - 使用新解析器
-    const npcTableName = npcResult?.name || '重要人物表';
+    const npcTableName = npcResult?.name || '重要角色表';
     const npcTableKey = npcResult?.key || '';
 
     const npcParsed = DashboardDataParser.parseRows(npcResult, 'npc');
@@ -40698,7 +40733,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             if (!sheet || !sheet.name || !sheet.content) continue;
 
             // 主角信息表
-            if (sheet.name === '主角信息') {
+            if (sheet.name?.includes('主角')) {
               if (sheet.content[1]) {
                 var attrStr = sheet.content[1][7] || '';
                 var parts = attrStr.split(/[,，;；\s]+/);
@@ -40714,7 +40749,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             }
 
             // 重要人物表
-            if (sheet.name === '重要人物表' && npcName) {
+            if (isNpcTableName(sheet.name) && npcName) {
               for (var j = 1; j < sheet.content.length; j++) {
                 var row = sheet.content[j];
                 if (row && row[1] === npcName) {
