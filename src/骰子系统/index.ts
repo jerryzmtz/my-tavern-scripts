@@ -1791,7 +1791,7 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.7.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v4.04'; // 脚本版本号
+  const SCRIPT_VERSION = 'v4.10'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -13952,6 +13952,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     showOptionPanel: true, // [新增] 显示选项面板
     clickOptionToAutoSend: true, // [新增] 点击选项自动发送
     optionFontSize: 12, // [新增] 行动选项独立字体大小
+    syncDatabaseTheme: true,
     muteDatabaseToasts: false,
   };
 
@@ -26869,7 +26870,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     _configCache = { ...getConfig(), ...newCfg };
     Store.set(STORAGE_KEY_UI_CONFIG, _configCache);
     const fontVal = applyConfigStyles(_configCache);
-    injectDatabaseStyles(_configCache.theme, fontVal);
+    injectDatabaseStyles(_configCache.theme, fontVal, { enabled: _configCache.syncDatabaseTheme !== false });
     setDatabaseToastMute(_configCache.muteDatabaseToasts === true);
   };
 
@@ -34551,6 +34552,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                     <span class="acu-toggle-slider"></span>
                                 </label>
                             </div>
+                            <div class="acu-setting-row acu-setting-row-toggle">
+                                <div class="acu-setting-info">
+                                    <span class="acu-setting-label"><i class="fa-solid fa-database"></i> 覆盖数据库主题</span>
+                                </div>
+                                <label class="acu-toggle">
+                                    <input type="checkbox" id="cfg-db-theme-sync" ${config.syncDatabaseTheme !== false ? 'checked' : ''}>
+                                    <span class="acu-toggle-slider"></span>
+                                </label>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -34645,6 +34655,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     dialog.find('#cfg-db-toast-mute').on('change', function () {
       saveConfig({ muteDatabaseToasts: $(this).is(':checked') });
+    });
+
+    dialog.find('#cfg-db-theme-sync').on('change', function () {
+      saveConfig({ syncDatabaseTheme: $(this).is(':checked') });
     });
 
     // 管理变量过滤黑名单按钮
@@ -42282,7 +42296,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     addStyles();
     const initCfg = getConfig();
     const initFontVal = FONTS.find(f => f.id === initCfg.fontFamily)?.val || FONTS[0].val;
-    injectDatabaseStyles(initCfg.theme, initFontVal);
+    injectDatabaseStyles(initCfg.theme, initFontVal, { enabled: initCfg.syncDatabaseTheme !== false });
     setDatabaseToastMute(initCfg.muteDatabaseToasts === true);
     // 2. 保留原有的 SillyTavern 事件监听（使用具名函数防止重复注册）
     if (window.SillyTavern && window.SillyTavern.eventSource) {

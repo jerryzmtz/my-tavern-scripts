@@ -34,6 +34,12 @@ interface ThemeColors {
 
 type DatabaseThemeMap = Record<string, ThemeColors>;
 
+interface DatabaseStyleOptions {
+  enabled?: boolean;
+}
+
+const DATABASE_THEME_STYLE_ID = 'dice-db-theme-sync';
+
 const DATABASE_THEME_MAP: DatabaseThemeMap = {
   retro: {
     bgNav: '#e6e2d3',
@@ -288,8 +294,40 @@ const DATABASE_THEME_MAP: DatabaseThemeMap = {
  * 注入数据库样式
  * @param themeId 主题 ID
  */
-export function injectDatabaseStyles(themeId: string, fontFamily?: string) {
+const collectDatabaseDocuments = (): Document[] => {
+  const docs: Document[] = [];
+  const tryAddDoc = (w: Window | null | undefined) => {
+    try {
+      const doc = w?.document;
+      if (doc && !docs.includes(doc)) docs.push(doc);
+    } catch {
+      return;
+    }
+  };
+
+  tryAddDoc(window);
+  tryAddDoc(window.parent);
+  tryAddDoc(window.top);
+  return docs;
+};
+
+export function clearDatabaseStyles() {
   try {
+    for (const doc of collectDatabaseDocuments()) {
+      doc.getElementById(DATABASE_THEME_STYLE_ID)?.remove();
+    }
+  } catch {
+    return;
+  }
+}
+
+export function injectDatabaseStyles(themeId: string, fontFamily?: string, options: DatabaseStyleOptions = {}) {
+  try {
+    if (options.enabled === false) {
+      clearDatabaseStyles();
+      return;
+    }
+
     const getJQuery = (w: Window | null | undefined) => {
       try {
         return (w as any)?.jQuery as any;
@@ -347,8 +385,50 @@ export function injectDatabaseStyles(themeId: string, fontFamily?: string) {
       : '';
 
     const css = `
-      <style id="dice-db-theme-sync">
+      <style id="${DATABASE_THEME_STYLE_ID}">
         ${fontCss}
+        /* Native theme bridge: feed the new God-DB theme variables first. */
+        html body :is(${S_POPUP_MAIN}),
+        html body .acu-window {
+          --acu-bg-0: ${t.bgPanel} !important;
+          --acu-bg-1: ${t.bgNav} !important;
+          --acu-bg-2: ${t.btnBg} !important;
+          --acu-border: ${t.border} !important;
+          --acu-border-2: ${t.border} !important;
+          --acu-text-1: ${t.textMain} !important;
+          --acu-text-2: ${t.textSub} !important;
+          --acu-text-3: ${t.textSub} !important;
+          --acu-accent: ${t.accent} !important;
+          --acu-accent-2: ${t.btnActiveBg} !important;
+          --acu-accent-glow: ${t.accent}1a !important;
+          --acu-control-bg: ${t.inputBg} !important;
+          --acu-control-text: ${t.textMain} !important;
+          --acu-panel-bg: ${t.bgPanel} !important;
+          --acu-panel-border: ${t.border} !important;
+          --acu-panel-text: ${t.textMain} !important;
+          --acu-panel-text-dim: ${t.textSub} !important;
+          --acu-panel-text-mute: ${t.textSub} !important;
+          --acu-panel-accent: ${t.accent} !important;
+          color-scheme: ${stepperColorScheme} !important;
+        }
+        html body #acu-visualizer-content {
+          --acu-viz-bg: ${t.bgPanel} !important;
+          --acu-viz-sidebar-bg: ${t.bgNav} !important;
+          --acu-viz-card-bg: ${t.inputBg} !important;
+          --acu-viz-border: ${t.border} !important;
+          --acu-viz-text: ${t.textMain} !important;
+          --acu-viz-text-dim: ${t.textSub} !important;
+          --acu-viz-text-mute: ${t.textSub} !important;
+          --acu-viz-accent: ${t.accent} !important;
+          --acu-viz-accent-dim: ${t.btnActiveBg} !important;
+          --acu-viz-hover: ${t.btnHover} !important;
+        }
+        html body #toast-container .acu-toast.toast {
+          --toast-accent: ${t.accent} !important;
+          --toast-bg: ${t.bgPanel} !important;
+          --toast-text: ${t.textMain} !important;
+          --toast-border: ${t.border} !important;
+        }
         html body .auto-card-updater-popup {
           --acu-bg-0: ${t.bgPanel} !important;
           --acu-bg-1: ${t.bgNav} !important;
@@ -2410,7 +2490,7 @@ export function injectDatabaseStyles(themeId: string, fontFamily?: string) {
     `;
 
     for (const $ of targets) {
-      $('#dice-db-theme-sync').remove();
+      $(`#${DATABASE_THEME_STYLE_ID}`).remove();
       $('head').append(css);
     }
   } catch (e) {
@@ -2421,20 +2501,7 @@ export function injectDatabaseStyles(themeId: string, fontFamily?: string) {
 const DB_TOAST_MUTE_STYLE_ID = 'dice-db-toast-mute';
 
 const collectDatabaseToastDocuments = (): Document[] => {
-  const docs: Document[] = [];
-  const tryAddDoc = (w: Window | null | undefined) => {
-    try {
-      const doc = w?.document;
-      if (doc && !docs.includes(doc)) docs.push(doc);
-    } catch {
-      return;
-    }
-  };
-
-  tryAddDoc(window);
-  tryAddDoc(window.parent);
-  tryAddDoc(window.top);
-  return docs;
+  return collectDatabaseDocuments();
 };
 
 export function setDatabaseToastMute(enabled: boolean) {
