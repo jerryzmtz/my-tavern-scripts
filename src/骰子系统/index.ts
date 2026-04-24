@@ -1791,7 +1791,7 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.7.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v4.11'; // 脚本版本号
+  const SCRIPT_VERSION = 'v4.12'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -13948,7 +13948,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     itemsPerPage: 50,
     actionsPosition: 'bottom',
     gridColumns: 'auto', // [修改] 默认为智能自动列数
-    positionMode: 'fixed', // fixed=悬浮底部, embedded=跟随消息
+    positionMode: 'fixed', // fixed=悬浮底部, embedded=跟随消息, viewport=固定底部
     showOptionPanel: true, // [新增] 显示选项面板
     clickOptionToAutoSend: true, // [新增] 点击选项自动发送
     optionFontSize: 12, // [新增] 行动选项独立字体大小
@@ -34265,8 +34265,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                     <span class="acu-setting-label">面板位置</span>
                                 </div>
                                 <select id="cfg-position" class="acu-setting-select">
-                                    <option value="fixed" ${config.positionMode !== 'embedded' ? 'selected' : ''}>悬浮底部</option>
+                                    <option value="fixed" ${config.positionMode === 'fixed' || !config.positionMode ? 'selected' : ''}>悬浮底部</option>
                                     <option value="embedded" ${config.positionMode === 'embedded' ? 'selected' : ''}>跟随消息</option>
+                                    <option value="viewport" ${config.positionMode === 'viewport' ? 'selected' : ''}>固定底部</option>
                                 </select>
                             </div>
                             <div class="acu-setting-row">
@@ -35530,6 +35531,98 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   // [优化] 渲染防抖：避免短时间内多次渲染导致重复日志
   let renderInterfaceTimer = null;
   let renderInterfacePending = false;
+  let viewportBoundsListenerAttached = false;
+
+  const getViewportAnchorRect = (): DOMRect | null => {
+    const targetWindow = window.parent || window;
+    const targetDocument = targetWindow.document || document;
+
+    const chat = targetDocument.querySelector<HTMLElement>('#chat');
+    if (chat) {
+      const probe = targetDocument.createElement('div');
+      probe.setAttribute('aria-hidden', 'true');
+      probe.style.cssText = [
+        'display:block',
+        'width:100%',
+        'height:0',
+        'margin:15px 0',
+        'padding:0',
+        'border:0',
+        'visibility:hidden',
+        'pointer-events:none',
+        'overflow:hidden',
+      ].join(';');
+
+      chat.appendChild(probe);
+      const rect = probe.getBoundingClientRect();
+      probe.remove();
+      if (rect.width > 0) return rect;
+    }
+
+    return chat?.getBoundingClientRect() || null;
+  };
+
+  const getViewportBottomOffset = (): number => {
+    const targetWindow = window.parent || window;
+    const targetDocument = targetWindow.document || document;
+    const viewportHeight = targetWindow.innerHeight || targetDocument.documentElement.clientHeight || 0;
+    const selectors = ['#send_form', '#form_sheld', '#send_textarea', '#chat_input', '#send_but'];
+
+    const candidates = selectors
+      .map(selector => targetDocument.querySelector<HTMLElement>(selector))
+      .filter((el): el is HTMLElement => {
+        if (!el) return false;
+        const style = targetWindow.getComputedStyle(el);
+        if (style.display === 'none' || style.visibility === 'hidden') return false;
+        const rect = el.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0 && rect.bottom > 0;
+      })
+      .map(el => el.getBoundingClientRect());
+
+    if (candidates.length === 0 || viewportHeight <= 0) return 12;
+
+    const top = Math.min(...candidates.map(rect => rect.top));
+    const offset = viewportHeight - top + 8;
+    return Math.max(12, Math.round(offset));
+  };
+
+  const updateViewportWrapperBounds = () => {
+    const config = getConfig();
+    if (config.positionMode !== 'viewport') return;
+
+    const targetWindow = window.parent || window;
+    const targetDocument = targetWindow.document || document;
+    const wrapper = targetDocument.querySelector<HTMLElement>('.acu-wrapper.acu-mode-viewport');
+    if (!wrapper) return;
+
+    const rect = getViewportAnchorRect();
+    if (!rect) return;
+    if (rect.width <= 0) return;
+
+    const viewportWidth = targetWindow.innerWidth || targetDocument.documentElement.clientWidth || rect.right;
+    const left = Math.max(0, rect.left);
+    const right = Math.min(viewportWidth, rect.right);
+    const width = Math.max(280, right - left);
+
+    wrapper.style.setProperty('left', `${left}px`, 'important');
+    wrapper.style.setProperty('right', 'auto', 'important');
+    wrapper.style.setProperty('width', `${width}px`, 'important');
+    wrapper.style.setProperty('max-width', `${width}px`, 'important');
+    wrapper.style.setProperty('transform', 'none', 'important');
+    wrapper.style.setProperty('bottom', `${getViewportBottomOffset()}px`, 'important');
+  };
+
+  const setupViewportBoundsListeners = () => {
+    if (viewportBoundsListenerAttached) return;
+    viewportBoundsListenerAttached = true;
+
+    const { $ } = getCore();
+    const targetWindow = window.parent || window;
+    const refreshBounds = () => requestAnimationFrame(updateViewportWrapperBounds);
+    $(targetWindow).on('resize.acuViewportBounds orientationchange.acuViewportBounds', refreshBounds);
+    targetWindow.visualViewport?.addEventListener('resize', refreshBounds);
+    targetWindow.visualViewport?.addEventListener('scroll', refreshBounds);
+  };
 
   const renderInterface = () => {
     // 设置面板打开时跳过重绘，防止事件丢失
@@ -35571,7 +35664,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         mutationLock = true;
         requestAnimationFrame(() => {
           const config = getConfig();
-          if (config.positionMode === 'embedded') {
+          if (config.positionMode === 'embedded' || config.positionMode === 'viewport') {
             mutationLock = false;
             return;
           }
@@ -36101,6 +36194,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     } else {
       insertHtmlToPage(html);
     }
+    setupViewportBoundsListeners();
+    updateViewportWrapperBounds();
+    requestAnimationFrame(updateViewportWrapperBounds);
 
     // --- [修改] 悬浮模式下，只有选项变化且可见时才插入 ---
     if (config.positionMode !== 'embedded' && optionHtml && optionPanelVisible) {
@@ -36367,7 +36463,13 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     // --- 模式分支处理 ---
 
-    // 1. 嵌入模式 (Embedded)：保持您原版 v19 的复杂逻辑，跟随气泡
+    // 1. 固定底部模式：挂到 body，避免被 #chat 的滚动上下文带走
+    if (config.positionMode === 'viewport') {
+      $('body').append(html);
+      return;
+    }
+
+    // 2. 嵌入模式 (Embedded)：保持您原版 v19 的复杂逻辑，跟随气泡
     if (config.positionMode === 'embedded') {
       $('.acu-wrapper').remove(); // 嵌入模式下，为了准确性，先移除旧的
 
@@ -36419,7 +36521,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       return;
     }
 
-    // 2. 悬浮底部模式 (Fixed)：【核心修改】完全照搬脚本 B 的稳健逻辑
+    // 3. 悬浮底部模式 (Fixed)：【核心修改】完全照搬脚本 B 的稳健逻辑
     // 不再每次都移除，而是“有则替换，无则追加”，防止闪烁
     const $chat = $('#chat');
     const $oldWrapper = $('.acu-wrapper');
@@ -42375,7 +42477,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             mutationLock = true;
             requestAnimationFrame(() => {
               const config = getConfig();
-              if (config.positionMode === 'embedded') {
+              if (config.positionMode === 'embedded' || config.positionMode === 'viewport') {
                 mutationLock = false;
                 return;
               }

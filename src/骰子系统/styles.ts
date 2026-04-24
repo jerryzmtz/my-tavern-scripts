@@ -1091,8 +1091,12 @@ export const MAIN_STYLES = `
         border-color: rgba(127, 219, 202, 0.4) !important;
     }
     .acu-wrapper { position: relative; width: 100%; margin: 15px 0; z-index: 31000 !important; font-family: 'Microsoft YaHei', sans-serif; display: flex; flex-direction: column-reverse; }
+    .acu-wrapper.acu-mode-viewport { position: fixed !important; left: 0 !important; right: auto !important; bottom: max(8px, env(safe-area-inset-bottom)); width: 100% !important; max-width: 100% !important; margin: 0 !important; transform: none !important; z-index: 31000 !important; display: flex; flex-direction: column-reverse !important; }
+    .acu-wrapper.acu-mode-viewport .acu-nav-container { position: relative !important; z-index: 31001 !important; }
+    .acu-wrapper.acu-mode-viewport .acu-data-display { position: absolute !important; bottom: calc(100% + 10px) !important; left: 0 !important; right: 0 !important; width: 100% !important; max-height: min(80vh, calc(100dvh - 96px)) !important; }
     .acu-wrapper.acu-mode-embedded { position: relative !important; width: 100% !important; margin-top: 8px !important; z-index: 31001 !important; clear: both; display: flex; flex-direction: column-reverse !important; padding: 0; }
-    .acu-wrapper.acu-mode-embedded .acu-nav-container { position: relative !important; z-index: 31002 !important; }
+    .acu-wrapper.acu-mode-embedded .acu-nav-container { position: relative !important; z-index: 31002 !important; border-radius: 0 !important; }
+    .acu-wrapper.acu-mode-embedded .acu-nav-container::before { border-radius: 0 !important; }
     .acu-wrapper.acu-mode-embedded .acu-data-display { position: absolute !important; bottom: 100% !important; left: 0 !important; right: 0 !important; width: 100% !important; box-shadow: 0 -10px 30px rgba(0,0,0,0.25) !important; border: 1px solid var(--acu-border); margin-bottom: 5px; z-index: 31010 !important; max-height: 70vh !important; overflow-y: auto !important; }
     .acu-nav-container { display: grid; grid-template-columns: repeat(var(--acu-grid-cols, 3), 1fr); gap: 4px; padding: 6px; background: var(--acu-bg-nav); border: 1px solid var(--acu-border); border-radius: 10px; align-items: center; box-shadow: 0 2px 6px var(--acu-shadow); position: relative; z-index: 31001 !important; }
     .acu-nav-btn { touch-action: manipulation; -webkit-tap-highlight-color: transparent; width: 100%; display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 3px; padding: 4px 2px; border: 1px solid transparent; border-radius: 6px; background: var(--acu-btn-bg); color: var(--acu-text-main); font-weight: 600; font-size: 11px; cursor: pointer; transition: all 0.2s ease; user-select: none; overflow: hidden; height: 28px; }
@@ -1575,7 +1579,8 @@ export const MAIN_STYLES = `
             @keyframes acu-breathe { 0% { opacity: 1; transform: scale(1); } 50% { opacity: 0.6; transform: scale(0.85); color: #ff7e67; } 100% { opacity: 1; transform: scale(1); } } .acu-icon-breathe { animation: acu-breathe 3s infinite ease-in-out !important; display: inline-block; }
 
             @media (min-width: 768px) {
-                .acu-wrapper.acu-mode-embedded .acu-nav-container { width: fit-content !important; min-width: 300px; max-width: 100%; margin: 0 auto; border-radius: 50px; box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important; border: 1px solid var(--acu-border); padding: 6px 20px; background: var(--acu-bg-nav) !important; }
+                .acu-wrapper.acu-mode-viewport { bottom: max(12px, env(safe-area-inset-bottom)); }
+                .acu-wrapper.acu-mode-embedded .acu-nav-container { width: fit-content !important; min-width: 300px; max-width: 100%; margin: 0 auto; border-radius: 0 !important; box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important; border: 1px solid var(--acu-border); padding: 6px 20px; background: var(--acu-bg-nav) !important; }
                 .acu-wrapper.acu-mode-embedded .acu-data-display { bottom: calc(100% + 12px) !important; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.2) !important; }
                 .acu-nav-container { display: flex; flex-wrap: wrap !important; gap: 6px !important; padding: 6px 10px; grid-template-columns: none !important; flex-direction: row !important; justify-content: flex-start !important; align-items: center !important; height: auto !important; }
                 .acu-nav-container .acu-nav-btn { width: fit-content !important; flex: 0 0 auto !important; height: 32px !important; padding: 0 12px; font-size: 13px !important; min-width: auto !important; }
