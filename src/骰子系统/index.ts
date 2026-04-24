@@ -52,11 +52,11 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
   }
 
   // ========================================
-  // 神-数据库适配层 (LockManager -> GodDB API)
+  // 数据库适配层 (LockManager -> GodDB API)
   // ========================================
 
   /**
-   * 获取神-数据库锁定API
+   * 获取数据库锁定API
    * @returns API对象，如果不可用返回null
    */
   function getDbLockAPI(): any {
@@ -145,7 +145,7 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
       for (let i = 1; i < sheet.content.length; i++) {
         const row = sheet.content[i];
         if (row && String(row[pkIndex]) === String(actualValue)) {
-          // 神-数据库的 rowIndex 是从 0 开始的数据行索引（对应 content[1]）
+          // 数据库的 rowIndex 是从 0 开始的数据行索引（对应 content[1]）
           return i - 1;
         }
       }
@@ -177,7 +177,7 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
       // 1. 获取 DbLockAPI
       const api = getDbLockAPI();
       if (!api || typeof api.exportTableAsJson !== 'function') {
-        const error = '神-数据库 API 不可用';
+        const error = '数据库 API 不可用';
         console.error(`[DICE]safeUpdateAttribute: ${error}`);
         return { success: false, oldValue: 0, newValue: 0, error };
       }
@@ -227,7 +227,7 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
           const row = sheet.content[i];
           if (row && String(row[pkIndex]) === String(characterName)) {
             targetSheetKey = sheetKey;
-            targetRowIndex = i - 1; // 神-数据库的 rowIndex 是从 0 开始的数据行索引
+            targetRowIndex = i - 1; // 数据库的 rowIndex 是从 0 开始的数据行索引
             targetColIndex = headers.indexOf(attrName);
             break;
           }
@@ -260,7 +260,7 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
         }
 
         // 检查单元格锁定
-        // 注意: targetColIndex 包含行号列，神-数据库的 colIndex 不包含行号列，需要 -1
+        // 注意: targetColIndex 包含行号列，数据库的 colIndex 不包含行号列，需要 -1
         const cellKey = `${targetRowIndex}:${targetColIndex - 1}`;
         const isCellLocked = lockState.cells?.includes(cellKey) ?? false;
         if (isCellLocked) {
@@ -1791,7 +1791,7 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.7.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v4.10'; // 脚本版本号
+  const SCRIPT_VERSION = 'v4.11'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -3469,9 +3469,7 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
 
     // 获取按表名分组的规则
     getRulesByTable(tableName) {
-      return this.getEnabledRules().filter(
-        rule => rule.targetTable === tableName || (isNpcTableName(rule.targetTable) && isNpcTableName(tableName)),
-      );
+      return this.getEnabledRules().filter(rule => rule.targetTable === tableName || (isNpcTableName(rule.targetTable) && isNpcTableName(tableName)));
     },
   };
 
@@ -4744,19 +4742,13 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
         let oldSheet = null,
           newSheet = null;
         for (const sheetId in snapshot) {
-          if (
-            snapshot[sheetId]?.name === rule.targetTable ||
-            (isNpcTableName(snapshot[sheetId]?.name) && isNpcTableName(rule.targetTable))
-          ) {
+          if (snapshot[sheetId]?.name === rule.targetTable || (isNpcTableName(snapshot[sheetId]?.name) && isNpcTableName(rule.targetTable))) {
             oldSheet = snapshot[sheetId];
             break;
           }
         }
         for (const sheetId in newData) {
-          if (
-            newData[sheetId]?.name === rule.targetTable ||
-            (isNpcTableName(newData[sheetId]?.name) && isNpcTableName(rule.targetTable))
-          ) {
+          if (newData[sheetId]?.name === rule.targetTable || (isNpcTableName(newData[sheetId]?.name) && isNpcTableName(rule.targetTable))) {
             newSheet = newData[sheetId];
             break;
           }
@@ -4865,8 +4857,7 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
       const rowTitle = row[1] || row[0] || `行 ${rowIndex + 1}`;
 
       for (const rule of rules) {
-        if (rule.targetTable !== tableName && !(isNpcTableName(rule.targetTable) && isNpcTableName(tableName)))
-          continue;
+        if (rule.targetTable !== tableName && !(isNpcTableName(rule.targetTable) && isNpcTableName(tableName))) continue;
         if (!rule.enabled) continue;
 
         // 找到目标列
@@ -13746,7 +13737,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   // 注意：保存按钮已移除，系统现在使用即时保存模式（每次编辑/删除后自动保存）
   const ACTION_BUTTONS = [
     // { id: 'acu-btn-save-global', icon: 'fa-save', title: '保存所有修改' }, // 已废弃：使用即时保存
-    { id: 'acu-btn-open-editor', icon: 'fa-database', title: '打开神-数据库' },
+    { id: 'acu-btn-open-editor', icon: 'fa-database', title: '打开数据库' },
     { id: 'acu-btn-open-visualizer', icon: 'fa-table-columns', title: '打开可视化表格编辑' },
     { id: 'acu-btn-collapse', icon: 'fa-chevron-down', title: '收起面板' },
     { id: 'acu-btn-refill', icon: 'fa-bolt', title: '重新填表' },
@@ -14220,7 +14211,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const sheetName = sheet.name;
 
       // 主角信息表 -> <user> 或通过真名匹配
-      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
+      if (
+        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
+      ) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与characterName一致
           if (!isUser) {
@@ -14382,7 +14375,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const sheetName = sheet.name;
 
       // 主角信息表 -> <user> 或通过真名匹配
-      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
+      if (
+        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
+      ) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与characterName一致
           if (!isUser) {
@@ -14852,7 +14847,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const headers = sheet.content[0] || [];
 
       // 主角信息表
-      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
+      if (
+        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
+      ) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与charName一致
           if (!isUser) {
@@ -14996,7 +14993,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const headers = sheet.content[0] || [];
 
       // 主角信息表
-      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
+      if (
+        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
+      ) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与charName一致
           if (!isUser) {
@@ -15304,7 +15303,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       };
 
       // 主角信息表
-      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
+      if (
+        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
+      ) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与charName一致
           if (!isUser) {
@@ -15493,7 +15494,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const sheetName = sheet.name;
 
       // 主角信息表 -> <user> 或通过真名匹配
-      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
+      if (
+        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
+      ) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与characterName一致
           if (!isUser) {
@@ -34542,7 +34545,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                             </div>
                             <div class="acu-setting-row acu-setting-row-toggle">
                                 <div class="acu-setting-info">
-                                    <span class="acu-setting-label"><i class="fa-solid fa-bell-slash"></i> 屏蔽神-数据库弹窗</span>
+                                    <span class="acu-setting-label"><i class="fa-solid fa-bell-slash"></i> 屏蔽数据库弹窗</span>
                                 </div>
                                 <label class="acu-toggle">
                                     <input type="checkbox" id="cfg-db-toast-mute" ${config.muteDatabaseToasts ? 'checked' : ''}>
@@ -39013,7 +39016,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const config = getConfig();
     const headers = (tableData.headers || []).slice(1);
 
-    // [新增] 获取神-数据库锁定状态API
+    // [新增] 获取数据库锁定状态API
     const dbLockApi = getDbLockAPI();
     const sheetKey = dbLockApi ? getSheetKeyByTableName(tableName) : null;
     const lockState = dbLockApi && sheetKey ? dbLockApi.getTableLockState(sheetKey) : null;
@@ -39147,7 +39150,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const isCardRowLocked = lockState && cardRowIndex !== null ? lockState.rows.includes(cardRowIndex) : false;
 
         // [新增] 计算标题列是否单独锁定（用于在标题后显示小锁图标）
-        // titleColIndex 是包含行号列的索引，神-数据库的 colIndex 不包含行号列，需要 -1
+        // titleColIndex 是包含行号列的索引，数据库的 colIndex 不包含行号列，需要 -1
         const isTitleCellLocked =
           lockState && cardRowIndex !== null ? lockState.cells.includes(`${cardRowIndex}:${titleColIndex - 1}`) : false;
 
@@ -39167,7 +39170,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             const rawHeaderName = headers[cIdx - 1] || '属性' + cIdx;
 
             // [迁移] 计算单元格锁定状态（复用外层的cardRowIndex）
-            // [修复] cIdx 是包含行号列的索引，神-数据库的 colIndex 不包含行号列，需要 -1
+            // [修复] cIdx 是包含行号列的索引，数据库的 colIndex 不包含行号列，需要 -1
             const isThisCellLocked =
               lockState && cardRowIndex !== null ? lockState.cells.includes(`${cardRowIndex}:${cIdx - 1}`) : false;
             // [改进] 整行锁定时，所有单元格都显示锁定图标
@@ -39929,7 +39932,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         e.stopPropagation();
         if (isEditingOrder) return;
 
-        // 调用神-数据库的可视化编辑器接口
+        // 调用数据库的可视化编辑器接口
         const topWin = window.parent || window;
         if (topWin.AutoCardUpdaterAPI && typeof topWin.AutoCardUpdaterAPI.openVisualizer === 'function') {
           topWin.AutoCardUpdaterAPI.openVisualizer();
@@ -39939,7 +39942,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             (topWin as any).openNewVisualizer_ACU();
           } else {
             if (window.toastr) {
-              window.toastr.warning('可视化编辑器接口不可用，请确保神-数据库脚本已加载');
+              window.toastr.warning('可视化编辑器接口不可用，请确保数据库脚本已加载');
             }
           }
         }
@@ -39993,7 +39996,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         });
       });
 
-    // 打开神-数据库
+    // 打开数据库
     $('#acu-btn-open-editor')
       .off('click')
       .on('click', e => {
@@ -40861,7 +40864,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const titleColIndex = 1;
         const realRowIdx = rowIndex;
 
-        // [新增] 获取神-数据库锁定状态API
+        // [新增] 获取数据库锁定状态API
         const dbLockApi = getDbLockAPI();
         const sheetKey = dbLockApi ? getSheetKeyByTableName(tableName) : null;
         const lockState = dbLockApi && sheetKey ? dbLockApi.getTableLockState(sheetKey) : null;
@@ -40892,7 +40895,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           if (!rawStr) return;
 
           // [修复] 计算锁定状态：整行锁定或单元格锁定
-          // [修复] cIdx 是包含行号列的索引，神-数据库的 colIndex 不包含行号列，需要 -1
+          // [修复] cIdx 是包含行号列的索引，数据库的 colIndex 不包含行号列，需要 -1
           const isThisCellLocked =
             lockState && dbRowIndex !== null
               ? (lockState.cells?.includes(`${dbRowIndex}:${cIdx - 1}`) ?? false)
@@ -41439,7 +41442,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             // 检查行锁定
             hasAnyLockInRow = lockState.rows?.includes(rowIndex) ?? false;
             // 检查单元格锁定
-            // [修复] colIdx 是包含行号列的索引，神-数据库的 colIndex 不包含行号列，需要 -1
+            // [修复] colIdx 是包含行号列的索引，数据库的 colIndex 不包含行号列，需要 -1
             const cellKey = `${rowIndex}:${colIdx - 1}`;
             isFieldLocked = lockState.cells?.includes(cellKey) ?? false;
           }
@@ -41454,7 +41457,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         hasAnyLockInRow = false;
       }
     } else {
-      if (!api) console.warn('[DICE] 神-数据库 API 不可用');
+      if (!api) console.warn('[DICE] 数据库 API 不可用');
       isFieldLocked = false;
       hasAnyLockInRow = false;
     }
@@ -41535,7 +41538,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     backdrop.on('click', closeAll);
     menu.find('#act-close').click(closeAll);
     // 锁定字段
-    // [修复] colIdx 是包含行号列的索引，神-数据库的 colIndex 不包含行号列，需要 -1
+    // [修复] colIdx 是包含行号列的索引，数据库的 colIndex 不包含行号列，需要 -1
     const dbColIndex = colIdx - 1;
     menu.find('#act-lock-field').click(e => {
       e.stopPropagation();
@@ -41549,7 +41552,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           }
           $cell.find('[data-locked]').attr('data-locked', 'true');
         } else {
-          console.warn('[DICE] 神-数据库API不可用或索引转换失败，无法锁定单元格');
+          console.warn('[DICE] 数据库API不可用或索引转换失败，无法锁定单元格');
         }
       }
       closeAll();
@@ -41568,7 +41571,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           }
           $cell.find('[data-locked]').attr('data-locked', 'false');
         } else {
-          console.warn('[DICE] 神-数据库API不可用或索引转换失败，无法解锁单元格');
+          console.warn('[DICE] 数据库API不可用或索引转换失败，无法解锁单元格');
         }
       }
       closeAll();
@@ -41583,7 +41586,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           // [优化] 直接修改卡片内所有可锁定元素的 data-locked 属性
           $card.find('[data-locked]').attr('data-locked', 'true');
         } else {
-          console.warn('[DICE] 神-数据库API不可用或索引转换失败，无法锁定整行');
+          console.warn('[DICE] 数据库API不可用或索引转换失败，无法锁定整行');
         }
       }
       closeAll();
@@ -41613,7 +41616,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           // [优化] 直接修改卡片内所有可锁定元素的 data-locked 属性
           $card.find('[data-locked]').attr('data-locked', 'false');
         } else {
-          console.warn('[DICE] 神-数据库API不可用或索引转换失败，无法解锁整行');
+          console.warn('[DICE] 数据库API不可用或索引转换失败，无法解锁整行');
         }
       }
       closeAll();
@@ -42237,7 +42240,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   const init = () => {
     if (isInitialized) return;
 
-    // 清理旧的LockManager锁定数据 (已迁移到神-数据库API)
+    // 清理旧的LockManager锁定数据 (已迁移到数据库API)
     (() => {
       const prefix = 'acu_locked_fields_v2_';
       const keysToRemove: string[] = [];
@@ -42517,7 +42520,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         if (!originalPrompt || !originalPrompt.trim()) return;
 
         // [合并器] 如果 MESSAGE_SENT 已同步注入骰点，确保 params.prompt 也包含
-        // 这是关键步骤：神-数据库可能已读取 lastMessage.mes（含骰点）并重写 params.prompt
+        // 这是关键步骤：数据库可能已读取 lastMessage.mes（含骰点）并重写 params.prompt
         // 此时需确保骰点不会丢失
         if (pendingCrazySyncResult) {
           const storedResult = pendingCrazySyncResult;
@@ -42591,7 +42594,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       };
 
       // [疯狂模式] 在 MESSAGE_SENT 中同步注入骰点到用户消息
-      // 确保在 GENERATION_AFTER_COMMANDS 之前完成，使神-数据库读 lastMessage.mes 时能看到骰点
+      // 确保在 GENERATION_AFTER_COMMANDS 之前完成，使数据库读 lastMessage.mes 时能看到骰点
       const syncInjectCrazyToMessage = (messageId: number | string) => {
         const id = normalizeMessageId(messageId);
         if (id === null) return;
@@ -42731,6 +42734,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             // 在事件冒泡前恢复真实结果
             restoreDiceResultBeforeSend();
           });
+
 
         // [新增] 监听输入框的创建/替换，重新拦截新的输入框
         const observer = new MutationObserver(() => {
