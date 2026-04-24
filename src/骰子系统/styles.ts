@@ -1091,8 +1091,8 @@ export const MAIN_STYLES = `
         border-color: rgba(127, 219, 202, 0.4) !important;
     }
     .acu-wrapper { position: relative; width: 100%; margin: 15px 0; z-index: 31000 !important; font-family: 'Microsoft YaHei', sans-serif; display: flex; flex-direction: column-reverse; }
-    .acu-wrapper.acu-mode-viewport { position: fixed !important; left: 0 !important; right: auto !important; bottom: max(8px, env(safe-area-inset-bottom)); width: 100% !important; max-width: 100% !important; margin: 0 !important; transform: none !important; z-index: 31000 !important; display: flex; flex-direction: column-reverse !important; }
-    .acu-wrapper.acu-mode-viewport .acu-nav-container { position: relative !important; z-index: 31001 !important; }
+    .acu-wrapper.acu-mode-viewport { position: fixed !important; left: 0 !important; right: auto !important; bottom: max(8px, env(safe-area-inset-bottom)); width: 100% !important; max-width: 100% !important; margin: 0 !important; transform: none !important; z-index: 1000 !important; display: flex; flex-direction: column-reverse !important; }
+    .acu-wrapper.acu-mode-viewport .acu-nav-container { position: relative !important; z-index: 1 !important; }
     .acu-wrapper.acu-mode-viewport .acu-data-display { position: absolute !important; bottom: calc(100% + 10px) !important; left: 0 !important; right: 0 !important; width: 100% !important; max-height: min(80vh, calc(100dvh - 96px)) !important; }
     .acu-wrapper.acu-mode-embedded { position: relative !important; width: 100% !important; margin-top: 8px !important; z-index: 31001 !important; clear: both; display: flex; flex-direction: column-reverse !important; padding: 0; }
     .acu-wrapper.acu-mode-embedded .acu-nav-container { position: relative !important; z-index: 31002 !important; border-radius: 0 !important; }

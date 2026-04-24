@@ -1791,7 +1791,7 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.7.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v4.12'; // 脚本版本号
+  const SCRIPT_VERSION = 'v4.13'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -3469,9 +3469,7 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
 
     // 获取按表名分组的规则
     getRulesByTable(tableName) {
-      return this.getEnabledRules().filter(
-        rule => rule.targetTable === tableName || (isNpcTableName(rule.targetTable) && isNpcTableName(tableName)),
-      );
+      return this.getEnabledRules().filter(rule => rule.targetTable === tableName || (isNpcTableName(rule.targetTable) && isNpcTableName(tableName)));
     },
   };
 
@@ -4744,19 +4742,13 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
         let oldSheet = null,
           newSheet = null;
         for (const sheetId in snapshot) {
-          if (
-            snapshot[sheetId]?.name === rule.targetTable ||
-            (isNpcTableName(snapshot[sheetId]?.name) && isNpcTableName(rule.targetTable))
-          ) {
+          if (snapshot[sheetId]?.name === rule.targetTable || (isNpcTableName(snapshot[sheetId]?.name) && isNpcTableName(rule.targetTable))) {
             oldSheet = snapshot[sheetId];
             break;
           }
         }
         for (const sheetId in newData) {
-          if (
-            newData[sheetId]?.name === rule.targetTable ||
-            (isNpcTableName(newData[sheetId]?.name) && isNpcTableName(rule.targetTable))
-          ) {
+          if (newData[sheetId]?.name === rule.targetTable || (isNpcTableName(newData[sheetId]?.name) && isNpcTableName(rule.targetTable))) {
             newSheet = newData[sheetId];
             break;
           }
@@ -4865,8 +4857,7 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
       const rowTitle = row[1] || row[0] || `行 ${rowIndex + 1}`;
 
       for (const rule of rules) {
-        if (rule.targetTable !== tableName && !(isNpcTableName(rule.targetTable) && isNpcTableName(tableName)))
-          continue;
+        if (rule.targetTable !== tableName && !(isNpcTableName(rule.targetTable) && isNpcTableName(tableName))) continue;
         if (!rule.enabled) continue;
 
         // 找到目标列
@@ -14220,7 +14211,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const sheetName = sheet.name;
 
       // 主角信息表 -> <user> 或通过真名匹配
-      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
+      if (
+        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
+      ) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与characterName一致
           if (!isUser) {
@@ -14382,7 +14375,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const sheetName = sheet.name;
 
       // 主角信息表 -> <user> 或通过真名匹配
-      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
+      if (
+        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
+      ) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与characterName一致
           if (!isUser) {
@@ -14852,7 +14847,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const headers = sheet.content[0] || [];
 
       // 主角信息表
-      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
+      if (
+        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
+      ) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与charName一致
           if (!isUser) {
@@ -14996,7 +14993,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const headers = sheet.content[0] || [];
 
       // 主角信息表
-      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
+      if (
+        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
+      ) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与charName一致
           if (!isUser) {
@@ -15304,7 +15303,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       };
 
       // 主角信息表
-      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
+      if (
+        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
+      ) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与charName一致
           if (!isUser) {
@@ -15493,7 +15494,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const sheetName = sheet.name;
 
       // 主角信息表 -> <user> 或通过真名匹配
-      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
+      if (
+        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
+      ) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与characterName一致
           if (!isUser) {
@@ -42833,6 +42836,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             // 在事件冒泡前恢复真实结果
             restoreDiceResultBeforeSend();
           });
+
 
         // [新增] 监听输入框的创建/替换，重新拦截新的输入框
         const observer = new MutationObserver(() => {
