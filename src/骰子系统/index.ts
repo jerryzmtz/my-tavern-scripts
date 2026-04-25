@@ -1791,7 +1791,7 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.7.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v4.13'; // 脚本版本号
+  const SCRIPT_VERSION = 'v4.14'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -3469,9 +3469,7 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
 
     // 获取按表名分组的规则
     getRulesByTable(tableName) {
-      return this.getEnabledRules().filter(
-        rule => rule.targetTable === tableName || (isNpcTableName(rule.targetTable) && isNpcTableName(tableName)),
-      );
+      return this.getEnabledRules().filter(rule => rule.targetTable === tableName || (isNpcTableName(rule.targetTable) && isNpcTableName(tableName)));
     },
   };
 
@@ -4744,19 +4742,13 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
         let oldSheet = null,
           newSheet = null;
         for (const sheetId in snapshot) {
-          if (
-            snapshot[sheetId]?.name === rule.targetTable ||
-            (isNpcTableName(snapshot[sheetId]?.name) && isNpcTableName(rule.targetTable))
-          ) {
+          if (snapshot[sheetId]?.name === rule.targetTable || (isNpcTableName(snapshot[sheetId]?.name) && isNpcTableName(rule.targetTable))) {
             oldSheet = snapshot[sheetId];
             break;
           }
         }
         for (const sheetId in newData) {
-          if (
-            newData[sheetId]?.name === rule.targetTable ||
-            (isNpcTableName(newData[sheetId]?.name) && isNpcTableName(rule.targetTable))
-          ) {
+          if (newData[sheetId]?.name === rule.targetTable || (isNpcTableName(newData[sheetId]?.name) && isNpcTableName(rule.targetTable))) {
             newSheet = newData[sheetId];
             break;
           }
@@ -4865,8 +4857,7 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
       const rowTitle = row[1] || row[0] || `行 ${rowIndex + 1}`;
 
       for (const rule of rules) {
-        if (rule.targetTable !== tableName && !(isNpcTableName(rule.targetTable) && isNpcTableName(tableName)))
-          continue;
+        if (rule.targetTable !== tableName && !(isNpcTableName(rule.targetTable) && isNpcTableName(tableName))) continue;
         if (!rule.enabled) continue;
 
         // 找到目标列
@@ -14002,22 +13993,113 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
   // [优化] 缓存 core 对象 (修复竞态条件 + 增强 ST 穿透查找)
   let _coreCache = null;
-  const getCore = () => {
-    const w = window.parent || window;
-    // 动态获取 jQuery
-    const $ = window.jQuery || w.jQuery;
 
-    // 只有当缓存存在且有效($存在)时，才直接返回
-    if (_coreCache && _coreCache.$) return _coreCache;
+  const getAccessibleDocument = (targetWindow: Window | null | undefined): Document | null => {
+    if (!targetWindow) return null;
+    try {
+      return targetWindow.document || null;
+    } catch {
+      return null;
+    }
+  };
+
+  const HOST_SELECTOR = '#chat, #send_form, #form_sheld, #send_textarea, #chat_input, #send_but';
+
+  const getTavernHostWindow = (): Window => {
+    const windows: Window[] = [];
+    const addWindow = (targetWindow: Window | null | undefined) => {
+      if (!targetWindow || windows.includes(targetWindow)) return;
+      if (!getAccessibleDocument(targetWindow)) return;
+      windows.push(targetWindow);
+    };
+
+    addWindow(window);
+
+    try {
+      let cursor = window;
+      while (cursor.parent && cursor.parent !== cursor) {
+        const parentWindow = cursor.parent;
+        if (!getAccessibleDocument(parentWindow)) break;
+        addWindow(parentWindow);
+        cursor = parentWindow;
+      }
+    } catch {
+      // 跨域或宿主限制时保留已收集的窗口
+    }
+
+    try {
+      addWindow(window.top);
+    } catch {
+      // ignore
+    }
+
+    const hasVisibleHostAnchor = (targetWindow: Window): boolean => {
+      const doc = getAccessibleDocument(targetWindow);
+      if (!doc) return false;
+
+      const viewportWidth = targetWindow.innerWidth || doc.documentElement.clientWidth || 0;
+      const viewportHeight = targetWindow.innerHeight || doc.documentElement.clientHeight || 0;
+      const anchors = Array.from(doc.querySelectorAll<HTMLElement>(HOST_SELECTOR));
+
+      return anchors.some(el => {
+        const rect = el.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return false;
+        if (viewportWidth > 0 && (rect.right <= 0 || rect.left >= viewportWidth)) return false;
+        if (viewportHeight > 0 && (rect.bottom <= 0 || rect.top >= viewportHeight)) return false;
+        return true;
+      });
+    };
+
+    for (let i = windows.length - 1; i >= 0; i--) {
+      if (hasVisibleHostAnchor(windows[i])) {
+        return windows[i];
+      }
+    }
+
+    for (let i = windows.length - 1; i >= 0; i--) {
+      const doc = getAccessibleDocument(windows[i]);
+      if (doc?.querySelector(HOST_SELECTOR)) {
+        return windows[i];
+      }
+    }
+
+    return windows[windows.length - 1] || window;
+  };
+
+  const getTavernHostDocument = (): Document => getAccessibleDocument(getTavernHostWindow()) || document;
+
+  const createElementFromHtml = (targetDocument: Document, html: string): HTMLElement | null => {
+    const template = targetDocument.createElement('template');
+    template.innerHTML = html.trim();
+    return template.content.firstElementChild as HTMLElement | null;
+  };
+
+  const collectHostAndLocalNodes = <T extends Element>(selector: string): T[] => {
+    const nodes = new Set<T>();
+    getTavernHostDocument()
+      .querySelectorAll<T>(selector)
+      .forEach(node => nodes.add(node));
+    document.querySelectorAll<T>(selector).forEach(node => nodes.add(node));
+    return Array.from(nodes);
+  };
+
+  const getCore = () => {
+    const w = getTavernHostWindow();
+    // 动态获取 jQuery
+    const $ = w.jQuery || window.jQuery;
+
+    // 只有当缓存存在且宿主窗口/jQuery 仍一致时才复用，避免移动端多层 iframe 下拿到旧 document
+    if (_coreCache && _coreCache.$ && _coreCache.hostWindow === w && _coreCache.$ === $) return _coreCache;
 
     const core = {
       $: $,
+      hostWindow: w,
       getDB: () => w.AutoCardUpdaterAPI || window.AutoCardUpdaterAPI,
-      clipboard: w.navigator.clipboard,
+      clipboard: w.navigator?.clipboard || window.navigator.clipboard,
       // 增强查找：依次尝试 当前窗口 -> 父窗口 -> 顶层窗口 (带跨域保护)
       ST:
-        window.SillyTavern ||
         w.SillyTavern ||
+        window.SillyTavern ||
         (() => {
           try {
             return window.top ? window.top.SillyTavern : null;
@@ -14220,7 +14302,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const sheetName = sheet.name;
 
       // 主角信息表 -> <user> 或通过真名匹配
-      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
+      if (
+        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
+      ) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与characterName一致
           if (!isUser) {
@@ -14382,7 +14466,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const sheetName = sheet.name;
 
       // 主角信息表 -> <user> 或通过真名匹配
-      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
+      if (
+        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
+      ) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与characterName一致
           if (!isUser) {
@@ -14852,7 +14938,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const headers = sheet.content[0] || [];
 
       // 主角信息表
-      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
+      if (
+        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
+      ) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与charName一致
           if (!isUser) {
@@ -14996,7 +15084,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const headers = sheet.content[0] || [];
 
       // 主角信息表
-      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
+      if (
+        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
+      ) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与charName一致
           if (!isUser) {
@@ -15304,7 +15394,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       };
 
       // 主角信息表
-      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
+      if (
+        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
+      ) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与charName一致
           if (!isUser) {
@@ -15493,7 +15585,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const sheetName = sheet.name;
 
       // 主角信息表 -> <user> 或通过真名匹配
-      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
+      if (
+        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
+      ) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与characterName一致
           if (!isUser) {
@@ -26960,16 +27054,18 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   };
 
   const applyConfigStyles = config => {
-    const { $ } = getCore();
-    const $wrapper = $('.acu-wrapper');
+    const targetDocument = getTavernHostDocument();
     const fontVal = FONTS.find(f => f.id === config.fontFamily)?.val || FONTS[0].val;
 
     // [优化] 只有字体 ID 变化时才重写 Style 标签，避免闪烁
-    const $styleTag = $('#acu-dynamic-font');
-    const currentFontId = $styleTag.data('font-id');
+    const styleTag = targetDocument.getElementById('acu-dynamic-font');
+    const currentFontId = styleTag?.getAttribute('data-font-id');
 
     if (currentFontId !== config.fontFamily) {
-      $styleTag.remove();
+      styleTag?.remove();
+      if (targetDocument !== document) {
+        document.getElementById('acu-dynamic-font')?.remove();
+      }
       const fontImport = `
                 @import url("https://fontsapi.zeoseven.com/3/main/result.css");
                 @import url("https://fontsapi.zeoseven.com/442/main/result.css");
@@ -26981,8 +27077,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                 @import url("https://fontsapi.zeoseven.com/69/main/result.css");
                 @import url("https://fontsapi.zeoseven.com/7/main/result.css");
             `;
-      $('head').append(`
-                <style id="acu-dynamic-font" data-font-id="${config.fontFamily}">
+      const dynamicStyle = targetDocument.createElement('style');
+      dynamicStyle.id = 'acu-dynamic-font';
+      dynamicStyle.setAttribute('data-font-id', config.fontFamily);
+      dynamicStyle.textContent = `
                     ${fontImport}
                     .acu-wrapper, .acu-edit-dialog, .acu-cell-menu, .acu-nav-container, .acu-data-card, .acu-panel-title, .acu-settings-label, .acu-btn-block, .acu-nav-btn, .acu-edit-textarea,
                     .acu-dice-panel, .acu-contest-panel, .acu-dice-config-dialog,
@@ -26990,8 +27088,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                     .acu-embedded-options-container, .acu-option-panel, .acu-opt-btn {
                         font-family: ${fontVal} !important;
                     }
-                </style>
-            `);
+                `;
+      targetDocument.head.appendChild(dynamicStyle);
     }
 
     // [优化] 尺寸和颜色变化只更新 CSS 变量，完全不闪烁
@@ -27002,18 +27100,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       '--acu-grid-cols': config.gridColumns,
     };
 
-    if ($wrapper.length) {
-      $wrapper.removeClass((idx, cls) => (cls.match(/(^|\s)acu-theme-\S+/g) || []).join(' '));
-      $wrapper.addClass(`acu-theme-${config.theme}`);
-      $wrapper.css(cssVars);
-    }
-
-    const $optContainer = $('.acu-embedded-options-container');
-    if ($optContainer.length) {
-      $optContainer.removeClass((idx, cls) => (cls.match(/(^|\s)acu-theme-\S+/g) || []).join(' '));
-      $optContainer.addClass(`acu-theme-${config.theme}`);
-      $optContainer.css(cssVars);
-    }
+    collectHostAndLocalNodes<HTMLElement>('.acu-wrapper, .acu-embedded-options-container').forEach(node => {
+      Array.from(node.classList)
+        .filter(className => className.startsWith('acu-theme-'))
+        .forEach(className => node.classList.remove(className));
+      node.classList.add(`acu-theme-${config.theme}`);
+      Object.entries(cssVars).forEach(([key, value]) => {
+        node.style.setProperty(key, String(value));
+      });
+    });
 
     return fontVal;
   };
@@ -27027,24 +27122,31 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
    * @see ./styles.ts - MAIN_STYLES 常量
    */
   const addStyles = () => {
-    if (window._acuStylesInjected && $(`#${SCRIPT_ID}-styles`).length) return;
+    const targetDocument = getTavernHostDocument();
+    if (window._acuStylesInjected && targetDocument.getElementById(`${SCRIPT_ID}-styles`)) return;
     window._acuStylesInjected = true;
-    const { $ } = getCore();
 
     // 动态加载 Tabler Icons 字体（用于 ti:xxx 图标）
-    if (!$('#tabler-icons-css').length) {
-      $('head').append(
-        '<link id="tabler-icons-css" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">',
-      );
+    if (!targetDocument.getElementById('tabler-icons-css')) {
+      const iconLink = targetDocument.createElement('link');
+      iconLink.id = 'tabler-icons-css';
+      iconLink.rel = 'stylesheet';
+      iconLink.href = 'https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css';
+      targetDocument.head.appendChild(iconLink);
     }
 
-    $('style').each(function () {
-      if (this.id && this.id.startsWith('acu_') && this.id.endsWith('-styles') && this.id !== `${SCRIPT_ID}-styles`)
-        $(this).remove();
+    targetDocument.querySelectorAll<HTMLStyleElement>('style').forEach(styleEl => {
+      if (styleEl.id && styleEl.id.startsWith('acu_') && styleEl.id.endsWith('-styles') && styleEl.id !== `${SCRIPT_ID}-styles`)
+        styleEl.remove();
     });
-    $(`#${SCRIPT_ID}-styles`).remove();
-    const styles = `<style id="${SCRIPT_ID}-styles">${MAIN_STYLES}</style>`;
-    $('head').append(styles);
+    targetDocument.getElementById(`${SCRIPT_ID}-styles`)?.remove();
+    if (targetDocument !== document) {
+      document.getElementById(`${SCRIPT_ID}-styles`)?.remove();
+    }
+    const styleEl = targetDocument.createElement('style');
+    styleEl.id = `${SCRIPT_ID}-styles`;
+    styleEl.textContent = MAIN_STYLES;
+    targetDocument.head.appendChild(styleEl);
   };
 
   const getTableData = () => {
@@ -35529,40 +35631,27 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   let renderInterfaceTimer = null;
   let renderInterfacePending = false;
   let viewportBoundsListenerAttached = false;
+  let viewportBoundsListenerWindow: Window | null = null;
+  let viewportBoundsRefreshHandler: (() => void) | null = null;
+  let viewportBoundsRaf: number | null = null;
 
   const getViewportAnchorRect = (): DOMRect | null => {
-    const targetWindow = window.parent || window;
-    const targetDocument = targetWindow.document || document;
+    const targetDocument = getTavernHostDocument();
 
     const chat = targetDocument.querySelector<HTMLElement>('#chat');
-    if (chat) {
-      const probe = targetDocument.createElement('div');
-      probe.setAttribute('aria-hidden', 'true');
-      probe.style.cssText = [
-        'display:block',
-        'width:100%',
-        'height:0',
-        'margin:15px 0',
-        'padding:0',
-        'border:0',
-        'visibility:hidden',
-        'pointer-events:none',
-        'overflow:hidden',
-      ].join(';');
+    if (!chat) return null;
 
-      chat.appendChild(probe);
-      const rect = probe.getBoundingClientRect();
-      probe.remove();
-      if (rect.width > 0) return rect;
-    }
-
-    return chat?.getBoundingClientRect() || null;
+    const rect = chat.getBoundingClientRect();
+    return rect.width > 0 ? rect : null;
   };
 
   const getViewportBottomOffset = (): number => {
-    const targetWindow = window.parent || window;
-    const targetDocument = targetWindow.document || document;
-    const viewportHeight = targetWindow.innerHeight || targetDocument.documentElement.clientHeight || 0;
+    const targetWindow = getTavernHostWindow();
+    const targetDocument = getTavernHostDocument();
+    const visualViewport = targetWindow.visualViewport;
+    const viewportTop = visualViewport?.offsetTop || 0;
+    const viewportHeight = visualViewport?.height || targetWindow.innerHeight || targetDocument.documentElement.clientHeight || 0;
+    const viewportBottom = viewportTop + viewportHeight;
     const selectors = ['#send_form', '#form_sheld', '#send_textarea', '#chat_input', '#send_but'];
 
     const candidates = selectors
@@ -35572,53 +35661,142 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const style = targetWindow.getComputedStyle(el);
         if (style.display === 'none' || style.visibility === 'hidden') return false;
         const rect = el.getBoundingClientRect();
-        return rect.width > 0 && rect.height > 0 && rect.bottom > 0;
+        if (rect.width <= 0 || rect.height <= 0) return false;
+        if (viewportHeight <= 0) return rect.bottom > 0;
+        if (rect.top < viewportTop || rect.bottom > viewportBottom + 80) return false;
+        if (rect.top < viewportTop + viewportHeight * 0.45) return false;
+        if (rect.height > Math.max(220, viewportHeight * 0.4)) return false;
+        return true;
       })
       .map(el => el.getBoundingClientRect());
 
     if (candidates.length === 0 || viewportHeight <= 0) return 12;
 
     const top = Math.min(...candidates.map(rect => rect.top));
-    const offset = viewportHeight - top + 8;
-    return Math.max(12, Math.round(offset));
+    const offset = viewportBottom - top + 8;
+    const maxOffset = Math.max(12, Math.round(viewportHeight * 0.45));
+    return Math.min(maxOffset, Math.max(12, Math.round(offset)));
   };
 
   const updateViewportWrapperBounds = () => {
     const config = getConfig();
     if (config.positionMode !== 'viewport') return;
 
-    const targetWindow = window.parent || window;
-    const targetDocument = targetWindow.document || document;
-    const wrapper = targetDocument.querySelector<HTMLElement>('.acu-wrapper.acu-mode-viewport');
+    const targetWindow = getTavernHostWindow();
+    const targetDocument = getTavernHostDocument();
+    const wrapper =
+      targetDocument.querySelector<HTMLElement>('.acu-wrapper.acu-mode-viewport') ||
+      document.querySelector<HTMLElement>('.acu-wrapper.acu-mode-viewport');
     if (!wrapper) return;
+
+    if (wrapper.ownerDocument !== targetDocument || wrapper.parentElement !== targetDocument.body) {
+      targetDocument.body.appendChild(wrapper);
+    }
+
+    wrapper.style.setProperty('position', 'fixed', 'important');
+    wrapper.style.setProperty('display', 'flex', 'important');
+    wrapper.style.setProperty('flex-direction', 'column-reverse', 'important');
+    wrapper.style.setProperty('visibility', 'visible', 'important');
+    wrapper.style.setProperty('opacity', '1', 'important');
+    wrapper.style.setProperty('pointer-events', 'auto', 'important');
+    wrapper.style.setProperty('top', 'auto', 'important');
+    wrapper.style.setProperty('margin', '0', 'important');
+    wrapper.style.setProperty('box-sizing', 'border-box', 'important');
+
+    const navContainer = wrapper.querySelector<HTMLElement>('.acu-nav-container');
+    if (navContainer) {
+      navContainer.style.setProperty('visibility', 'visible', 'important');
+      navContainer.style.setProperty('opacity', '1', 'important');
+      navContainer.style.setProperty('pointer-events', 'auto', 'important');
+    }
+
+    const expandTrigger = wrapper.querySelector<HTMLElement>('.acu-expand-trigger');
+    if (expandTrigger) {
+      expandTrigger.style.setProperty('display', 'flex', 'important');
+      expandTrigger.style.setProperty('visibility', 'visible', 'important');
+      expandTrigger.style.setProperty('opacity', '1', 'important');
+      expandTrigger.style.setProperty('pointer-events', 'auto', 'important');
+    }
+
+    const visualViewport = targetWindow.visualViewport;
+    const viewportWidth =
+      visualViewport?.width || targetWindow.innerWidth || targetDocument.documentElement.clientWidth || window.innerWidth || 0;
+    if (viewportWidth > 0 && viewportWidth <= 768) {
+      const left = visualViewport?.offsetLeft || 0;
+      const bottomOffset = getViewportBottomOffset();
+      const viewportTop = visualViewport?.offsetTop || 0;
+      const viewportHeight =
+        visualViewport?.height || targetWindow.innerHeight || targetDocument.documentElement.clientHeight || 0;
+      wrapper.style.setProperty('left', `${left}px`, 'important');
+      wrapper.style.setProperty('right', 'auto', 'important');
+      wrapper.style.setProperty('width', `${Math.max(280, Math.round(viewportWidth))}px`, 'important');
+      wrapper.style.setProperty('max-width', `${Math.max(280, Math.round(viewportWidth))}px`, 'important');
+      wrapper.style.setProperty('transform', 'none', 'important');
+      wrapper.style.setProperty('bottom', `${bottomOffset}px`, 'important');
+      wrapper.style.setProperty('z-index', '31000', 'important');
+
+      // SillyTavern 移动端会把 body 设为 position: fixed 并用负 bottom 偏移；
+      // fixed 子元素会跟着偏到屏幕外，这里按实际 rect 做一次可视位置校正。
+      const rawRect = wrapper.getBoundingClientRect();
+      let correctionY = 0;
+      if (viewportHeight > 0 && rawRect.height > 0) {
+        const desiredTop = viewportTop + viewportHeight - bottomOffset - rawRect.height;
+        correctionY = desiredTop - rawRect.top;
+        if (Number.isFinite(correctionY) && Math.abs(correctionY) > 1) {
+          wrapper.style.setProperty('transform', `translate3d(0, ${Math.round(correctionY)}px, 0)`, 'important');
+        } else {
+          correctionY = 0;
+        }
+      }
+      return;
+    }
 
     const rect = getViewportAnchorRect();
     if (!rect) return;
     if (rect.width <= 0) return;
 
-    const viewportWidth = targetWindow.innerWidth || targetDocument.documentElement.clientWidth || rect.right;
     const left = Math.max(0, rect.left);
     const right = Math.min(viewportWidth, rect.right);
     const width = Math.max(280, right - left);
+    const bottomOffset = getViewportBottomOffset();
 
     wrapper.style.setProperty('left', `${left}px`, 'important');
     wrapper.style.setProperty('right', 'auto', 'important');
     wrapper.style.setProperty('width', `${width}px`, 'important');
     wrapper.style.setProperty('max-width', `${width}px`, 'important');
     wrapper.style.setProperty('transform', 'none', 'important');
-    wrapper.style.setProperty('bottom', `${getViewportBottomOffset()}px`, 'important');
+    wrapper.style.setProperty('bottom', `${bottomOffset}px`, 'important');
   };
 
   const setupViewportBoundsListeners = () => {
-    if (viewportBoundsListenerAttached) return;
-    viewportBoundsListenerAttached = true;
+    const targetWindow = getTavernHostWindow();
+    if (viewportBoundsListenerAttached && viewportBoundsListenerWindow === targetWindow) return;
 
-    const { $ } = getCore();
-    const targetWindow = window.parent || window;
-    const refreshBounds = () => requestAnimationFrame(updateViewportWrapperBounds);
-    $(targetWindow).on('resize.acuViewportBounds orientationchange.acuViewportBounds', refreshBounds);
-    targetWindow.visualViewport?.addEventListener('resize', refreshBounds);
-    targetWindow.visualViewport?.addEventListener('scroll', refreshBounds);
+    if (viewportBoundsListenerWindow && viewportBoundsRefreshHandler) {
+      viewportBoundsListenerWindow.removeEventListener('resize', viewportBoundsRefreshHandler);
+      viewportBoundsListenerWindow.removeEventListener('orientationchange', viewportBoundsRefreshHandler);
+      viewportBoundsListenerWindow.visualViewport?.removeEventListener('resize', viewportBoundsRefreshHandler);
+      viewportBoundsListenerWindow.visualViewport?.removeEventListener('scroll', viewportBoundsRefreshHandler);
+    }
+
+    const refreshBounds = () => {
+      const config = getConfig();
+      if (config.positionMode !== 'viewport') return;
+      if (viewportBoundsRaf !== null) return;
+
+      viewportBoundsRaf = requestAnimationFrame(() => {
+        viewportBoundsRaf = null;
+        updateViewportWrapperBounds();
+      });
+    };
+
+    targetWindow.addEventListener('resize', refreshBounds, { passive: true });
+    targetWindow.addEventListener('orientationchange', refreshBounds, { passive: true });
+    targetWindow.visualViewport?.addEventListener('resize', refreshBounds, { passive: true });
+    targetWindow.visualViewport?.addEventListener('scroll', refreshBounds, { passive: true });
+    viewportBoundsListenerWindow = targetWindow;
+    viewportBoundsRefreshHandler = refreshBounds;
+    viewportBoundsListenerAttached = true;
   };
 
   const renderInterface = () => {
@@ -36185,11 +36363,32 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     html += `</div>`; // 关闭 acu-wrapper
 
-    const $existing = $('.acu-wrapper');
-    if ($existing.length) {
-      $existing.replaceWith(html);
+    if (config.positionMode === 'viewport') {
+      const hostDocument = getTavernHostDocument();
+      const wrapperNodes = collectHostAndLocalNodes<HTMLElement>('.acu-wrapper');
+
+      let replaced = false;
+      for (const node of wrapperNodes) {
+        if (!replaced && node.classList.contains('acu-mode-viewport') && node.parentElement === hostDocument.body) {
+          const replacement = createElementFromHtml(hostDocument, html);
+          if (replacement) {
+            node.replaceWith(replacement);
+            replaced = true;
+          } else {
+            node.remove();
+          }
+          continue;
+        }
+        node.remove();
+      }
+      if (!replaced) insertHtmlToPage(html);
     } else {
-      insertHtmlToPage(html);
+      const $existing = $('.acu-wrapper');
+      if ($existing.length) {
+        $existing.replaceWith(html);
+      } else {
+        insertHtmlToPage(html);
+      }
     }
     setupViewportBoundsListeners();
     updateViewportWrapperBounds();
@@ -36462,7 +36661,13 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     // 1. 固定底部模式：挂到 body，避免被 #chat 的滚动上下文带走
     if (config.positionMode === 'viewport') {
-      $('body').append(html);
+      const targetDocument = getTavernHostDocument();
+      const wrapper = createElementFromHtml(targetDocument, html);
+      if (wrapper) {
+        targetDocument.body.appendChild(wrapper);
+      } else {
+        $(targetDocument.body).append(html);
+      }
       return;
     }
 
@@ -42833,6 +43038,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             // 在事件冒泡前恢复真实结果
             restoreDiceResultBeforeSend();
           });
+
 
         // [新增] 监听输入框的创建/替换，重新拦截新的输入框
         const observer = new MutationObserver(() => {
