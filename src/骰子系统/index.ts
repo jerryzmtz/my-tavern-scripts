@@ -1528,8 +1528,15 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
       }
     });
   };
+  type AcuDiceTextareaElement = HTMLTextAreaElement & {
+    _acuOriginalDiceText?: string | null;
+    _acuOriginalTextareaText?: string | null;
+    _acuHasDiceData?: boolean;
+    _acuValueIntercepted?: boolean;
+  };
+
   // [新增] 智能填充输入栏函数
-  const smartInsertToTextarea = (newContent, contentType) => {
+  const smartInsertToTextarea = (newContent: string, contentType: 'action' | 'dice') => {
     // contentType: 'action' (交互选项) 或 'dice' (骰子结果)
     const { $ } = getCore();
     const $ta = $('#send_textarea');
@@ -1558,22 +1565,22 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
 
     // [修复] 如果配置启用隐藏，且是骰子结果，则使用占位符显示，但保存真实结果
     const diceCfg = getDiceConfig();
-    let contentToInsert = normalizedNewContent;
-    let shouldSaveOriginal = false;
-    if (contentType === 'dice' && diceCfg.hideDiceResultFromUser) {
-      contentToInsert = '[投骰结果已隐藏]';
-      shouldSaveOriginal = true;
-    }
+    const hideDiceResultFromUser = diceCfg.hideDiceResultFromUser === true;
+    const overwriteLastDiceResult = diceCfg.overwriteLastDiceResult !== false;
 
     // 如果输入栏为空，直接填入
     if (!currentVal) {
-      $ta.val(contentToInsert).trigger('input').trigger('change');
+      const finalDisplayVal =
+        contentType === 'dice' && hideDiceResultFromUser ? '[投骰结果已隐藏]' : normalizedNewContent;
+      $ta.val(finalDisplayVal).trigger('input').trigger('change');
       // [修复] 始终保存真实结果到 data 属性（即使不隐藏也要保存，以便后续处理）
       if (contentType === 'dice') {
         $ta.data('acu-original-dice-text', normalizedNewContent);
+        $ta.data('acu-original-textarea-text', normalizedNewContent);
         // [性能优化] 同时设置 DOM 属性作为缓存，避免 getter 中频繁调用 jQuery
-        const textarea = $ta[0] as any;
+        const textarea = $ta[0] as AcuDiceTextareaElement;
         textarea._acuOriginalDiceText = normalizedNewContent;
+        textarea._acuOriginalTextareaText = normalizedNewContent;
         textarea._acuHasDiceData = true;
       }
       return;
@@ -1582,18 +1589,18 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
     // 解析当前内容，分离三个部分
     let workingText = currentVal;
     let existingAction = '';
-    let existingDice = '';
-    let existingDiceOriginal = '';
+    let existingDiceBlocks: string[] = [];
 
     // [修复] 0. 先检查是否有占位符（需要替换而不是添加）
     if (placeholderRegex.test(workingText)) {
       // 如果有占位符，说明之前已经有骰子结果，需要替换
+      const originalTextareaText = $ta.data('acu-original-textarea-text');
       const originalText = $ta.data('acu-original-dice-text') || '';
-      if (originalText) {
+      if (typeof originalTextareaText === 'string' && originalTextareaText.trim()) {
+        workingText = originalTextareaText;
+      } else if (originalText) {
         // 用原始文本替换占位符，以便后续处理
         workingText = workingText.replace(placeholderRegex, originalText);
-        existingDice = originalText;
-        existingDiceOriginal = originalText;
       } else {
         // 如果没有保存的原始文本，直接移除占位符
         workingText = workingText.replace(placeholderRegex, '').trim();
@@ -1603,12 +1610,11 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
     // 1. 提取 <meta:检定结果> 标签块（统一格式）
     const metaMatches = workingText.match(metaCheckResultRegex);
     if (metaMatches && metaMatches.length > 0) {
-      existingDice = metaMatches[metaMatches.length - 1];
-      existingDiceOriginal = existingDice;
+      existingDiceBlocks = overwriteLastDiceResult ? [metaMatches[metaMatches.length - 1]] : [...metaMatches];
       workingText = workingText.replace(metaCheckResultRegex, '\u0000').trim();
       console.log(
         '[DICE]ACU SmartInsert Found and extracted meta check result:',
-        existingDice.substring(0, 50) + '...',
+        existingDiceBlocks[existingDiceBlocks.length - 1].substring(0, 50) + '...',
       );
     }
 
@@ -1649,27 +1655,37 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
 
     // 4. 根据新内容类型，更新对应部分
     if (contentType === 'dice') {
-      // [修复] 保存真实结果，显示占位符（如果配置启用）
-      existingDice = contentToInsert;
-      existingDiceOriginal = normalizedNewContent;
-      // 始终保存真实结果到 data 属性
-      $ta.data('acu-original-dice-text', normalizedNewContent);
-      // [性能优化] 同时设置 DOM 属性作为缓存，避免 getter 中频繁调用 jQuery
-      const textarea = $ta[0] as any;
-      textarea._acuOriginalDiceText = normalizedNewContent;
-      textarea._acuHasDiceData = true;
+      existingDiceBlocks = overwriteLastDiceResult
+        ? [normalizedNewContent]
+        : [...existingDiceBlocks, normalizedNewContent];
     } else if (contentType === 'action') {
       existingAction = normalizedNewContent;
     }
 
     // 5. 重新组合：用户输入 + 交互选项 + 骰子结果
-    const parts = [];
+    const parts: string[] = [];
     if (userInput) parts.push(userInput);
     if (existingAction) parts.push(existingAction);
-    if (existingDice) parts.push(existingDice);
+    parts.push(...existingDiceBlocks.filter(Boolean));
 
-    const finalVal = normalizeTextareaContent(parts.join(' '));
-    $ta.val(finalVal).trigger('input').trigger('change');
+    const finalRealVal = normalizeTextareaContent(parts.join(' '));
+    const finalDisplayVal = hideDiceResultFromUser
+      ? normalizeTextareaContent(finalRealVal.replace(metaCheckResultRegex, '[投骰结果已隐藏]'))
+      : finalRealVal;
+    $ta.val(finalDisplayVal).trigger('input').trigger('change');
+
+    if (contentType === 'dice' || existingDiceBlocks.length > 0) {
+      if (contentType === 'dice') {
+        $ta.data('acu-original-dice-text', normalizedNewContent);
+      }
+      $ta.data('acu-original-textarea-text', finalRealVal);
+      const textarea = $ta[0] as AcuDiceTextareaElement;
+      if (contentType === 'dice') {
+        textarea._acuOriginalDiceText = normalizedNewContent;
+      }
+      textarea._acuOriginalTextareaText = finalRealVal;
+      textarea._acuHasDiceData = true;
+    }
   };
 
   // [新增] 在发送消息前恢复真实结果
@@ -1682,17 +1698,30 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
     if (!$ta.length) return;
 
     const currentVal = $ta.val() || '';
+    const originalTextareaText = $ta.data('acu-original-textarea-text');
     const originalText = $ta.data('acu-original-dice-text');
 
     // 如果有占位符且有保存的原始文本，替换为真实结果
-    if (currentVal.includes('[投骰结果已隐藏]') && originalText) {
+    if (currentVal.includes('[投骰结果已隐藏]') && typeof originalTextareaText === 'string') {
+      $ta.val(originalTextareaText);
+      // 发送后不需要再保存，因为消息已经发送
+      $ta.removeData('acu-original-dice-text');
+      $ta.removeData('acu-original-textarea-text');
+      // [性能优化] 同时清除 DOM 属性缓存
+      const textarea = $ta[0] as AcuDiceTextareaElement;
+      textarea._acuOriginalDiceText = null;
+      textarea._acuOriginalTextareaText = null;
+      textarea._acuHasDiceData = false;
+    } else if (currentVal.includes('[投骰结果已隐藏]') && originalText) {
       const restoredVal = currentVal.replace(/\[投骰结果已隐藏\]/g, originalText);
       $ta.val(restoredVal);
       // 发送后不需要再保存，因为消息已经发送
       $ta.removeData('acu-original-dice-text');
+      $ta.removeData('acu-original-textarea-text');
       // [性能优化] 同时清除 DOM 属性缓存
-      const textarea = $ta[0] as any;
+      const textarea = $ta[0] as AcuDiceTextareaElement;
       textarea._acuOriginalDiceText = null;
+      textarea._acuOriginalTextareaText = null;
       textarea._acuHasDiceData = false;
     }
   };
@@ -1703,11 +1732,11 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
     const $ta = $('#send_textarea');
     if (!$ta.length) return;
 
-    const textarea = $ta[0] as HTMLTextAreaElement;
-    if (!textarea || (textarea as any)._acuValueIntercepted) return;
+    const textarea = $ta[0] as AcuDiceTextareaElement;
+    if (!textarea || textarea._acuValueIntercepted) return;
 
     // 标记已拦截，避免重复拦截
-    (textarea as any)._acuValueIntercepted = true;
+    textarea._acuValueIntercepted = true;
 
     // 保存原始的 value 属性描述符
     const originalDescriptor = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
@@ -1721,18 +1750,23 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
         if (originalDescriptor && originalDescriptor.get) {
           val = originalDescriptor.get.call(this);
         } else {
-          val = (this as any)._value || originalValue || '';
+          val = (this as AcuDiceTextareaElement & { _value?: string })._value || originalValue || '';
         }
 
         // [性能优化] 快速路径：如果没有骰子数据标记，直接返回
         // 使用 DOM 属性而非 jQuery data，避免每次 getter 都调用 jQuery
         // 解决输入 ) 等字符时卡顿的问题
-        if (!(this as any)._acuHasDiceData) {
+        const acuTextarea = this as AcuDiceTextareaElement;
+        if (!acuTextarea._acuHasDiceData) {
           return val;
         }
 
         // 检查是否有占位符需要替换
-        const originalText = (this as any)._acuOriginalDiceText;
+        const originalTextareaText = acuTextarea._acuOriginalTextareaText;
+        if (val && typeof val === 'string' && val.includes('[投骰结果已隐藏]') && originalTextareaText) {
+          return originalTextareaText;
+        }
+        const originalText = acuTextarea._acuOriginalDiceText;
         if (val && typeof val === 'string' && val.includes('[投骰结果已隐藏]') && originalText) {
           return val.replace(/\[投骰结果已隐藏\]/g, originalText);
         }
@@ -1742,7 +1776,7 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
         if (originalDescriptor && originalDescriptor.set) {
           originalDescriptor.set.call(this, val);
         } else {
-          (this as any)._value = val;
+          (this as AcuDiceTextareaElement & { _value?: string })._value = val;
         }
       },
       configurable: true,
@@ -1791,7 +1825,7 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.7.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v4.14'; // 脚本版本号
+  const SCRIPT_VERSION = 'v4.15'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -9268,6 +9302,8 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
     dndCritFail: 1,
     // 对抗平手规则: initiator_lose | tie | initiator_win
     contestTieRule: 'initiator_lose',
+    // 多次投骰时覆盖上一次检定结果；关闭后追加到旧结果后面
+    overwriteLastDiceResult: true,
     // 隐藏输入栏中的检定结果
     hideDiceResultFromUser: false,
     // 隐藏聊天记录中的检定结果
@@ -9311,11 +9347,17 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
             }
           } else {
             // 显示模式：如果有保存的原始文本，恢复它
+            const originalTextareaText = $ta.data('acu-original-textarea-text');
             const originalText = $ta.data('acu-original-dice-text');
-            if (originalText && textareaVal.includes('[投骰结果已隐藏]')) {
+            if (typeof originalTextareaText === 'string' && textareaVal.includes('[投骰结果已隐藏]')) {
+              modifiedText = originalTextareaText;
+              $ta.removeData('acu-original-dice-text');
+              $ta.removeData('acu-original-textarea-text');
+            } else if (originalText && textareaVal.includes('[投骰结果已隐藏]')) {
               // 替换占位符为原始文本
               modifiedText = textareaVal.replace(/\[投骰结果已隐藏\]/g, originalText);
               $ta.removeData('acu-original-dice-text');
+              $ta.removeData('acu-original-textarea-text');
             }
           }
 
@@ -10096,6 +10138,8 @@ import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './
     effectOverrides?: ComputedEffect[];
     /** 进入当前结果分支的说明文本（用于确认弹窗与注入文本） */
     branchReasonText?: string;
+    /** 本次检定写入输入栏的 meta 原文，用于多结果追加时定位效果注入位置 */
+    sourceMetaText?: string;
     timestamp: number;
   }
 
@@ -15803,6 +15847,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const hideDiceResultFromUser =
       diceCfg.hideDiceResultFromUser !== undefined ? diceCfg.hideDiceResultFromUser : false;
     const hideDiceResultInChat = diceCfg.hideDiceResultInChat !== undefined ? diceCfg.hideDiceResultInChat : false;
+    const overwriteLastDiceResult = diceCfg.overwriteLastDiceResult !== false;
 
     const cocExtraHtml = isDND
       ? ''
@@ -15869,6 +15914,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                 <label>隐藏输入栏中的检定结果</label>
                                 <label class="acu-toggle">
                                     <input type="checkbox" id="cfg-hide-dice-result" ${hideDiceResultFromUser ? 'checked' : ''}>
+                                    <span class="acu-toggle-slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="acu-dice-cfg-row acu-cfg-full-row">
+                            <div class="acu-dice-cfg-item acu-cfg-toggle-item">
+                                <label>覆盖上一次检定结果</label>
+                                <label class="acu-toggle">
+                                    <input type="checkbox" id="cfg-overwrite-last-dice-result" ${overwriteLastDiceResult ? 'checked' : ''}>
                                     <span class="acu-toggle-slider"></span>
                                 </label>
                             </div>
@@ -15974,6 +16028,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
       // 保存"隐藏输入栏中的检定结果"设置
       newCfg.hideDiceResultFromUser = $('#cfg-hide-dice-result').is(':checked');
+      // 保存"覆盖上一次检定结果"设置
+      newCfg.overwriteLastDiceResult = $('#cfg-overwrite-last-dice-result').is(':checked');
       // 保存"隐藏聊天记录中的检定结果"设置
       newCfg.hideDiceResultInChat = $('#cfg-hide-dice-result-chat').is(':checked');
 
@@ -16928,7 +16984,51 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       }
     };
 
-    const injectEffectLinesIntoMeta = async (messageId: number, runId: string, lines: string[]): Promise<boolean> => {
+    const findMetaClosingIndex = (
+      text: string,
+      closingCandidates: string[],
+      sourceMetaText?: string,
+    ): { closingIdx: number; closingTag: string } => {
+      if (sourceMetaText) {
+        const anchorLine = sourceMetaText
+          .split('\n')
+          .map(line => line.trim())
+          .find(line => line && line !== '<meta:检定结果>' && line !== '</meta:检定结果>');
+        if (anchorLine) {
+          const anchorIdx = text.indexOf(anchorLine);
+          if (anchorIdx >= 0) {
+            let bestIdx = -1;
+            let bestTag = '';
+            for (const candidate of closingCandidates) {
+              const idx = text.indexOf(candidate, anchorIdx);
+              if (idx >= 0 && (bestIdx === -1 || idx < bestIdx)) {
+                bestIdx = idx;
+                bestTag = candidate;
+              }
+            }
+            if (bestIdx >= 0) return { closingIdx: bestIdx, closingTag: bestTag };
+          }
+        }
+      }
+
+      let closingIdx = -1;
+      let closingTag = '';
+      for (const candidate of closingCandidates) {
+        const idx = text.lastIndexOf(candidate);
+        if (idx > closingIdx) {
+          closingIdx = idx;
+          closingTag = candidate;
+        }
+      }
+      return { closingIdx, closingTag };
+    };
+
+    const injectEffectLinesIntoMeta = async (
+      messageId: number,
+      runId: string,
+      lines: string[],
+      sourceMetaText?: string,
+    ): Promise<boolean> => {
       if (lines.length === 0) return false;
       console.info(`[DICE][META] inject start: run=${runId}, message=${messageId}, lines=${lines.length}`);
       return enqueueMessageMutation(messageId, async () => {
@@ -16960,15 +17060,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
           const original = String(msg.message || '');
           const closingCandidates = ['</meta:检定结果>', '&lt;/meta:检定结果&gt;', '&amp;lt;/meta:检定结果&amp;gt;'];
-          let closingIdx = -1;
-          let closingTag = '';
-          for (const candidate of closingCandidates) {
-            const idx = original.lastIndexOf(candidate);
-            if (idx > closingIdx) {
-              closingIdx = idx;
-              closingTag = candidate;
-            }
-          }
+          const { closingIdx, closingTag } = findMetaClosingIndex(original, closingCandidates, sourceMetaText);
           if (closingIdx === -1) {
             const hasRawOpen = original.includes('<meta:检定结果>');
             const hasRawClose = original.includes('</meta:检定结果>');
@@ -17016,7 +17108,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       });
     };
 
-    const injectEffectLinesIntoTextarea = (runId: string, lines: string[]): boolean => {
+    const injectEffectLinesIntoTextarea = (runId: string, lines: string[], sourceMetaText?: string): boolean => {
       if (lines.length === 0) return false;
       try {
         const { $ } = getCore();
@@ -17031,15 +17123,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         }
 
         const closingCandidates = ['</meta:检定结果>', '&lt;/meta:检定结果&gt;', '&amp;lt;/meta:检定结果&amp;gt;'];
-        let closingIdx = -1;
-        let closingTag = '';
-        for (const candidate of closingCandidates) {
-          const idx = raw.lastIndexOf(candidate);
-          if (idx > closingIdx) {
-            closingIdx = idx;
-            closingTag = candidate;
-          }
-        }
+        const { closingIdx, closingTag } = findMetaClosingIndex(raw, closingCandidates, sourceMetaText);
         if (closingIdx === -1) {
           console.warn(`[DICE][META] textarea inject failed: closing tag missing, run=${runId}`);
           return false;
@@ -17214,6 +17298,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const now = Date.now();
       const nextPending: PendingEffectContext[] = [];
       const executableRuns: PendingEffectContext[] = [];
+      const consumeAllRunsForMessage = getDiceConfig().overwriteLastDiceResult === false;
       let consumedByMessage = false;
       let consumedByFallback = false;
 
@@ -17248,13 +17333,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             continue;
           }
 
-          if (!consumedByMessage) {
+          if (!consumedByMessage || consumeAllRunsForMessage) {
             if (!run.messageId) {
               run.messageId = incomingMessageId;
               console.info(`[DICE][META] bind queued run=${run.runId} message=${incomingMessageId}`);
             }
             executableRuns.push(run);
-            consumedByMessage = true;
+            if (!consumeAllRunsForMessage) {
+              consumedByMessage = true;
+            }
           } else {
             nextPending.push(run);
           }
@@ -17356,7 +17443,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                 if (run.messageId) {
                   const msgId = parseInt(run.messageId, 10);
                   if (!isNaN(msgId) && msgId >= 0) {
-                    const injected = await injectEffectLinesIntoMeta(msgId, run.runId, metaLines);
+                    const injected = await injectEffectLinesIntoMeta(msgId, run.runId, metaLines, run.sourceMetaText);
                     if (injected) {
                       console.info(
                         `[DICE] Effect results injected into meta: ${metaLines.length} line(s) in message ${msgId}`,
@@ -17372,7 +17459,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                     );
                   }
                 } else {
-                  const textareaInjected = injectEffectLinesIntoTextarea(run.runId, metaLines);
+                  const textareaInjected = injectEffectLinesIntoTextarea(run.runId, metaLines, run.sourceMetaText);
                   if (!textareaInjected) {
                     console.warn(`[DICE][META] no messageId and textarea inject failed: run=${run.runId}`);
                   }
@@ -19379,6 +19466,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           matchedOutcome,
           context: effectContext,
           branchReasonText,
+          sourceMetaText: diceResultText,
           timestamp: Date.now(),
         };
 
@@ -31097,6 +31185,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                         <span class="acu-toggle-slider"></span>
                     </label>
                 </div>
+                <div class="acu-setting-row acu-setting-row-toggle" style="margin-bottom: 8px;">
+                    <div class="acu-setting-info">
+                        <span class="acu-setting-label">覆盖上一次检定结果</span>
+                    </div>
+                    <label class="acu-toggle">
+                        <input type="checkbox" id="cfg-overwrite-last-dice-result" ${diceCfg.overwriteLastDiceResult !== false ? 'checked' : ''}>
+                        <span class="acu-toggle-slider"></span>
+                    </label>
+                </div>
                  <div class="acu-setting-row acu-setting-row-toggle">
                     <div class="acu-setting-info">
                         <span class="acu-setting-label">隐藏聊天记录中的检定结果</span>
@@ -31155,6 +31252,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       saveDiceConfig({ hideDiceResultFromUser: hide });
       console.info('[DICE]应用投骰结果隐藏/显示设置(输入栏)...', hide);
       hideDiceResultsInUserMessages();
+    });
+
+    overlay.find('#cfg-overwrite-last-dice-result').on('change', function () {
+      const overwrite = $(this).is(':checked');
+      saveDiceConfig({ overwriteLastDiceResult: overwrite });
+      console.info('[DICE]应用投骰结果覆盖设置...', overwrite);
     });
 
     overlay.find('#cfg-hide-dice-result-chat').on('change', function () {
