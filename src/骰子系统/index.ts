@@ -1574,7 +1574,7 @@ import {
   let lastHumanInputCaptureAt = 0;
   let gachaHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let gachaShopUiRefreshTimer: ReturnType<typeof setInterval> | null = null;
-  const GACHA_TEST_DEFAULT_FORTUNE = 5000;
+  const GACHA_TEST_DEFAULT_FORTUNE = 50;
   const GACHA_SHARD_EXCHANGE_COST = 10;
   const STORAGE_KEY_GACHA_STATE = 'acu_gacha_state_v1';
   const STORAGE_KEY_GACHA_SHARD_SHOP_RARITY = 'acu_gacha_shard_shop_rarity_v1';
@@ -3626,7 +3626,9 @@ import {
 
     // 获取按表名分组的规则
     getRulesByTable(tableName) {
-      return this.getEnabledRules().filter(rule => rule.targetTable === tableName || (isNpcTableName(rule.targetTable) && isNpcTableName(tableName)));
+      return this.getEnabledRules().filter(
+        rule => rule.targetTable === tableName || (isNpcTableName(rule.targetTable) && isNpcTableName(tableName)),
+      );
     },
   };
 
@@ -4899,13 +4901,19 @@ import {
         let oldSheet = null,
           newSheet = null;
         for (const sheetId in snapshot) {
-          if (snapshot[sheetId]?.name === rule.targetTable || (isNpcTableName(snapshot[sheetId]?.name) && isNpcTableName(rule.targetTable))) {
+          if (
+            snapshot[sheetId]?.name === rule.targetTable ||
+            (isNpcTableName(snapshot[sheetId]?.name) && isNpcTableName(rule.targetTable))
+          ) {
             oldSheet = snapshot[sheetId];
             break;
           }
         }
         for (const sheetId in newData) {
-          if (newData[sheetId]?.name === rule.targetTable || (isNpcTableName(newData[sheetId]?.name) && isNpcTableName(rule.targetTable))) {
+          if (
+            newData[sheetId]?.name === rule.targetTable ||
+            (isNpcTableName(newData[sheetId]?.name) && isNpcTableName(rule.targetTable))
+          ) {
             newSheet = newData[sheetId];
             break;
           }
@@ -5014,7 +5022,8 @@ import {
       const rowTitle = row[1] || row[0] || `行 ${rowIndex + 1}`;
 
       for (const rule of rules) {
-        if (rule.targetTable !== tableName && !(isNpcTableName(rule.targetTable) && isNpcTableName(tableName))) continue;
+        if (rule.targetTable !== tableName && !(isNpcTableName(rule.targetTable) && isNpcTableName(tableName)))
+          continue;
         if (!rule.enabled) continue;
 
         // 找到目标列
@@ -13798,7 +13807,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const skillName = String(rowData[1] ?? '技能');
       let checkValue: number | null = null;
       const attrValIdx = headers.findIndex(header => header && String(header).includes('属性值'));
-      const profIdx = headers.findIndex(header => header && (String(header).includes('熟练') || String(header).includes('等级')));
+      const profIdx = headers.findIndex(
+        header => header && (String(header).includes('熟练') || String(header).includes('等级')),
+      );
 
       if (attrValIdx > 0 && rowData[attrValIdx]) {
         const value = extractNumericValue(rowData[attrValIdx]);
@@ -14591,9 +14602,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const sheetName = sheet.name;
 
       // 主角信息表 -> <user> 或通过真名匹配
-      if (
-        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
-      ) {
+      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与characterName一致
           if (!isUser) {
@@ -14755,9 +14764,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const sheetName = sheet.name;
 
       // 主角信息表 -> <user> 或通过真名匹配
-      if (
-        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
-      ) {
+      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与characterName一致
           if (!isUser) {
@@ -15227,9 +15234,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const headers = sheet.content[0] || [];
 
       // 主角信息表
-      if (
-        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
-      ) {
+      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与charName一致
           if (!isUser) {
@@ -15373,9 +15378,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const headers = sheet.content[0] || [];
 
       // 主角信息表
-      if (
-        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
-      ) {
+      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与charName一致
           if (!isUser) {
@@ -15683,9 +15686,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       };
 
       // 主角信息表
-      if (
-        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
-      ) {
+      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与charName一致
           if (!isUser) {
@@ -15874,9 +15875,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const sheetName = sheet.name;
 
       // 主角信息表 -> <user> 或通过真名匹配
-      if (
-        (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player'))
-      ) {
+      if (sheetName.includes('主角') || sheetName.includes('玩家') || sheetName.toLowerCase().includes('player')) {
         if (sheet.content[1]) {
           // 通过真名匹配：非<user>时检查主角表中的姓名是否与characterName一致
           if (!isUser) {
@@ -27175,7 +27174,14 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     });
   };
   // [新增] 整体编辑模态框 (已修复自动高度与样式复用)
-  const showCardEditModal = (row, headers, tableName, rowIndex, tableKey, options?: { overlayClass?: string; onSaved?: () => void }) => {
+  const showCardEditModal = (
+    row,
+    headers,
+    tableName,
+    rowIndex,
+    tableKey,
+    options?: { overlayClass?: string; onSaved?: () => void },
+  ) => {
     const { $ } = getCore();
     const config = getConfig();
     let rawData = cachedRawData || getTableData() || loadSnapshot();
@@ -27470,7 +27476,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     }
 
     targetDocument.querySelectorAll<HTMLStyleElement>('style').forEach(styleEl => {
-      if (styleEl.id && styleEl.id.startsWith('acu_') && styleEl.id.endsWith('-styles') && styleEl.id !== `${SCRIPT_ID}-styles`)
+      if (
+        styleEl.id &&
+        styleEl.id.startsWith('acu_') &&
+        styleEl.id.endsWith('-styles') &&
+        styleEl.id !== `${SCRIPT_ID}-styles`
+      )
         styleEl.remove();
     });
     targetDocument.getElementById(`${SCRIPT_ID}-styles`)?.remove();
@@ -36023,7 +36034,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const targetDocument = getTavernHostDocument();
     const visualViewport = targetWindow.visualViewport;
     const viewportTop = visualViewport?.offsetTop || 0;
-    const viewportHeight = visualViewport?.height || targetWindow.innerHeight || targetDocument.documentElement.clientHeight || 0;
+    const viewportHeight =
+      visualViewport?.height || targetWindow.innerHeight || targetDocument.documentElement.clientHeight || 0;
     const viewportBottom = viewportTop + viewportHeight;
     const selectors = ['#send_form', '#form_sheld', '#send_textarea', '#chat_input', '#send_but'];
 
@@ -36093,7 +36105,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     const visualViewport = targetWindow.visualViewport;
     const viewportWidth =
-      visualViewport?.width || targetWindow.innerWidth || targetDocument.documentElement.clientWidth || window.innerWidth || 0;
+      visualViewport?.width ||
+      targetWindow.innerWidth ||
+      targetDocument.documentElement.clientWidth ||
+      window.innerWidth ||
+      0;
     if (viewportWidth > 0 && viewportWidth <= 768) {
       const left = visualViewport?.offsetLeft || 0;
       const bottomOffset = getViewportBottomOffset();
@@ -36516,12 +36532,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                       isChangesPanelActive
                         ? renderChangesPanel(rawData)
                         : isDashboardActive
-                            ? renderDashboard(tables)
-                            : isMvuActive
-                              ? '<div class="acu-mvu-panel">' + MvuModule.renderPanel() + '</div>'
-                              : currentTabName
-                                ? renderTableContent(tables[currentTabName], currentTabName)
-                                : ''
+                          ? renderDashboard(tables)
+                          : isMvuActive
+                            ? '<div class="acu-mvu-panel">' + MvuModule.renderPanel() + '</div>'
+                            : currentTabName
+                              ? renderTableContent(tables[currentTabName], currentTabName)
+                              : ''
                     }
                 </div>
                 `;
@@ -39128,7 +39144,14 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     acquiredAt: string;
     acquiredAtLocation: string;
   };
-  type InventoryEditableField = 'name' | 'type' | 'quantity' | 'quality' | 'description' | 'acquiredAtLocation' | 'acquiredAt';
+  type InventoryEditableField =
+    | 'name'
+    | 'type'
+    | 'quantity'
+    | 'quality'
+    | 'description'
+    | 'acquiredAtLocation'
+    | 'acquiredAt';
   type InventoryMenuScope = 'card' | 'summary' | 'meta' | 'field';
   type InventoryMetadataScope = Record<string, InventoryMetadataRecord>;
   type InventoryMetadataRoot = Record<string, InventoryMetadataScope>;
@@ -39237,13 +39260,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       };
 
   const createEmptyShardWallet = (): GachaShardWallet =>
-    GACHA_RARITY_ORDER.reduce(
-      (acc, rarity) => {
-        acc[rarity] = 0;
-        return acc;
-      },
-      {} as GachaShardWallet,
-    );
+    GACHA_RARITY_ORDER.reduce((acc, rarity) => {
+      acc[rarity] = 0;
+      return acc;
+    }, {} as GachaShardWallet);
 
   const GACHA_DUPLICATE_REROLL_LIMIT = 8;
   const GACHA_PICKUP_WEIGHT_MULTIPLIER = 10;
@@ -39278,11 +39298,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const stored = Store.get(STORAGE_KEY_INVENTORY_FILTERS, {}) as Partial<InventoryFilterState>;
     return {
       search: String(stored.search || ''),
-      type: INVENTORY_TYPE_OPTIONS.includes(stored.type as InventoryTypeFilter) ? (stored.type as InventoryTypeFilter) : '全部',
+      type: INVENTORY_TYPE_OPTIONS.includes(stored.type as InventoryTypeFilter)
+        ? (stored.type as InventoryTypeFilter)
+        : '全部',
       quality: INVENTORY_QUALITY_OPTIONS.includes(stored.quality as InventoryQualityFilter)
         ? (stored.quality as InventoryQualityFilter)
         : '全部',
-      sort: INVENTORY_SORT_OPTIONS.some(option => option.value === stored.sort) ? (stored.sort as InventorySortFilter) : 'default',
+      sort: INVENTORY_SORT_OPTIONS.some(option => option.value === stored.sort)
+        ? (stored.sort as InventorySortFilter)
+        : 'default',
     };
   };
 
@@ -39411,7 +39435,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const quality = GACHA_RARITY_ORDER.includes((record as Record<string, unknown>).quality as GachaRarity)
           ? ((record as Record<string, unknown>).quality as GachaRarity)
           : '普通';
-        const rewardTarget = (record as Record<string, unknown>).rewardTarget === 'equipment' ? 'equipment' : 'inventory';
+        const rewardTarget =
+          (record as Record<string, unknown>).rewardTarget === 'equipment' ? 'equipment' : 'inventory';
         const poolTag = GACHA_POOL_TAGS.includes((record as Record<string, unknown>).poolTag as GachaPoolTag)
           ? ((record as Record<string, unknown>).poolTag as GachaPoolTag)
           : '全部';
@@ -39421,7 +39446,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           quality,
           quantity: Math.max(1, Number.parseInt(String((record as Record<string, unknown>).quantity || '1'), 10) || 1),
           duplicateConverted: (record as Record<string, unknown>).duplicateConverted === true,
-          shardGain: Math.max(0, Number.parseInt(String((record as Record<string, unknown>).shardGain || '0'), 10) || 0),
+          shardGain: Math.max(
+            0,
+            Number.parseInt(String((record as Record<string, unknown>).shardGain || '0'), 10) || 0,
+          ),
           poolTag,
           rewardTarget,
           createdAt: String((record as Record<string, unknown>).createdAt || '').trim(),
@@ -39639,11 +39667,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   };
 
   const createUniqueGachaItemId = (baseId: string, existingIds: Set<string>): string => {
-    const safeBase = String(baseId || 'custom_item')
-      .trim()
-      .replace(/[^\w-]+/g, '_')
-      .replace(/^_+|_+$/g, '')
-      .slice(0, 64) || 'custom_item';
+    const safeBase =
+      String(baseId || 'custom_item')
+        .trim()
+        .replace(/[^\w-]+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .slice(0, 64) || 'custom_item';
     let nextId = safeBase;
     let suffix = 2;
     while (existingIds.has(nextId)) {
@@ -39749,7 +39778,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       if (seenImportIds.has(item.id)) duplicateIds.add(item.id);
       seenImportIds.add(item.id);
     });
-    const conflictIds = Array.from(new Set(items.map(item => item.id).filter(id => existingIds.has(id) || duplicateIds.has(id))));
+    const conflictIds = Array.from(
+      new Set(items.map(item => item.id).filter(id => existingIds.has(id) || duplicateIds.has(id))),
+    );
     return {
       items,
       skipped: rawItems.length - items.length,
@@ -40134,7 +40165,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     $dialog.find('.acu-gacha-catalog-import-close').click(closeDialog);
     setupOverlayClose($dialog, 'acu-import-confirm-overlay', closeDialog);
     $dialog.find('.acu-import-confirm-btn').click(function () {
-      const mode = String($dialog.find('input[name="gacha-catalog-conflict-mode"]:checked').val() || 'overwrite') as GachaCatalogImportMode;
+      const mode = String(
+        $dialog.find('input[name="gacha-catalog-conflict-mode"]:checked').val() || 'overwrite',
+      ) as GachaCatalogImportMode;
       closeDialog();
       void runInSaveQueue(async () => {
         const rawData = getRuntimeGachaRawData();
@@ -40203,54 +40236,94 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       : defaultState.activePoolTag;
     const state: GachaState = {
       wallet: {
-        fortune: Math.max(0, Number.parseInt(String((rawRecord.wallet as Record<string, unknown> | undefined)?.fortune || '0'), 10) || 0),
+        fortune: Math.max(
+          0,
+          Number.parseInt(String((rawRecord.wallet as Record<string, unknown> | undefined)?.fortune || '0'), 10) || 0,
+        ),
         shards: normalizeShardWallet((rawRecord.wallet as Record<string, unknown> | undefined)?.shards),
       },
       activePoolTag,
       pity: {
-        rare: Math.max(0, Number.parseInt(String((rawRecord.pity as Record<string, unknown> | undefined)?.rare || '0'), 10) || 0),
-        legend: Math.max(0, Number.parseInt(String((rawRecord.pity as Record<string, unknown> | undefined)?.legend || '0'), 10) || 0),
+        rare: Math.max(
+          0,
+          Number.parseInt(String((rawRecord.pity as Record<string, unknown> | undefined)?.rare || '0'), 10) || 0,
+        ),
+        legend: Math.max(
+          0,
+          Number.parseInt(String((rawRecord.pity as Record<string, unknown> | undefined)?.legend || '0'), 10) || 0,
+        ),
       },
       recentRewards: normalizeRecentGachaRewards(rawRecord.recentRewards),
       totalDraws: Math.max(0, Number.parseInt(String(rawRecord.totalDraws || '0'), 10) || 0),
       inputStats: {
         totalTypedChars: Math.max(
           0,
-          Number.parseInt(String((rawRecord.inputStats as Record<string, unknown> | undefined)?.totalTypedChars || '0'), 10) || 0,
+          Number.parseInt(
+            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.totalTypedChars || '0'),
+            10,
+          ) || 0,
         ),
         totalTypedMessages: Math.max(
           0,
-          Number.parseInt(String((rawRecord.inputStats as Record<string, unknown> | undefined)?.totalTypedMessages || '0'), 10) || 0,
+          Number.parseInt(
+            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.totalTypedMessages || '0'),
+            10,
+          ) || 0,
         ),
         totalActiveMinutes: Math.max(
           0,
-          Number.parseInt(String((rawRecord.inputStats as Record<string, unknown> | undefined)?.totalActiveMinutes || '0'), 10) || 0,
+          Number.parseInt(
+            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.totalActiveMinutes || '0'),
+            10,
+          ) || 0,
         ),
         pendingCharCarry: Math.max(
           0,
-          Number.parseInt(String((rawRecord.inputStats as Record<string, unknown> | undefined)?.pendingCharCarry || '0'), 10) || 0,
+          Number.parseInt(
+            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.pendingCharCarry || '0'),
+            10,
+          ) || 0,
         ),
         pendingActiveMs: Math.max(
           0,
-          Number.parseInt(String((rawRecord.inputStats as Record<string, unknown> | undefined)?.pendingActiveMs || '0'), 10) || 0,
+          Number.parseInt(
+            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.pendingActiveMs || '0'),
+            10,
+          ) || 0,
         ),
         lastActiveAt: Math.max(
           0,
-          Number.parseInt(String((rawRecord.inputStats as Record<string, unknown> | undefined)?.lastActiveAt || '0'), 10) || 0,
+          Number.parseInt(
+            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.lastActiveAt || '0'),
+            10,
+          ) || 0,
         ),
         lastHeartbeatAt: Math.max(
           0,
-          Number.parseInt(String((rawRecord.inputStats as Record<string, unknown> | undefined)?.lastHeartbeatAt || '0'), 10) || 0,
+          Number.parseInt(
+            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.lastHeartbeatAt || '0'),
+            10,
+          ) || 0,
         ),
         lastFortuneGain: Math.max(
           0,
-          Number.parseInt(String((rawRecord.inputStats as Record<string, unknown> | undefined)?.lastFortuneGain || '0'), 10) || 0,
+          Number.parseInt(
+            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.lastFortuneGain || '0'),
+            10,
+          ) || 0,
         ),
-        lastFortuneReason: String((rawRecord.inputStats as Record<string, unknown> | undefined)?.lastFortuneReason || '').trim(),
-        lastFortuneDetail: String((rawRecord.inputStats as Record<string, unknown> | undefined)?.lastFortuneDetail || '').trim(),
+        lastFortuneReason: String(
+          (rawRecord.inputStats as Record<string, unknown> | undefined)?.lastFortuneReason || '',
+        ).trim(),
+        lastFortuneDetail: String(
+          (rawRecord.inputStats as Record<string, unknown> | undefined)?.lastFortuneDetail || '',
+        ).trim(),
         lastFortuneAt: Math.max(
           0,
-          Number.parseInt(String((rawRecord.inputStats as Record<string, unknown> | undefined)?.lastFortuneAt || '0'), 10) || 0,
+          Number.parseInt(
+            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.lastFortuneAt || '0'),
+            10,
+          ) || 0,
         ),
         lastSettledMessageId: String(
           (rawRecord.inputStats as Record<string, unknown> | undefined)?.lastSettledMessageId || '',
@@ -40412,7 +40485,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return null;
   };
 
-  const pickWeightedValue = <T,>(entries: Array<{ value: T; weight: number }>): T | null => {
+  const pickWeightedValue = <T>(entries: Array<{ value: T; weight: number }>): T | null => {
     const safeEntries = entries.filter(entry => Number(entry.weight) > 0);
     if (safeEntries.length === 0) return null;
     const totalWeight = safeEntries.reduce((sum, entry) => sum + Number(entry.weight), 0);
@@ -40430,7 +40503,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return [poolTag];
   };
 
-  const getGachaPoolDefinitions = (poolTag: GachaPoolTag, rawData = getRuntimeGachaRawData()): GachaItemDefinition[] => {
+  const getGachaPoolDefinitions = (
+    poolTag: GachaPoolTag,
+    rawData = getRuntimeGachaRawData(),
+  ): GachaItemDefinition[] => {
     const activeTags = getActiveGachaPoolTags(poolTag);
     return getAllGachaItemDefinitions(rawData).filter(item => item.poolTags.some(tag => activeTags.includes(tag)));
   };
@@ -40575,7 +40651,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   const findGachaDefinitionByInventoryItem = (
     item: Pick<InventoryParsedItem, 'name' | 'quality'>,
   ): GachaItemDefinition | null =>
-    getAllGachaItemDefinitions().find(definition => definition.name === item.name && definition.quality === item.quality) || null;
+    getAllGachaItemDefinitions().find(
+      definition => definition.name === item.name && definition.quality === item.quality,
+    ) || null;
 
   const grantInventoryGachaReward = (
     rawData,
@@ -40606,7 +40684,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     if (existing) {
       const row = table.content[existing.rowIndex + 1];
       if (!Array.isArray(row)) return null;
-      const currentQuantity = Math.max(0, Number.parseInt(String(row[parsed.colMap.quantity] ?? existing.quantity ?? 0), 10) || 0);
+      const currentQuantity = Math.max(
+        0,
+        Number.parseInt(String(row[parsed.colMap.quantity] ?? existing.quantity ?? 0), 10) || 0,
+      );
       const nextQuantity = currentQuantity + Math.max(1, quantity);
       setInventoryRowBasicFields(row, parsed.colMap, item, nextQuantity);
       return {
@@ -40629,7 +40710,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     setInventoryMetadataForItem(
       rawData,
       { tableKey: parsed.tableKey, tableName: parsed.tableName, name: item.name },
-      buildGachaInventoryMetaRecord(rawData, { tableKey: parsed.tableKey, tableName: parsed.tableName, name: item.name }),
+      buildGachaInventoryMetaRecord(rawData, {
+        tableKey: parsed.tableKey,
+        tableName: parsed.tableName,
+        name: item.name,
+      }),
     );
     return {
       outcome: {
@@ -40665,7 +40750,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     state.recentRewards = state.recentRewards.slice(0, GACHA_RECENT_REWARD_LIMIT);
   };
 
-  const drawSingleGachaOutcome = (rawData, state: GachaState): { outcome: GachaDrawOutcome; modifiedSheetKey?: string } | null => {
+  const drawSingleGachaOutcome = (
+    rawData,
+    state: GachaState,
+  ): { outcome: GachaDrawOutcome; modifiedSheetKey?: string } | null => {
     const poolTag = state.activePoolTag;
     const minimumRarity = getGachaMinimumRarity(state);
     const rarity = pickGachaRarity(poolTag, minimumRarity, rawData);
@@ -40900,7 +40988,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   };
 
   const getTotalGachaShards = (state: GachaState): number =>
-    GACHA_RARITY_ORDER.reduce((sum, rarity) => sum + Math.max(0, Math.floor(Number(state.wallet.shards[rarity] || 0))), 0);
+    GACHA_RARITY_ORDER.reduce(
+      (sum, rarity) => sum + Math.max(0, Math.floor(Number(state.wallet.shards[rarity] || 0))),
+      0,
+    );
 
   const renderGachaPanelHtml = rawData => {
     const state = getGachaState(rawData, true) || createDefaultGachaState();
@@ -41088,7 +41179,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const summary = outcomes
         .slice(0, 5)
         .map(outcome =>
-          outcome.duplicateConverted ? `${outcome.item.name}→${outcome.shardGain}${getGachaShardLabel(outcome.item.quality)}` : outcome.item.name,
+          outcome.duplicateConverted
+            ? `${outcome.item.name}→${outcome.shardGain}${getGachaShardLabel(outcome.item.quality)}`
+            : outcome.item.name,
         )
         .join('、');
       if (window.toastr) {
@@ -41156,7 +41249,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       let dismantleUnits = 1;
       if (maxDismantleUnits > 1) {
         const unitLabel = dismantleUnitSize > 1 ? `组（每组 ${dismantleUnitSize} 个）` : '个';
-        const input = window.prompt(`请输入要拆解的${unitLabel}数量（1-${maxDismantleUnits}）`, String(maxDismantleUnits));
+        const input = window.prompt(
+          `请输入要拆解的${unitLabel}数量（1-${maxDismantleUnits}）`,
+          String(maxDismantleUnits),
+        );
         if (input === null) return;
         dismantleUnits = Number.parseInt(String(input || '').trim(), 10);
         if (!Number.isFinite(dismantleUnits) || dismantleUnits <= 0 || dismantleUnits > maxDismantleUnits) {
@@ -41314,7 +41410,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         state.inputStats.pendingActiveMs -= rewardCount * rewardStepMs;
         state.inputStats.totalActiveMinutes += (rewardCount * GACHA_ACTIVE_SECONDS_PER_FORTUNE) / 60;
         state.wallet.fortune += rewardCount;
-        recordGachaFortuneGain(state, rewardCount, '活跃奖励', `活跃 ${rewardCount * GACHA_ACTIVE_SECONDS_PER_FORTUNE} 秒`);
+        recordGachaFortuneGain(
+          state,
+          rewardCount,
+          '活跃奖励',
+          `活跃 ${rewardCount * GACHA_ACTIVE_SECONDS_PER_FORTUNE} 秒`,
+        );
         updateGachaFortuneProgressDom(state);
         await persistRawDataWithGacha(rawData);
         updateGachaFortuneProgressDom(state);
@@ -41368,7 +41469,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return String(tableKey || tableName || 'inventory').trim() || 'inventory';
   };
 
-  const getInventoryMetadataForItem = (rawData, item: Pick<InventoryParsedItem, 'tableKey' | 'tableName' | 'name'>): InventoryMetadataRecord | null => {
+  const getInventoryMetadataForItem = (
+    rawData,
+    item: Pick<InventoryParsedItem, 'tableKey' | 'tableName' | 'name'>,
+  ): InventoryMetadataRecord | null => {
     const root = getInventoryMetadataRoot(rawData, false);
     const scopeKey = getInventoryMetadataScopeKey(item.tableKey, item.tableName);
     const scope = root[scopeKey];
@@ -41911,7 +42015,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const isFilterCollapsed = getInventoryFiltersCollapsedState();
     const activeFilterCount = getInventoryActiveFilterCount(filters);
     const { tableName, tableKey, items, colMap } = parseInventoryItems(rawData);
-    const normalizedSearch = String(filters.search || '').trim().toLowerCase();
+    const normalizedSearch = String(filters.search || '')
+      .trim()
+      .toLowerCase();
 
     let filteredItems = items.filter(item => {
       if (filters.type !== '全部' && item.type !== filters.type) return false;
@@ -41926,7 +42032,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       if (a.isChanged !== b.isChanged) return a.isChanged ? -1 : 1;
       if (filters.sort === 'type') return a.type.localeCompare(b.type, 'zh-CN') || a.rowIndex - b.rowIndex;
       if (filters.sort === 'quality') {
-        return (INVENTORY_QUALITY_ORDER[b.quality] || 0) - (INVENTORY_QUALITY_ORDER[a.quality] || 0) || a.rowIndex - b.rowIndex;
+        return (
+          (INVENTORY_QUALITY_ORDER[b.quality] || 0) - (INVENTORY_QUALITY_ORDER[a.quality] || 0) ||
+          a.rowIndex - b.rowIndex
+        );
       }
       if (filters.sort === 'quantity') return b.quantity - a.quantity || a.rowIndex - b.rowIndex;
       if (filters.sort === 'name') return a.name.localeCompare(b.name, 'zh-CN');
@@ -42111,7 +42220,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return indexMap[fieldKey];
   };
 
-  const getInventoryEnumOptions = (tableName: string, fieldKey: Extract<InventoryEditableField, 'type' | 'quality'>): string[] => {
+  const getInventoryEnumOptions = (
+    tableName: string,
+    fieldKey: Extract<InventoryEditableField, 'type' | 'quality'>,
+  ): string[] => {
     const targetColumn = fieldKey === 'type' ? '类型' : '品质';
     const matchedRule = ValidationRuleManager.getEnabledRules().find(rule => {
       if (rule.ruleType !== 'enum') return false;
@@ -42153,7 +42265,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     }
 
     if (fieldKey === 'acquiredAtLocation' || fieldKey === 'acquiredAt') {
-      const currentRecord = getInventoryMetadataForItem(context.rawData, context.item) || { acquiredAt: '', acquiredAtLocation: '' };
+      const currentRecord = getInventoryMetadataForItem(context.rawData, context.item) || {
+        acquiredAt: '',
+        acquiredAtLocation: '',
+      };
       const nextRecord: InventoryMetadataRecord = {
         ...currentRecord,
         [fieldKey]: String(nextValue || '').trim(),
@@ -42251,8 +42366,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     }
 
     if (fieldKey === 'acquiredAtLocation' || fieldKey === 'acquiredAt') {
-      const currentRecord = getInventoryMetadataForItem(context.rawData, context.item) || { acquiredAt: '', acquiredAtLocation: '' };
-      const currentValue = fieldKey === 'acquiredAtLocation' ? currentRecord.acquiredAtLocation : currentRecord.acquiredAt;
+      const currentRecord = getInventoryMetadataForItem(context.rawData, context.item) || {
+        acquiredAt: '',
+        acquiredAtLocation: '',
+      };
+      const currentValue =
+        fieldKey === 'acquiredAtLocation' ? currentRecord.acquiredAtLocation : currentRecord.acquiredAt;
       showEditDialog(
         currentValue,
         async newVal => {
@@ -42304,7 +42423,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       return;
     }
 
-    const record = getInventoryMetadataForItem(context.rawData, context.item) || { acquiredAt: '', acquiredAtLocation: '' };
+    const record = getInventoryMetadataForItem(context.rawData, context.item) || {
+      acquiredAt: '',
+      acquiredAtLocation: '',
+    };
     const dialog = $(`
       <div class="acu-edit-overlay acu-inventory-edit-overlay acu-inventory-meta-overlay">
         <div class="acu-edit-dialog acu-theme-${config.theme} acu-inventory-meta-dialog">
@@ -42333,7 +42455,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     dialog.on('click', '.acu-inventory-meta-save', async () => {
       const nextRecord: InventoryMetadataRecord = {
         ...record,
-        acquiredAtLocation: String(dialog.find('.acu-inventory-meta-input[data-field="acquiredAtLocation"]').val() || '').trim(),
+        acquiredAtLocation: String(
+          dialog.find('.acu-inventory-meta-input[data-field="acquiredAtLocation"]').val() || '',
+        ).trim(),
         acquiredAt: String(dialog.find('.acu-inventory-meta-input[data-field="acquiredAt"]').val() || '').trim(),
       };
 
@@ -42411,9 +42535,18 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         : null;
     const rawEvent = event.originalEvent;
     const touchPoint = rawEvent && 'touches' in rawEvent && rawEvent.touches.length > 0 ? rawEvent.touches[0] : null;
-    const changedTouchPoint = rawEvent && 'changedTouches' in rawEvent && rawEvent.changedTouches.length > 0 ? rawEvent.changedTouches[0] : null;
-    const fallbackX = typeof event.clientX === 'number' ? event.clientX : touchPoint?.clientX || changedTouchPoint?.clientX || viewportWidth / 2;
-    const fallbackY = typeof event.clientY === 'number' ? event.clientY : touchPoint?.clientY || changedTouchPoint?.clientY || viewportHeight / 2;
+    const changedTouchPoint =
+      rawEvent && 'changedTouches' in rawEvent && rawEvent.changedTouches.length > 0
+        ? rawEvent.changedTouches[0]
+        : null;
+    const fallbackX =
+      typeof event.clientX === 'number'
+        ? event.clientX
+        : touchPoint?.clientX || changedTouchPoint?.clientX || viewportWidth / 2;
+    const fallbackY =
+      typeof event.clientY === 'number'
+        ? event.clientY
+        : touchPoint?.clientY || changedTouchPoint?.clientY || viewportHeight / 2;
     const pointX = anchorRect ? anchorRect.left + anchorRect.width / 2 : fallbackX;
     const pointY = anchorRect ? anchorRect.bottom : fallbackY;
     const relativeWidth = overlayRect ? overlayRect.width : viewportWidth;
@@ -42464,10 +42597,17 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           if (window.toastr) window.toastr.warning('未找到物品数据');
           return;
         }
-        showCardEditModal(context.row, context.headers, context.item.tableName, context.item.rowIndex, context.item.tableKey, {
-          overlayClass: 'acu-inventory-edit-overlay',
-          onSaved: () => reopenInventoryItemDetail(rowIndex),
-        });
+        showCardEditModal(
+          context.row,
+          context.headers,
+          context.item.tableName,
+          context.item.rowIndex,
+          context.item.tableKey,
+          {
+            overlayClass: 'acu-inventory-edit-overlay',
+            onSaved: () => reopenInventoryItemDetail(rowIndex),
+          },
+        );
       }
     });
   };
@@ -42484,7 +42624,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const icon = getElementEmoji(item.name, null);
     const metaRecord = getInventoryMetadataForItem(rawData, item);
     const detailContext = getInventoryDetailContext(rowIndex);
-    const quickActions = detailContext ? getInteractOptionsForRow(item.tableName, detailContext.headers, detailContext.row) : [];
+    const quickActions = detailContext
+      ? getInteractOptionsForRow(item.tableName, detailContext.headers, detailContext.row)
+      : [];
     const canDismantle = isGachaRarity(String(item.quality || '').trim() as GachaRarity);
     const detail = $(`
       <div class="acu-inventory-detail-overlay acu-theme-${config.theme}">
@@ -42614,7 +42756,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     );
 
     const renderGiftOptions = (onlyPresent: boolean) => {
-      const filteredCharacters = onlyPresent ? charactersWithAvatar.filter(character => character.isPresent) : charactersWithAvatar;
+      const filteredCharacters = onlyPresent
+        ? charactersWithAvatar.filter(character => character.isPresent)
+        : charactersWithAvatar;
       if (filteredCharacters.length === 0) {
         return `<div class="acu-inventory-empty compact"><i class="fa-solid fa-user-slash"></i><span>${onlyPresent ? '当前没有在场角色' : '未找到可赠与的角色'}</span></div>`;
       }
@@ -44491,22 +44635,22 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         {
           delay: 300,
           onCommit: ({ value, selectionStart, selectionEnd }) => {
-          const activeTab = getActiveTabState();
-          if (activeTab) {
-            tableSearchStates[activeTab] = value;
-            tablePageStates[activeTab] = 1;
-            const isFocus = document.activeElement && document.activeElement.classList.contains('acu-search-input');
-            renderInterface();
-            if (isFocus) {
-              const $newInput = $('.acu-search-input');
-              $newInput.focus();
-              if ($newInput.length && $newInput[0].setSelectionRange) {
-                try {
-                  $newInput[0].setSelectionRange(selectionStart, selectionEnd);
-                } catch (e) {}
+            const activeTab = getActiveTabState();
+            if (activeTab) {
+              tableSearchStates[activeTab] = value;
+              tablePageStates[activeTab] = 1;
+              const isFocus = document.activeElement && document.activeElement.classList.contains('acu-search-input');
+              renderInterface();
+              if (isFocus) {
+                const $newInput = $('.acu-search-input');
+                $newInput.focus();
+                if ($newInput.length && $newInput[0].setSelectionRange) {
+                  try {
+                    $newInput[0].setSelectionRange(selectionStart, selectionEnd);
+                  } catch (e) {}
+                }
               }
             }
-          }
           },
         },
       );
@@ -44919,11 +45063,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         if (!filterKey || !rawValue) return;
         const filters = getInventoryFilters();
         const nextValue =
-          filterKey === 'sort'
-            ? rawValue
-            : filters[filterKey as 'type' | 'quality'] === rawValue
-              ? '全部'
-              : rawValue;
+          filterKey === 'sort' ? rawValue : filters[filterKey as 'type' | 'quality'] === rawValue ? '全部' : rawValue;
         saveInventoryFilters({ [filterKey]: nextValue });
         refreshInventoryVisualization();
       });
