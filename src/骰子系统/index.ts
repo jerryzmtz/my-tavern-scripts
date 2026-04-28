@@ -1574,6 +1574,7 @@ import {
   let lastHumanInputCaptureAt = 0;
   let gachaHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let gachaShopUiRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  let gachaShopRootElement: HTMLElement | null = null;
   const GACHA_TEST_DEFAULT_FORTUNE = 50;
   const GACHA_SHARD_EXCHANGE_COST = 10;
   const STORAGE_KEY_GACHA_STATE = 'acu_gacha_state_v1';
@@ -1948,7 +1949,7 @@ import {
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.7.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v5.00'; // 脚本版本号
+  const SCRIPT_VERSION = 'v5.10'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -14101,6 +14102,25 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   const clearPendingDeletions = () => {
     pendingDeletions = {};
   };
+  const createSheetDataFingerprint = (rawData: unknown): string => {
+    if (!rawData || typeof rawData !== 'object') return '';
+    const tableRecord = rawData as Record<string, unknown>;
+    const sheetEntries = Object.entries(tableRecord)
+      .filter(([key, value]) => key.startsWith('sheet_') && value && typeof value === 'object')
+      .map(([key, value]) => {
+        const sheet = value as Record<string, unknown>;
+        return [key, sheet.name, sheet.content];
+      })
+      .sort((left, right) => String(left[0]).localeCompare(String(right[0])));
+    return JSON.stringify(sheetEntries);
+  };
+
+  const isSameSheetData = (leftData: unknown, rightData: unknown): boolean => {
+    const leftFingerprint = createSheetDataFingerprint(leftData);
+    const rightFingerprint = createSheetDataFingerprint(rightData);
+    return Boolean(leftFingerprint && rightFingerprint && leftFingerprint === rightFingerprint);
+  };
+
   let isAutoTransforming = false; // 防止自动转换循环触发
   let tablePageStates = {};
   let tableSearchStates = {};
@@ -14125,9 +14145,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       if (UpdateController._isRollingBack) return;
 
       // === 更新拦截逻辑（检查启用了 intercept 的规则） ===
+      let newData: unknown = null;
       try {
         const snapshot = loadSnapshot();
-        const newData = getTableData();
+        newData = getTableData({ silent: true });
         if (snapshot && newData) {
           const rules = ValidationRuleManager.getEnabledRules();
           const violations = ValidationEngine.checkTableRules(snapshot, newData, rules);
@@ -14167,6 +14188,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         }
       } catch (e) {
         console.error('[DICE]ACU 拦截检查失败:', e);
+      }
+
+      if (newData && cachedRawData && isSameSheetData(cachedRawData, newData)) {
+        return;
       }
 
       // 直接触发渲染，让 renderInterface 内部处理数据获取和差异计算
@@ -27494,7 +27519,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     targetDocument.head.appendChild(styleEl);
   };
 
-  const getTableData = () => {
+  const getTableData = (options?: { silent?: boolean }) => {
     const api = getCore().getDB();
     if (!api || !api.exportTableAsJson) {
       console.warn('[DICE]数据库 API 不可用，无法获取表格数据');
@@ -27502,7 +27527,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     }
     try {
       const data = api.exportTableAsJson();
-      if (data) {
+      if (data && !options?.silent) {
         const sheetCount = Object.keys(data).filter(k => k.startsWith('sheet_')).length;
         console.info(`[DICE]已加载表格数据，包含 ${sheetCount} 个工作表`);
       }
@@ -27795,17 +27820,77 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     }
   };
 
+  const cloneSaveDataValue = <T>(value: T): T => {
+    if (typeof structuredClone === 'function') {
+      return structuredClone(value);
+    }
+    return JSON.parse(JSON.stringify(value)) as T;
+  };
+
+  const getExplicitModifiedSheetKeys = (modifiedSheetKeys?: string[]): string[] | null => {
+    if (!Array.isArray(modifiedSheetKeys)) {
+      return null;
+    }
+    return Array.from(
+      new Set(
+        modifiedSheetKeys
+          .map(key => String(key || '').trim())
+          .filter(key => key.startsWith('sheet_')),
+      ),
+    );
+  };
+
   const performSaveDataOnly = async (tableData, modifiedSheetKeys?: string[]) => {
     try {
-      const dataToSave = {};
-      if (!tableData.mate) dataToSave.mate = { type: 'chatSheets', version: 1 };
-      else dataToSave.mate = tableData.mate;
+      const sourceData =
+        tableData && typeof tableData === 'object' ? (tableData as Record<string, unknown>) : {};
+      const explicitModifiedSheetKeys = getExplicitModifiedSheetKeys(modifiedSheetKeys);
 
-      Object.keys(tableData).forEach(k => {
+      if (explicitModifiedSheetKeys && explicitModifiedSheetKeys.length === 0) {
+        console.info('[DICE]ACU saveDataOnly 跳过：没有有效修改表');
+        return tableData;
+      }
+
+      const latestData = explicitModifiedSheetKeys ? getTableData({ silent: true }) : null;
+      const latestRecord =
+        latestData && typeof latestData === 'object' ? (latestData as Record<string, unknown>) : null;
+      if (explicitModifiedSheetKeys && !latestRecord) {
+        throw new Error('无法读取最新数据库基底，已取消保存以避免覆盖未保存表格');
+      }
+      const baseData = latestRecord || sourceData;
+      const dataToSave: Record<string, unknown> = {};
+      const baseMate = baseData.mate;
+      if (baseMate && typeof baseMate === 'object') {
+        dataToSave.mate = cloneSaveDataValue(baseMate as Record<string, unknown>);
+      } else {
+        dataToSave.mate = { type: 'chatSheets', version: 1 };
+      }
+
+      Object.keys(baseData).forEach(k => {
         if (k.startsWith('sheet_')) {
-          dataToSave[k] = tableData[k];
+          const sheetData = baseData[k];
+          if (sheetData && typeof sheetData === 'object') {
+            dataToSave[k] = cloneSaveDataValue(sheetData as Record<string, unknown>);
+          }
         }
       });
+
+      const sheetKeysToSave =
+        explicitModifiedSheetKeys ||
+        Object.keys(sourceData).filter(key => key.startsWith('sheet_'));
+      let mergedSheetCount = 0;
+
+      sheetKeysToSave.forEach(key => {
+        const sheetData = sourceData[key];
+        if (sheetData && typeof sheetData === 'object') {
+          dataToSave[key] = cloneSaveDataValue(sheetData as Record<string, unknown>);
+          mergedSheetCount++;
+        }
+      });
+
+      if (explicitModifiedSheetKeys && mergedSheetCount === 0) {
+        throw new Error(`修改表不存在：${explicitModifiedSheetKeys.join(', ')}`);
+      }
 
       syncInventoryMetadataForRawData(dataToSave);
 
@@ -39459,14 +39544,165 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       .slice(0, GACHA_RECENT_REWARD_LIMIT);
   };
 
+  const cloneGachaState = (state: GachaState): GachaState => JSON.parse(JSON.stringify(state)) as GachaState;
+
+  const getGachaStateStorageKey = (): string => {
+    const contextId = String(getCurrentContextFingerprint() || 'unknown_context').trim() || 'unknown_context';
+    return `${STORAGE_KEY_GACHA_STATE}_${contextId}`;
+  };
+
+  const getGachaStateMigrationKey = (): string => `${getGachaStateStorageKey()}_legacy_migrated`;
+
+  const hasMigratedLegacyGachaState = (): boolean => Store.get(getGachaStateMigrationKey(), false) === true;
+
+  const markLegacyGachaStateMigrated = () => {
+    Store.set(getGachaStateMigrationKey(), true);
+  };
+
   const getStoredGachaStateSnapshot = (): Record<string, unknown> | null => {
-    const stored = Store.get(STORAGE_KEY_GACHA_STATE, null);
-    return stored && typeof stored === 'object' ? (stored as Record<string, unknown>) : null;
+    const scoped = Store.get(getGachaStateStorageKey(), null);
+    if (scoped && typeof scoped === 'object') return scoped as Record<string, unknown>;
+
+    const legacy = Store.get(STORAGE_KEY_GACHA_STATE, null);
+    return legacy && typeof legacy === 'object' ? (legacy as Record<string, unknown>) : null;
   };
 
   const saveStoredGachaStateSnapshot = (state: GachaState) => {
-    Store.set(STORAGE_KEY_GACHA_STATE, JSON.parse(JSON.stringify(state)));
+    Store.set(getGachaStateStorageKey(), cloneGachaState(state));
+    try {
+      localStorage.removeItem(STORAGE_KEY_GACHA_STATE);
+    } catch (error) {
+      console.warn('[DICE][GACHA]清理旧版骰运缓存失败:', error);
+    }
   };
+
+  const normalizeGachaStateRecord = (rawValue: unknown): GachaState | null => {
+    if (!rawValue || typeof rawValue !== 'object') return null;
+
+    const defaultState = createDefaultGachaState();
+    const rawRecord = rawValue as Record<string, unknown>;
+    const activePoolTag = GACHA_POOL_TAGS.includes(rawRecord.activePoolTag as GachaPoolTag)
+      ? (rawRecord.activePoolTag as GachaPoolTag)
+      : defaultState.activePoolTag;
+
+    return {
+      wallet: {
+        fortune: Math.max(
+          0,
+          Number.parseInt(String((rawRecord.wallet as Record<string, unknown> | undefined)?.fortune || '0'), 10) || 0,
+        ),
+        shards: normalizeShardWallet((rawRecord.wallet as Record<string, unknown> | undefined)?.shards),
+      },
+      activePoolTag,
+      pity: {
+        rare: Math.max(
+          0,
+          Number.parseInt(String((rawRecord.pity as Record<string, unknown> | undefined)?.rare || '0'), 10) || 0,
+        ),
+        legend: Math.max(
+          0,
+          Number.parseInt(String((rawRecord.pity as Record<string, unknown> | undefined)?.legend || '0'), 10) || 0,
+        ),
+      },
+      recentRewards: normalizeRecentGachaRewards(rawRecord.recentRewards),
+      totalDraws: Math.max(0, Number.parseInt(String(rawRecord.totalDraws || '0'), 10) || 0),
+      inputStats: {
+        totalTypedChars: Math.max(
+          0,
+          Number.parseInt(
+            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.totalTypedChars || '0'),
+            10,
+          ) || 0,
+        ),
+        totalTypedMessages: Math.max(
+          0,
+          Number.parseInt(
+            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.totalTypedMessages || '0'),
+            10,
+          ) || 0,
+        ),
+        totalActiveMinutes: Math.max(
+          0,
+          Number(
+            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.totalActiveMinutes || '0'),
+          ) || 0,
+        ),
+        pendingCharCarry: Math.max(
+          0,
+          Number.parseInt(
+            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.pendingCharCarry || '0'),
+            10,
+          ) || 0,
+        ),
+        pendingActiveMs: Math.max(
+          0,
+          Number.parseInt(
+            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.pendingActiveMs || '0'),
+            10,
+          ) || 0,
+        ),
+        lastActiveAt: Math.max(
+          0,
+          Number.parseInt(
+            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.lastActiveAt || '0'),
+            10,
+          ) || 0,
+        ),
+        lastHeartbeatAt: Math.max(
+          0,
+          Number.parseInt(
+            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.lastHeartbeatAt || '0'),
+            10,
+          ) || 0,
+        ),
+        lastFortuneGain: Math.max(
+          0,
+          Number.parseInt(
+            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.lastFortuneGain || '0'),
+            10,
+          ) || 0,
+        ),
+        lastFortuneReason: String(
+          (rawRecord.inputStats as Record<string, unknown> | undefined)?.lastFortuneReason || '',
+        ).trim(),
+        lastFortuneDetail: String(
+          (rawRecord.inputStats as Record<string, unknown> | undefined)?.lastFortuneDetail || '',
+        ).trim(),
+        lastFortuneAt: Math.max(
+          0,
+          Number.parseInt(
+            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.lastFortuneAt || '0'),
+            10,
+          ) || 0,
+        ),
+        lastSettledMessageId: String(
+          (rawRecord.inputStats as Record<string, unknown> | undefined)?.lastSettledMessageId || '',
+        ).trim(),
+        totalRewardedChecks: Math.max(
+          0,
+          Number.parseInt(
+            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.totalRewardedChecks || '0'),
+            10,
+          ) || 0,
+        ),
+        lastSettledCheckId: String(
+          (rawRecord.inputStats as Record<string, unknown> | undefined)?.lastSettledCheckId || '',
+        ).trim(),
+      },
+    };
+  };
+
+  const getGachaStateBalanceScore = (state: GachaState): number =>
+    state.wallet.fortune +
+    GACHA_RARITY_ORDER.reduce((sum, rarity) => sum + Math.max(0, Number(state.wallet.shards[rarity] || 0)), 0) +
+    state.totalDraws +
+    state.pity.rare +
+    state.pity.legend;
+
+  const mergeLegacyGachaStateForLocalStorage = (localState: GachaState, legacyState: GachaState): GachaState =>
+    getGachaStateBalanceScore(legacyState) > getGachaStateBalanceScore(localState)
+      ? cloneGachaState(legacyState)
+      : cloneGachaState(localState);
 
   let gachaCatalogCache: GachaCatalogCache | null = null;
   let gachaCatalogLoadTask: GachaCatalogLoadTask | null = null;
@@ -40214,148 +40450,35 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     input.click();
   };
 
-  const getGachaState = (rawData, createIfMissing = false): GachaState | null => {
+  const getLegacyGachaStateFromRawData = (rawData?: unknown): GachaState | null => {
     if (!rawData || typeof rawData !== 'object') return null;
-    if (!rawData.mate || typeof rawData.mate !== 'object') {
-      if (!createIfMissing) return null;
-      rawData.mate = { type: 'chatSheets', version: 1 };
-    }
-
-    const mate = rawData.mate as Record<string, unknown>;
-    let stateRaw = mate.gacha;
-    if ((!stateRaw || typeof stateRaw !== 'object') && createIfMissing) {
-      stateRaw = getStoredGachaStateSnapshot() || createDefaultGachaState();
-      mate.gacha = stateRaw;
-    }
-    if (!stateRaw || typeof stateRaw !== 'object') return null;
-
-    const defaultState = createDefaultGachaState();
-    const rawRecord = stateRaw as Record<string, unknown>;
-    const activePoolTag = GACHA_POOL_TAGS.includes(rawRecord.activePoolTag as GachaPoolTag)
-      ? (rawRecord.activePoolTag as GachaPoolTag)
-      : defaultState.activePoolTag;
-    const state: GachaState = {
-      wallet: {
-        fortune: Math.max(
-          0,
-          Number.parseInt(String((rawRecord.wallet as Record<string, unknown> | undefined)?.fortune || '0'), 10) || 0,
-        ),
-        shards: normalizeShardWallet((rawRecord.wallet as Record<string, unknown> | undefined)?.shards),
-      },
-      activePoolTag,
-      pity: {
-        rare: Math.max(
-          0,
-          Number.parseInt(String((rawRecord.pity as Record<string, unknown> | undefined)?.rare || '0'), 10) || 0,
-        ),
-        legend: Math.max(
-          0,
-          Number.parseInt(String((rawRecord.pity as Record<string, unknown> | undefined)?.legend || '0'), 10) || 0,
-        ),
-      },
-      recentRewards: normalizeRecentGachaRewards(rawRecord.recentRewards),
-      totalDraws: Math.max(0, Number.parseInt(String(rawRecord.totalDraws || '0'), 10) || 0),
-      inputStats: {
-        totalTypedChars: Math.max(
-          0,
-          Number.parseInt(
-            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.totalTypedChars || '0'),
-            10,
-          ) || 0,
-        ),
-        totalTypedMessages: Math.max(
-          0,
-          Number.parseInt(
-            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.totalTypedMessages || '0'),
-            10,
-          ) || 0,
-        ),
-        totalActiveMinutes: Math.max(
-          0,
-          Number.parseInt(
-            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.totalActiveMinutes || '0'),
-            10,
-          ) || 0,
-        ),
-        pendingCharCarry: Math.max(
-          0,
-          Number.parseInt(
-            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.pendingCharCarry || '0'),
-            10,
-          ) || 0,
-        ),
-        pendingActiveMs: Math.max(
-          0,
-          Number.parseInt(
-            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.pendingActiveMs || '0'),
-            10,
-          ) || 0,
-        ),
-        lastActiveAt: Math.max(
-          0,
-          Number.parseInt(
-            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.lastActiveAt || '0'),
-            10,
-          ) || 0,
-        ),
-        lastHeartbeatAt: Math.max(
-          0,
-          Number.parseInt(
-            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.lastHeartbeatAt || '0'),
-            10,
-          ) || 0,
-        ),
-        lastFortuneGain: Math.max(
-          0,
-          Number.parseInt(
-            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.lastFortuneGain || '0'),
-            10,
-          ) || 0,
-        ),
-        lastFortuneReason: String(
-          (rawRecord.inputStats as Record<string, unknown> | undefined)?.lastFortuneReason || '',
-        ).trim(),
-        lastFortuneDetail: String(
-          (rawRecord.inputStats as Record<string, unknown> | undefined)?.lastFortuneDetail || '',
-        ).trim(),
-        lastFortuneAt: Math.max(
-          0,
-          Number.parseInt(
-            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.lastFortuneAt || '0'),
-            10,
-          ) || 0,
-        ),
-        lastSettledMessageId: String(
-          (rawRecord.inputStats as Record<string, unknown> | undefined)?.lastSettledMessageId || '',
-        ).trim(),
-        totalRewardedChecks: Math.max(
-          0,
-          Number.parseInt(
-            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.totalRewardedChecks || '0'),
-            10,
-          ) || 0,
-        ),
-        lastSettledCheckId: String(
-          (rawRecord.inputStats as Record<string, unknown> | undefined)?.lastSettledCheckId || '',
-        ).trim(),
-      },
-    };
-
-    mate.gacha = JSON.parse(JSON.stringify(state));
-    saveStoredGachaStateSnapshot(mate.gacha as GachaState);
-    return mate.gacha as GachaState;
+    const mate = (rawData as Record<string, unknown>).mate;
+    if (!mate || typeof mate !== 'object') return null;
+    return normalizeGachaStateRecord((mate as Record<string, unknown>).gacha);
   };
 
-  const touchGachaActivity = (rawData, forcePersist = false) => {
-    const state = getGachaState(rawData, true);
+  const getGachaState = (rawData?: unknown, createIfMissing = false): GachaState | null => {
+    const storedState = normalizeGachaStateRecord(getStoredGachaStateSnapshot());
+    const legacyDatabaseState = getLegacyGachaStateFromRawData(rawData);
+    if (legacyDatabaseState && (!storedState || !hasMigratedLegacyGachaState())) {
+      const migratedState = storedState
+        ? mergeLegacyGachaStateForLocalStorage(storedState, legacyDatabaseState)
+        : legacyDatabaseState;
+      saveStoredGachaStateSnapshot(migratedState);
+      markLegacyGachaStateMigrated();
+      return migratedState;
+    }
+
+    if (storedState) return storedState;
+    return createIfMissing ? createDefaultGachaState() : null;
+  };
+
+  const touchGachaActivity = (state: GachaState | null = getGachaState(undefined, true)): GachaState | null => {
     if (!state) return null;
     const now = Date.now();
     state.inputStats.lastActiveAt = Math.max(now, state.inputStats.lastActiveAt || 0, lastHumanInputActivityAt || 0);
     if (!state.inputStats.lastHeartbeatAt) {
       state.inputStats.lastHeartbeatAt = now;
-    }
-    if (forcePersist && rawData?.mate) {
-      (rawData.mate as Record<string, unknown>).gacha = JSON.parse(JSON.stringify(state));
     }
     return state;
   };
@@ -40419,44 +40542,37 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return `对抗检定：${resultText} +${GACHA_CHECK_REWARD}`;
   };
 
-  async function settleGachaFortuneForDiceEvent(event: string, payload: unknown) {
+  function settleGachaFortuneForDiceEvent(event: string, payload: unknown) {
     if (event !== 'check' && event !== 'contest') return;
-    await runInSaveQueue(async () => {
-      const rawData = cachedRawData || getTableData();
-      if (!rawData) return;
-      const state = touchGachaActivity(rawData) || getGachaState(rawData, true);
-      if (!state) return;
+    const state = touchGachaActivity(getGachaState(undefined, true));
+    if (!state) return;
 
-      const settlementKey = buildGachaDiceEventSettlementKey(event, payload);
-      if (settlementKey && state.inputStats.lastSettledCheckId === settlementKey) return;
+    const settlementKey = buildGachaDiceEventSettlementKey(event, payload);
+    if (settlementKey && state.inputStats.lastSettledCheckId === settlementKey) return;
 
-      state.inputStats.lastSettledCheckId = settlementKey;
-      state.inputStats.totalRewardedChecks += 1;
-      state.wallet.fortune += GACHA_CHECK_REWARD;
-      recordGachaFortuneGain(state, GACHA_CHECK_REWARD, '检定奖励', getGachaDiceEventDetail(event, payload));
+    state.inputStats.lastSettledCheckId = settlementKey;
+    state.inputStats.totalRewardedChecks += 1;
+    state.wallet.fortune += GACHA_CHECK_REWARD;
+    recordGachaFortuneGain(state, GACHA_CHECK_REWARD, '检定奖励', getGachaDiceEventDetail(event, payload));
 
-      await persistRawDataWithGacha(rawData);
-      refreshGachaVisualization();
-    });
+    saveStoredGachaStateSnapshot(state);
+    refreshGachaVisualization();
   }
 
-  const saveGachaStateOnly = async rawData => {
-    const state = getGachaState(rawData, true);
-    if (!state) return;
-    await saveDataOnly(rawData);
-  };
-
-  const canPersistGachaRawData = (rawData: unknown): boolean => hasSheetKeys(rawData);
-
-  const persistRawDataWithGacha = async (rawData, modifiedSheetKeys?: string[]) => {
-    const state = getGachaState(rawData, true);
-    if (!state) return;
-    if (!canPersistGachaRawData(rawData)) {
-      saveStoredGachaStateSnapshot(state);
+  const persistRawDataWithGacha = async (rawData: unknown, modifiedSheetKeys?: string[], state?: GachaState | null) => {
+    const safeModifiedSheetKeys = (modifiedSheetKeys || [])
+      .map(key => String(key || '').trim())
+      .filter(key => key.startsWith('sheet_'));
+    if (safeModifiedSheetKeys.length === 0) {
+      if (state) saveStoredGachaStateSnapshot(state);
+      return;
+    }
+    if (!hasSheetKeys(rawData)) {
       console.warn('[DICE][GACHA]跳过扭蛋状态数据库保存：当前表格数据缺少 sheet_* 工作表');
       return;
     }
-    await performSaveDataOnly(rawData, modifiedSheetKeys);
+    await performSaveDataOnly(rawData, safeModifiedSheetKeys);
+    if (state) saveStoredGachaStateSnapshot(state);
   };
 
   const getGachaRarityRank = (rarity: GachaRarity): number => {
@@ -40650,8 +40766,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
   const findGachaDefinitionByInventoryItem = (
     item: Pick<InventoryParsedItem, 'name' | 'quality'>,
+    rawData = getRuntimeGachaRawData(),
   ): GachaItemDefinition | null =>
-    getAllGachaItemDefinitions().find(
+    getAllGachaItemDefinitions(rawData).find(
       definition => definition.name === item.name && definition.quality === item.quality,
     ) || null;
 
@@ -41007,10 +41124,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             .slice(0, 6)
             .map(
               reward => `
-                <div style="display:flex;justify-content:space-between;gap:8px;padding:6px 10px;border-radius:10px;background:var(--acu-panel-bg-soft, rgba(255,255,255,0.04));">
+                <button class="acu-gacha-recent-detail-btn" type="button" data-item-id="${escapeHtml(reward.itemId)}" title="${escapeHtml(`查看 ${reward.name}`)}">
                   <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(formatGachaRecentRewardText(reward))}</span>
                   <span style="opacity:0.72;flex-shrink:0;">${escapeHtml(reward.quality)}</span>
-                </div>
+                </button>
               `,
             )
             .join('')
@@ -41102,35 +41219,65 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     `;
   };
 
+  const getGachaShopProgressContainers = (): HTMLElement[] => {
+    const roots = new Set<HTMLElement>();
+    if (gachaShopRootElement?.isConnected && gachaShopRootElement.querySelector('.acu-gacha-fortune-progress')) {
+      roots.add(gachaShopRootElement);
+    }
+    collectHostAndLocalNodes<HTMLElement>('.acu-gacha-overlay').forEach(element => {
+      if (element.isConnected && element.querySelector('.acu-gacha-fortune-progress')) roots.add(element);
+    });
+    if (roots.size > 0) return Array.from(roots);
+    collectHostAndLocalNodes<HTMLElement>('.acu-gacha-shell').forEach(element => {
+      if (element.isConnected && element.querySelector('.acu-gacha-fortune-progress')) roots.add(element);
+    });
+    return Array.from(roots);
+  };
+
   const updateGachaFortuneProgressDom = (state: GachaState, projectActiveProgress = false): boolean => {
-    const { $ } = getCore();
-    const $overlay = $('.acu-gacha-overlay').first();
-    if (!$overlay.length) return false;
+    const containers = getGachaShopProgressContainers();
+    if (containers.length === 0) return false;
 
     const view = getGachaFortuneProgressView(state, { projectActiveProgress });
-    const $progress = $overlay.find('.acu-gacha-fortune-progress').first();
-    if (!$progress.length) return false;
+    let didUpdate = false;
 
-    $overlay.find('.acu-gacha-fortune-amount').text(String(view.fortune));
-    $progress.find('.acu-gacha-last-gain-summary').text(view.lastGainText);
-    $progress.find('.acu-gacha-char-progress-value').text(`${String(view.charProgress)}/${String(view.charGoal)}`);
-    $progress.find('.acu-gacha-char-progress-fill').css('width', `${view.charPercent}%`);
-    $progress.find('.acu-gacha-char-progress-note').text(view.charNote);
-    $progress.find('.acu-gacha-active-progress-time').text(view.activeRemainingText);
-    $progress.find('.acu-gacha-active-progress-fill').css('width', `${view.activePercent}%`);
-    $progress.find('.acu-gacha-active-progress-note').text(view.activeNote);
-    $progress.find('.acu-gacha-last-gain-time').text(view.lastGainTime);
-    $progress.find('.acu-gacha-last-gain-note').text(view.lastGainText);
-    $progress.find('.acu-gacha-active-progress').toggleClass('is-reward-flash', view.shouldFlashActiveReward);
-    return true;
+    const setText = (root: HTMLElement, selector: string, text: string) => {
+      root.querySelectorAll<HTMLElement>(selector).forEach(element => {
+        element.textContent = text;
+      });
+    };
+    const setProgressWidth = (root: HTMLElement, selector: string, percent: number) => {
+      root.querySelectorAll<HTMLElement>(selector).forEach(element => {
+        element.style.width = `${String(percent)}%`;
+      });
+    };
+
+    containers.forEach(container => {
+      const progress = container.querySelector<HTMLElement>('.acu-gacha-fortune-progress');
+      if (!progress) return;
+
+      setText(container, '.acu-gacha-fortune-amount', String(view.fortune));
+      setText(progress, '.acu-gacha-last-gain-summary', view.lastGainText);
+      setText(progress, '.acu-gacha-char-progress-value', `${String(view.charProgress)}/${String(view.charGoal)}`);
+      setProgressWidth(progress, '.acu-gacha-char-progress-fill', view.charPercent);
+      setText(progress, '.acu-gacha-char-progress-note', view.charNote);
+      setText(progress, '.acu-gacha-active-progress-time', view.activeRemainingText);
+      setProgressWidth(progress, '.acu-gacha-active-progress-fill', view.activePercent);
+      setText(progress, '.acu-gacha-active-progress-note', view.activeNote);
+      setText(progress, '.acu-gacha-last-gain-time', view.lastGainTime);
+      setText(progress, '.acu-gacha-last-gain-note', view.lastGainText);
+      progress.querySelectorAll<HTMLElement>('.acu-gacha-active-progress').forEach(element => {
+        element.classList.toggle('is-reward-flash', view.shouldFlashActiveReward);
+      });
+      didUpdate = true;
+    });
+
+    return didUpdate;
   };
 
   const updateGachaShopProgressUi = (): boolean => {
-    const { $ } = getCore();
-    const rawData = cachedRawData || getTableData();
-    const $overlay = $('.acu-gacha-overlay').first();
-    if (!$overlay.length || !rawData) return false;
-    const state = getGachaState(rawData, true);
+    if (!getGachaShopProgressContainers().length) return false;
+    const state = getGachaState(undefined, true);
     if (!state) return false;
     return updateGachaFortuneProgressDom(state, true);
   };
@@ -41139,7 +41286,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const safeDrawCount = drawCount >= 10 ? 10 : 1;
     const drawCost = safeDrawCount >= 10 ? GACHA_DRAW_COST_TEN : GACHA_DRAW_COST_SINGLE;
     await runInSaveQueue(async () => {
-      const rawData = cachedRawData || getTableData();
+      const rawData = getTableData({ silent: true }) || cachedRawData;
       if (!rawData) return;
       await ensureGachaCatalogLoaded(rawData);
 
@@ -41149,7 +41296,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         return;
       }
 
-      const state = touchGachaActivity(rawData) || getGachaState(rawData, true);
+      const state = touchGachaActivity(getGachaState(rawData, true));
       if (!state) return;
       state.activePoolTag = getGachaActivePoolTag(state);
       if (state.wallet.fortune < drawCost) {
@@ -41173,7 +41320,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         return;
       }
 
-      await persistRawDataWithGacha(rawData, Array.from(modifiedSheetKeys));
+      await persistRawDataWithGacha(rawData, Array.from(modifiedSheetKeys), state);
       refreshGachaVisualization();
       refreshInventoryVisualization();
       const summary = outcomes
@@ -41214,18 +41361,18 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   };
 
   const updateGachaPoolTag = (poolTag: GachaPoolTag) => {
-    const rawData = cachedRawData || getTableData();
-    const state = getGachaState(rawData, true);
+    const state = getGachaState(undefined, true);
     const currentPoolTag = getGachaActivePoolTag(state);
     if (currentPoolTag === poolTag) return;
     saveStoredGachaActivePoolTag(poolTag);
     if (state) state.activePoolTag = poolTag;
+    if (state) saveStoredGachaStateSnapshot(state);
     refreshGachaPoolSelectionUi(poolTag);
   };
 
   const dismantleInventoryItem = async (rowIndex: number) => {
     await runInSaveQueue(async () => {
-      const context = getInventoryDetailContext(rowIndex);
+      const context = getInventoryDetailContext(rowIndex, { preferLatest: true });
       if (!context) {
         if (window.toastr) window.toastr.warning('未找到可拆解的物品');
         return;
@@ -41238,7 +41385,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       }
 
       const quantityAvailable = Math.max(1, Number.parseInt(String(context.item.quantity || 1), 10) || 1);
-      const definition = findGachaDefinitionByInventoryItem(context.item);
+      const definition = findGachaDefinitionByInventoryItem(context.item, context.rawData);
       const dismantleUnitSize = definition ? getGachaItemGrantQuantity(definition) : 1;
       const maxDismantleUnits = Math.floor(quantityAvailable / dismantleUnitSize);
       if (maxDismantleUnits <= 0) {
@@ -41262,11 +41409,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       }
       const dismantleQuantity = dismantleUnits * dismantleUnitSize;
 
-      const shardGain = addGachaShards(
-        touchGachaActivity(context.rawData) || getGachaState(context.rawData, true),
-        rarity,
-        GACHA_SHARD_VALUES[rarity] * dismantleUnits,
-      );
+      const state = touchGachaActivity(getGachaState(context.rawData, true));
+      if (!state) return;
+      const shardGain = addGachaShards(state, rarity, GACHA_SHARD_VALUES[rarity] * dismantleUnits);
       const nextQuantity = quantityAvailable - dismantleQuantity;
 
       if (nextQuantity <= 0) {
@@ -41275,7 +41420,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         context.row[context.colMap.quantity] = String(nextQuantity);
       }
 
-      await persistRawDataWithGacha(context.rawData, [context.item.tableKey]);
+      await persistRawDataWithGacha(context.rawData, [context.item.tableKey], state);
       $('.acu-inventory-detail-overlay').remove();
       refreshGachaVisualization();
       refreshInventoryVisualization();
@@ -41350,83 +41495,66 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return `text:${countUnicodeCharacters(normalizedText)}:${normalizedText.slice(0, 80)}:${normalizedText.slice(-80)}`;
   };
 
-  const settleGachaFortuneForMessage = async (messageId?: unknown) => {
-    await runInSaveQueue(async () => {
-      const rawData = cachedRawData || getTableData();
-      if (!rawData) return;
-      const state = touchGachaActivity(rawData) || getGachaState(rawData, true);
-      if (!state) return;
+  const settleGachaFortuneForMessage = (messageId?: unknown) => {
+    const state = touchGachaActivity(getGachaState(undefined, true));
+    if (!state) return;
 
-      const normalizedMessageId = normalizeGachaMessageId(messageId);
-      const humanInput = consumePendingHumanInputSnapshot() || getGachaChatMessageText(messageId);
-      const settlementKey = buildGachaSettlementKey(normalizedMessageId, humanInput);
-      if (settlementKey && state.inputStats.lastSettledMessageId === settlementKey) return;
-      const typedChars = countUnicodeCharacters(stripSystemInjectedContent(humanInput));
-      const totalChars = state.inputStats.pendingCharCarry + typedChars;
-      const charReward = Math.floor(totalChars / GACHA_CHARS_PER_FORTUNE);
+    const normalizedMessageId = normalizeGachaMessageId(messageId);
+    const humanInput = consumePendingHumanInputSnapshot() || getGachaChatMessageText(messageId);
+    const settlementKey = buildGachaSettlementKey(normalizedMessageId, humanInput);
+    if (settlementKey && state.inputStats.lastSettledMessageId === settlementKey) return;
+    const typedChars = countUnicodeCharacters(stripSystemInjectedContent(humanInput));
+    const totalChars = state.inputStats.pendingCharCarry + typedChars;
+    const charReward = Math.floor(totalChars / GACHA_CHARS_PER_FORTUNE);
 
-      state.inputStats.totalTypedMessages += 1;
-      state.inputStats.totalTypedChars += typedChars;
-      state.inputStats.pendingCharCarry = totalChars % GACHA_CHARS_PER_FORTUNE;
-      if (settlementKey) state.inputStats.lastSettledMessageId = settlementKey;
-      const totalReward = GACHA_MESSAGE_REWARD + charReward;
-      state.wallet.fortune += totalReward;
-      recordGachaFortuneGain(
-        state,
-        totalReward,
-        '发送消息',
-        `发送 ${typedChars} 字，基础 ${GACHA_MESSAGE_REWARD}${charReward > 0 ? `，字数奖励 ${charReward}` : ''}`,
-      );
+    state.inputStats.totalTypedMessages += 1;
+    state.inputStats.totalTypedChars += typedChars;
+    state.inputStats.pendingCharCarry = totalChars % GACHA_CHARS_PER_FORTUNE;
+    if (settlementKey) state.inputStats.lastSettledMessageId = settlementKey;
+    const totalReward = GACHA_MESSAGE_REWARD + charReward;
+    state.wallet.fortune += totalReward;
+    recordGachaFortuneGain(
+      state,
+      totalReward,
+      '发送消息',
+      `发送 ${typedChars} 字，基础 ${GACHA_MESSAGE_REWARD}${charReward > 0 ? `，字数奖励 ${charReward}` : ''}`,
+    );
 
-      await persistRawDataWithGacha(rawData);
-      refreshGachaVisualization();
-    });
+    saveStoredGachaStateSnapshot(state);
+    refreshGachaVisualization();
   };
 
-  const flushGachaHeartbeatProgress = async (persistProgress: boolean) => {
-    await runInSaveQueue(async () => {
-      const rawData = cachedRawData || getTableData();
-      if (!rawData) return;
-      const state = getGachaState(rawData, true);
-      if (!state) return;
+  const flushGachaHeartbeatProgress = (_persistProgress: boolean) => {
+    const state = getGachaState(undefined, true);
+    if (!state) return;
 
-      const now = Date.now();
-      const lastHeartbeatAt = state.inputStats.lastHeartbeatAt || now;
-      const elapsed = Math.max(0, now - lastHeartbeatAt);
-      state.inputStats.lastHeartbeatAt = now;
-      state.inputStats.lastActiveAt = Math.max(state.inputStats.lastActiveAt || 0, lastHumanInputActivityAt || 0);
-      const isTavernPageAwake = document.visibilityState !== 'hidden';
-      if (isTavernPageAwake) {
-        state.inputStats.lastActiveAt = now;
-      }
+    const now = Date.now();
+    const lastHeartbeatAt = state.inputStats.lastHeartbeatAt || now;
+    const elapsed = Math.max(0, now - lastHeartbeatAt);
+    state.inputStats.lastHeartbeatAt = now;
+    state.inputStats.lastActiveAt = Math.max(state.inputStats.lastActiveAt || 0, lastHumanInputActivityAt || 0);
+    const isTavernPageAwake = document.visibilityState !== 'hidden';
+    if (isTavernPageAwake) {
+      state.inputStats.lastActiveAt = now;
+      state.inputStats.pendingActiveMs += elapsed;
+    }
 
-      if (isTavernPageAwake) {
-        state.inputStats.pendingActiveMs += elapsed;
-      }
+    const rewardStepMs = GACHA_ACTIVE_SECONDS_PER_FORTUNE * 1000;
+    const rewardCount = Math.floor(state.inputStats.pendingActiveMs / rewardStepMs);
+    if (rewardCount > 0) {
+      state.inputStats.pendingActiveMs -= rewardCount * rewardStepMs;
+      state.inputStats.totalActiveMinutes += (rewardCount * GACHA_ACTIVE_SECONDS_PER_FORTUNE) / 60;
+      state.wallet.fortune += rewardCount;
+      recordGachaFortuneGain(
+        state,
+        rewardCount,
+        '活跃奖励',
+        `活跃 ${rewardCount * GACHA_ACTIVE_SECONDS_PER_FORTUNE} 秒`,
+      );
+    }
 
-      const rewardStepMs = GACHA_ACTIVE_SECONDS_PER_FORTUNE * 1000;
-      const rewardCount = Math.floor(state.inputStats.pendingActiveMs / rewardStepMs);
-      if (rewardCount > 0) {
-        state.inputStats.pendingActiveMs -= rewardCount * rewardStepMs;
-        state.inputStats.totalActiveMinutes += (rewardCount * GACHA_ACTIVE_SECONDS_PER_FORTUNE) / 60;
-        state.wallet.fortune += rewardCount;
-        recordGachaFortuneGain(
-          state,
-          rewardCount,
-          '活跃奖励',
-          `活跃 ${rewardCount * GACHA_ACTIVE_SECONDS_PER_FORTUNE} 秒`,
-        );
-        updateGachaFortuneProgressDom(state);
-        await persistRawDataWithGacha(rawData);
-        updateGachaFortuneProgressDom(state);
-        return;
-      }
-
-      if (persistProgress) {
-        await persistRawDataWithGacha(rawData);
-      }
-      updateGachaFortuneProgressDom(state);
-    });
+    saveStoredGachaStateSnapshot(state);
+    updateGachaFortuneProgressDom(state);
   };
 
   const ensureGachaHeartbeat = () => {
@@ -41439,7 +41567,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   const startGachaShopUiRefresh = () => {
     if (gachaShopUiRefreshTimer) return;
     gachaShopUiRefreshTimer = setInterval(() => {
-      if (!$('.acu-gacha-overlay').length) {
+      if (!getGachaShopProgressContainers().length) {
         if (gachaShopUiRefreshTimer) {
           clearInterval(gachaShopUiRefreshTimer);
           gachaShopUiRefreshTimer = null;
@@ -41792,7 +41920,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
   const exchangeGachaShardItem = async (itemId: string) => {
     await runInSaveQueue(async () => {
-      const rawData = cachedRawData || getTableData();
+      const rawData = getTableData({ silent: true }) || cachedRawData;
       if (!rawData) return;
       await ensureGachaCatalogLoaded(rawData);
       const item = getAllGachaItemDefinitions(rawData).find(definition => definition.id === itemId);
@@ -41802,7 +41930,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         if (window.toastr) window.toastr.warning('未找到物品表，暂时无法兑换');
         return;
       }
-      const state = touchGachaActivity(rawData) || getGachaState(rawData, true);
+      const state = touchGachaActivity(getGachaState(rawData, true));
       if (!state) return;
       const ownedBlocked = isGachaItemOwned(rawData, item) && (item.unique || !item.stackable);
       if (ownedBlocked) {
@@ -41821,7 +41949,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         if (window.toastr) window.toastr.warning('兑换失败，碎片已退回');
         return;
       }
-      await persistRawDataWithGacha(rawData, result.modifiedSheetKey ? [result.modifiedSheetKey] : undefined);
+      await persistRawDataWithGacha(rawData, result.modifiedSheetKey ? [result.modifiedSheetKey] : undefined, state);
       refreshGachaVisualization();
       refreshGachaShardShop();
       refreshInventoryVisualization();
@@ -41960,6 +42088,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   };
 
   const closeGachaVisualization = () => {
+    if (gachaShopRootElement?.isConnected) {
+      gachaShopRootElement.remove();
+    }
+    gachaShopRootElement = null;
     $('.acu-gacha-overlay, .acu-gacha-shard-shop-overlay, .acu-gacha-pickup-detail-overlay').remove();
     if (gachaShopUiRefreshTimer) {
       clearInterval(gachaShopUiRefreshTimer);
@@ -41967,14 +42099,20 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     }
   };
 
-  const refreshGachaVisualization = () => {
-    const rawData = cachedRawData || getTableData();
-    const $overlay = $('.acu-gacha-overlay');
-    if (!$overlay.length) return;
+  const refreshGachaVisualization = (rawDataOverride?: unknown) => {
+    const rawData = rawDataOverride || cachedRawData;
+    const overlay = gachaShopRootElement?.isConnected
+      ? gachaShopRootElement
+      : getGachaShopProgressContainers()[0] || null;
+    if (!overlay) return;
+    if (!rawData) {
+      updateGachaShopProgressUi();
+      return;
+    }
     void (async () => {
       await ensureGachaCatalogLoaded(rawData);
-      if (!$overlay.length) return;
-      $overlay.html(renderGachaPanelHtml(rawData));
+      if (!overlay.isConnected) return;
+      overlay.innerHTML = renderGachaPanelHtml(rawData);
     })();
   };
 
@@ -41987,7 +42125,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const overlay = $(`<div class="acu-gacha-overlay acu-theme-${getConfig().theme}"></div>`);
     overlay.html(renderGachaPanelHtml(rawData));
     $('body').append(overlay);
+    gachaShopRootElement = overlay[0] as HTMLElement | null;
     startGachaShopUiRefresh();
+    updateGachaShopProgressUi();
     const overlayEl = overlay[0] as HTMLElement | undefined;
     if (overlayEl) {
       overlayEl.style.setProperty('position', 'fixed', 'important');
@@ -42175,8 +42315,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return parsed.items.find(item => item.rowIndex === rowIndex) || null;
   };
 
-  const getInventoryDetailContext = (rowIndex: number) => {
-    const rawData = cachedRawData || getTableData();
+  const getInventoryDetailContext = (rowIndex: number, options?: { preferLatest?: boolean }) => {
+    const rawData = options?.preferLatest
+      ? getTableData({ silent: true }) || cachedRawData
+      : cachedRawData || getTableData();
     const parsed = parseInventoryItems(rawData);
     const item = parsed.items.find(candidate => candidate.rowIndex === rowIndex) || null;
     if (!rawData || !item || !item.tableKey) return null;
@@ -45189,6 +45331,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     $('body')
       .off('click.acu_gacha_pickup_detail')
       .on('click.acu_gacha_pickup_detail', '.acu-gacha-pickup-detail-btn', function (e) {
+        e.stopPropagation();
+        e.preventDefault();
+        const itemId = String($(this).data('item-id') || '').trim();
+        if (!itemId) return;
+        showGachaPickupItemDetail(itemId);
+      });
+    $('body')
+      .off('click.acu_gacha_recent_detail')
+      .on('click.acu_gacha_recent_detail', '.acu-gacha-recent-detail-btn', function (e) {
         e.stopPropagation();
         e.preventDefault();
         const itemId = String($(this).data('item-id') || '').trim();

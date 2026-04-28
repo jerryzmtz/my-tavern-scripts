@@ -8504,6 +8504,33 @@ export const MAIN_STYLES = `
         overscroll-behavior: contain;
         scrollbar-width: thin;
     }
+    .acu-gacha-recent-detail-btn {
+        width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 6px 10px;
+        border: 1px solid transparent;
+        border-radius: 10px;
+        background: var(--acu-panel-bg-soft, rgba(255,255,255,0.04));
+        color: var(--acu-text-main);
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+        transition: background .14s ease, border-color .14s ease, transform .14s ease;
+    }
+    .acu-gacha-recent-detail-btn:hover {
+        border-color: color-mix(in srgb, var(--acu-accent) 36%, transparent);
+        background: color-mix(in srgb, var(--acu-accent) 12%, var(--acu-panel-bg-soft, rgba(255,255,255,0.04)));
+        transform: translateY(-1px);
+    }
+    .acu-gacha-recent-detail-btn:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--acu-accent) 62%, transparent);
+        outline-offset: 2px;
+    }
     .acu-gacha-recent-section {
         gap: 0;
     }
