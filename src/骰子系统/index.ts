@@ -1949,7 +1949,7 @@ import {
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.7.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v5.12'; // 脚本版本号
+  const SCRIPT_VERSION = 'v5.13'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -14591,21 +14591,45 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   const getReverseTables = () => Store.get(STORAGE_KEY_REVERSE_TABLES, []);
   const saveReverseTables = v => Store.set(STORAGE_KEY_REVERSE_TABLES, v);
 
+  const normalizeTableNameList = tableNames => {
+    if (!Array.isArray(tableNames)) return [];
+    return Array.from(new Set(tableNames.filter(name => typeof name === 'string' && name.trim())));
+  };
+
+  const getNormalizedReverseTables = () => normalizeTableNameList(getReverseTables());
+
   // 判断表格是否需要显示倒序按钮
   const shouldShowReverseButton = tableName => {
-    if (!tableName) return false;
-    const keywords = ['总结', '大纲', '日志', '记录', '历史', '纪要'];
-    return keywords.some(kw => tableName.includes(kw));
+    return typeof tableName === 'string' && tableName.trim().length > 0;
   };
 
   // 判断表格当前是否为倒序
   const isTableReversed = tableName => {
-    return getReverseTables().includes(tableName);
+    return getNormalizedReverseTables().includes(tableName);
+  };
+
+  const areAllTablesReversed = tableNames => {
+    const names = normalizeTableNameList(tableNames);
+    if (names.length === 0) return false;
+    const reverseSet = new Set(getNormalizedReverseTables());
+    return names.every(name => reverseSet.has(name));
+  };
+
+  const setAllTablesReverse = (tableNames, enabled) => {
+    const targetNames = normalizeTableNameList(tableNames);
+    if (targetNames.length === 0) return;
+
+    const targetSet = new Set(targetNames);
+    if (enabled) {
+      saveReverseTables(Array.from(new Set([...getNormalizedReverseTables(), ...targetNames])));
+    } else {
+      saveReverseTables(getNormalizedReverseTables().filter(name => !targetSet.has(name)));
+    }
   };
 
   // 切换表格倒序状态
   const toggleTableReverse = tableName => {
-    const list = getReverseTables();
+    const list = getNormalizedReverseTables();
     const idx = list.indexOf(tableName);
     if (idx >= 0) {
       list.splice(idx, 1);
@@ -34887,6 +34911,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     isSettingsOpen = true;
     const config = getConfig();
     const currentThemeClass = `acu-theme-${config.theme}`;
+    const settingsRawData = cachedRawData || getTableData();
+    const settingsTables = processJsonData(settingsRawData || {});
+    const allTableNames = Object.keys(settingsTables);
 
     // 分组折叠状态（从存储读取，默认第一组展开）
     const expandedGroups = Store.get('acu_settings_expanded', ['appearance']);
@@ -34901,8 +34928,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     ];
 
     const tableManagerHtml = (() => {
-      const rawData = cachedRawData || getTableData();
-      const tables = processJsonData(rawData || {});
       const savedOrder = getSavedTableOrder() || [];
       const hiddenList = getHiddenTables();
 
@@ -34916,7 +34941,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       });
 
       // 添加真实表格
-      Object.keys(tables).forEach(name => {
+      allTableNames.forEach(name => {
         allItems.push({ key: name, name: name, icon: getIconForTableName(name), isSpecial: false });
       });
 
@@ -35059,6 +35084,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                     <option value="horizontal" ${config.layout !== 'vertical' ? 'selected' : ''}>横向滚动</option>
                                     <option value="vertical" ${config.layout === 'vertical' ? 'selected' : ''}>竖向滚动</option>
                                 </select>
+                            </div>
+                            <div class="acu-setting-row acu-setting-row-toggle">
+                                <div class="acu-setting-info">
+                                    <span class="acu-setting-label">倒序显示</span>
+                                </div>
+                                <label class="acu-toggle">
+                                    <input type="checkbox" id="cfg-reverse-all-tables" ${areAllTablesReversed(allTableNames) ? 'checked' : ''}>
+                                    <span class="acu-toggle-slider"></span>
+                                </label>
                             </div>
                             <div class="acu-setting-row acu-setting-row-toggle">
                                 <div class="acu-setting-info">
@@ -35514,6 +35548,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     // 布局
     dialog.find('#cfg-layout').on('change', function () {
       saveConfig({ layout: $(this).val() });
+      renderInterface();
+    });
+    dialog.find('#cfg-reverse-all-tables').on('change', function () {
+      setAllTablesReverse(allTableNames, $(this).is(':checked'));
       renderInterface();
     });
     dialog.find('#cfg-show-horizontal-scrollbar').on('change', function () {
@@ -43964,9 +44002,18 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   };
 
   const renderTableContent = (tableData, tableName) => {
+    const isReversed = isTableReversed(tableName);
+    const reverseBtnHtml = shouldShowReverseButton(tableName)
+      ? `
+            <button class="acu-view-btn acu-reverse-btn" data-table="${escapeHtml(tableName)}" title="${isReversed ? '当前：倒序（新→旧），点击切换为正序' : '当前：正序（旧→新），点击切换为倒序'}">
+                <i class="fa-solid ${isReversed ? 'fa-sort-amount-up' : 'fa-sort-amount-down'}"></i>
+            </button>
+        `
+      : '';
+
     if (!tableData || !tableData.rows.length)
       return `
-            <div class="acu-panel-header"><div class="acu-panel-title"><i class="fa-solid ${getIconForTableName(tableName)}"></i> ${tableName}</div><button class="acu-close-btn" title="关闭"><i class="fa-solid fa-times"></i></button></div>
+            <div class="acu-panel-header"><div class="acu-panel-title"><i class="fa-solid ${getIconForTableName(tableName)}"></i> ${tableName}</div><div class="acu-header-actions">${reverseBtnHtml}<button class="acu-close-btn" title="关闭"><i class="fa-solid fa-times"></i></button></div></div>
             <div class="acu-panel-content"><div style="text-align:center;color:var(--acu-text-sub);padding:20px;">暂无数据</div></div>`;
 
     const config = getConfig();
@@ -43999,9 +44046,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     });
     const searchTerm = (tableSearchStates[tableName] || '').toLowerCase().trim();
 
-    // 检查是否需要倒序显示
-    const isReversed = isTableReversed(tableName);
-
     if (searchTerm) {
       processedRows = processedRows.filter(item =>
         item.data.some(cell => String(cell).toLowerCase().includes(searchTerm)),
@@ -44019,7 +44063,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         if (titleA !== searchTerm && titleB === searchTerm) return 1;
         if (aHitTitle && !bHitTitle) return -1;
         if (!aHitTitle && bHitTitle) return 1;
-        return a.originalIndex - b.originalIndex;
+        return isReversed ? b.originalIndex - a.originalIndex : a.originalIndex - b.originalIndex;
       });
     } else {
       // 默认按原始顺序排列，如果启用倒序则反转
@@ -44049,15 +44093,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const endIdx = startIdx + itemsPerPage;
     const rowsToRender = processedRows.slice(startIdx, endIdx);
     // [修改] 表头增加了 视图切换按钮 和 高度拖拽手柄
-    // 生成倒序按钮（仅特定表格显示）
-    const showReverseBtn = shouldShowReverseButton(tableName);
-    const reverseBtnHtml = showReverseBtn
-      ? `
-            <button class="acu-view-btn acu-reverse-btn" data-table="${escapeHtml(tableName)}" title="${isReversed ? '当前：倒序（新→旧），点击切换为正序' : '当前：正序（旧→新），点击切换为倒序'}">
-                <i class="fa-solid ${isReversed ? 'fa-sort-amount-up' : 'fa-sort-amount-down'}"></i>
-            </button>
-        `
-      : '';
 
     let html = `
             <div class="acu-panel-header">
