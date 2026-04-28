@@ -23882,7 +23882,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           const playerRow = sheet.content[1];
           const playerRelIdx = playerHeaders.findIndex(h => h && h.includes('人际关系'));
           if (playerRelIdx > 0 && playerRow[playerRelIdx]) {
-            const playerRelations = parseRelationshipString(String(playerRow[playerRelIdx] || '')) as ParsedRelationshipItem[];
+            const playerRelations = parseRelationshipString(
+              String(playerRow[playerRelIdx] || ''),
+            ) as ParsedRelationshipItem[];
             console.info(`[DICE]主角信息表人际关系: 发现${playerRelations.length}条关系`);
 
             playerRelations.forEach(rel => {
@@ -28097,18 +28099,13 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       return null;
     }
     return Array.from(
-      new Set(
-        modifiedSheetKeys
-          .map(key => String(key || '').trim())
-          .filter(key => key.startsWith('sheet_')),
-      ),
+      new Set(modifiedSheetKeys.map(key => String(key || '').trim()).filter(key => key.startsWith('sheet_'))),
     );
   };
 
   const performSaveDataOnly = async (tableData, modifiedSheetKeys?: string[]) => {
     try {
-      const sourceData =
-        tableData && typeof tableData === 'object' ? (tableData as Record<string, unknown>) : {};
+      const sourceData = tableData && typeof tableData === 'object' ? (tableData as Record<string, unknown>) : {};
       const explicitModifiedSheetKeys = getExplicitModifiedSheetKeys(modifiedSheetKeys);
 
       if (explicitModifiedSheetKeys && explicitModifiedSheetKeys.length === 0) {
@@ -28141,8 +28138,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       });
 
       const sheetKeysToSave =
-        explicitModifiedSheetKeys ||
-        Object.keys(sourceData).filter(key => key.startsWith('sheet_'));
+        explicitModifiedSheetKeys || Object.keys(sourceData).filter(key => key.startsWith('sheet_'));
       let mergedSheetCount = 0;
 
       sheetKeysToSave.forEach(key => {
@@ -39902,9 +39898,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         ),
         totalActiveMinutes: Math.max(
           0,
-          Number(
-            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.totalActiveMinutes || '0'),
-          ) || 0,
+          Number(String((rawRecord.inputStats as Record<string, unknown> | undefined)?.totalActiveMinutes || '0')) || 0,
         ),
         pendingCharCarry: Math.max(
           0,
