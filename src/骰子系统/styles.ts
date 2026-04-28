@@ -10023,4 +10023,40 @@ export const MAIN_STYLES = `
         height: 0 !important;
         display: none !important;
     }
+
+    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-panel-content,
+    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-changes-content.acu-changes-horizontal,
+    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-dash-body.acu-dash-horizontal,
+    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-dashboard-content,
+    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-fav-panel-content {
+        scrollbar-width: thin !important;
+        scrollbar-color: var(--acu-scrollbar-thumb) var(--acu-scrollbar-track) !important;
+    }
+
+    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-panel-content::-webkit-scrollbar:horizontal,
+    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-changes-content.acu-changes-horizontal::-webkit-scrollbar:horizontal,
+    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-dash-body.acu-dash-horizontal::-webkit-scrollbar:horizontal,
+    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-dashboard-content::-webkit-scrollbar:horizontal,
+    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-fav-panel-content::-webkit-scrollbar:horizontal {
+        height: 8px !important;
+        display: block !important;
+    }
+
+    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-panel-content::-webkit-scrollbar-track:horizontal,
+    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-changes-content.acu-changes-horizontal::-webkit-scrollbar-track:horizontal,
+    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-dash-body.acu-dash-horizontal::-webkit-scrollbar-track:horizontal,
+    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-dashboard-content::-webkit-scrollbar-track:horizontal,
+    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-fav-panel-content::-webkit-scrollbar-track:horizontal {
+        background: var(--acu-scrollbar-track) !important;
+        border-radius: 4px !important;
+    }
+
+    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-panel-content::-webkit-scrollbar-thumb:horizontal,
+    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-changes-content.acu-changes-horizontal::-webkit-scrollbar-thumb:horizontal,
+    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-dash-body.acu-dash-horizontal::-webkit-scrollbar-thumb:horizontal,
+    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-dashboard-content::-webkit-scrollbar-thumb:horizontal,
+    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-fav-panel-content::-webkit-scrollbar-thumb:horizontal {
+        background: var(--acu-scrollbar-thumb) !important;
+        border-radius: 4px !important;
+    }
 `;

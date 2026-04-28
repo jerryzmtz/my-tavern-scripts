@@ -1949,7 +1949,7 @@ import {
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.7.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v5.10'; // 脚本版本号
+  const SCRIPT_VERSION = 'v5.11'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -14273,6 +14273,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     itemsPerPage: 50,
     actionsPosition: 'bottom',
     gridColumns: 'auto', // [修改] 默认为智能自动列数
+    showHorizontalScrollbar: true,
     positionMode: 'fixed', // fixed=悬浮底部, embedded=跟随消息, viewport=固定底部
     showOptionPanel: true, // [新增] 显示选项面板
     clickOptionToAutoSend: true, // [新增] 点击选项自动发送
@@ -34795,6 +34796,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                     <option value="vertical" ${config.layout === 'vertical' ? 'selected' : ''}>竖向滚动</option>
                                 </select>
                             </div>
+                            <div class="acu-setting-row acu-setting-row-toggle">
+                                <div class="acu-setting-info">
+                                    <span class="acu-setting-label">显示横向滚动条</span>
+                                </div>
+                                <label class="acu-toggle">
+                                    <input type="checkbox" id="cfg-show-horizontal-scrollbar" ${config.showHorizontalScrollbar === true ? 'checked' : ''}>
+                                    <span class="acu-toggle-slider"></span>
+                                </label>
+                            </div>
                             <div class="acu-setting-row">
                                 <div class="acu-setting-info">
                                     <span class="acu-setting-label">底部按钮列数</span>
@@ -35240,6 +35250,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     // 布局
     dialog.find('#cfg-layout').on('change', function () {
       saveConfig({ layout: $(this).val() });
+      renderInterface();
+    });
+    dialog.find('#cfg-show-horizontal-scrollbar').on('change', function () {
+      saveConfig({ showHorizontalScrollbar: $(this).is(':checked') });
       renderInterface();
     });
     dialog.find('#cfg-grid-cols').on('change', function () {
@@ -36484,6 +36498,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const isCollapsed = getCollapsedState();
 
     const layoutClass = config.layout === 'vertical' ? 'acu-layout-vertical' : '';
+    const horizontalScrollbarClass = config.showHorizontalScrollbar === true ? 'acu-show-horizontal-scrollbar' : '';
     // [补回这行] 定义面板位置样式 (悬浮/嵌入)
     const positionClass = `acu-mode-${config.positionMode || 'fixed'}`;
 
@@ -36583,7 +36598,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     lastOptionHash = currentOptionHash; // 更新缓存
 
     // [修复] 悬浮收起模式需要特殊类，防止 wrapper 坍塌导致按钮消失
-    let html = `<div class="acu-wrapper ${positionClass} acu-theme-${config.theme} ${layoutClass}" style="--acu-card-width:${config.cardWidth}px; --acu-font-size:${config.fontSize}px; --acu-opt-font-size:${config.optionFontSize || 12}px; --acu-grid-cols:${finalGridCols}">`;
+    let html = `<div class="acu-wrapper ${positionClass} acu-theme-${config.theme} ${layoutClass} ${horizontalScrollbarClass}" style="--acu-card-width:${config.cardWidth}px; --acu-font-size:${config.fontSize}px; --acu-opt-font-size:${config.optionFontSize || 12}px; --acu-grid-cols:${finalGridCols}">`;
 
     // [布局核心] 如果是嵌入模式，选项放在 DOM 最前面（因为是 column-reverse，视觉上在最下面）
     // [修改] 增加 optionPanelVisible 判断
