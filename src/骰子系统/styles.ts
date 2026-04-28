@@ -2371,6 +2371,9 @@ export const MAIN_STYLES = `
                 cursor: grab;
             }
             .acu-graph-svg:active { cursor: grabbing; }
+            .acu-graph-svg.acu-graph-move-mode {
+                cursor: default;
+            }
             .acu-graph-edge {
                 stroke: var(--acu-border);
                 stroke-width: 2;
@@ -2384,6 +2387,16 @@ export const MAIN_STYLES = `
             }
             .acu-graph-node { cursor: grab; }
             .acu-graph-node:active { cursor: grabbing; }
+            .acu-graph-move-mode .acu-graph-node {
+                cursor: move;
+            }
+            .acu-graph-node-dragging .acu-graph-node,
+            .acu-graph-node-dragging .acu-graph-node:active {
+                cursor: grabbing;
+            }
+            .acu-graph-move-mode .acu-graph-node .acu-node-bg {
+                stroke-dasharray: 4 3;
+            }
             .acu-node-bg {
                 fill: var(--acu-btn-bg);
                 stroke: var(--acu-border);

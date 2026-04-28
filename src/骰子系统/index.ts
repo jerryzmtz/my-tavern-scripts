@@ -1949,7 +1949,7 @@ import {
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.7.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v5.11'; // 脚本版本号
+  const SCRIPT_VERSION = 'v5.12'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -23422,15 +23422,58 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     // 用户无法在地图弹窗打开时修改表格数据
   };
 
+  type RelationGraphCell = string | number | null | undefined;
+  type RelationGraphRow = RelationGraphCell[];
+
+  interface RelationGraphTableInput {
+    headers?: RelationGraphCell[];
+    rows?: RelationGraphRow[];
+    key?: string;
+  }
+
+  interface RelationGraphNode {
+    name: string;
+    isPlayer: boolean;
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    radius: number;
+    tableKey: string;
+    rowIndex?: number;
+    isInScene?: boolean;
+    fixed?: boolean;
+  }
+
+  interface RelationGraphEdge {
+    source: string;
+    target: string;
+    labelsFromSource: string[];
+    labelsFromTarget: string[];
+  }
+
+  interface ParsedRelationshipItem {
+    name: string;
+    relation: string;
+  }
+
+  interface RelationGraphLayoutPosition {
+    x: number;
+    y: number;
+  }
+
+  type RelationGraphLayoutCache = Record<string, RelationGraphLayoutPosition>;
+  type RelationGraphLayoutLoadResult = 'none' | 'partial' | 'full';
+
   // 人物关系图可视化
-  const showRelationshipGraph = npcTable => {
+  const showRelationshipGraph = (npcTable: RelationGraphTableInput) => {
     console.info('[DICE]开始抓取人物关系表数据...');
     const { $ } = getCore();
     $('.acu-relation-graph-overlay').remove();
 
     const config = getConfig();
 
-    const headers = npcTable.headers || [];
+    const headers = (npcTable.headers || []).map(header => String(header || ''));
     const rows = npcTable.rows || [];
 
     const nameIdx = headers.findIndex(h => h && (h.includes('姓名') || h.includes('名称'))) || 1;
@@ -23445,11 +23488,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       return;
     }
 
-    const nodes = new Map();
-    const edges = [];
+    const nodes = new Map<string, RelationGraphNode>();
+    const edges: RelationGraphEdge[] = [];
 
     // 统一解析用户占位符为{{user}}主键（仅用于渲染，不自动管理别名）
-    const resolveUserPlaceholder = name => {
+    const resolveUserPlaceholder = (name: string): string => {
       if (!name) return name;
       const playerName = getPlayerName();
       const personaName = getPersonaName();
@@ -23488,7 +23531,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       return AvatarManager.getPrimaryName(name);
     };
 
-    const resolveName = name => resolveUserPlaceholder(getDisplayName(name));
+    const resolveName = (name: RelationGraphCell): string => resolveUserPlaceholder(getDisplayName(String(name || '')));
 
     const rawData = cachedRawData || getTableData();
     // 重建别名注册表
@@ -23515,6 +23558,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       isPlayer: true,
       x: 0,
       y: 0,
+      vx: 0,
+      vy: 0,
+      radius: 0,
       tableKey: playerTableKey,
       rowIndex: 0,
     });
@@ -23550,6 +23596,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           isPlayer: false,
           x: 0,
           y: 0,
+          vx: 0,
+          vy: 0,
+          radius: 0,
           tableKey: npcTableKey,
           rowIndex: idx,
           isInScene: isInScene,
@@ -23557,7 +23606,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       }
 
       const relationStr = row[relationIdx] || '';
-      const relations = parseRelationshipString(relationStr);
+      const relations = parseRelationshipString(String(relationStr || '')) as ParsedRelationshipItem[];
 
       relations.forEach(rel => {
         if (!rel.name) return;
@@ -23597,6 +23646,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             isPlayer: resolvedRelName === resolvedPlayerName,
             x: 0,
             y: 0,
+            vx: 0,
+            vy: 0,
+            radius: 0,
             tableKey: relRowIndex >= 0 ? npcTableKey : '',
             rowIndex: relRowIndex >= 0 ? relRowIndex : undefined,
             isInScene: relIsInScene,
@@ -23604,7 +23656,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         }
 
         // 清洗关系词：移除冗余前缀/后缀，分割多关系词
-        const cleanRelation = rawRel => {
+        const cleanRelation = (rawRel: RelationGraphCell): string[] => {
           if (!rawRel) return [];
           const parts = String(rawRel)
             .split(/[,，、;；\/\|]+|\s*[和与&]\s*|\s{2,}|\n/)
@@ -23790,7 +23842,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         if (cleanedLabels.length === 0) cleanedLabels.push('');
 
         // 查找已存在的边（无论方向）
-        let existingEdge = edges.find(
+        const existingEdge = edges.find(
           e =>
             (e.source === npcName && e.target === resolvedRelName) ||
             (e.source === resolvedRelName && e.target === npcName),
@@ -23830,7 +23882,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           const playerRow = sheet.content[1];
           const playerRelIdx = playerHeaders.findIndex(h => h && h.includes('人际关系'));
           if (playerRelIdx > 0 && playerRow[playerRelIdx]) {
-            const playerRelations = parseRelationshipString(playerRow[playerRelIdx]);
+            const playerRelations = parseRelationshipString(String(playerRow[playerRelIdx] || '')) as ParsedRelationshipItem[];
             console.info(`[DICE]主角信息表人际关系: 发现${playerRelations.length}条关系`);
 
             playerRelations.forEach(rel => {
@@ -23868,6 +23920,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                   isPlayer: false,
                   x: 0,
                   y: 0,
+                  vx: 0,
+                  vy: 0,
+                  radius: 0,
                   tableKey: relRowIndex >= 0 ? npcTableKey : '',
                   rowIndex: relRowIndex >= 0 ? relRowIndex : undefined,
                   isInScene: relIsInScene,
@@ -23886,7 +23941,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
               if (cleanedLabels.length === 0) cleanedLabels.push('');
 
               // 查找已存在的边（与NPC表处理逻辑一致）
-              let existingEdge = edges.find(
+              const existingEdge = edges.find(
                 e =>
                   (e.source === resolvedPlayerName && e.target === resolvedRelName) ||
                   (e.source === resolvedRelName && e.target === resolvedPlayerName),
@@ -23922,7 +23977,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       centerY = 300;
 
     // [新增] 统计每个节点的关系数量
-    const connectionCount = new Map();
+    const connectionCount = new Map<string, number>();
     nodeArr.forEach(node => connectionCount.set(node.name, 0));
     edges.forEach(edge => {
       connectionCount.set(edge.source, (connectionCount.get(edge.source) || 0) + 1);
@@ -23942,7 +23997,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     let filterDirectOnly = false; // 是否只显示与中心角色直接相关的
     let centerNodeName = resolvedPlayerName; // 当前中心节点（默认为主角）
 
-    const getNodeRadius = (nodeName, isPlayer) => {
+    const getNodeRadius = (nodeName: string, isPlayer: boolean): number => {
       const base = isPlayer ? playerBaseRadius : baseRadius;
       const count = connectionCount.get(nodeName) || 0;
       const calculated = Math.min(maxRadius, base + Math.sqrt(count) * radiusPerConnection);
@@ -23956,7 +24011,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     });
 
     // 过滤节点逻辑（支持两个筛选条件的交集）
-    const getFilteredNodes = () => {
+    const getFilteredNodes = (): RelationGraphNode[] => {
       // 两个都关闭时显示全部
       if (!filterInScene && !filterDirectOnly) return nodeArr;
 
@@ -24007,7 +24062,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const saveLayoutCache = () => {
       try {
         const cacheKey = getLayoutCacheKey();
-        const layoutData = {};
+        const layoutData: RelationGraphLayoutCache = {};
         nodeArr.forEach(node => {
           layoutData[node.name] = { x: node.x, y: node.y };
         });
@@ -24017,41 +24072,86 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       }
     };
 
+    const parseLayoutCache = (cached: string): RelationGraphLayoutCache | null => {
+      const parsed = JSON.parse(cached) as unknown;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+
+      const layoutData: RelationGraphLayoutCache = {};
+      Object.entries(parsed as Record<string, unknown>).forEach(([name, value]) => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return;
+        const position = value as Record<string, unknown>;
+        const x = Number(position.x);
+        const y = Number(position.y);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+        layoutData[name] = { x, y };
+      });
+
+      return Object.keys(layoutData).length > 0 ? layoutData : null;
+    };
+
+    const readLayoutCache = (cacheKey: string): RelationGraphLayoutCache | null => {
+      const cached = localStorage.getItem(cacheKey);
+      if (!cached) return null;
+      return parseLayoutCache(cached);
+    };
+
+    const findReusableLayoutCache = (): RelationGraphLayoutCache | null => {
+      const currentCacheKey = getLayoutCacheKey();
+      const currentLayout = readLayoutCache(currentCacheKey);
+      if (currentLayout) return currentLayout;
+
+      let bestLayout: RelationGraphLayoutCache | null = null;
+      let bestMatchCount = 0;
+      const nodeNames = new Set(nodeArr.map(node => node.name));
+
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key || key === currentCacheKey || !key.startsWith(`${LAYOUT_CACHE_KEY}-`)) continue;
+
+        const layoutData = readLayoutCache(key);
+        if (!layoutData) continue;
+
+        const matchCount = Object.keys(layoutData).filter(name => nodeNames.has(name)).length;
+        if (matchCount > bestMatchCount) {
+          bestMatchCount = matchCount;
+          bestLayout = layoutData;
+        }
+      }
+
+      return bestMatchCount > 0 ? bestLayout : null;
+    };
+
+    const applyLayoutCache = (layoutData: RelationGraphLayoutCache): RelationGraphLayoutLoadResult => {
+      let appliedCount = 0;
+
+      nodeArr.forEach(node => {
+        const cached = layoutData[node.name];
+        if (!cached) {
+          node.fixed = false;
+          return;
+        }
+
+        node.x = cached.x;
+        node.y = cached.y;
+        node.vx = 0;
+        node.vy = 0;
+        node.fixed = true;
+        appliedCount++;
+      });
+
+      if (appliedCount === 0) return 'none';
+      return appliedCount === nodeArr.length ? 'full' : 'partial';
+    };
+
     // 从缓存加载布局
-    const loadLayoutCache = () => {
+    const loadLayoutCache = (): RelationGraphLayoutLoadResult => {
       try {
-        const cacheKey = getLayoutCacheKey();
-        const cached = localStorage.getItem(cacheKey);
-        if (!cached) return false;
-
-        const layoutData = JSON.parse(cached);
-        let allNodesFound = true;
-
-        // 验证缓存中是否包含所有节点
-        for (const node of nodeArr) {
-          if (!layoutData[node.name]) {
-            allNodesFound = false;
-            break;
-          }
-        }
-
-        if (allNodesFound) {
-          // 应用缓存的位置
-          nodeArr.forEach(node => {
-            const cached = layoutData[node.name];
-            if (cached) {
-              node.x = cached.x;
-              node.y = cached.y;
-              node.vx = 0;
-              node.vy = 0;
-            }
-          });
-          return true;
-        }
-        return false;
+        const layoutData = findReusableLayoutCache();
+        if (!layoutData) return 'none';
+        return applyLayoutCache(layoutData);
       } catch (e) {
         console.warn('[DICE]关系图 加载布局缓存失败:', e);
-        return false;
+        return 'none';
       }
     };
 
@@ -24065,10 +24165,21 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       }
     };
 
+    const isFixedLayoutNode = (node: RelationGraphNode, preserveFixedNodes: boolean): boolean => {
+      return node.name === centerNodeName || (preserveFixedNodes && node.fixed === true);
+    };
+
     // 力导向布局物理模拟函数
-    const runForceDirectedLayout = () => {
+    const runForceDirectedLayout = (preserveFixedNodes = false) => {
       // 初始化位置：在中心附近随机散布，开始模拟
       nodeArr.forEach(node => {
+        if (!preserveFixedNodes) node.fixed = false;
+        if (preserveFixedNodes && node.fixed === true) {
+          node.vx = 0;
+          node.vy = 0;
+          return;
+        }
+
         if (node.name === centerNodeName) {
           node.x = centerX;
           node.y = centerY;
@@ -24086,7 +24197,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       });
 
       // 建立映射以便 O(1) 查找节点
-      const nodeMap = new Map();
+      const nodeMap = new Map<string, RelationGraphNode>();
       nodeArr.forEach(n => nodeMap.set(n.name, n));
 
       // 预计算模拟 (迭代运行物理引擎)
@@ -24107,11 +24218,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             const fx = (dx / dist) * force;
             const fy = (dy / dist) * force;
 
-            if (u.name !== centerNodeName) {
+            if (!isFixedLayoutNode(u, preserveFixedNodes)) {
               u.vx -= fx;
               u.vy -= fy;
             }
-            if (v.name !== centerNodeName) {
+            if (!isFixedLayoutNode(v, preserveFixedNodes)) {
               v.vx += fx;
               v.vy += fy;
             }
@@ -24134,11 +24245,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           const fx = (dx / dist) * force;
           const fy = (dy / dist) * force;
 
-          if (u.name !== centerNodeName) {
+          if (!isFixedLayoutNode(u, preserveFixedNodes)) {
             u.vx += fx;
             u.vy += fy;
           }
-          if (v.name !== centerNodeName) {
+          if (!isFixedLayoutNode(v, preserveFixedNodes)) {
             v.vx -= fx;
             v.vy -= fy;
           }
@@ -24146,7 +24257,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
         // 3. 中心重力 (轻微拉向中心)
         nodeArr.forEach(node => {
-          if (node.name === centerNodeName) return;
+          if (isFixedLayoutNode(node, preserveFixedNodes)) return;
           const dx = centerX - node.x;
           const dy = centerY - node.y;
           node.vx += dx * kGravity;
@@ -24158,7 +24269,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const maxSpeed = 50 * (1 - iter / iterations); // 随迭代冷却最大速度
 
         nodeArr.forEach(node => {
-          if (node.name === centerNodeName) return; // 中心节点固定不动 (作为锚点)
+          if (isFixedLayoutNode(node, preserveFixedNodes)) return; // 中心节点和已缓存节点固定不动
 
           // 阻尼
           node.vx *= damping;
@@ -24181,9 +24292,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     };
 
     // 运行初始布局（优先使用缓存）
-    if (!loadLayoutCache()) {
+    const layoutLoadResult = loadLayoutCache();
+    if (layoutLoadResult !== 'full') {
       // 缓存不存在或不匹配，运行物理模拟
-      runForceDirectedLayout();
+      runForceDirectedLayout(layoutLoadResult === 'partial');
     }
 
     // 视图状态
@@ -24192,6 +24304,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     let panY = 0;
     const minScale = 0.3;
     const maxScale = 4;
+    let moveModeEnabled = false;
 
     const overlay = $(`
             <div class="acu-relation-graph-overlay acu-theme-${config.theme}">
@@ -24210,6 +24323,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                             </div>
                             <button class="acu-graph-btn acu-filter-toggle acu-graph-filter-btn" id="filter-in-scene" title="只显示中心角色和在场角色"><i class="fa-solid fa-map-marker-alt"></i></button>
                             <button class="acu-graph-btn acu-filter-toggle acu-graph-filter-btn" id="filter-direct-only" title="只显示与中心角色直接相关"><i class="fa-solid fa-link"></i></button>
+                            <button class="acu-graph-btn acu-filter-toggle acu-graph-filter-btn" id="graph-move-mode" title="移动模式：拖动头像调整位置"><i class="fa-solid fa-up-down-left-right"></i></button>
                         </div>
                         <div class="acu-graph-actions">
                             <button class="acu-graph-btn" id="graph-relayout" title="重新布局（清除缓存并重新计算节点位置）"><i class="fa-solid fa-sync"></i></button>
@@ -24274,6 +24388,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const $zoomDisplay = overlay.find('.acu-zoom-display span:last-child');
     const $nodeSizeDisplay = overlay.find('#node-size-display');
     const $wrapper = overlay.find('.acu-graph-canvas-wrapper');
+    const $moveModeBtn = overlay.find('#graph-move-mode');
 
     const updateTransform = () => {
       $transform.attr('transform', `translate(${panX}, ${panY}) scale(${scale})`);
@@ -24286,7 +24401,13 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       }
     };
 
-    const zoomTo = (newScale, centerX = 400, centerY = 300) => {
+    const updateMoveModeStyles = () => {
+      $moveModeBtn.toggleClass('active', moveModeEnabled);
+      $wrapper.toggleClass('acu-graph-move-mode', moveModeEnabled);
+      $svg.toggleClass('acu-graph-move-mode', moveModeEnabled);
+    };
+
+    const zoomTo = (newScale: number, centerX = 400, centerY = 300) => {
       const oldScale = scale;
       scale = Math.max(minScale, Math.min(maxScale, newScale));
       const scaleChange = scale / oldScale;
@@ -24295,7 +24416,46 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       updateTransform();
     };
 
-    const render = async () => {
+    let graphRenderQueued = false;
+    const nodeAvatarCache = new Map<string, string>();
+    const nodeAvatarRequests = new Set<string>();
+
+    const requestGraphRender = () => {
+      if (graphRenderQueued) return;
+      graphRenderQueued = true;
+      window.requestAnimationFrame(() => {
+        graphRenderQueued = false;
+        render();
+      });
+    };
+
+    const getCachedNodeAvatar = (nodeName: string): string => {
+      const cachedAvatar = nodeAvatarCache.get(nodeName);
+      if (cachedAvatar !== undefined) return cachedAvatar;
+
+      const syncAvatar = AvatarManager.get(nodeName) || '';
+      nodeAvatarCache.set(nodeName, syncAvatar);
+
+      if (!nodeAvatarRequests.has(nodeName)) {
+        nodeAvatarRequests.add(nodeName);
+        void AvatarManager.getAsync(nodeName)
+          .then(avatar => {
+            const nextAvatar = avatar || '';
+            const previousAvatar = nodeAvatarCache.get(nodeName) || '';
+            nodeAvatarCache.set(nodeName, nextAvatar);
+            nodeAvatarRequests.delete(nodeName);
+            if (nextAvatar !== previousAvatar) requestGraphRender();
+          })
+          .catch(error => {
+            nodeAvatarRequests.delete(nodeName);
+            console.warn('[DICE]关系图 头像加载失败:', nodeName, error);
+          });
+      }
+
+      return syncAvatar;
+    };
+
+    const render = () => {
       // 获取过滤后的节点
       const filteredNodes = getFilteredNodes();
       const filteredNodeNames = new Set(filteredNodes.map(n => n.name));
@@ -24524,8 +24684,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       // [修复] 异步获取头像后再渲染节点（使用过滤后的节点）
       let nodesHtml = '';
       for (const node of filteredNodes) {
-        // 使用异步方法获取头像（优先本地 > URL > ST头像）
-        const nodeAvatar = await AvatarManager.getAsync(node.name);
+        // 拖动时使用缓存头像，避免线和文字先重绘、头像等待异步读取后才跟上
+        const nodeAvatar = getCachedNodeAvatar(node.name);
         const isPlayer = node.isPlayer;
 
         // 在场标记：右下角小圆点（随节点大小缩放，Discord风格）
@@ -24574,7 +24734,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     };
 
     // [新增] 悬浮高亮交互函数
-    const highlightNode = nodeName => {
+    const highlightNode = (nodeName: string) => {
       $svg.addClass('highlighting');
 
       // 高亮当前节点
@@ -24659,6 +24819,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       let currentHighlightedNode = null;
 
       $nodesGroup.on('pointerdown', '.acu-graph-node', function (e) {
+        if (moveModeEnabled) return;
         const $node = $(this);
         const nodeName = $node.data('name');
         const startX = e.clientX;
@@ -24771,6 +24932,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
       // 点击画布空白处清除高亮
       $wrapper.on('pointerup.mobileclear', function (e) {
+        if (moveModeEnabled) return;
         if (currentHighlightedNode && !$(e.target).closest('.acu-graph-node').length) {
           clearHighlight();
           currentHighlightedNode = null;
@@ -24780,6 +24942,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       // ========== PC端逻辑 ==========
 
       $nodesGroup.on('pointerenter.pchover', '.acu-graph-node', function () {
+        if (moveModeEnabled) return;
         const nodeName = $(this).data('name');
         if (nodeName) {
           highlightNode(nodeName);
@@ -24787,11 +24950,17 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       });
 
       $nodesGroup.on('pointerleave.pchover', '.acu-graph-node', function () {
+        if (moveModeEnabled) return;
         clearHighlight();
       });
 
       // PC端点击显示详情
       $nodesGroup.on('click.pcclick', '.acu-graph-node', function (e) {
+        if (moveModeEnabled) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
         e.stopPropagation();
         const $node = $(this);
         const nodeName = $node.data('name');
@@ -24843,9 +25012,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     }
 
     // 初始渲染
-    render().then(() => {
-      updateTransform();
-    });
+    render();
+    updateTransform();
 
     // 画布平移和缩放 - 使用 Pointer Events API
     let isPanning = false;
@@ -24854,16 +25022,72 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     let panStartPanX = 0,
       panStartPanY = 0;
     let lastPinchDist = 0;
-    let activePointerId = null;
+    let activePointerId: number | null = null;
+    let isNodeDragging = false;
+    let draggingNodeName: string | null = null;
 
     const wrapperEl = $wrapper[0];
     const svgEl = $svg[0];
 
+    const clientPointToGraphPoint = (clientX: number, clientY: number): RelationGraphLayoutPosition => {
+      const rect = svgEl.getBoundingClientRect();
+      const svgX = rect.width > 0 ? ((clientX - rect.left) / rect.width) * 800 : 0;
+      const svgY = rect.height > 0 ? ((clientY - rect.top) / rect.height) * 600 : 0;
+      return {
+        x: (svgX - panX) / scale,
+        y: (svgY - panY) / scale,
+      };
+    };
+
+    const startNodeDrag = (e: PointerEvent, nodeName: string) => {
+      const node = nodes.get(nodeName);
+      if (!node) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      clearHighlight();
+
+      wrapperEl.setPointerCapture(e.pointerId);
+      activePointerId = e.pointerId;
+      isNodeDragging = true;
+      draggingNodeName = nodeName;
+      node.vx = 0;
+      node.vy = 0;
+      node.fixed = true;
+      $wrapper.addClass('acu-graph-node-dragging');
+      svgEl.style.cursor = 'grabbing';
+    };
+
+    const finishNodeDrag = (pointerId: number, shouldSave: boolean) => {
+      if (pointerId !== activePointerId) return;
+
+      if (wrapperEl.hasPointerCapture(pointerId)) {
+        wrapperEl.releasePointerCapture(pointerId);
+      }
+
+      if (shouldSave && draggingNodeName) {
+        saveLayoutCache();
+      }
+
+      isNodeDragging = false;
+      draggingNodeName = null;
+      activePointerId = null;
+      $wrapper.removeClass('acu-graph-node-dragging');
+      svgEl.style.cursor = '';
+    };
+
     // Pointer Down - 开始拖拽
     wrapperEl.onpointerdown = function (e) {
       if (e.button !== 0) return;
-      // [修复] 如果点击的是节点，不启动画布拖拽
-      if ($(e.target).closest('.acu-graph-node').length) return;
+      const $targetNode = $(e.target).closest('.acu-graph-node');
+      if ($targetNode.length) {
+        if (moveModeEnabled) {
+          const nodeName = String($targetNode.data('name') || '');
+          if (nodeName) startNodeDrag(e, nodeName);
+        }
+        return;
+      }
+      if (moveModeEnabled) return;
       // [修复] 如果点击的是滑条容器，不启动画布拖拽
       if ($(e.target).closest('.acu-node-size-slider-container').length) return;
       e.preventDefault();
@@ -24879,6 +25103,19 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     // Pointer Move - 拖拽中
     wrapperEl.onpointermove = function (e) {
+      if (isNodeDragging && e.pointerId === activePointerId && draggingNodeName) {
+        const node = nodes.get(draggingNodeName);
+        if (!node) return;
+        const point = clientPointToGraphPoint(e.clientX, e.clientY);
+        node.x = point.x;
+        node.y = point.y;
+        node.vx = 0;
+        node.vy = 0;
+        node.fixed = true;
+        requestGraphRender();
+        return;
+      }
+
       if (!isPanning || e.pointerId !== activePointerId) return;
       const dx = e.clientX - panStartX;
       const dy = e.clientY - panStartY;
@@ -24890,20 +25127,30 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     // Pointer Up - 结束拖拽
     wrapperEl.onpointerup = function (e) {
+      if (isNodeDragging) {
+        finishNodeDrag(e.pointerId, true);
+        return;
+      }
+
       if (e.pointerId === activePointerId) {
         wrapperEl.releasePointerCapture(e.pointerId);
         isPanning = false;
         activePointerId = null;
-        svgEl.style.cursor = 'grab';
+        svgEl.style.cursor = '';
       }
     };
 
     // Pointer Cancel - 取消
     wrapperEl.onpointercancel = function (e) {
+      if (isNodeDragging) {
+        finishNodeDrag(e.pointerId, true);
+        return;
+      }
+
       if (e.pointerId === activePointerId) {
         isPanning = false;
         activePointerId = null;
-        svgEl.style.cursor = 'grab';
+        svgEl.style.cursor = '';
       }
     };
 
@@ -25088,6 +25335,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const $filterInSceneBtn = overlay.find('#filter-in-scene');
     const $filterDirectOnlyBtn = overlay.find('#filter-direct-only');
 
+    updateMoveModeStyles();
+
     const updateFilterToggleStyles = () => {
       $filterInSceneBtn.toggleClass('active', filterInScene);
       $filterDirectOnlyBtn.toggleClass('active', filterDirectOnly);
@@ -25108,6 +25357,18 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       filterDirectOnly = !filterDirectOnly;
       updateFilterToggleStyles();
       render();
+    });
+
+    $moveModeBtn.on('click', function (e) {
+      e.stopPropagation();
+      moveModeEnabled = !moveModeEnabled;
+      clearHighlight();
+      updateMoveModeStyles();
+      if (window.toastr) {
+        window.toastr.info(moveModeEnabled ? '移动模式已开启：拖动头像调整位置' : '移动模式已关闭', '', {
+          timeOut: 1600,
+        });
+      }
     });
 
     // [新增] 自定义中心角色下拉选择器
@@ -25182,9 +25443,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       });
 
       // 重新加载布局（优先使用缓存）
-      if (!loadLayoutCache()) {
+      const resetLayoutLoadResult = loadLayoutCache();
+      if (resetLayoutLoadResult !== 'full') {
         // 缓存不存在或不匹配，运行物理模拟
-        runForceDirectedLayout();
+        runForceDirectedLayout(resetLayoutLoadResult === 'partial');
       }
       render();
     });
@@ -25242,6 +25504,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     overlay.find('#graph-manage-avatar').click(() => {
       // 使用过滤后的节点数组，但头像管理应该显示所有节点
       showAvatarManager(nodeArr, () => {
+        nodeAvatarCache.clear();
+        nodeAvatarRequests.clear();
         // 重新计算节点半径（因为大小可能改变了）
         nodeArr.forEach(node => {
           node.radius = getNodeRadius(node.name, node.isPlayer);
@@ -27833,13 +28097,18 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       return null;
     }
     return Array.from(
-      new Set(modifiedSheetKeys.map(key => String(key || '').trim()).filter(key => key.startsWith('sheet_'))),
+      new Set(
+        modifiedSheetKeys
+          .map(key => String(key || '').trim())
+          .filter(key => key.startsWith('sheet_')),
+      ),
     );
   };
 
   const performSaveDataOnly = async (tableData, modifiedSheetKeys?: string[]) => {
     try {
-      const sourceData = tableData && typeof tableData === 'object' ? (tableData as Record<string, unknown>) : {};
+      const sourceData =
+        tableData && typeof tableData === 'object' ? (tableData as Record<string, unknown>) : {};
       const explicitModifiedSheetKeys = getExplicitModifiedSheetKeys(modifiedSheetKeys);
 
       if (explicitModifiedSheetKeys && explicitModifiedSheetKeys.length === 0) {
@@ -27872,7 +28141,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       });
 
       const sheetKeysToSave =
-        explicitModifiedSheetKeys || Object.keys(sourceData).filter(key => key.startsWith('sheet_'));
+        explicitModifiedSheetKeys ||
+        Object.keys(sourceData).filter(key => key.startsWith('sheet_'));
       let mergedSheetCount = 0;
 
       sheetKeysToSave.forEach(key => {
@@ -39632,7 +39902,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         ),
         totalActiveMinutes: Math.max(
           0,
-          Number(String((rawRecord.inputStats as Record<string, unknown> | undefined)?.totalActiveMinutes || '0')) || 0,
+          Number(
+            String((rawRecord.inputStats as Record<string, unknown> | undefined)?.totalActiveMinutes || '0'),
+          ) || 0,
         ),
         pendingCharCarry: Math.max(
           0,
