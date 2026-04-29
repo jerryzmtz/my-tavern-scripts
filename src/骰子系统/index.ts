@@ -27703,8 +27703,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     'gacha',
   ];
 
-  const isTutorialScope = (value: string): value is TutorialScope =>
-    TUTORIAL_SCOPES.includes(value as TutorialScope);
+  const isTutorialScope = (value: string): value is TutorialScope => TUTORIAL_SCOPES.includes(value as TutorialScope);
 
   let tutorialButtonEventsBound = false;
 
