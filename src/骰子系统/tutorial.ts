@@ -28,6 +28,7 @@ export type TutorialScope =
   | 'gacha';
 
 type TutorialPlacement = 'top' | 'right' | 'bottom' | 'left' | 'center';
+type TutorialAction = 'prev' | 'next' | 'skip' | 'never';
 
 interface TutorialStep {
   selector?: string | readonly string[];
@@ -193,15 +194,13 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '.acu-settings-dialog',
       title: '设置页面',
-      content:
-        '这里集中管理前端显示、布局、表格入口、数据验证和高级功能。修改大多数选项后会自动保存，关闭设置页后界面会按新配置重新渲染。',
+      content: '这里集中管理前端显示、布局、表格入口、数据验证和高级功能。修改大多数选项后会自动保存，关闭设置页后界面会按新配置重新渲染。',
       placement: 'left',
     },
     {
       selector: '.acu-settings-header',
       title: '顶部操作',
-      content:
-        '顶部显示当前版本，刷新按钮用于清理缓存并重新加载新版资源。右侧的问号会播放设置总览；每个标签行也有自己单独的教程。',
+      content: '顶部显示当前版本，刷新按钮用于清理缓存并重新加载新版资源。右侧的问号会播放设置总览；每个标签行也有自己单独的教程。',
       placement: 'bottom',
     },
     {
@@ -237,15 +236,13 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '.acu-settings-group[data-group="validation"] .acu-settings-group-title',
       title: '数据验证',
-      content:
-        '这里管理字段规则、只读规则和智能修复。适合用来约束 AI 填表格式，减少错误数据进入表格。如果你使用SQL表格，则几乎不需要本功能。',
+      content: '这里管理字段规则、只读规则和智能修复。适合用来约束 AI 填表格式，减少错误数据进入表格。如果你使用SQL表格，则几乎不需要本功能。',
       placement: 'bottom',
     },
     {
       selector: '.acu-settings-group[data-group="regex"] .acu-settings-group-title',
       title: '正则转换',
-      content:
-        '这里管理自动文本转换规则。适合统一表格字段格式，但建议先小范围测试再长期启用。如果你遇到问题，优先尝试关闭此处的所有正则。',
+      content: '这里管理自动文本转换规则。适合统一表格字段格式，但建议先小范围测试再长期启用。如果你遇到问题，优先尝试关闭此处的所有正则。',
       placement: 'bottom',
     },
     {
@@ -335,8 +332,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '#settings-row-panel-position',
       title: '面板位置',
-      content:
-        '悬浮底部会把前端面板放在聊天内容底部，向上滚动查看旧消息时它也会跟着离开视野。固定底部会贴在窗口底边，无论怎么滑动聊天都一直可见。跟随消息则会把面板渲染在最新消息附近。',
+      content: '悬浮底部会把前端面板放在聊天内容底部，向上滚动查看旧消息时它也会跟着离开视野。固定底部会贴在窗口底边，无论怎么滑动聊天都一直可见。跟随消息则会把面板渲染在最新消息附近。',
       placement: 'left',
     },
     {
@@ -396,8 +392,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '.acu-settings-group[data-group="validation"] .acu-settings-group-title',
       title: '数据验证规则',
-      content:
-        '数据验证用于约束 AI 写入表格的内容，例如只读、范围、格式和枚举。它主要服务于自然语言填表；如果你已经使用 SQL 方式稳定填表，通常不需要此功能。',
+      content: '数据验证用于约束 AI 写入表格的内容，例如只读、范围、格式和枚举。它主要服务于自然语言填表；如果你已经使用 SQL 方式稳定填表，通常不需要此功能。',
       placement: 'bottom',
     },
     {
@@ -409,8 +404,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '#settings-row-validation-preset-actions',
       title: '预设操作',
-      content:
-        '这里可以复制、新建、删除、导出和导入验证预设。遇到规则异常或误改默认预设时，点击旋转箭头可以恢复默认预设规则。',
+      content: '这里可以复制、新建、删除、导出和导入验证预设。遇到规则异常或误改默认预设时，点击旋转箭头可以恢复默认预设规则。',
       placement: 'left',
     },
     {
@@ -424,8 +418,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '.acu-settings-group[data-group="regex"] .acu-settings-group-title',
       title: '正则转换规则',
-      content:
-        '正则转换会在读取或处理表格时自动替换文本，适合清理多余词、统一格式或修正常见写法。如果你使用 SQL 填表，通常不需要它。',
+      content: '正则转换会在读取或处理表格时自动替换文本，适合清理多余词、统一格式或修正常见写法。如果你使用 SQL 填表，通常不需要它。',
       placement: 'bottom',
     },
     {
@@ -437,15 +430,13 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '#settings-row-regex-preset-actions',
       title: '预设操作',
-      content:
-        '这里可以复制、新建、删除、导出、导入和恢复默认正则预设。遇到文本被误改时，先点恢复默认；如果仍有问题，就把规则列表里的正则全部关掉再排查。',
+      content: '这里可以复制、新建、删除、导出、导入和恢复默认正则预设。遇到文本被误改时，先点恢复默认；如果仍有问题，就把规则列表里的正则全部关掉再排查。',
       placement: 'left',
     },
     {
       selector: '#regex-rules-list',
       title: '转换规则',
-      content:
-        '规则会按启用状态和优先级执行。新规则最好先小范围测试；一旦发现内容被错误替换，可以先关闭对应规则或全部规则。',
+      content: '规则会按启用状态和优先级执行。新规则最好先小范围测试；一旦发现内容被错误替换，可以先关闭对应规则或全部规则。',
       placement: 'bottom',
     },
   ],
@@ -459,8 +450,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '#settings-row-attr-preset',
       title: '自定义属性规则',
-      content:
-        '自定义属性规则会影响表格填写提示：它规定世界观中有哪些属性名、数值范围和生成概率。建议先导出内置 JSON，再参考结构自定义。',
+      content: '自定义属性规则会影响表格填写提示：它规定世界观中有哪些属性名、数值范围和生成概率。建议先导出内置 JSON，再参考结构自定义。',
       placement: 'left',
     },
     {
@@ -502,8 +492,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '#settings-row-db-theme-sync',
       title: '数据库主题同步',
-      content:
-        '@spv2.1 之前用于让数据库本体跟随骰子系统主题的旧功能。现在数据库本体已经有自己的主题功能，这个旧功能今后不会再继续维护。',
+      content: '@spv2.1 之前用于让数据库本体跟随骰子系统主题的旧功能。现在数据库本体已经有自己的主题功能，这个旧功能今后不会再继续维护。',
       placement: 'left',
     },
   ],
@@ -529,8 +518,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: ['#dice-custom-fields-area', '#dice-normal-params-section'],
       title: '发起方参数',
-      content:
-        '这里填写发起方的名字、属性名、属性值，以及当前规则需要的技能值、目标值或临时加值。留空时会按当前规则使用默认值或自动计算。',
+      content: '这里填写发起方的名字、属性名、属性值，以及当前规则需要的技能值、目标值或临时加值。留空时会按当前规则使用默认值或自动计算。',
       placement: 'bottom',
     },
     {
@@ -622,8 +610,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: ['.acu-dice-history-dialog', '.acu-dice-history-overlay .acu-edit-dialog'],
       title: '检定历史',
-      content:
-        '这里汇总普通检定和对抗检定记录。你可以回看检定对象、结果、骰面、效果执行状态，以及必要时展开详情。右上角的问号可以随时重播本教程。',
+      content: '这里汇总普通检定和对抗检定记录。你可以回看检定对象、结果、骰面、效果执行状态，以及必要时展开详情。右上角的问号可以随时重播本教程。',
       placement: 'left',
     },
     {
@@ -653,8 +640,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: ['#acu-dice-history-list', '.acu-dice-history-overlay'],
       title: '历史列表',
-      content:
-        '每条记录会显示时间、检定类型、结果与骰子表达式。有详情按钮时可以展开效果链路，复制按钮可以复制完整详情。',
+      content: '每条记录会显示时间、检定类型、结果与骰子表达式。有详情按钮时可以展开效果链路，复制按钮可以复制完整详情。',
       placement: 'top',
     },
     {
@@ -668,8 +654,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: ['.acu-dice-settings-dialog', '#acu-open-preset-list'],
       title: '检定设置',
-      content:
-        '这里集中管理检定系统的高级选项：检定预设、自定义属性预设、疯狂模式，以及检定结果在输入栏和聊天记录中的显示方式。',
+      content: '这里集中管理检定系统的高级选项：检定预设、自定义属性预设、疯狂模式，以及检定结果在输入栏和聊天记录中的显示方式。',
       placement: 'left',
     },
     {
@@ -681,8 +666,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '#dice-settings-attr-preset-row',
       title: '自定义属性预设',
-      content:
-        '自定义属性预设影响表格填写提示词：它规定世界观中有哪些属性名、数值范围、每个数值范围的概率等，用来帮助生成或补全属性表格。',
+      content: '自定义属性预设影响表格填写提示词：它规定世界观中有哪些属性名、数值范围、每个数值范围的概率等，用来帮助生成或补全属性表格。',
       placement: 'bottom',
     },
     {
@@ -694,8 +678,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '#dice-result-display-settings',
       title: '结果显示',
-      content:
-        '这些开关控制检定结果是否显示在输入栏、重投时是否覆盖上一条检定结果、以及是否隐藏聊天记录中的检定结果。隐藏聊天记录中的检定结果有可能与酒馆全局的正则冲突。',
+      content: '这些开关控制检定结果是否显示在输入栏、重投时是否覆盖上一条检定结果、以及是否隐藏聊天记录中的检定结果。隐藏聊天记录中的检定结果有可能与酒馆全局的正则冲突。',
       placement: 'top',
     },
   ],
@@ -703,15 +686,13 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: ['.acu-advanced-preset-manager-dialog', '#acu-advanced-presets-list'],
       title: '检定预设管理',
-      content:
-        '检定预设是检定时使用的规则集合。它会定义骰子表达式、属性和难度字段、成功失败分支、输出模板和可能的效果。',
+      content: '检定预设是检定时使用的规则集合。它会定义骰子表达式、属性和难度字段、成功失败分支、输出模板和可能的效果。',
       placement: 'left',
     },
     {
       selector: '#acu-advanced-presets-list .acu-preset-item:first-child',
       title: '预设列表',
-      content:
-        '列表中包含内置预设和自定义预设。点击眼睛图标可在检定页面隐藏或显示某一预设，拖拽条目右侧手柄图标可以调整她们在检定面板中的排序。',
+      content: '列表中包含内置预设和自定义预设。点击眼睛图标可在检定页面隐藏或显示某一预设，拖拽条目右侧手柄图标可以调整她们在检定面板中的排序。',
       placement: 'right',
     },
     {
@@ -729,8 +710,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '#acu-advanced-preset-new',
       title: '新建预设',
-      content:
-        '这里可以从空白模板创建一套新的检定预设。它适合已经熟悉 JSON 字段后使用；初次自定义时，更建议先复制或导出内置预设作为参考。',
+      content: '这里可以从空白模板创建一套新的检定预设。它适合已经熟悉 JSON 字段后使用；初次自定义时，更建议先复制或导出内置预设作为参考。',
       placement: 'top',
     },
     {
@@ -744,8 +724,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: ['.acu-attribute-preset-manager-dialog', '#acu-presets-list'],
       title: '自定义属性规则管理',
-      content:
-        '自定义属性预设用于影响表格填写提示词，不直接决定检定成败。它会告诉系统世界观里有哪些属性名、属性范围和取值概率。',
+      content: '自定义属性预设用于影响表格填写提示词，不直接决定检定成败。它会告诉系统世界观里有哪些属性名、属性范围和取值概率。',
       placement: 'left',
     },
     {
@@ -763,22 +742,19 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '.acu-preset-export',
       title: '导出参考',
-      content:
-        '属性预设也是高级功能。请先导出内置 JSON，参考其中的属性名、公式、范围和特殊属性结构，再制作自己的世界观规则。',
+      content: '属性预设也是高级功能。请先导出内置 JSON，参考其中的属性名、公式、范围和特殊属性结构，再制作自己的世界观规则。',
       placement: 'left',
     },
     {
       selector: '#acu-preset-import',
       title: '导入预设',
-      content:
-        '将自定义属性预设 JSON 导入后，就可以在这里启用。它会影响属性表格填写提示词，但不会替代检定预设的成功失败规则。',
+      content: '将自定义属性预设 JSON 导入后，就可以在这里启用。它会影响属性表格填写提示词，但不会替代检定预设的成功失败规则。',
       placement: 'top',
     },
     {
       selector: ['#acu-open-preset-list', '#acu-preset-back'],
       title: '两类预设的关系',
-      content:
-        '简单区分：检定预设负责“怎么判定成功或失败”；自定义属性预设负责“世界观里有哪些属性，以及表格该如何填写这些属性”。两者可以配合使用，但职责不同。',
+      content: '简单区分：检定预设负责“怎么判定成功或失败”；自定义属性预设负责“世界观里有哪些属性，以及表格该如何填写这些属性”。两者可以配合使用，但职责不同。',
       placement: 'top',
     },
   ],
@@ -830,8 +806,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '.acu-relation-graph-container',
       title: '人物关系图',
-      content:
-        '人物关系图会把角色表中的人际关系整理成节点和连线。角色是节点，关系是带文字和方向的连线，点击角色节点可以查看详情。',
+      content: '人物关系图会把角色表中的人际关系整理成节点和连线。角色是节点，关系是带文字和方向的连线，点击角色节点可以查看详情。',
       placement: 'left',
     },
     {
@@ -843,8 +818,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '#graph-filter-controls',
       title: '筛选与移动',
-      content:
-        '点击定位图标后只显示在场角色；链条图标启用后只显示与中心角色有关系的角色；点击十字箭头后会开启移动模式，可拖动头像来调整位置。',
+      content: '点击定位图标后只显示在场角色；链条图标启用后只显示与中心角色有关系的角色；点击十字箭头后会开启移动模式，可拖动头像来调整位置。',
       placement: 'bottom',
     },
     {
@@ -1080,22 +1054,19 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '.acu-inventory-window-header .acu-header-actions',
       title: '顶部工具',
-      content:
-        '顶部可以搜索物品名和描述，也可以跳转到骰子商店或原始物品表。需要直接改表格数据时，用表格按钮回到原表更方便。',
+      content: '顶部可以搜索物品名和描述，也可以跳转到骰子商店或原始物品表。需要直接改表格数据时，用表格按钮回到原表更方便。',
       placement: 'bottom',
     },
     {
       selector: '.acu-inventory-toolbar',
       title: '筛选选项',
-      content:
-        '筛选区可以按类型、品质和排序方式整理物品。右上角的数字表示当前启用了几个筛选条件；点击标题可以收起或展开。',
+      content: '筛选区可以按类型、品质和排序方式整理物品。右上角的数字表示当前启用了几个筛选条件；点击标题可以收起或展开。',
       placement: 'bottom',
     },
     {
       selector: '.acu-inventory-grid',
       title: '物品列表',
-      content:
-        '这里是筛选后的物品卡片。卡片会显示图标、名称和数量；点击任意物品卡可以打开详情页，继续查看描述、来源、赠与角色或执行快捷操作。',
+      content: '这里是筛选后的物品卡片。卡片会显示图标、名称和数量；点击任意物品卡可以打开详情页，继续查看描述、来源、赠与角色或执行快捷操作。',
       placement: 'top',
     },
   ],
@@ -1133,8 +1104,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '.acu-inventory-detail-actions',
       title: '快捷操作',
-      content:
-        '底部按钮会根据物品类型生成可用操作，例如使用、查看或分解碎片。执行后通常会把对应动作写入聊天输入框，便于继续叙事。',
+      content: '底部按钮会根据物品类型生成可用操作，例如使用、查看或分解碎片。执行后通常会把对应动作写入聊天输入框，便于继续叙事。',
       placement: 'top',
     },
     {
@@ -1160,8 +1130,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '.acu-gacha-fortune-progress',
       title: '骰运获取',
-      content:
-        '骰运会根据检定次数、输入进度、活跃时间获得。这里会显示距离下一次基础奖励、活跃奖励还差多少，以及最近一次获得骰运的来源。',
+      content: '骰运会根据检定次数、输入进度、活跃时间获得。这里会显示距离下一次基础奖励、活跃奖励还差多少，以及最近一次获得骰运的来源。',
       placement: 'bottom',
     },
     {
@@ -1173,8 +1142,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '.acu-gacha-pickup-section',
       title: 'PICK UP',
-      content:
-        '这里展示当前卡池的重点物品，这些物品在同稀有度的物品中更容易被抽到。点击物品可以先查看说明、类型、品质。',
+      content: '这里展示当前卡池的重点物品，这些物品在同稀有度的物品中更容易被抽到。点击物品可以先查看说明、类型、品质。',
       placement: 'top',
     },
     {
@@ -1259,6 +1227,9 @@ const markCompleted = (state: TutorialState, scope: TutorialScope): TutorialStat
   return { ...state, completedScopes: [...state.completedScopes, scope] };
 };
 
+const isTutorialAction = (action: string | undefined): action is TutorialAction =>
+  action === 'prev' || action === 'next' || action === 'skip' || action === 'never';
+
 const getSelectors = (step: TutorialStep): readonly string[] => {
   if (!step.selector) return [];
   return Array.isArray(step.selector) ? step.selector : [step.selector];
@@ -1275,6 +1246,7 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
   let currentTarget: HTMLElement | null = null;
   let repositionRaf: number | null = null;
   let scrollRaf: number | null = null;
+  let lastActionHandledAt = 0;
 
   const getState = (): TutorialState => normalizeState(options.getStore<TutorialState>(STORAGE_KEY, DEFAULT_STATE));
 
@@ -1746,8 +1718,7 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
     const safeRect = getMobileSafeRect(getCurrentPopoverRect(), target);
     const rect = target.getBoundingClientRect();
     const horizontalMargin = 4;
-    const hasHorizontalPresence =
-      rect.right >= safeRect.left + horizontalMargin && rect.left <= safeRect.right - horizontalMargin;
+    const hasHorizontalPresence = rect.right >= safeRect.left + horizontalMargin && rect.left <= safeRect.right - horizontalMargin;
     const hasVerticalPresence =
       rect.height > safeRect.height
         ? rect.bottom >= safeRect.top && rect.top <= safeRect.bottom
@@ -2043,29 +2014,53 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
     render();
   };
 
+  const getActionTarget = (target: EventTarget | null): HTMLElement | null => {
+    if (!target) return null;
+    const win = getWin();
+    const element =
+      target instanceof win.Element
+        ? target
+        : target instanceof win.Node
+          ? target.parentElement
+          : null;
+    const actionTarget = element?.closest('[data-action]');
+    return actionTarget instanceof win.HTMLElement ? actionTarget : null;
+  };
+
+  const runAction = (action: TutorialAction): void => {
+    if (action === 'prev') {
+      goTo(-1);
+    } else if (action === 'next') {
+      goTo(1);
+    } else if (action === 'skip') {
+      closeInternal(true);
+    } else if (action === 'never') {
+      saveState({ ...markCompleted(getState(), activeTutorial?.scope || 'core'), disabled: true });
+      closeInternal(false);
+    }
+  };
+
+  const handleOverlayAction = (event: Event): void => {
+    const actionTarget = getActionTarget(event.target);
+    if (!actionTarget) return;
+    if (actionTarget instanceof getWin().HTMLButtonElement && actionTarget.disabled) return;
+
+    const action = actionTarget.dataset.action;
+    if (!isTutorialAction(action)) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const now = Date.now();
+    if (now - lastActionHandledAt < 350) return;
+    lastActionHandledAt = now;
+    runAction(action);
+  };
+
   const bindOverlayEvents = (): void => {
     if (!overlay) return;
-    overlay.addEventListener('click', event => {
-      const target = event.target;
-      if (!target || !('closest' in target) || typeof target.closest !== 'function') return;
-      const actionTarget = target.closest('[data-action]');
-      if (!(actionTarget instanceof getWin().HTMLElement)) return;
-      const action = actionTarget.dataset.action;
-      if (!action) return;
-      event.preventDefault();
-      event.stopPropagation();
-
-      if (action === 'prev') {
-        goTo(-1);
-      } else if (action === 'next') {
-        goTo(1);
-      } else if (action === 'skip') {
-        closeInternal(true);
-      } else if (action === 'never') {
-        saveState({ ...markCompleted(getState(), activeTutorial?.scope || 'core'), disabled: true });
-        closeInternal(false);
-      }
-    });
+    overlay.addEventListener('touchend', handleOverlayAction, { passive: false });
+    overlay.addEventListener('click', handleOverlayAction);
   };
 
   const createOverlay = (): void => {
