@@ -2278,6 +2278,11 @@ export const MAIN_STYLES = `
             }
 
             /* === 关系图过滤按钮 === */
+            .acu-graph-filter-controls {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
             .acu-graph-filter-btn {
                 transition: all 0.15s;
             }
@@ -2561,6 +2566,12 @@ export const MAIN_STYLES = `
                 font-size: 12px;
                 color: var(--acu-text-sub);
                 flex-shrink: 0;
+            }
+            .acu-graph-view-controls {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 16px;
             }
             .acu-graph-legend span {
                 display: flex;
@@ -3332,6 +3343,13 @@ export const MAIN_STYLES = `
                 align-items: center;
                 gap: 8px;
                 margin-top: 4px;
+            }
+
+            .acu-avatar-footer-actions {
+                display: flex;
+                justify-content: flex-end;
+                align-items: center;
+                gap: 8px;
             }
 
             .acu-btn-action {
@@ -4938,6 +4956,7 @@ export const MAIN_STYLES = `
                 display: flex;
                 align-items: center;
                 gap: 8px;
+                justify-content: space-between;
                 padding: 12px 14px;
                 font-size: 13px;
                 font-weight: 600;
@@ -4949,6 +4968,21 @@ export const MAIN_STYLES = `
             }
             .acu-settings-group-title:hover {
                 background: var(--acu-table-hover);
+            }
+            .acu-settings-group-title-main {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                min-width: 0;
+            }
+            .acu-settings-group-help {
+                width: 28px;
+                height: 28px;
+                min-width: 28px;
+                padding: 0;
+                margin-left: auto;
+                border-radius: 8px;
+                font-size: 13px;
             }
             .acu-group-chevron {
                 font-size: 10px;
@@ -8123,10 +8157,10 @@ export const MAIN_STYLES = `
         flex: 1;
         display: flex;
         flex-direction: column;
-        gap: 14px;
+        gap: 8px;
         overflow: hidden;
         min-height: 0;
-        padding: 14px;
+        padding: 10px 12px 12px;
         color: var(--acu-text-main);
         touch-action: pan-y;
     }
@@ -8353,8 +8387,8 @@ export const MAIN_STYLES = `
     }
     .acu-gacha-pool-tabs {
         flex: 0 0 auto;
-        display: grid;
-        grid-template-columns: repeat(6, minmax(0, 1fr));
+        display: flex;
+        flex-wrap: nowrap;
         gap: 2px;
         min-height: 42px;
         overflow: visible;
@@ -8362,6 +8396,7 @@ export const MAIN_STYLES = `
         border-bottom: 1px solid color-mix(in srgb, var(--acu-accent) 26%, var(--acu-border));
     }
     .acu-gacha-pool-tab {
+        flex: 1 1 0;
         min-width: 0;
         min-height: 38px;
         display: inline-flex;
@@ -8954,9 +8989,9 @@ export const MAIN_STYLES = `
         display: flex;
         flex-direction: column;
         gap: 0;
-        padding: 12px;
+        padding: 5px 7px;
         border: 1px solid color-mix(in srgb, var(--acu-accent) 26%, var(--acu-border));
-        border-radius: 14px;
+        border-radius: 10px;
         background:
             linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(0, 0, 0, 0.08)),
             color-mix(in srgb, var(--acu-card-bg) 92%, #0f1b2b);
@@ -8964,14 +8999,14 @@ export const MAIN_STYLES = `
     }
     .acu-inventory-filter-collapse-btn {
         width: 100%;
-        min-height: 44px;
+        min-height: 28px;
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 12px;
-        padding: 10px 12px;
+        gap: 8px;
+        padding: 5px 7px;
         border: 0;
-        border-radius: 12px;
+        border-radius: 8px;
         background: transparent;
         color: var(--acu-text-main);
         cursor: pointer;
@@ -8984,7 +9019,7 @@ export const MAIN_STYLES = `
     .acu-inventory-filter-collapse-title {
         display: inline-flex;
         align-items: center;
-        gap: 8px;
+        gap: 6px;
         min-width: 0;
         color: var(--acu-text-sub);
         font-size: 12px;
@@ -9016,8 +9051,8 @@ export const MAIN_STYLES = `
     .acu-inventory-filter-collapse-body {
         display: flex;
         flex-direction: column;
-        gap: 10px;
-        margin-top: 10px;
+        gap: 6px;
+        margin-top: 6px;
         overflow: hidden;
         max-height: 420px;
         opacity: 1;
@@ -9084,7 +9119,7 @@ export const MAIN_STYLES = `
     .acu-inventory-filter-group {
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: 5px;
     }
     .acu-inventory-filter-label {
         display: flex;
@@ -9101,15 +9136,15 @@ export const MAIN_STYLES = `
     .acu-inventory-filter-row {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(40px, 1fr));
-        gap: 8px;
+        gap: 6px;
     }
     .acu-inventory-filter-btn {
-        min-height: 40px;
+        min-height: 28px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
         border: 1px solid color-mix(in srgb, var(--acu-accent) 18%, var(--acu-border));
-        border-radius: 10px;
+        border-radius: 8px;
         background:
             linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(0, 0, 0, 0.12)),
             color-mix(in srgb, var(--acu-btn-bg) 92%, #0b1624);
@@ -9157,8 +9192,9 @@ export const MAIN_STYLES = `
         overscroll-behavior: contain;
         -webkit-overflow-scrolling: touch;
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(88px, 108px));
-        gap: 10px;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        column-gap: 8px;
+        row-gap: 6px;
         justify-content: start;
         align-content: start;
         min-width: 0;
@@ -9193,13 +9229,13 @@ export const MAIN_STYLES = `
         width: 100%;
         display: flex;
         flex-direction: column;
-        gap: 5px;
+        gap: 3px;
         align-items: center;
         border: 0;
         background: transparent;
         color: var(--acu-text-main);
         text-align: center;
-        padding: 4px 2px 6px;
+        padding: 2px 2px 4px;
         cursor: pointer;
         min-width: 0;
         border-radius: 12px;
@@ -9217,20 +9253,20 @@ export const MAIN_STYLES = `
         display: flex;
         align-items: center;
         justify-content: center;
-        width: min(100%, 86px);
-        min-height: 78px;
+        width: min(100%, 76px);
+        min-height: 68px;
         border: 0;
         border-radius: 0;
         background: transparent;
         box-shadow: none;
     }
     .acu-inventory-icon {
-        width: 68px;
-        height: 68px;
+        width: 60px;
+        height: 60px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        font-size: 44px;
+        font-size: 40px;
         line-height: 1;
         filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.2));
         overflow: hidden;
@@ -9258,8 +9294,8 @@ export const MAIN_STYLES = `
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
         min-width: 0;
-        line-height: 1.25;
-        font-size: 13px;
+        line-height: 1.2;
+        font-size: 12px;
         max-width: 100%;
     }
     .acu-inventory-meta,
@@ -9310,11 +9346,11 @@ export const MAIN_STYLES = `
     }
     .acu-inventory-count {
         position: absolute;
-        right: 8px;
-        bottom: 6px;
-        min-width: 24px;
-        height: 24px;
-        padding: 0 6px;
+        right: 6px;
+        bottom: 5px;
+        min-width: 22px;
+        height: 22px;
+        padding: 0 5px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -9322,7 +9358,7 @@ export const MAIN_STYLES = `
         background: var(--acu-btn-active-bg);
         color: var(--acu-btn-active-text);
         font-weight: 800;
-        font-size: 11px;
+        font-size: 10px;
         box-shadow: 0 4px 10px rgba(0, 0, 0, 0.26);
     }
     .acu-inventory-icon-btn {
@@ -9611,10 +9647,13 @@ export const MAIN_STYLES = `
         z-index: 31265 !important;
     }
     .acu-inventory-detail-actions {
-        display: flex;
+        display: inline-flex;
         flex-wrap: wrap;
         gap: 8px;
         padding-top: 2px;
+        align-self: flex-start;
+        width: fit-content;
+        max-width: 100%;
     }
     .acu-inventory-detail-actions .acu-action-item {
         padding: 7px 12px;
@@ -9975,9 +10014,11 @@ export const MAIN_STYLES = `
             padding-left: 32px;
         }
         .acu-inventory-grid {
-            grid-template-columns: repeat(auto-fit, minmax(84px, 96px));
-            gap: 8px;
-            justify-content: start;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            column-gap: 8px;
+            row-gap: 6px;
+            justify-content: stretch;
+            padding-right: 0;
         }
         .acu-inventory-icon {
             width: 60px;

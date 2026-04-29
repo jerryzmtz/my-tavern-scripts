@@ -1,6 +1,6 @@
 export type GachaRarity = '普通' | '优秀' | '稀有' | '史诗' | '传说' | '神话';
 
-export type GachaPoolTag = '全部' | '奇幻' | '修真' | '都市' | '校园' | '历史';
+export type GachaPoolTag = '全部' | '奇幻' | '修真' | '都市' | '校园' | '历史' | '自定义';
 
 export type GachaRewardTarget = 'inventory' | 'equipment';
 
@@ -24,7 +24,7 @@ export const GACHA_CATALOG_VERSION = 1;
 
 export const FORTUNE_CURRENCY_NAME = '骰运';
 
-export const GACHA_POOL_TAGS: readonly GachaPoolTag[] = ['全部', '奇幻', '修真', '都市', '校园', '历史'];
+export const GACHA_POOL_TAGS: readonly GachaPoolTag[] = ['全部', '奇幻', '修真', '都市', '校园', '历史', '自定义'];
 
 export const GACHA_RARITY_ORDER: readonly GachaRarity[] = ['普通', '优秀', '稀有', '史诗', '传说', '神话'];
 
@@ -1116,6 +1116,84 @@ export const GACHA_ITEM_DEFINITIONS: readonly GachaItemDefinition[] = [
     stackable: true,
     unique: false,
     grantQuantity: 4,
+    rewardTarget: 'inventory',
+  },
+  {
+    id: 'urban_white_gloves',
+    name: '白手套',
+    type: '装备',
+    quality: '优秀',
+    description: '一副干净得过分的白手套，适合在不留下指纹的情况下进行精细操作。',
+    poolTags: ['都市', '校园', '历史'],
+    weight: 1.1,
+    stackable: false,
+    unique: false,
+    grantQuantity: 1,
+    rewardTarget: 'equipment',
+  },
+  {
+    id: 'urban_black_gloves',
+    name: '黑手套',
+    type: '装备',
+    quality: '优秀',
+    description: '一副贴合手型的黑色手套，适合潜入、伪装和夜间行动，握持工具时也更加稳当。',
+    poolTags: ['都市', '校园', '奇幻'],
+    weight: 1.1,
+    stackable: false,
+    unique: false,
+    grantQuantity: 1,
+    rewardTarget: 'equipment',
+  },
+  {
+    id: 'school_yellow_duck',
+    name: '小黄鸭',
+    type: '道具',
+    quality: '普通',
+    description: '捏起来会发出轻响的黄色小鸭玩具。能缓和紧张气氛，也能在水面上当作醒目的小标记。',
+    poolTags: ['校园', '都市'],
+    weight: 1.3,
+    stackable: false,
+    unique: false,
+    grantQuantity: 1,
+    rewardTarget: 'inventory',
+  },
+  {
+    id: 'urban_thermos',
+    name: '暖水瓶',
+    type: '道具',
+    quality: '普通',
+    description: '保温效果不错的暖水瓶，可携带热水、药汤或临时需要保温的液体，外壳经不起剧烈碰撞。',
+    poolTags: ['都市', '校园', '历史'],
+    weight: 1.2,
+    stackable: false,
+    unique: false,
+    grantQuantity: 1,
+    rewardTarget: 'inventory',
+  },
+  {
+    id: 'urban_piggy_bank',
+    name: '猪猪存钱罐',
+    type: '道具',
+    quality: '稀有',
+    description: '神奇的存钱罐。每过一段时间内部的财富会一点点增加。',
+    poolTags: ['都市', '校园'],
+    weight: 0.9,
+    stackable: false,
+    unique: true,
+    grantQuantity: 1,
+    rewardTarget: 'inventory',
+  },
+  {
+    id: 'school_pencil_case',
+    name: '铅笔盒',
+    type: '道具',
+    quality: '普通',
+    description: '装着铅笔、橡皮和尺子的铅笔盒。除了书写和画图，也适合收纳细小零件或临时藏下一张纸条。',
+    poolTags: ['校园', '都市'],
+    weight: 1.4,
+    stackable: false,
+    unique: false,
+    grantQuantity: 1,
     rewardTarget: 'inventory',
   },
   {

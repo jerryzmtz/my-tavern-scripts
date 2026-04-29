@@ -2,6 +2,7 @@
 import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP, RELATION_ICON_MAP } from './emoji-maps';
 import { MAIN_STYLES } from './styles';
 import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-override';
+import { createTutorialModule, type TutorialModule, type TutorialScope } from './tutorial';
 import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './types';
 import {
   GACHA_CATALOG_EXPORT_KIND,
@@ -1949,7 +1950,7 @@ import {
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.7.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v5.14'; // 脚本版本号
+  const SCRIPT_VERSION = 'v5.15'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -8605,6 +8606,7 @@ import {
                                 <div class="acu-title-sub">(0项)</div>
                             </div>
                             <div class="acu-header-actions">
+                                ${getTutorialButtonHtml('mvu', '查看变量面板教程')}
                                 <div class="acu-height-control">
                                     <i class="fa-solid fa-arrows-up-down acu-height-drag-handle" data-table="${MvuModule.MODULE_ID}" title="↕️ 拖动调整面板高度 | 双击恢复默认"></i>
                                 </div>
@@ -8638,6 +8640,7 @@ import {
                                 <div class="acu-title-sub">(0项)</div>
                             </div>
                             <div class="acu-header-actions">
+                                ${getTutorialButtonHtml('mvu', '查看变量面板教程')}
                                 <div class="acu-height-control">
                                     <i class="fa-solid fa-arrows-up-down acu-height-drag-handle" data-table="${MvuModule.MODULE_ID}" title="↕️ 拖动调整面板高度 | 双击恢复默认"></i>
                                 </div>
@@ -8669,6 +8672,7 @@ import {
                             <div class="acu-title-sub">(数值过滤)</div>
                         </div>
                         <div class="acu-header-actions">
+                            ${getTutorialButtonHtml('mvu', '查看变量面板教程')}
                             <div class="acu-height-control">
                                 <i class="fa-solid fa-arrows-up-down acu-height-drag-handle" data-table="${MvuModule.MODULE_ID}" title="↕️ 拖动调整面板高度 | 双击恢复默认"></i>
                             </div>
@@ -8720,6 +8724,7 @@ import {
                             <div class="acu-title-sub">(${topKeys.length}项)</div>
                         </div>
                         <div class="acu-header-actions">
+                            ${getTutorialButtonHtml('mvu', '查看变量面板教程')}
                             <div class="acu-height-control">
                                 <i class="fa-solid fa-arrows-up-down acu-height-drag-handle" data-table="${MvuModule.MODULE_ID}" title="↕️ 拖动调整面板高度 | 双击恢复默认"></i>
                             </div>
@@ -16443,7 +16448,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         .filter(p => p.visible !== false) // 默认显示
         .sort((a, b) => (a.order || 0) - (b.order || 0));
 
-      let html = `<div class="acu-dice-quick-section" style="margin-bottom: 8px;">`;
+      let html = `<div class="acu-dice-quick-section" id="dice-normal-presets-section" style="margin-bottom: 8px;">`;
       html += `<div class="acu-dice-section-title"><span><i class="fa-solid fa-sliders"></i> 检定规则<div id="dice-preset-quick-actions" class="acu-dice-preset-quick-actions"></div></span></div>`;
 
       // 1. 常规预设选择器容器
@@ -16474,6 +16479,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                         <i class="fa-solid fa-dice-d20"></i> 普通检定
                     </div>
                     <div class="acu-dice-panel-actions">
+                        ${getTutorialButtonHtml('dice', '查看检定面板教程')}
                         <button id="dice-switch-contest-top" title="切换到对抗检定"><i class="fa-solid fa-people-arrows"></i></button>
                         <button id="dice-history-btn" title="检定历史"><i class="fa-solid fa-history"></i></button>
                         <button class="acu-dice-config-btn" title="检定设置">
@@ -16489,39 +16495,41 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
                     <!-- 快捷选择角色 -->
                     <div class="acu-dice-quick-section">
-                        <div class="acu-dice-section-title"><span><i class="fa-solid fa-user"></i> 快捷选择</span><div id="dice-char-buttons" class="acu-dice-quick-inline"></div></div>
+                        <div class="acu-dice-section-title" id="dice-char-buttons-section"><span><i class="fa-solid fa-user"></i> 快捷选择</span><div id="dice-char-buttons" class="acu-dice-quick-inline"></div></div>
                     </div>
 
-                    <!-- 第1行：名字 + 属性名 -->
-                    <div class="acu-dice-form-row cols-2" id="dice-row-1">
-                        <div id="dice-name-wrapper">
-                            <div class="acu-dice-form-label">名字</div>
-                            <input type="text" id="dice-initiator-name" class="acu-dice-input" value="${escapeHtml(initiatorName)}" placeholder="<user>">
-                        </div>
-                        <div id="dice-attr-name-wrapper">
-                            <div class="acu-dice-form-label" id="dice-attr-name-label">
-                                <span class="dice-attr-name-text">属性名</span>
-                                <button type="button" class="acu-random-skill-btn" id="dice-random-skill" title="随机技能">
-                                    <i class="fa-solid fa-dice"></i>
-                                </button>
+                    <div id="dice-normal-params-section">
+                        <!-- 第1行：名字 + 属性名 -->
+                        <div class="acu-dice-form-row cols-2" id="dice-row-1">
+                            <div id="dice-name-wrapper">
+                                <div class="acu-dice-form-label">名字</div>
+                                <input type="text" id="dice-initiator-name" class="acu-dice-input" value="${escapeHtml(initiatorName)}" placeholder="<user>">
                             </div>
-                            <input type="text" id="dice-attr-name" class="acu-dice-input" value="${escapeHtml(targetName || '')}" placeholder="自由检定">
+                            <div id="dice-attr-name-wrapper">
+                                <div class="acu-dice-form-label" id="dice-attr-name-label">
+                                    <span class="dice-attr-name-text">属性名</span>
+                                    <button type="button" class="acu-random-skill-btn" id="dice-random-skill" title="随机技能">
+                                        <i class="fa-solid fa-dice"></i>
+                                    </button>
+                                </div>
+                                <input type="text" id="dice-attr-name" class="acu-dice-input" value="${escapeHtml(targetName || '')}" placeholder="自由检定">
+                            </div>
                         </div>
-                    </div>
 
-                    <!-- 第2行：属性值 + 技能加值 + 目标值 -->
-                    <div class="acu-dice-form-row cols-2" id="dice-row-2">
-                        <div id="dice-attr-wrapper">
-                            <div class="acu-dice-form-label" id="dice-attr-label">属性值</div>
-                            <input type="text" id="dice-attr-value" class="acu-dice-input" value="${initialAttrValue !== null ? initialAttrValue : ''}" placeholder="留空=50%最大值">
-                        </div>
-                        <div id="dice-skill-mod-wrapper" style="display: none;">
-                            <div class="acu-dice-form-label" id="dice-skill-mod-label">技能加值</div>
-                            <input type="text" id="dice-skill-mod" class="acu-dice-input" placeholder="留空=0">
-                        </div>
-                        <div id="dice-target-wrapper">
-                            <div class="acu-dice-form-label" id="dice-target-label">目标值</div>
-                            <input type="text" id="dice-target" class="acu-dice-input" value="${initialTargetValue !== null ? initialTargetValue : ''}" placeholder="留空=属性值">
+                        <!-- 第2行：属性值 + 技能加值 + 目标值 -->
+                        <div class="acu-dice-form-row cols-2" id="dice-row-2">
+                            <div id="dice-attr-wrapper">
+                                <div class="acu-dice-form-label" id="dice-attr-label">属性值</div>
+                                <input type="text" id="dice-attr-value" class="acu-dice-input" value="${initialAttrValue !== null ? initialAttrValue : ''}" placeholder="留空=50%最大值">
+                            </div>
+                            <div id="dice-skill-mod-wrapper" style="display: none;">
+                                <div class="acu-dice-form-label" id="dice-skill-mod-label">技能加值</div>
+                                <input type="text" id="dice-skill-mod" class="acu-dice-input" placeholder="留空=0">
+                            </div>
+                            <div id="dice-target-wrapper">
+                                <div class="acu-dice-form-label" id="dice-target-label">目标值</div>
+                                <input type="text" id="dice-target" class="acu-dice-input" value="${initialTargetValue !== null ? initialTargetValue : ''}" placeholder="留空=属性值">
+                            </div>
                         </div>
                     </div>
 
@@ -16595,6 +16603,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     overlay.append(panel);
     $('body').append(overlay);
+    bindTutorialButtonsIn(panel);
     const effectRunCleanerTimerKey = '__acuEffectRunCleanerTimer';
 
     const expandedTraceRunIds = new Set<string>();
@@ -16744,10 +16753,13 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const currentThemeClass = `acu-theme-${config.theme}`;
       const dialog = $(`
         <div class="acu-edit-overlay acu-dice-history-overlay">
-          <div class="acu-edit-dialog ${currentThemeClass}" style="max-width: 600px; width: min(94vw,600px); max-height: 82vh; display:flex; flex-direction:column; padding:14px;">
+          <div class="acu-edit-dialog acu-dice-history-dialog ${currentThemeClass}" style="max-width: 600px; width: min(94vw,600px); max-height: 82vh; display:flex; flex-direction:column; padding:14px;">
             <div style="display:flex; justify-content:space-between; align-items:center; padding-bottom:8px; border-bottom:1px solid var(--acu-border);">
               <div style="font-size: 19px; color: var(--acu-text-main); font-weight:700; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-clock-rotate-left" style="color:var(--acu-accent);"></i> 检定历史</div>
-              <button class="acu-close-btn acu-history-close"><i class="fa-solid fa-times"></i></button>
+              <div style="display:flex; align-items:center; gap:4px;">
+                ${getTutorialButtonHtml('diceHistory', '查看检定历史教程', 'acu-help-btn')}
+                <button class="acu-close-btn acu-history-close"><i class="fa-solid fa-times"></i></button>
+              </div>
             </div>
             <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:8px; margin-top:10px; align-items:center;">
               <select id="acu-history-scope-filter" class="acu-dice-select" style="width:100%; min-width:0;">
@@ -16782,6 +16794,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         </div>
       `);
       $('body').append(dialog);
+      bindTutorialButtonsIn(dialog);
 
       const renderHistoryStats = async () => {
         const $stats = dialog.find('#acu-dice-history-stats');
@@ -20630,6 +20643,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       '<div class="acu-dice-panel-header">' +
       '<div class="acu-dice-panel-title"><i class="fa-solid fa-people-arrows"></i> 对抗检定</div>' +
       '<div class="acu-dice-panel-actions">' +
+      getTutorialButtonHtml('contestDice', '查看对抗检定教程') +
       '<button id="contest-switch-normal" class="acu-dice-panel-action-btn" title="切换到普通检定"><i class="fa-solid fa-dice-d20"></i></button>' +
       '<button id="contest-history-btn" class="acu-dice-panel-action-btn" title="检定历史"><i class="fa-solid fa-history"></i></button>' +
       '<button class="acu-contest-config-btn acu-dice-panel-action-btn" title="掷骰规则设置"><i class="fa-solid fa-cog"></i></button>' +
@@ -20637,6 +20651,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       '</div>' +
       '</div>' +
       '<div class="acu-dice-panel-body">' +
+      '<div id="contest-dice-presets-section">' +
       // [修复] 添加"检定规则"标题，与普通检定一致
       '<div class="acu-dice-section-title"><span><i class="fa-solid fa-sliders"></i> 检定规则</span></div>' +
       '<div class="acu-dice-presets">' +
@@ -20659,10 +20674,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         )
         .join('') +
       '</div>' +
+      '</div>' +
       '<input type="hidden" id="contest-dice-type" value="' +
       diceType +
       '">' +
-      '<div class="acu-dice-section-title"><span><i class="fa-solid fa-user"></i> 发起方</span><div id="contest-init-char-buttons" class="acu-dice-quick-inline"></div></div>' +
+      '<div class="acu-dice-section-title" id="contest-init-char-buttons-section"><span><i class="fa-solid fa-user"></i> 发起方</span><div id="contest-init-char-buttons" class="acu-dice-quick-inline"></div></div>' +
+      '<div id="contest-init-params-section">' +
       '<div id="contest-init-primary-row" class="acu-dice-form-row cols-2">' +
       '<div><div class="acu-dice-form-label">名字</div><input type="text" class="acu-dice-input" id="contest-init-display" value="" placeholder="<user>"></div>' +
       '<div><div class="acu-dice-form-label"><span class="contest-attr-name-text">属性名</span><button type="button" class="acu-random-skill-btn" id="contest-init-random-skill" title="随机技能"><i class="fa-solid fa-dice"></i></button></div><input type="text" class="acu-dice-input" id="contest-init-name" value="" placeholder="自由检定"></div>' +
@@ -20680,11 +20697,13 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       '<div id="contest-init-mod-wrapper"><div class="acu-dice-form-label" id="contest-init-mod-label">修正值</div><input type="text" class="acu-dice-input" id="contest-init-mod" placeholder="留空=0"></div>' +
       '<div id="contest-init-target-wrapper"><div class="acu-dice-form-label" id="contest-init-target-label">目标值</div><input type="text" class="acu-dice-input" id="contest-init-target" value="" placeholder="自动"></div>' +
       '</div>' +
+      '</div>' +
       '<div id="contest-init-custom-fields"></div>' +
       '<div id="init-attr-buttons" class="acu-dice-quick-compact">' +
       buildAttrButtons(playerAttrs, 'init') +
       '</div>' +
-      '<div class="acu-dice-section-title"><span><i class="fa-solid fa-user"></i> 对抗方</span><div id="contest-opp-char-buttons" class="acu-dice-quick-inline"></div></div>' +
+      '<div class="acu-dice-section-title" id="contest-opp-char-buttons-section"><span><i class="fa-solid fa-user"></i> 对抗方</span><div id="contest-opp-char-buttons" class="acu-dice-quick-inline"></div></div>' +
+      '<div id="contest-opp-params-section">' +
       '<div id="contest-opp-primary-row" class="acu-dice-form-row cols-2">' +
       '<div><div class="acu-dice-form-label">名字</div><input type="text" class="acu-dice-input" id="contest-opponent-display" value="' +
       escapeHtml(opponentName) +
@@ -20703,6 +20722,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       '<div id="contest-opp-skill-mod-wrapper" style="display:none;"><div class="acu-dice-form-label" id="contest-opp-skill-mod-label">技能加值</div><input type="text" class="acu-dice-input" id="contest-opp-skill-mod" placeholder="留空=0"></div>' +
       '<div id="contest-opp-mod-wrapper"><div class="acu-dice-form-label" id="contest-opp-mod-label">修正值</div><input type="text" class="acu-dice-input" id="contest-opp-mod" placeholder="留空=0"></div>' +
       '<div id="contest-opp-target-wrapper"><div class="acu-dice-form-label" id="contest-opp-target-label">目标值</div><input type="text" class="acu-dice-input" id="contest-opp-target" value="" placeholder="自动"></div>' +
+      '</div>' +
       '</div>' +
       '<div id="contest-opp-custom-fields"></div>' +
       '<div id="opp-attr-buttons" class="acu-dice-quick-compact">' +
@@ -20736,6 +20756,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const panel = $(panelHtml);
     overlay.append(panel);
     $('body').append(overlay);
+    bindTutorialButtonsIn(panel);
 
     // [新增] 构建角色快捷按钮 - 复用普通检定的样式规格
     const buildCharBtns = targetType => {
@@ -23120,6 +23141,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                         </div>
                         <div class="acu-map-region-tabs"></div>
                         <div class="acu-map-actions">
+                            ${getTutorialButtonHtml('map', '查看地图教程')}
                             <button class="acu-map-back-btn" title="回到当前地点"><i class="fa-solid fa-location-crosshairs"></i></button>
                             <button class="acu-close-btn acu-map-close"><i class="fa-solid fa-times"></i></button>
                         </div>
@@ -23133,6 +23155,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         `);
 
     $('body').append(overlay);
+    bindTutorialButtonsIn(overlay);
 
     const overlayEl = overlay[0];
     overlayEl.style.setProperty('position', 'fixed', 'important');
@@ -24347,11 +24370,14 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                     ${nodeArr.map(n => `<div class="acu-center-option${n.name === centerNodeName ? ' active' : ''}" data-value="${escapeHtml(n.name)}">${escapeHtml(replaceUserPlaceholders(n.name))}</div>`).join('')}
                                 </div>
                             </div>
-                            <button class="acu-graph-btn acu-filter-toggle acu-graph-filter-btn" id="filter-in-scene" title="只显示中心角色和在场角色"><i class="fa-solid fa-map-marker-alt"></i></button>
-                            <button class="acu-graph-btn acu-filter-toggle acu-graph-filter-btn" id="filter-direct-only" title="只显示与中心角色直接相关"><i class="fa-solid fa-link"></i></button>
-                            <button class="acu-graph-btn acu-filter-toggle acu-graph-filter-btn" id="graph-move-mode" title="移动模式：拖动头像调整位置"><i class="fa-solid fa-up-down-left-right"></i></button>
+                            <span class="acu-graph-filter-controls" id="graph-filter-controls">
+                                <button class="acu-graph-btn acu-filter-toggle acu-graph-filter-btn" id="filter-in-scene" title="只显示在场角色"><i class="fa-solid fa-map-marker-alt"></i></button>
+                                <button class="acu-graph-btn acu-filter-toggle acu-graph-filter-btn" id="filter-direct-only" title="只显示与中心角色直接相关"><i class="fa-solid fa-link"></i></button>
+                                <button class="acu-graph-btn acu-filter-toggle acu-graph-filter-btn" id="graph-move-mode" title="移动模式：拖动头像调整位置"><i class="fa-solid fa-up-down-left-right"></i></button>
+                            </span>
                         </div>
                         <div class="acu-graph-actions">
+                            ${getTutorialButtonHtml('relationshipGraph', '查看人物关系图教程', 'acu-graph-btn')}
                             <button class="acu-graph-btn" id="graph-relayout" title="重新布局（清除缓存并重新计算节点位置）"><i class="fa-solid fa-sync"></i></button>
                             <button class="acu-graph-btn" id="graph-manage-avatar" title="管理头像"><i class="fa-solid fa-user-circle"></i></button>
                             <button class="acu-graph-btn acu-graph-close" title="关闭"><i class="fa-solid fa-times"></i></button>
@@ -24387,25 +24413,28 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                         </div>
                     </div>
                     <div class="acu-graph-legend">
-                        <button class="acu-graph-btn acu-graph-reset-btn" id="graph-zoom-reset" title="重置视图和节点大小"><i class="fa-solid fa-compress-arrows-alt"></i><span>重置</span></button>
-                        <div class="acu-node-size-stepper-wrapper acu-node-size-wrapper">
-                            <span style="font-size:11px;color:var(--acu-text-sub);white-space:nowrap;">节点:</span>
-                            <div class="acu-stepper acu-stepper-container" data-id="graph-node-size" data-min="50" data-max="200" data-step="10">
-                                <button class="acu-stepper-btn acu-stepper-dec"><i class="fa-solid fa-minus"></i></button>
-                                <span class="acu-stepper-value acu-stepper-value-display" id="node-size-display">${Math.round(nodeSizeMultiplier * 100)}%</span>
-                                <button class="acu-stepper-btn acu-stepper-inc"><i class="fa-solid fa-plus"></i></button>
+                        <div class="acu-graph-view-controls">
+                            <button class="acu-graph-btn acu-graph-reset-btn" id="graph-zoom-reset" title="重置视图和节点大小"><i class="fa-solid fa-compress-arrows-alt"></i><span>重置</span></button>
+                            <div class="acu-node-size-stepper-wrapper acu-node-size-wrapper">
+                                <span style="font-size:11px;color:var(--acu-text-sub);white-space:nowrap;">节点:</span>
+                                <div class="acu-stepper acu-stepper-container" data-id="graph-node-size" data-min="50" data-max="200" data-step="10">
+                                    <button class="acu-stepper-btn acu-stepper-dec"><i class="fa-solid fa-minus"></i></button>
+                                    <span class="acu-stepper-value acu-stepper-value-display" id="node-size-display">${Math.round(nodeSizeMultiplier * 100)}%</span>
+                                    <button class="acu-stepper-btn acu-stepper-inc"><i class="fa-solid fa-plus"></i></button>
+                                </div>
                             </div>
+                            <span class="acu-zoom-display acu-zoom-info">
+                                <span>视图:</span>
+                                <span>${Math.round(scale * 100)}%</span>
+                            </span>
                         </div>
-                        <span class="acu-zoom-display acu-zoom-info">
-                            <span>视图:</span>
-                            <span>${Math.round(scale * 100)}%</span>
-                        </span>
                     </div>
                 </div>
             </div>
         `);
 
     $('body').append(overlay);
+    bindTutorialButtonsIn(overlay);
 
     const $svg = overlay.find('.acu-graph-svg');
     const $transform = overlay.find('.acu-graph-transform');
@@ -25994,7 +26023,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           const isExpanded = expandedItems.has(userNodeForDisplay.name);
 
           listHtml += `
-                    <div class="acu-avatar-item ${isExpanded ? 'expanded' : ''}" data-name="${escapeHtml(userNodeForDisplay.name)}" data-has-local="${hasLocal}" data-display-url="${escapeHtml(displayUrl)}">
+                    <div class="acu-avatar-item acu-avatar-user-item ${isExpanded ? 'expanded' : ''}" data-name="${escapeHtml(userNodeForDisplay.name)}" data-has-local="${hasLocal}" data-display-url="${escapeHtml(displayUrl)}">
                         <!-- 折叠态 -->
                         <div class="acu-avatar-row-collapsed">
                             <div class="acu-avatar-preview-wrap">
@@ -26030,13 +26059,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                     </div>
                                 </div>
                                 <div class="acu-avatar-expanded-footer">
-                                    <button class="acu-btn-action acu-avatar-clear-all-btn" title="清除头像"><i class="fa-solid fa-user-slash"></i></button>
-                                    <button class="acu-btn-action acu-avatar-clear-alias-btn" title="清空别名"><i class="fa-solid fa-tags"></i></button>
-                                    <label class="acu-avatar-upload-trigger">
-                                        <i class="fa-solid fa-cloud-arrow-up"></i> 本地上传
-                                        <input type="file" accept="image/*" class="acu-avatar-file-input" style="display:none" />
-                                    </label>
-                                    <button class="acu-btn-action acu-btn-save acu-avatar-save-btn" title="保存"><i class="fa-solid fa-check"></i>&nbsp;保存</button>
+                                    <div class="acu-avatar-footer-actions">
+                                        <button class="acu-btn-action acu-avatar-clear-all-btn" title="清除头像"><i class="fa-solid fa-user-slash"></i></button>
+                                        <button class="acu-btn-action acu-avatar-clear-alias-btn" title="清空别名"><i class="fa-solid fa-tags"></i></button>
+                                        <label class="acu-avatar-upload-trigger">
+                                            <i class="fa-solid fa-cloud-arrow-up"></i> 本地上传
+                                            <input type="file" accept="image/*" class="acu-avatar-file-input" style="display:none" />
+                                        </label>
+                                        <button class="acu-btn-action acu-btn-save acu-avatar-save-btn" title="保存"><i class="fa-solid fa-check"></i>&nbsp;保存</button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -26108,13 +26139,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                     </div>
                                 </div>
                                 <div class="acu-avatar-expanded-footer">
-                                    <button class="acu-btn-action acu-avatar-clear-all-btn" title="清除头像"><i class="fa-solid fa-user-slash"></i></button>
-                                    <button class="acu-btn-action acu-avatar-clear-alias-btn" title="清空别名"><i class="fa-solid fa-tags"></i></button>
-                                    <label class="acu-avatar-upload-trigger">
-                                        <i class="fa-solid fa-cloud-arrow-up"></i> 本地上传
-                                        <input type="file" accept="image/*" class="acu-avatar-file-input" style="display:none" />
-                                    </label>
-                                    <button class="acu-btn-action acu-btn-save acu-avatar-save-btn" title="保存"><i class="fa-solid fa-check"></i>&nbsp;保存</button>
+                                    <div class="acu-avatar-footer-actions">
+                                        <button class="acu-btn-action acu-avatar-clear-all-btn" title="清除头像"><i class="fa-solid fa-user-slash"></i></button>
+                                        <button class="acu-btn-action acu-avatar-clear-alias-btn" title="清空别名"><i class="fa-solid fa-tags"></i></button>
+                                        <label class="acu-avatar-upload-trigger">
+                                            <i class="fa-solid fa-cloud-arrow-up"></i> 本地上传
+                                            <input type="file" accept="image/*" class="acu-avatar-file-input" style="display:none" />
+                                        </label>
+                                        <button class="acu-btn-action acu-btn-save acu-avatar-save-btn" title="保存"><i class="fa-solid fa-check"></i>&nbsp;保存</button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -26149,6 +26182,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                     <div class="acu-panel-header">
                         <div class="acu-avatar-title"><i class="fa-solid fa-user-circle"></i> 头像管理</div>
                         <div class="acu-avatar-header-actions">
+                            ${getTutorialButtonHtml('avatarManager', '查看头像管理教程', 'acu-btn-icon')}
                             <button class="acu-btn-icon acu-avatar-import-btn" title="导入"><i class="fa-solid fa-file-import"></i></button>
                             <button class="acu-btn-icon acu-avatar-export-btn" title="导出"><i class="fa-solid fa-file-export"></i></button>
                             <button class="acu-avatar-close"><i class="fa-solid fa-times"></i></button>
@@ -26156,7 +26190,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                     </div>
                     <div class="acu-avatar-toolbar">
                         <!-- 左侧:切换视图、排序、搜索 -->
-                        <div class="acu-toolbar-group left">
+                        <div class="acu-toolbar-group left acu-avatar-filter-controls">
                             <button class="acu-btn-icon acu-view-toggle" title="当前聊天 / 全局头像库" data-view="chat">
                                 <i class="fa-solid fa-comments"></i>
                             </button>
@@ -26189,6 +26223,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
       const $manager = $(managerHtml);
       $('body').append($manager);
+      bindTutorialButtonsIn($manager);
 
       // 异步加载列表
       buildList().then(listHtml => {
@@ -27619,6 +27654,214 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const fontVal = applyConfigStyles(_configCache);
     injectDatabaseStyles(_configCache.theme, fontVal, { enabled: _configCache.syncDatabaseTheme !== false });
     setDatabaseToastMute(_configCache.muteDatabaseToasts === true);
+  };
+
+  let tutorialModule: TutorialModule | null = null;
+  const getTutorialModule = (): TutorialModule => {
+    if (!tutorialModule) {
+      tutorialModule = createTutorialModule({
+        getTheme: () => String(getConfig().theme || 'modern'),
+        getStore: (key, fallback) => Store.get(key, fallback),
+        setStore: (key, value) => Store.set(key, value),
+        getDocument: getTavernHostDocument,
+        getWindow: getTavernHostWindow,
+      });
+    }
+    return tutorialModule;
+  };
+
+  const getTutorialButtonHtml = (scope: TutorialScope, title = '查看本界面教程', extraClass = ''): string =>
+    `<button class="acu-view-btn acu-panel-tutorial-btn ${extraClass}" data-tutorial-scope="${scope}" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}"><i class="fa-solid fa-circle-question"></i></button>`;
+
+  const TUTORIAL_SCOPES: readonly TutorialScope[] = [
+    'core',
+    'settings',
+    'settingsAppearance',
+    'settingsLayout',
+    'settingsPosition',
+    'settingsOptions',
+    'settingsTables',
+    'settingsValidation',
+    'settingsRegex',
+    'settingsAdvanced',
+    'dice',
+    'contestDice',
+    'diceHistory',
+    'diceSettings',
+    'advancedPresetManager',
+    'attributePresetManager',
+    'map',
+    'relationshipGraph',
+    'avatarManager',
+    'table',
+    'mvu',
+    'changes',
+    'favorites',
+    'inventory',
+    'inventoryDetail',
+    'shardShop',
+    'gacha',
+  ];
+
+  const isTutorialScope = (value: string): value is TutorialScope =>
+    TUTORIAL_SCOPES.includes(value as TutorialScope);
+
+  let tutorialButtonEventsBound = false;
+
+  const prepareAvatarManagerTutorial = (button: Element): boolean => {
+    const { $ } = getCore();
+    const $manager = $(button).closest('.acu-avatar-manager');
+    if (!$manager.length) return false;
+
+    const $userItem = $manager.find('#acu-avatar-list-container .acu-avatar-user-item').first();
+    if (!$userItem.length) return false;
+
+    const $otherExpandedItems = $manager.find('#acu-avatar-list-container .acu-avatar-item.expanded').not($userItem);
+    $otherExpandedItems.removeClass('expanded');
+    $otherExpandedItems.find('.acu-btn-edit i').removeClass('fa-chevron-up').addClass('fa-pencil');
+
+    if (!$userItem.hasClass('expanded')) {
+      const $editButton = $userItem.find('.acu-btn-edit').first();
+      if ($editButton.length) {
+        $editButton.trigger('click');
+      }
+      if (!$userItem.hasClass('expanded')) {
+        $userItem.addClass('expanded');
+        $editButton.find('i').removeClass('fa-pencil').addClass('fa-chevron-up');
+      }
+    }
+
+    $userItem[0].scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    return true;
+  };
+
+  const prepareMvuTutorial = (): boolean => {
+    const { $ } = getCore();
+    const doc = getTavernHostDocument();
+    const $panel = $(doc).find('#acu-data-area .acu-mvu-panel').first();
+    if (!$panel.length) return false;
+
+    const isNumericMode = $panel.find('.mvu-numeric-mode').length > 0;
+    if (!isNumericMode) {
+      try {
+        localStorage.setItem('acu_mvu_numeric_mode', 'true');
+        renderInterface();
+      } catch (error) {
+        console.warn('[DICE] MVU 教程切换数值模式失败:', error);
+      }
+      return false;
+    }
+
+    const $levelControls = $panel.find('.mvu-level-controls-collapsible').first();
+    if (!$levelControls.length) return false;
+    $levelControls.removeClass('collapsed');
+    $levelControls[0].scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    return true;
+  };
+
+  const prepareInventoryTutorial = (button: Element): boolean => {
+    const { $ } = getCore();
+    const $overlay = $(button).closest('.acu-inventory-overlay');
+    if (!$overlay.length) return false;
+
+    const $filterPanel = $overlay.find('.acu-inventory-filter-collapsible').first();
+    if ($filterPanel.length) {
+      $filterPanel.removeClass('collapsed');
+      $filterPanel[0].scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+    return true;
+  };
+
+  const SETTINGS_GROUP_TUTORIAL_MAP: Partial<Record<TutorialScope, string>> = {
+    settingsAppearance: 'appearance',
+    settingsLayout: 'layout',
+    settingsPosition: 'position',
+    settingsOptions: 'options',
+    settingsTables: 'tables',
+    settingsValidation: 'validation',
+    settingsRegex: 'regex',
+    settingsAdvanced: 'advanced',
+  };
+
+  const prepareSettingsGroupTutorial = (scope: TutorialScope, button: Element): boolean => {
+    const groupId = SETTINGS_GROUP_TUTORIAL_MAP[scope];
+    if (!groupId) return true;
+
+    const { $ } = getCore();
+    const $dialog = $(button).closest('.acu-settings-dialog');
+    if (!$dialog.length) return false;
+
+    const $group = $dialog.find(`.acu-settings-group[data-group="${groupId}"]`).first();
+    if (!$group.length) return false;
+
+    const $body = $group.find('.acu-settings-group-body').first();
+    const $chevron = $group.find('.acu-group-chevron').first();
+    if ($group.hasClass('collapsed')) {
+      $group.removeClass('collapsed');
+      $body.stop(true, true).show().css('height', '').removeClass('acu-animating');
+      $chevron.removeClass('fa-chevron-right').addClass('fa-chevron-down');
+
+      const savedGroups = Store.get('acu_settings_expanded', ['appearance']);
+      const expandedGroups = Array.isArray(savedGroups) ? savedGroups.map(String) : ['appearance'];
+      if (!expandedGroups.includes(groupId)) {
+        Store.set('acu_settings_expanded', [...expandedGroups, groupId]);
+      }
+    }
+
+    $group[0].scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    return true;
+  };
+
+  const startTutorialFromButton = (button: Element): void => {
+    const { $ } = getCore();
+    const scope = String($(button).attr('data-tutorial-scope') || '');
+    if (!isTutorialScope(scope)) return;
+    if (scope === 'avatarManager') {
+      const win = getTavernHostWindow();
+      let attempts = 0;
+      const startWhenReady = (): void => {
+        attempts += 1;
+        const isReady = prepareAvatarManagerTutorial(button);
+        if (isReady || attempts >= 6) {
+          getTutorialModule().start(scope, { manual: true, interrupt: true });
+          return;
+        }
+        win.setTimeout(startWhenReady, 120);
+      };
+      startWhenReady();
+      return;
+    }
+    if (scope === 'mvu') {
+      const win = getTavernHostWindow();
+      let attempts = 0;
+      const startWhenReady = (): void => {
+        attempts += 1;
+        const isReady = prepareMvuTutorial();
+        if (isReady || attempts >= 8) {
+          getTutorialModule().start(scope, { manual: true, interrupt: true });
+          return;
+        }
+        win.setTimeout(startWhenReady, 140);
+      };
+      startWhenReady();
+      return;
+    }
+    if (scope === 'inventory') {
+      prepareInventoryTutorial(button);
+    }
+    prepareSettingsGroupTutorial(scope, button);
+    getTutorialModule().start(scope, { manual: true, interrupt: true });
+  };
+
+  const bindTutorialButtonsIn = ($root: JQuery): void => {
+    $root
+      .find('.acu-panel-tutorial-btn')
+      .off('click.acu_panel_tutorial_direct')
+      .on('click.acu_panel_tutorial_direct', function (e) {
+        e.stopPropagation();
+        e.preventDefault();
+        startTutorialFromButton(this);
+      });
   };
 
   const generateDiffMap = currentData => {
@@ -30843,12 +31086,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     const overlay = $(`
       <div class="acu-edit-overlay">
-        <div class="acu-edit-dialog acu-theme-${config.theme}" style="width: 600px; max-width: 92vw; max-height: 80vh;">
+        <div class="acu-edit-dialog acu-attribute-preset-manager-dialog acu-theme-${config.theme}" style="width: 600px; max-width: 92vw; max-height: 80vh;">
           <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px solid var(--acu-border);">
             <div style="font-size: 16px; font-weight: bold; color: var(--acu-text-main);">
               <i class="fa-solid fa-dice-d20"></i> 自定义属性规则管理
             </div>
-            <button class="acu-close-btn"><i class="fa-solid fa-times"></i></button>
+            <div style="display:flex; align-items:center; gap:4px;">
+              ${getTutorialButtonHtml('attributePresetManager', '查看自定义属性规则教程', 'acu-help-btn')}
+              <button class="acu-close-btn"><i class="fa-solid fa-times"></i></button>
+            </div>
           </div>
 
           <div style="flex: 1; overflow-y: auto; padding: 12px 0;">
@@ -30875,6 +31121,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     `);
 
     $('body').append(overlay);
+    bindTutorialButtonsIn(overlay);
 
     // 关闭按钮
     overlay.find('.acu-close-btn, #acu-preset-back').on('click', () => {
@@ -31601,12 +31848,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     const overlay = $(`
       <div class="acu-edit-overlay">
-        <div class="acu-edit-dialog acu-theme-${config.theme}" style="width: 600px; max-width: 92vw; max-height: 85vh; display: flex; flex-direction: column;">
+        <div class="acu-edit-dialog acu-advanced-preset-manager-dialog acu-theme-${config.theme}" style="width: 600px; max-width: 92vw; max-height: 85vh; display: flex; flex-direction: column;">
           <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px solid var(--acu-border); flex-shrink: 0;">
             <div style="font-size: 16px; font-weight: bold; color: var(--acu-text-main);">
               <i class="fa-solid fa-sliders"></i> 检定预设管理
             </div>
-            <button class="acu-close-btn"><i class="fa-solid fa-times"></i></button>
+            <div style="display:flex; align-items:center; gap:4px;">
+              ${getTutorialButtonHtml('advancedPresetManager', '查看检定预设管理教程', 'acu-help-btn')}
+              <button class="acu-close-btn"><i class="fa-solid fa-times"></i></button>
+            </div>
           </div>
 
           <div style="flex: 1; overflow-y: auto; padding: 12px 0;">
@@ -31636,6 +31886,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     `);
 
     $('body').append(overlay);
+    bindTutorialButtonsIn(overlay);
 
     overlay.find('.acu-close-btn, #acu-advanced-preset-back').on('click', () => {
       overlay.remove();
@@ -31788,16 +32039,19 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     const overlay = $(`
       <div class="acu-edit-overlay">
-        <div class="acu-edit-dialog acu-theme-${config.theme}" style="width: 600px; max-width: 92vw; max-height: 85vh; display: flex; flex-direction: column;">
+        <div class="acu-edit-dialog acu-dice-settings-dialog acu-theme-${config.theme}" style="width: 600px; max-width: 92vw; max-height: 85vh; display: flex; flex-direction: column;">
           <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px solid var(--acu-border); flex-shrink: 0;">
             <div style="font-size: 16px; font-weight: bold; color: var(--acu-text-main);">
               <i class="fa-solid fa-dice-d20"></i> 检定设置
             </div>
-            <button class="acu-close-btn"><i class="fa-solid fa-times"></i></button>
+            <div style="display:flex; align-items:center; gap:4px;">
+              ${getTutorialButtonHtml('diceSettings', '查看检定设置教程', 'acu-help-btn')}
+              <button class="acu-close-btn"><i class="fa-solid fa-times"></i></button>
+            </div>
           </div>
 
            <div style="flex: 1; overflow-y: auto; padding: 12px 0;">
-              <div class="acu-setting-row">
+              <div class="acu-setting-row" id="dice-settings-preset-row">
                   <div class="acu-setting-info">
                       <span class="acu-setting-label"><i class="fa-solid fa-sliders"></i> 检定预设</span>
                   </div>
@@ -31805,7 +32059,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                       <i class="fa-solid fa-cog"></i> 管理
                   </button>
               </div>
-              <div class="acu-setting-row" style="margin-top: 12px;">
+              <div class="acu-setting-row" id="dice-settings-attr-preset-row" style="margin-top: 12px;">
                   <div class="acu-setting-info">
                       <span class="acu-setting-label"><i class="fa-solid fa-gem"></i> 自定义属性预设</span>
                   </div>
@@ -31813,7 +32067,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                       <i class="fa-solid fa-cog"></i> 管理
                   </button>
               </div>
-              <div class="acu-setting-row" style="margin-top: 12px;">
+              <div class="acu-setting-row" id="dice-settings-crazy-mode-row" style="margin-top: 12px;">
                   <div class="acu-setting-info">
                       <span class="acu-setting-label"><i class="fa-solid fa-fire"></i> 疯狂模式</span>
                   </div>
@@ -31825,7 +32079,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                       <option value="100">● 极限</option>
                   </select>
               </div>
-              <div style="padding-top: 12px; border-top: 1px solid var(--acu-border);">
+              <div id="dice-result-display-settings" style="padding-top: 12px; border-top: 1px solid var(--acu-border);">
                 <div class="acu-setting-row acu-setting-row-toggle" style="margin-bottom: 8px;">
                     <div class="acu-setting-info">
                         <span class="acu-setting-label">隐藏输入栏中的检定结果</span>
@@ -31860,6 +32114,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     `);
 
     $('body').append(overlay);
+    bindTutorialButtonsIn(overlay);
 
     // 关闭按钮
     overlay.find('.acu-close-btn').on('click', () => {
@@ -33375,10 +33630,13 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     const dialog = $(`
       <div class="acu-edit-overlay acu-dice-history-overlay">
-        <div class="acu-edit-dialog ${currentThemeClass}" style="max-width:600px; width:min(94vw,600px); max-height:82vh; display:flex; flex-direction:column; padding:14px;">
+        <div class="acu-edit-dialog acu-dice-history-dialog ${currentThemeClass}" style="max-width:600px; width:min(94vw,600px); max-height:82vh; display:flex; flex-direction:column; padding:14px;">
           <div style="display:flex; justify-content:space-between; align-items:center; padding-bottom:8px; border-bottom:1px solid var(--acu-border);">
             <div style="font-size:19px; color:var(--acu-text-main); font-weight:700; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-clock-rotate-left" style="color:var(--acu-accent);"></i> 检定历史</div>
-            <button class="acu-close-btn acu-history-close"><i class="fa-solid fa-times"></i></button>
+            <div style="display:flex; align-items:center; gap:4px;">
+              ${getTutorialButtonHtml('diceHistory', '查看检定历史教程', 'acu-help-btn')}
+              <button class="acu-close-btn acu-history-close"><i class="fa-solid fa-times"></i></button>
+            </div>
           </div>
           <div style="display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-top:6px; align-items:center;">
             <select id="acu-history-scope-filter" class="acu-dice-select" style="width:100%; min-width:0;">
@@ -33411,6 +33669,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       </div>
     `);
     $('body').append(dialog);
+    bindTutorialButtonsIn(dialog);
 
     const renderHistoryStats = async () => {
       const $stats = dialog.find('#acu-dice-history-stats');
@@ -34995,7 +35254,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                         </span>
                     </div>
                     <div class="acu-header-actions">
-                        <button class="acu-help-btn" id="acu-help-btn" title="查看使用文档"><i class="fa-solid fa-question-circle"></i></button>
+                        ${getTutorialButtonHtml('settings', '查看设置页面教程', 'acu-help-btn')}
                         <button class="acu-close-btn" id="dlg-close-x"><i class="fa-solid fa-times"></i></button>
                     </div>
                 </div>
@@ -35003,11 +35262,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                 <div class="acu-settings-body">
                 <!-- 外观样式 -->
                 <div class="acu-settings-group ${isGroupExpanded('appearance') ? '' : 'collapsed'}" data-group="appearance">                    <div class="acu-settings-group-title">
-                        <i class="fa-solid ${chevron('appearance')} acu-group-chevron"></i>
-                        <i class="fa-solid fa-palette"></i> 外观样式
+                        <span class="acu-settings-group-title-main">
+                            <i class="fa-solid ${chevron('appearance')} acu-group-chevron"></i>
+                            <i class="fa-solid fa-palette"></i>
+                            <span>外观样式</span>
+                        </span>
+                        ${getTutorialButtonHtml('settingsAppearance', '查看外观样式教程', 'acu-settings-group-help')}
                     </div>
                     <div class="acu-settings-group-body">
-                        <div class="acu-setting-row">
+                        <div class="acu-setting-row" id="settings-row-theme">
                             <div class="acu-setting-info">
                                 <span class="acu-setting-label">背景主题</span>
                             </div>
@@ -35015,7 +35278,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                 ${THEMES.map(t => `<option value="${t.id}" ${t.id === config.theme ? 'selected' : ''}>${t.name}</option>`).join('')}
                             </select>
                         </div>
-                        <div class="acu-setting-row">
+                        <div class="acu-setting-row" id="settings-row-font-family">
                             <div class="acu-setting-info">
                                 <span class="acu-setting-label">字体风格</span>
                             </div>
@@ -35023,7 +35286,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                 ${FONTS.map(f => `<option value="${f.id}" ${f.id === config.fontFamily ? 'selected' : ''}>${f.name}</option>`).join('')}
                             </select>
                         </div>
-                        <div class="acu-setting-row">
+                        <div class="acu-setting-row" id="settings-row-font-main">
                             <div class="acu-setting-info">
                                 <span class="acu-setting-label">字体大小 (界面)</span>
                             </div>
@@ -35033,7 +35296,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                 <button class="acu-stepper-btn acu-stepper-inc"><i class="fa-solid fa-plus"></i></button>
                             </div>
                         </div>
-                        <div class="acu-setting-row">
+                        <div class="acu-setting-row" id="settings-row-font-option">
                             <div class="acu-setting-info">
                                 <span class="acu-setting-label">字体大小 (选项)</span>
                             </div>
@@ -35043,7 +35306,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                 <button class="acu-stepper-btn acu-stepper-inc"><i class="fa-solid fa-plus"></i></button>
                             </div>
                         </div>
-                        <div class="acu-setting-row acu-setting-row-toggle">
+                        <div class="acu-setting-row acu-setting-row-toggle" id="settings-row-highlight-new">
                             <div class="acu-setting-info">
                                 <span class="acu-setting-label">高亮变化内容</span>
                             </div>
@@ -35058,11 +35321,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                     <!-- 布局设置 -->
                     <div class="acu-settings-group ${isGroupExpanded('layout') ? '' : 'collapsed'}" data-group="layout">
                         <div class="acu-settings-group-title">
-                            <i class="fa-solid ${chevron('layout')} acu-group-chevron"></i>
-                            <i class="fa-solid fa-th-large"></i> 布局设置
+                            <span class="acu-settings-group-title-main">
+                                <i class="fa-solid ${chevron('layout')} acu-group-chevron"></i>
+                                <i class="fa-solid fa-th-large"></i>
+                                <span>布局设置</span>
+                            </span>
+                            ${getTutorialButtonHtml('settingsLayout', '查看布局设置教程', 'acu-settings-group-help')}
                         </div>
                         <div class="acu-settings-group-body">
-                            <div class="acu-setting-row">
+                            <div class="acu-setting-row" id="settings-row-card-width">
                                 <div class="acu-setting-info">
                                     <span class="acu-setting-label">卡片宽度</span>
                                 </div>
@@ -35072,7 +35339,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                     <button class="acu-stepper-btn acu-stepper-inc"><i class="fa-solid fa-plus"></i></button>
                                 </div>
                             </div>
-                            <div class="acu-setting-row">
+                            <div class="acu-setting-row" id="settings-row-layout-mode">
                                 <div class="acu-setting-info">
                                     <span class="acu-setting-label">布局模式</span>
                                 </div>
@@ -35081,7 +35348,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                     <option value="vertical" ${config.layout === 'vertical' ? 'selected' : ''}>竖向滚动</option>
                                 </select>
                             </div>
-                            <div class="acu-setting-row acu-setting-row-toggle">
+                            <div class="acu-setting-row acu-setting-row-toggle" id="settings-row-reverse-all">
                                 <div class="acu-setting-info">
                                     <span class="acu-setting-label">倒序显示</span>
                                 </div>
@@ -35090,7 +35357,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                     <span class="acu-toggle-slider"></span>
                                 </label>
                             </div>
-                            <div class="acu-setting-row acu-setting-row-toggle">
+                            <div class="acu-setting-row acu-setting-row-toggle" id="settings-row-horizontal-scrollbar">
                                 <div class="acu-setting-info">
                                     <span class="acu-setting-label">显示横向滚动条</span>
                                 </div>
@@ -35099,7 +35366,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                     <span class="acu-toggle-slider"></span>
                                 </label>
                             </div>
-                            <div class="acu-setting-row">
+                            <div class="acu-setting-row" id="settings-row-grid-cols">
                                 <div class="acu-setting-info">
                                     <span class="acu-setting-label">底部按钮列数</span>
                                     <span class="acu-setting-hint">仅移动端</span>
@@ -35111,7 +35378,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                     <option value="auto" ${config.gridColumns === 'auto' ? 'selected' : ''}>自动</option>
                                 </select>
                             </div>
-                            <div class="acu-setting-row">
+                            <div class="acu-setting-row" id="settings-row-per-page">
                                 <div class="acu-setting-info">
                                     <span class="acu-setting-label">每页显示条数</span>
                                 </div>
@@ -35128,11 +35395,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                     <!-- 位置与交互 -->
                     <div class="acu-settings-group ${isGroupExpanded('position') ? '' : 'collapsed'}" data-group="position">
                         <div class="acu-settings-group-title">
-                            <i class="fa-solid ${chevron('position')} acu-group-chevron"></i>
-                            <i class="fa-solid fa-arrows-alt"></i> 位置与交互
+                            <span class="acu-settings-group-title-main">
+                                <i class="fa-solid ${chevron('position')} acu-group-chevron"></i>
+                                <i class="fa-solid fa-arrows-alt"></i>
+                                <span>位置与交互</span>
+                            </span>
+                            ${getTutorialButtonHtml('settingsPosition', '查看位置与交互教程', 'acu-settings-group-help')}
                         </div>
                         <div class="acu-settings-group-body">
-                            <div class="acu-setting-row">
+                            <div class="acu-setting-row" id="settings-row-panel-position">
                                 <div class="acu-setting-info">
                                     <span class="acu-setting-label">面板位置</span>
                                 </div>
@@ -35142,7 +35413,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                     <option value="viewport" ${config.positionMode === 'viewport' ? 'selected' : ''}>固定底部</option>
                                 </select>
                             </div>
-                            <div class="acu-setting-row">
+                            <div class="acu-setting-row" id="settings-row-action-position">
                                 <div class="acu-setting-info">
                                     <span class="acu-setting-label">功能按钮位置</span>
                                 </div>
@@ -35151,7 +35422,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                     <option value="top" ${config.actionsPosition === 'top' ? 'selected' : ''}>顶部</option>
                                 </select>
                             </div>
-                            <div class="acu-setting-row">
+                            <div class="acu-setting-row" id="settings-row-collapse-style">
                                 <div class="acu-setting-info">
                                     <span class="acu-setting-label">收起样式</span>
                                 </div>
@@ -35177,11 +35448,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                     <!-- 行动选项 -->
                     <div class="acu-settings-group ${isGroupExpanded('options') ? '' : 'collapsed'}" data-group="options">
                         <div class="acu-settings-group-title">
-                            <i class="fa-solid ${chevron('options')} acu-group-chevron"></i>
-                            <i class="fa-solid fa-gamepad"></i> 行动选项
+                            <span class="acu-settings-group-title-main">
+                                <i class="fa-solid ${chevron('options')} acu-group-chevron"></i>
+                                <i class="fa-solid fa-gamepad"></i>
+                                <span>行动选项</span>
+                            </span>
+                            ${getTutorialButtonHtml('settingsOptions', '查看行动选项教程', 'acu-settings-group-help')}
                         </div>
                         <div class="acu-settings-group-body">
-                            <div class="acu-setting-row acu-setting-row-toggle">
+                            <div class="acu-setting-row acu-setting-row-toggle" id="settings-row-show-options">
                                 <div class="acu-setting-info">
                                     <span class="acu-setting-label">显示行动选项面板</span>
                                 </div>
@@ -35205,8 +35480,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                 <!-- 表格管理 -->
                     <div class="acu-settings-group ${isGroupExpanded('tables') ? '' : 'collapsed'}" data-group="tables">
                         <div class="acu-settings-group-title">
-                            <i class="fa-solid ${chevron('tables')} acu-group-chevron"></i>
-                            <i class="fa-solid fa-table"></i> 表格管理
+                            <span class="acu-settings-group-title-main">
+                                <i class="fa-solid ${chevron('tables')} acu-group-chevron"></i>
+                                <i class="fa-solid fa-table"></i>
+                                <span>表格管理</span>
+                            </span>
+                            ${getTutorialButtonHtml('settingsTables', '查看表格管理教程', 'acu-settings-group-help')}
                         </div>
                         <div class="acu-settings-group-body">
                             <div class="acu-table-manager-hint" style="font-size:11px;color:var(--acu-text-sub);margin-bottom:8px;padding:0 4px;">
@@ -35221,12 +35500,16 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                     <!-- 数据验证规则 -->
                     <div class="acu-settings-group ${isGroupExpanded('validation') ? '' : 'collapsed'}" data-group="validation">
                         <div class="acu-settings-group-title">
-                            <i class="fa-solid ${chevron('validation')} acu-group-chevron"></i>
-                            <i class="fa-solid fa-clipboard-check"></i> 数据验证规则
+                            <span class="acu-settings-group-title-main">
+                                <i class="fa-solid ${chevron('validation')} acu-group-chevron"></i>
+                                <i class="fa-solid fa-clipboard-check"></i>
+                                <span>数据验证规则</span>
+                            </span>
+                            ${getTutorialButtonHtml('settingsValidation', '查看数据验证规则教程', 'acu-settings-group-help')}
                         </div>
                         <div class="acu-settings-group-body">
                             <!-- 预设选择器 -->
-                            <div class="acu-setting-row" style="margin-bottom:8px;">
+                            <div class="acu-setting-row" id="settings-row-validation-preset" style="margin-bottom:8px;">
                                 <span>当前预设</span>
                                 <select class="acu-setting-select" id="preset-select" style="flex:1;max-width:160px;">
                                     ${PresetManager.getAllPresets()
@@ -35238,7 +35521,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                 </select>
                             </div>
                             <!-- 预设操作按钮 -->
-                            <div style="display:flex;gap:6px;margin-bottom:10px;">
+                            <div id="settings-row-validation-preset-actions" style="display:flex;gap:6px;margin-bottom:10px;">
                                 <button class="acu-action-btn" id="btn-preset-dup" title="复制预设" style="flex:1;height:28px;"><i class="fa-solid fa-copy"></i></button>
                                 <button class="acu-action-btn" id="btn-preset-new" title="新建预设" style="flex:1;height:28px;"><i class="fa-solid fa-plus"></i></button>
                                 <button class="acu-action-btn" id="btn-preset-del" title="删除预设" style="flex:1;height:28px;"><i class="fa-solid fa-trash"></i></button>
@@ -35287,12 +35570,16 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                     <!-- 正则转换规则 - Phase 4.1 -->
                     <div class="acu-settings-group ${isGroupExpanded('regex') ? '' : 'collapsed'}" data-group="regex">
                         <div class="acu-settings-group-title">
-                            <i class="fa-solid ${chevron('regex')} acu-group-chevron"></i>
-                            <i class="fa-solid fa-wand-magic-sparkles"></i> 正则转换规则
+                            <span class="acu-settings-group-title-main">
+                                <i class="fa-solid ${chevron('regex')} acu-group-chevron"></i>
+                                <i class="fa-solid fa-wand-magic-sparkles"></i>
+                                <span>正则转换规则</span>
+                            </span>
+                            ${getTutorialButtonHtml('settingsRegex', '查看正则转换规则教程', 'acu-settings-group-help')}
                         </div>
                         <div class="acu-settings-group-body">
                             <!-- 预设选择器 -->
-                            <div class="acu-setting-row" style="margin-bottom:8px;">
+                            <div class="acu-setting-row" id="settings-row-regex-preset" style="margin-bottom:8px;">
                                 <span>当前预设</span>
                                 <select class="acu-setting-select" id="regex-preset-select" style="flex:1;max-width:160px;">
                                     ${RegexPresetManager.getAllPresets()
@@ -35304,7 +35591,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                 </select>
                             </div>
                             <!-- 预设操作按钮 -->
-                            <div style="display:flex;gap:6px;margin-bottom:10px;">
+                            <div id="settings-row-regex-preset-actions" style="display:flex;gap:6px;margin-bottom:10px;">
                                 <button class="acu-action-btn" id="btn-regex-preset-dup" title="复制预设" style="flex:1;height:28px;"><i class="fa-solid fa-copy"></i></button>
                                 <button class="acu-action-btn" id="btn-regex-preset-new" title="新建预设" style="flex:1;height:28px;"><i class="fa-solid fa-plus"></i></button>
                                 <button class="acu-action-btn" id="btn-regex-preset-del" title="删除预设" style="flex:1;height:28px;"><i class="fa-solid fa-trash"></i></button>
@@ -35364,11 +35651,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                     <!-- 高级设置 -->
                     <div class="acu-settings-group ${isGroupExpanded('advanced') ? '' : 'collapsed'}" data-group="advanced">
                         <div class="acu-settings-group-title">
-                            <i class="fa-solid ${chevron('advanced')} acu-group-chevron"></i>
-                            <i class="fa-solid fa-sliders-h"></i> 高级设置
+                            <span class="acu-settings-group-title-main">
+                                <i class="fa-solid ${chevron('advanced')} acu-group-chevron"></i>
+                                <i class="fa-solid fa-sliders-h"></i>
+                                <span>高级设置</span>
+                            </span>
+                            ${getTutorialButtonHtml('settingsAdvanced', '查看高级设置教程', 'acu-settings-group-help')}
                         </div>
                         <div class="acu-settings-group-body">
-                            <div class="acu-setting-row">
+                            <div class="acu-setting-row" id="settings-row-attr-preset">
                                 <div class="acu-setting-info">
                                     <span class="acu-setting-label"><i class="fa-solid fa-dice-d20"></i> 自定义属性规则</span>
                                 </div>
@@ -35376,7 +35667,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                     <i class="fa-solid fa-cog"></i> 管理
                                 </button>
                             </div>
-                            <div class="acu-setting-row">
+                            <div class="acu-setting-row" id="settings-row-dice-preset">
                                 <div class="acu-setting-info">
                                     <span class="acu-setting-label"><i class="fa-solid fa-dice"></i> 检定设置</span>
                                 </div>
@@ -35384,7 +35675,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                     <i class="fa-solid fa-cog"></i> 管理
                                 </button>
                             </div>
-                            <div class="acu-setting-row">
+                            <div class="acu-setting-row" id="settings-row-action-preset">
                                 <div class="acu-setting-info">
                                     <span class="acu-setting-label"><i class="fa-solid fa-wand-magic-sparkles"></i> 自定义交互规则</span>
                                 </div>
@@ -35392,7 +35683,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                     <i class="fa-solid fa-cog"></i> 管理
                                 </button>
                             </div>
-                            <div class="acu-setting-row">
+                            <div class="acu-setting-row" id="settings-row-blacklist">
                                 <div class="acu-setting-info">
                                     <span class="acu-setting-label"><i class="fa-solid fa-filter"></i> 变量过滤黑名单</span>
                                 </div>
@@ -35400,7 +35691,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                     <i class="fa-solid fa-cog"></i> 管理
                                 </button>
                             </div>
-                            <div class="acu-setting-row">
+                            <div class="acu-setting-row" id="settings-row-debug-console">
                                 <div class="acu-setting-info">
                                     <span class="acu-setting-label"><i class="fa-solid fa-bug"></i> Debug控制台</span>
                                 </div>
@@ -35408,7 +35699,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                     <i class="fa-solid fa-terminal"></i> 打开
                                 </button>
                             </div>
-                            <div class="acu-setting-row">
+                            <div class="acu-setting-row" id="settings-row-clear-cache">
                                 <div class="acu-setting-info">
                                     <span class="acu-setting-label"><i class="fa-solid fa-trash-can"></i> 清空本地缓存</span>
                                 </div>
@@ -35416,7 +35707,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                     <i class="fa-solid fa-eraser"></i> 清空
                                 </button>
                             </div>
-                            <div class="acu-setting-row acu-setting-row-toggle">
+                            <div class="acu-setting-row acu-setting-row-toggle" id="settings-row-db-toast-mute">
                                 <div class="acu-setting-info">
                                     <span class="acu-setting-label"><i class="fa-solid fa-bell-slash"></i> 屏蔽数据库弹窗</span>
                                 </div>
@@ -35425,7 +35716,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                     <span class="acu-toggle-slider"></span>
                                 </label>
                             </div>
-                            <div class="acu-setting-row acu-setting-row-toggle">
+                            <div class="acu-setting-row acu-setting-row-toggle" id="settings-row-db-theme-sync">
                                 <div class="acu-setting-info">
                                     <span class="acu-setting-label"><i class="fa-solid fa-database"></i> 覆盖数据库主题</span>
                                 </div>
@@ -36393,12 +36684,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       renderInterface();
     };
     dialog.on('click', '#dlg-close-x, .acu-settings-header .acu-close-btn', closeDialog);
-
-    // 帮助按钮点击事件
-    dialog.on('click', '#acu-help-btn', function (e) {
-      e.stopPropagation();
-      window.open('https://jerryzmtz.github.io/DiceSystemManual//', '_blank');
-    });
 
     // 手动更新按钮点击事件
     dialog.on('click', '#acu-manual-update-btn', function (e) {
@@ -37543,10 +37828,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                         <div class="acu-title-sub">对比上次保存的快照</div>
                     </div>
                     <div class="acu-header-actions">
+                        ${getTutorialButtonHtml('changes', '查看审核面板教程')}
                         <button class="acu-close-btn" title="关闭"><i class="fa-solid fa-times"></i></button>
                     </div>
                 </div>
-                <div class="acu-panel-content" style="display:flex;align-items:center;justify-content:center;">
+                <div class="acu-panel-content acu-changes-content" style="display:flex;align-items:center;justify-content:center;">
                     <div class="acu-empty-hint">暂无快照数据</div>
                 </div>`;
       }
@@ -37755,11 +38041,14 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                     <div class="acu-title-main"><i class="fa-solid ${panelIcon}"></i> <span class="acu-title-text">${panelTitle}</span></div>
                 </div>
                 <div class="acu-header-actions">
+                    ${getTutorialButtonHtml('changes', '查看审核面板教程')}
+                    <span class="acu-changes-batch-actions" style="display:flex;align-items:center;gap:8px;">
                     ${!isValidationMode ? '<button class="acu-changes-batch-btn acu-batch-accept" title="接受全部变更"><i class="fa-solid fa-check-double"></i></button>' : ''}
                     <button class="acu-changes-batch-btn acu-batch-reject" title="${isValidationMode ? '全部回滚' : '拒绝全部变更'}"><i class="fa-solid fa-rotate-left"></i></button>
                     <button class="acu-changes-batch-btn acu-simple-mode-toggle ${isValidationMode ? 'active' : ''}" title="${toggleTitle}">
                         <i class="fa-solid ${isValidationMode ? 'fa-filter-circle-xmark' : 'fa-filter'}"></i>
                     </button>
+                    </span>
                     <div class="acu-height-control">
                         <i class="fa-solid fa-arrows-up-down acu-height-drag-handle" data-table="审核面板" title="↕️ 拖动调整面板高度 | 双击恢复默认"></i>
                     </div>
@@ -39153,7 +39442,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                 <div class="acu-title-main"><i class="fa-solid fa-chart-line"></i> <span class="acu-title-text">仪表盘</span></div>
                 <div class="acu-title-sub">综合状态总览</div>
             </div>
-            <div class="acu-header-actions">
+            <div class="acu-header-actions acu-dashboard-header-actions">
+                ${getTutorialButtonHtml('core', '播放核心引导教程', 'acu-dashboard-tutorial-btn')}
                 <div class="acu-height-control">
                     <i class="fa-solid fa-arrows-up-down acu-height-drag-handle" data-table="仪表盘" title="↕️ 拖动调整面板高度 | 双击恢复默认"></i>
                 </div>
@@ -39257,11 +39547,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
                 <!-- 中列：地点 + NPC -->
                 <div class="acu-dash-locations">
-                    <h3 class="acu-dash-table-link" data-table="${escapeHtml(locationTableName)}" style="display:flex;justify-content:space-between;align-items:center;">
+                    <div class="acu-dash-location-group">
+                    <h3 class="acu-dash-table-link acu-dash-location-title" data-table="${escapeHtml(locationTableName)}" style="display:flex;justify-content:space-between;align-items:center;">
                         <span><i class="fa-solid fa-map"></i> 地点 (${locationParsed.length})</span>
                         <i class="fa-solid fa-map acu-dash-map-btn" title="地图可视化" style="cursor:pointer;color:var(--acu-text-sub);opacity:0.6;font-size:12px;padding:4px;"></i>
                     </h3>
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 6px;align-content:start;max-height:110px;overflow-y:auto;overflow-x:hidden;margin-bottom:10px;">
+                    <div class="acu-dash-location-list" style="display:grid;grid-template-columns:1fr 1fr;gap:2px 6px;align-content:start;max-height:110px;overflow-y:auto;overflow-x:hidden;margin-bottom:10px;">
                     ${
                       locationParsed.length > 0
                         ? locationParsed
@@ -39300,15 +39591,17 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                         : '<div class="acu-empty-hint">暂无地点数据</div>'
                     }
                     </div>
+                    </div>
 
-                    <h3 class="acu-dash-table-link" data-table="${escapeHtml(npcTableName)}" style="margin-top:10px;display:flex;justify-content:space-between;align-items:center;">
+                    <div class="acu-dash-role-group">
+                    <h3 class="acu-dash-table-link acu-dash-role-title" data-table="${escapeHtml(npcTableName)}" style="margin-top:10px;display:flex;justify-content:space-between;align-items:center;">
                         <span><i class="fa-solid fa-users"></i> 角色 (${allNPCs.length})</span>
                         <span style="display:flex;gap:8px;">
                             <i class="fa-solid fa-project-diagram acu-dash-relation-graph-btn" title="人物关系图" style="cursor:pointer;color:var(--acu-text-sub);opacity:0.6;font-size:12px;padding:4px;"></i>
                             <i class="fa-solid fa-user-circle acu-dash-avatar-manager-btn" title="头像管理" style="cursor:pointer;color:var(--acu-text-sub);opacity:0.6;font-size:12px;padding:4px;"></i>
                         </span>
                     </h3>
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 6px;align-content:start;max-height:150px;overflow-y:auto;overflow-x:hidden;">
+                    <div class="acu-dash-role-list" style="display:grid;grid-template-columns:1fr 1fr;gap:2px 6px;align-content:start;max-height:150px;overflow-y:auto;overflow-x:hidden;">
                     ${
                       allNPCs.length > 0
                         ? allNPCs
@@ -39352,18 +39645,20 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                         : '<div class="acu-empty-hint">暂无重要人物</div>'
                     }
                     </div>
+                    </div>
                 </div>
 
                 <!-- 右列：背包 + 技能 + 任务 -->
                 <div class="acu-dash-intel">
-                    <h3 class="acu-dash-table-link" data-table="${escapeHtml(bagTableName)}" style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                    <div class="acu-dash-items-group">
+                    <h3 class="acu-dash-table-link acu-dash-items-title" data-table="${escapeHtml(bagTableName)}" style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
                         <span><i class="fa-solid fa-bag-shopping"></i> 物品 (${bagParsed.length})</span>
                         <span style="display:flex;gap:8px;align-items:center;">
                             <i class="fa-solid fa-store acu-dash-gacha-btn" title="骰子商店" style="cursor:pointer;color:var(--acu-text-sub);opacity:0.6;font-size:12px;padding:4px;"></i>
                             <i class="fa-solid fa-box-open acu-dash-inventory-btn" title="物品栏可视化" style="cursor:pointer;color:var(--acu-text-sub);opacity:0.6;font-size:12px;padding:4px;"></i>
                         </span>
                     </h3>
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 6px;max-height:90px;overflow-y:auto;margin-bottom:10px;">
+                    <div class="acu-dash-items-list" style="display:grid;grid-template-columns:1fr 1fr;gap:2px 6px;max-height:90px;overflow-y:auto;margin-bottom:10px;">
                     ${
                       bagItems.length > 0
                         ? bagItems
@@ -39400,9 +39695,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                         : '<div class="acu-empty-hint">暂无物品</div>'
                     }
                     </div>
+                    </div>
 
-                    <h3 class="acu-dash-table-link" data-table="${escapeHtml(equipTableName)}" style="margin-top:10px;"><i class="fa-solid fa-shield-halved"></i> 装备 (${equippedItems.length})</h3>
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;max-height:80px;overflow-y:auto;margin-bottom:10px;">
+                    <div class="acu-dash-equipment-task-group">
+                    <h3 class="acu-dash-table-link acu-dash-equipment-title" data-table="${escapeHtml(equipTableName)}" style="margin-top:10px;"><i class="fa-solid fa-shield-halved"></i> 装备 (${equippedItems.length})</h3>
+                    <div class="acu-dash-equipment-list" style="display:grid;grid-template-columns:1fr 1fr;gap:2px;max-height:80px;overflow-y:auto;margin-bottom:10px;">
                     ${
                       equippedItems.length > 0
                         ? equippedItems
@@ -39435,8 +39732,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                     }
                     </div>
 
-                    <h3 class="acu-dash-table-link" data-table="${escapeHtml(questTableName)}" style="margin-top:10px;"><i class="fa-solid fa-clipboard-list"></i> 任务 (${activeTasks.length})</h3>
-                    <div style="max-height:50px;overflow-y:auto;">
+                    <h3 class="acu-dash-table-link acu-dash-quest-title" data-table="${escapeHtml(questTableName)}" style="margin-top:10px;"><i class="fa-solid fa-clipboard-list"></i> 任务 (${activeTasks.length})</h3>
+                    <div class="acu-dash-quest-list" style="max-height:50px;overflow-y:auto;">
                     ${
                       activeTasks.length > 0
                         ? activeTasks
@@ -39466,6 +39763,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                             .join('')
                         : '<div class="acu-empty-hint">暂无任务</div>'
                     }
+                    </div>
                     </div>
                 </div>
             </div>
@@ -39667,6 +39965,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   const GACHA_PICKUP_WEIGHT_MULTIPLIER = 10;
   const GACHA_PICKUP_CHAT_DEPTH_BUCKET = 30;
   const GACHA_PICKUP_RARITIES: GachaRarity[] = ['史诗', '传说', '神话'];
+  const GACHA_PICKUP_FALLBACK_LIMIT = 3;
+  const GACHA_CUSTOM_ONLY_POOL_TAG: GachaPoolTag = '自定义';
+  const GACHA_EXPANDABLE_POOL_TAGS: GachaPoolTag[] = GACHA_POOL_TAGS.filter(
+    tag => tag !== '全部' && tag !== GACHA_CUSTOM_ONLY_POOL_TAG,
+  );
   const INVENTORY_TYPE_FILTER_META: InventoryFilterButtonMeta<InventoryTypeFilter>[] = [
     { value: '全部', icon: 'fa-boxes-stacked', label: '全部类型' },
     { value: '消耗品', icon: 'fa-flask', label: '消耗品' },
@@ -40237,7 +40540,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const tag = String(value || '').trim() as GachaPoolTag;
       if (!GACHA_POOL_TAGS.includes(tag)) return;
       if (tag === '全部') {
-        GACHA_POOL_TAGS.filter(candidate => candidate !== '全部').forEach(candidate => tags.add(candidate));
+        GACHA_EXPANDABLE_POOL_TAGS.forEach(candidate => tags.add(candidate));
       } else {
         tags.add(tag);
       }
@@ -40576,7 +40879,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       // description：物品描述，会写入物品表，也会在商店详情中展示。
       "description": "一枚总能落在正面的硬币。使用后可让下一次普通检定获得轻微好运。",
 
-      // poolTags：出现在哪些奖池。可用值：奇幻、修真、都市、校园、历史；写 全部 会自动展开为所有奖池。
+      // poolTags：出现在哪些奖池。可用值：奇幻、修真、都市、校园、历史、自定义；写 全部 会自动展开为前五类通用奖池。
       "poolTags": ["全部"],
 
       // weight：同品质内的抽取权重，必须大于 0。越大越容易被抽到。
@@ -40926,7 +41229,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   };
 
   const getActiveGachaPoolTags = (poolTag: GachaPoolTag): GachaPoolTag[] => {
-    if (poolTag === '全部') return GACHA_POOL_TAGS.filter(tag => tag !== '全部');
+    if (poolTag === '全部') return GACHA_EXPANDABLE_POOL_TAGS;
     return [poolTag];
   };
 
@@ -40934,6 +41237,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     poolTag: GachaPoolTag,
     rawData = getRuntimeGachaRawData(),
   ): GachaItemDefinition[] => {
+    if (poolTag === GACHA_CUSTOM_ONLY_POOL_TAG) return getCustomGachaItemDefinitions(rawData);
     const activeTags = getActiveGachaPoolTags(poolTag);
     return getAllGachaItemDefinitions(rawData).filter(item => item.poolTags.some(tag => activeTags.includes(tag)));
   };
@@ -40986,12 +41290,16 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
   const getGachaPickupItems = (poolTag: GachaPoolTag): GachaItemDefinition[] => {
     const definitions = getGachaPoolDefinitions(poolTag);
-    return GACHA_PICKUP_RARITIES.map(rarity => {
+    const pickupItems = GACHA_PICKUP_RARITIES.map(rarity => {
       const candidates = definitions.filter(item => item.quality === rarity).sort((a, b) => a.id.localeCompare(b.id));
       if (candidates.length === 0) return null;
       const seed = `${getGachaPickupRotationKey()}|${poolTag}|${rarity}`;
       return candidates[hashGachaSeed(seed) % candidates.length];
     }).filter((item): item is GachaItemDefinition => Boolean(item));
+    if (pickupItems.length > 0) return pickupItems;
+    return [...definitions]
+      .sort((a, b) => getGachaRarityRank(b.quality) - getGachaRarityRank(a.quality) || a.id.localeCompare(b.id))
+      .slice(0, GACHA_PICKUP_FALLBACK_LIMIT);
   };
 
   const isGachaPickupItem = (poolTag: GachaPoolTag, item: GachaItemDefinition): boolean =>
@@ -41469,6 +41777,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             <div class="acu-title-main"><i class="fa-solid fa-store"></i> <span class="acu-title-text">骰子商店</span></div>
           </div>
           <div class="acu-header-actions">
+            ${getTutorialButtonHtml('gacha', '查看骰子商店教程')}
             <button class="acu-view-btn acu-gacha-import-items" type="button" title="导入自定义物品" aria-label="导入自定义物品">
               <i class="fa-solid fa-file-import"></i>
             </button>
@@ -42155,6 +42464,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
               </div>
             </div>
             <div class="acu-inventory-detail-header-actions">
+              ${getTutorialButtonHtml('shardShop', '查看碎片商城教程')}
               <button class="acu-preview-close acu-gacha-shard-shop-close" title="关闭"><i class="fa-solid fa-times"></i></button>
             </div>
           </div>
@@ -42533,6 +42843,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
               <i class="fa-solid fa-magnifying-glass"></i>
               <input class="acu-inventory-filter" data-filter="search" type="search" value="${escapeHtml(filters.search || '')}" placeholder="搜索">
             </label>
+            ${getTutorialButtonHtml('inventory', '查看物品栏教程')}
             <button class="acu-view-btn acu-gacha-open-btn" title="骰子商店"><i class="fa-solid fa-store"></i></button>
             ${
               tableKey
@@ -43104,6 +43415,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                   : ''
               }
               <button class="acu-view-btn acu-inventory-detail-dismantle" type="button" title="拆解为碎片" aria-label="拆解为碎片"><i class="fa-solid fa-hammer"></i></button>
+              ${getTutorialButtonHtml('inventoryDetail', '查看物品详情教程')}
               <button class="acu-preview-close" title="关闭"><i class="fa-solid fa-times"></i></button>
             </div>
           </div>
@@ -43667,8 +43979,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           <div class="acu-title-sub">(共${allFavorites.length}项)</div>
         </div>
         <div class="acu-header-actions">
+          ${getTutorialButtonHtml('favorites', '查看收藏夹教程')}
+          <span class="acu-fav-transfer-actions" style="display:flex;align-items:center;gap:8px;">
           <button class="acu-view-btn" id="acu-fav-import" title="导入"><i class="fa-solid fa-file-import"></i></button>
           <button class="acu-view-btn" id="acu-fav-export" title="导出"><i class="fa-solid fa-file-export"></i></button>
+          </span>
           <div class="acu-search-wrapper"><i class="fa-solid fa-search acu-search-icon"></i><input type="text" class="acu-search-input" id="acu-fav-search" placeholder="搜索..." /></div>
           <div class="acu-height-control"><i class="fa-solid fa-arrows-up-down acu-height-drag-handle" data-table="收藏夹"></i></div>
           <button class="acu-close-btn" title="关闭"><i class="fa-solid fa-times"></i></button>
@@ -44095,6 +44410,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     <div class="acu-title-sub">(${startIdx + 1}-${Math.min(endIdx, totalItems)} / 共${totalItems}项)${isReversed ? ' <span style="color:var(--acu-accent);">↓倒序</span>' : ''}</div>
 </div>
                 <div class="acu-header-actions">
+                    ${getTutorialButtonHtml('table', '查看表格教程')}
                     ${isCharacterTable(tableName) ? `<button class="acu-view-btn" id="acu-btn-relation-graph" data-table="${escapeHtml(tableName)}" title="查看人物关系图"><i class="fa-solid fa-project-diagram"></i></button>` : ''}
                     ${tableName.includes('地图') ? `<button class="acu-view-btn acu-table-map-btn" title="地图可视化"><i class="fa-solid fa-map"></i></button>` : ''}
                     ${tableName.includes('物品') || tableName.includes('背包') || tableName.includes('道具') ? `<button class="acu-view-btn acu-table-inventory-btn" title="物品栏可视化"><i class="fa-solid fa-box-open"></i></button>` : ''}
@@ -44529,6 +44845,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   const bindEvents = tables => {
     const { $ } = getCore();
     const $wrapper = $('.acu-wrapper');
+    if (!tutorialButtonEventsBound) {
+      $('body').on('click.acu_panel_tutorial', '.acu-panel-tutorial-btn', function (e) {
+        e.stopPropagation();
+        e.preventDefault();
+        startTutorialFromButton(this);
+      });
+      tutorialButtonEventsBound = true;
+    }
+
     // [新增] 仪表盘-人物关系图按钮
     $wrapper.on('click', '.acu-dash-relation-graph-btn', function (e) {
       e.stopPropagation();
@@ -47570,6 +47895,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
         console.info('[DICE]执行首次界面渲染...');
         renderInterface(); // 首次渲染
+        getTutorialModule().maybeStart('core');
         // [新增] 初始化时处理已存在的消息中的投骰结果
         setTimeout(() => {
           hideDiceResultsInUserMessages();
