@@ -1339,7 +1339,8 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '.acu-gacha-shard-item-card:first-child .acu-gacha-shard-buy-btn',
       title: '兑换按钮',
-      content: '左侧价格按钮会显示兑换需要的碎片数量。点击后会弹出确认框，确认后奖励会写入物品表或装备表并扣除对应碎片。',
+      content:
+        '左侧价格按钮会显示兑换需要的碎片数量。点击后会弹出确认框，确认后奖励会写入物品表或装备表并扣除对应碎片。',
       placement: 'bottom',
     },
   ],
@@ -1887,7 +1888,8 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
     const safeRect = getTargetSafeRect(getCurrentPopoverRect(), target);
     const rect = target.getBoundingClientRect();
     const horizontalMargin = 4;
-    const hasHorizontalPresence = rect.right >= safeRect.left + horizontalMargin && rect.left <= safeRect.right - horizontalMargin;
+    const hasHorizontalPresence =
+      rect.right >= safeRect.left + horizontalMargin && rect.left <= safeRect.right - horizontalMargin;
     const hasVerticalPresence =
       rect.height > safeRect.height
         ? rect.bottom >= safeRect.top && rect.top <= safeRect.bottom
@@ -2197,12 +2199,7 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
   const getActionTarget = (target: EventTarget | null): HTMLElement | null => {
     if (!target) return null;
     const win = getWin();
-    const element =
-      target instanceof win.Element
-        ? target
-        : target instanceof win.Node
-          ? target.parentElement
-          : null;
+    const element = target instanceof win.Element ? target : target instanceof win.Node ? target.parentElement : null;
     const actionTarget = element?.closest('[data-action]');
     return actionTarget instanceof win.HTMLElement ? actionTarget : null;
   };
