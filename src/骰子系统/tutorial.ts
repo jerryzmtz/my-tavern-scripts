@@ -25,7 +25,9 @@ export type TutorialScope =
   | 'inventory'
   | 'inventoryDetail'
   | 'shardShop'
-  | 'gacha';
+  | 'gacha'
+  | 'gachaSettings'
+  | 'gachaItemEditor';
 
 type TutorialPlacement = 'top' | 'right' | 'bottom' | 'left' | 'center';
 type TutorialAction = 'prev' | 'next' | 'skip' | 'never';
@@ -1149,7 +1151,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '.acu-gacha-shell',
       title: '骰子商店',
-      content: '骰子商店用“骰运”抽取物品。抽到的奖励会写入物品表，因此抽取前请保证存在结构正确的物品表。',
+      content: '骰子商店用“骰运”抽取物品。抽到的奖励会按发放目标写入物品表或装备表，因此抽取前请保证对应表格结构正确。',
       placement: 'left',
     },
     {
@@ -1196,6 +1198,118 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
       content: '从这里进入碎片商城。碎片商城可以用碎片来兑换指定物品',
       placement: 'bottom',
     },
+    {
+      selector: '.acu-gacha-settings-open',
+      title: '商城设置',
+      content: '这里可以管理奖池显示、是否加入“全部”，也可以新建和编辑自定义物品。JSON 导入导出仍然可以继续使用。',
+      placement: 'bottom',
+    },
+  ],
+  gachaSettings: [
+    {
+      selector: '.acu-gacha-settings-dialog',
+      title: '骰子商城设置',
+      content: '这里集中管理卡池、自定义物品、导入导出和清空操作。设置保存后会同步影响骰子商店与碎片商城。',
+      placement: 'left',
+    },
+    {
+      selector: '#acu-gacha-settings-pool-list',
+      title: '卡池管理',
+      content:
+        '每行代表一个卡池。拖拽把手调整顺序，眼睛控制是否出现在商店快捷切换卡池选项中，开关控制是否加入“全部”的抽取范围。',
+      placement: 'bottom',
+    },
+    {
+      selector: '#acu-gacha-settings-pool-list .acu-gacha-settings-pool-item[data-pool-id="奇幻"]',
+      title: '卡池操作',
+      content:
+        '以“奇幻”为例，右侧可以控制快捷标签、是否加入“全部”抽取范围、导出此卡池和重命名。只有自定义卡池会额外显示删除按钮。',
+      placement: 'bottom',
+    },
+    {
+      selector: '.acu-gacha-settings-pool-tabs',
+      title: '查看卡池物品',
+      content: '切换这里的标签可以查看不同卡池的物品列表。“全部”会把已加入全部范围的卡池合并展示。',
+      placement: 'bottom',
+    },
+    {
+      selector: '.acu-gacha-settings-toolbar',
+      title: '筛选与排序',
+      content:
+        '左侧三个下拉用于筛选来源、启用状态和排序方式，右侧搜索可以匹配名称、类型、描述和卡池。筛选或排序时会暂时锁定拖拽排序。',
+      placement: 'bottom',
+    },
+    {
+      selector: '.acu-gacha-settings-item:first-child',
+      title: '物品行',
+      content:
+        '物品行会显示图标、品质、来源、卡池和权重。点击行可查看详情，开关控制是否参与抽取与兑换；自定义物品可以编辑或删除。',
+      placement: 'top',
+    },
+    {
+      selector: '.acu-gacha-settings-footer',
+      title: '导入导出',
+      content:
+        '底部提供新建卡池、新建物品、导入卡池JSON、导出卡池JSON、清空自定义和返回。导入、删除与清空都会先弹出确认框。',
+      placement: 'top',
+    },
+  ],
+  gachaItemEditor: [
+    {
+      selector: '.acu-gacha-item-editor',
+      title: '自定义物品',
+      content: '这里用于新建或编辑骰子商店的自定义物品。保存后，它会出现在所属卡池中，并参与后续抽取与碎片兑换。',
+      placement: 'left',
+    },
+    {
+      selector: '.acu-gacha-item-name-field',
+      title: '名称与类型',
+      content: '名称是必填项，会作为物品写入表格时的显示名。类型用于物品表分类，也会参与设置界面的搜索。',
+      placement: 'bottom',
+    },
+    {
+      selector: '.acu-gacha-item-quality-field',
+      title: '品质与权重',
+      content:
+        '品质决定物品所属稀有度，并影响保底和碎片价值。权重是同一卡池、同一品质内的相对抽取概率，数值越大越容易出现。',
+      placement: 'bottom',
+    },
+    {
+      selector: '.acu-gacha-item-target-field',
+      title: '发放方式',
+      content: '发放目标决定奖励写入物品表还是装备表。发放数量会作为获得数量写入，适合一次给多个消耗品或材料。',
+      placement: 'bottom',
+    },
+    {
+      selector: '.acu-gacha-item-description-field',
+      title: '描述',
+      content: '描述会显示在商店卡片、详情和设置列表里。可以写物品效果、使用限制或叙事说明。',
+      placement: 'top',
+    },
+    {
+      selector: '.acu-gacha-item-pools',
+      title: '所属卡池',
+      content: '至少选择一个卡池。选中多个卡池后，同一个物品会同时出现在这些标签下；新建时会默认勾选当前进入的卡池。',
+      placement: 'top',
+    },
+    {
+      selector: '.acu-gacha-icon-editor-card',
+      title: '图标',
+      content: '可以使用符号图标、图片 URL 或本地图标。本地图标只保存在当前浏览器，普通 JSON 导出不会包含图片文件。',
+      placement: 'top',
+    },
+    {
+      selector: '.acu-gacha-item-flags',
+      title: '数量规则',
+      content: '可堆叠适合药剂、材料这类可以合并数量的奖励。唯一物品适合钥匙、神器等不希望重复获得的奖励。',
+      placement: 'top',
+    },
+    {
+      selector: '.acu-gacha-item-editor .acu-gacha-settings-footer',
+      title: '保存',
+      content: '确认内容后点击保存。系统会校验名称、品质、权重、数量和所属卡池，成功后回到骰子商城设置。',
+      placement: 'top',
+    },
   ],
   shardShop: [
     {
@@ -1225,7 +1339,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '.acu-gacha-shard-item-card:first-child .acu-gacha-shard-buy-btn',
       title: '兑换按钮',
-      content: '左侧价格按钮会显示兑换需要的碎片数量。点击后会弹出确认框，确认后物品会写入物品表并扣除对应碎片。',
+      content: '左侧价格按钮会显示兑换需要的碎片数量。点击后会弹出确认框，确认后奖励会写入物品表或装备表并扣除对应碎片。',
       placement: 'bottom',
     },
   ],
@@ -1672,9 +1786,23 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
     return element === target || element.contains(target) || target.contains(element);
   };
 
-  const getMobileBottomObstacleTop = (viewport: TutorialViewport, target?: HTMLElement | null): number => {
+  const getTargetOverlayRoot = (target?: HTMLElement | null): HTMLElement | null => {
+    if (!target) return null;
+    const root = target.closest(
+      '.acu-edit-overlay, .acu-inventory-detail-overlay, .acu-import-confirm-overlay, .mvu-edit-overlay',
+    );
+    return root instanceof getWin().HTMLElement ? root : null;
+  };
+
+  const getBottomObstacleTop = (viewport: TutorialViewport, target?: HTMLElement | null): number => {
     const doc = getDoc();
-    const selectors = [
+    const targetOverlayRoot = getTargetOverlayRoot(target);
+    const dialogObstacleSelectors = [
+      '.acu-gacha-settings-dialog > .acu-gacha-settings-footer',
+      '.acu-gacha-item-editor > .acu-gacha-settings-footer',
+      '.acu-edit-dialog > .acu-gacha-settings-footer',
+    ];
+    const globalObstacleSelectors = [
       '.acu-wrapper.acu-mode-viewport #acu-nav-bar',
       '.acu-wrapper.acu-mode-viewport .acu-nav-container',
       '#acu-nav-bar',
@@ -1684,25 +1812,33 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
       '.send_form',
       '#send_textarea',
     ];
+    const selectors = targetOverlayRoot
+      ? dialogObstacleSelectors
+      : [...dialogObstacleSelectors, ...globalObstacleSelectors];
     return selectors.reduce((currentTop, selector) => {
-      const element = doc.querySelector<HTMLElement>(selector);
-      if (!element) return currentTop;
-      if (isRelatedToTarget(element, target)) return currentTop;
-      const rect = getRectFromElement(element);
-      if (!rect) return currentTop;
-      const overlapsViewport = rect.bottom > viewport.top && rect.top < viewport.bottom;
-      const startsInLowerHalf = rect.top > viewport.top + viewport.height * 0.45;
-      if (!overlapsViewport || !startsInLowerHalf) return currentTop;
-      return Math.min(currentTop, rect.top);
+      const elements = doc.querySelectorAll<HTMLElement>(selector);
+      let nextTop = currentTop;
+      elements.forEach(element => {
+        if (targetOverlayRoot && !targetOverlayRoot.contains(element)) return;
+        // 目标本身可能就是底部栏或导航盘；这种情况下不能把它当成遮挡物避让。
+        if (isRelatedToTarget(element, target)) return;
+        const rect = getRectFromElement(element);
+        if (!rect) return;
+        const overlapsViewport = rect.bottom > viewport.top && rect.top < viewport.bottom;
+        const startsInLowerHalf = rect.top > viewport.top + viewport.height * 0.4;
+        if (!overlapsViewport || !startsInLowerHalf) return;
+        nextTop = Math.min(nextTop, rect.top);
+      });
+      return nextTop;
     }, viewport.bottom);
   };
 
-  const getMobileSafeRect = (popoverRect?: TutorialRect | null, target?: HTMLElement | null): TutorialRect => {
+  const getTargetSafeRect = (popoverRect?: TutorialRect | null, target?: HTMLElement | null): TutorialRect => {
     const viewport = getViewportRect();
     const margin = 10;
     const gap = 12;
     let top = viewport.top + margin;
-    let bottom = Math.min(viewport.bottom - margin, getMobileBottomObstacleTop(viewport, target) - gap);
+    let bottom = Math.min(viewport.bottom - margin, getBottomObstacleTop(viewport, target) - gap);
     const left = viewport.left + margin;
     const right = viewport.right - margin;
 
@@ -1720,7 +1856,7 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
 
     if (bottom - top < 120) {
       top = viewport.top + margin;
-      bottom = Math.min(viewport.bottom - margin, getMobileBottomObstacleTop(viewport, target) - gap);
+      bottom = Math.min(viewport.bottom - margin, getBottomObstacleTop(viewport, target) - gap);
     }
 
     return {
@@ -1748,11 +1884,24 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
   };
 
   const isTargetComfortablyVisible = (target: HTMLElement): boolean => {
-    const safeRect = getMobileSafeRect(getCurrentPopoverRect(), target);
+    const safeRect = getTargetSafeRect(getCurrentPopoverRect(), target);
     const rect = target.getBoundingClientRect();
     const horizontalMargin = 4;
+    const hasHorizontalPresence = rect.right >= safeRect.left + horizontalMargin && rect.left <= safeRect.right - horizontalMargin;
+    const hasVerticalPresence =
+      rect.height > safeRect.height
+        ? rect.bottom >= safeRect.top && rect.top <= safeRect.bottom
+        : rect.top >= safeRect.top && rect.bottom <= safeRect.bottom;
+    return hasHorizontalPresence && hasVerticalPresence;
+  };
+
+  const isTargetInsideViewport = (target: HTMLElement): boolean => {
+    const safeRect = getTargetSafeRect(null, target);
+    const rect = target.getBoundingClientRect();
     const hasHorizontalPresence =
-      rect.right >= safeRect.left + horizontalMargin && rect.left <= safeRect.right - horizontalMargin;
+      rect.width > safeRect.width
+        ? rect.right >= safeRect.left && rect.left <= safeRect.right
+        : rect.left >= safeRect.left && rect.right <= safeRect.right;
     const hasVerticalPresence =
       rect.height > safeRect.height
         ? rect.bottom >= safeRect.top && rect.top <= safeRect.bottom
@@ -1781,8 +1930,8 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
     return true;
   };
 
-  const scrollTargetIntoSafeRect = (target: HTMLElement): boolean => {
-    const safeRect = getMobileSafeRect(getCurrentPopoverRect(), target);
+  const scrollTargetIntoSafeRect = (target: HTMLElement, avoidPopover: boolean): boolean => {
+    const safeRect = getTargetSafeRect(avoidPopover ? getCurrentPopoverRect() : null, target);
     const rect = target.getBoundingClientRect();
     let deltaY = 0;
 
@@ -1813,11 +1962,6 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
       scrollRaf = null;
     }
 
-    if (!isMobileTutorialViewport()) {
-      requestReposition();
-      return;
-    }
-
     const tutorial = activeTutorial;
     const index = tutorial.index;
     const target = findTarget(tutorial, index);
@@ -1826,12 +1970,14 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
       return;
     }
 
-    if (isTargetComfortablyVisible(target)) {
+    const mobile = isMobileTutorialViewport();
+    const targetAlreadyVisible = mobile ? isTargetComfortablyVisible(target) : isTargetInsideViewport(target);
+    if (targetAlreadyVisible) {
       requestReposition();
       return;
     }
 
-    scrollTargetIntoSafeRect(target);
+    scrollTargetIntoSafeRect(target, mobile);
     scrollRaf = win.requestAnimationFrame(() => {
       scrollRaf = win.requestAnimationFrame(() => {
         scrollRaf = null;
@@ -1868,7 +2014,7 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
         ? getMobilePopoverPosition(targetRect, popoverRect)
         : getPopoverPosition(targetRect, popoverRect, 'center')
       : getPopoverPosition(targetRect, popoverRect, step?.placement || 'bottom');
-    if (mobile && currentTarget) {
+    if (currentTarget) {
       const futurePopoverRect: TutorialRect = {
         left: position.left,
         top: position.top,
@@ -1877,7 +2023,7 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
         width: popoverRect.width,
         height: popoverRect.height,
       };
-      const safeRect = getMobileSafeRect(futurePopoverRect, currentTarget);
+      const safeRect = getTargetSafeRect(mobile ? futurePopoverRect : null, currentTarget);
       highlightLeft = clamp(highlightLeft, safeRect.left, safeRect.right);
       highlightTop = clamp(highlightTop, safeRect.top, safeRect.bottom);
       highlightRight = clamp(highlightRight, safeRect.left, safeRect.right);
@@ -2051,7 +2197,12 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
   const getActionTarget = (target: EventTarget | null): HTMLElement | null => {
     if (!target) return null;
     const win = getWin();
-    const element = target instanceof win.Element ? target : target instanceof win.Node ? target.parentElement : null;
+    const element =
+      target instanceof win.Element
+        ? target
+        : target instanceof win.Node
+          ? target.parentElement
+          : null;
     const actionTarget = element?.closest('[data-action]');
     return actionTarget instanceof win.HTMLElement ? actionTarget : null;
   };

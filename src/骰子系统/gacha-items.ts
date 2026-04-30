@@ -1,8 +1,17 @@
 export type GachaRarity = '普通' | '优秀' | '稀有' | '史诗' | '传说' | '神话';
 
-export type GachaPoolTag = '全部' | '奇幻' | '修真' | '都市' | '校园' | '历史' | '自定义';
+export type GachaPoolTag = string;
 
 export type GachaRewardTarget = 'inventory' | 'equipment';
+
+export interface GachaPoolDefinition {
+  id: GachaPoolTag;
+  name: string;
+  builtin: boolean;
+  visibleInTabs: boolean;
+  includeInAll: boolean;
+  order: number;
+}
 
 export interface GachaItemDefinition {
   id: string;
@@ -11,6 +20,13 @@ export interface GachaItemDefinition {
   quality: GachaRarity;
   description: string;
   poolTags: readonly GachaPoolTag[];
+  icon?: string;
+  iconUrl?: string;
+  localIconKey?: string;
+  enabled?: boolean;
+  order?: number;
+  createdAt?: number;
+  updatedAt?: number;
   weight: number;
   stackable: boolean;
   unique: boolean;
@@ -24,7 +40,16 @@ export const GACHA_CATALOG_VERSION = 1;
 
 export const FORTUNE_CURRENCY_NAME = '骰运';
 
-export const GACHA_POOL_TAGS: readonly GachaPoolTag[] = ['全部', '奇幻', '修真', '都市', '校园', '历史', '自定义'];
+export const BUILTIN_GACHA_POOL_DEFINITIONS: readonly GachaPoolDefinition[] = [
+  { id: '全部', name: '全部', builtin: true, visibleInTabs: true, includeInAll: false, order: 0 },
+  { id: '奇幻', name: '奇幻', builtin: true, visibleInTabs: true, includeInAll: true, order: 10 },
+  { id: '修真', name: '修真', builtin: true, visibleInTabs: true, includeInAll: true, order: 20 },
+  { id: '都市', name: '都市', builtin: true, visibleInTabs: true, includeInAll: true, order: 30 },
+  { id: '校园', name: '校园', builtin: true, visibleInTabs: true, includeInAll: true, order: 40 },
+  { id: '历史', name: '历史', builtin: true, visibleInTabs: true, includeInAll: true, order: 50 },
+];
+
+export const GACHA_POOL_TAGS: readonly GachaPoolTag[] = BUILTIN_GACHA_POOL_DEFINITIONS.map(pool => pool.id);
 
 export const GACHA_RARITY_ORDER: readonly GachaRarity[] = ['普通', '优秀', '稀有', '史诗', '传说', '神话'];
 
@@ -70,6 +95,16 @@ export const GACHA_RARITY_WEIGHTS: Record<GachaRarity, number> = {
   神话: 0.5,
 };
 
+/**
+ * Gacha item 设计理念：
+ * - 物品首先要服务角色扮演。争取提供给玩家一个可立刻展开的场景、麻烦、欲望或选择。
+ * - 尽量让每件物品都有鲜明效果，并且有利有弊：好处推动行动，代价制造戏剧，避免只写成单纯的强化道具。
+ * - 鼓励引用神话、文学、游戏、影视、都市传说、历史典故或流行梗作为出处/原作灵感，让抽到物品本身就有趣。
+ * - 有出处的物品应保持“灵感致敬”而非大段复刻；用一句描述点出气质、用途和风险即可。
+ * - 稀有度越高，效果越应该改变局面或带来强烈叙事钩子；低稀有度也应有小而具体的玩法。
+ * - 描述优先写可被 AI 和玩家使用的效果文本，例如“可以……但……”“使用后……同时……”。
+ * - 物品需要能自然落入当前池子主题：奇幻、修真、都市、校园、历史可以交叉，但不要只靠名字贴标签。
+ */
 export const GACHA_ITEM_DEFINITIONS: readonly GachaItemDefinition[] = [
   {
     id: 'urban_cola_bottle_caps',
@@ -1181,6 +1216,110 @@ export const GACHA_ITEM_DEFINITIONS: readonly GachaItemDefinition[] = [
     stackable: false,
     unique: true,
     grantQuantity: 1,
+    rewardTarget: 'inventory',
+  },
+  {
+    id: 'fantasy_felix_felicis',
+    name: '福灵剂',
+    type: '消耗品',
+    quality: '传说',
+    description: '短时间内极大程度上使人变得幸运药剂，几乎可以心想事成。药效结束后的一段时间会变得极为不幸。',
+    poolTags: ['奇幻', '校园'],
+    weight: 1,
+    stackable: true,
+    unique: false,
+    grantQuantity: 1,
+    rewardTarget: 'inventory',
+  },
+  {
+    id: 'fantasy_estus_flask',
+    name: '原素瓶',
+    type: '道具',
+    quality: '史诗',
+    description: '橙色小瓶。饮用可以恢复伤势或精神。',
+    poolTags: ['奇幻'],
+    weight: 1,
+    stackable: false,
+    unique: true,
+    grantQuantity: 1,
+    rewardTarget: 'inventory',
+  },
+  {
+    id: 'fantasy_scroll_of_town_portal',
+    name: '回城卷轴',
+    type: '消耗品',
+    quality: '优秀',
+    description: '展开并完成短暂吟唱后可回到特定据点；吟唱期间被打断会浪费卷轴并暴露坐标。',
+    poolTags: ['奇幻', '修真', '历史'],
+    weight: 1.2,
+    stackable: true,
+    unique: false,
+    grantQuantity: 2,
+    rewardTarget: 'inventory',
+  },
+  {
+    id: 'cultivation_forget_sorrow_water',
+    name: '忘忧水',
+    type: '消耗品',
+    quality: '稀有',
+    description: '一杯清甜无味的水。饮下可忘记一段与悲伤、恐惧或执念相关的重要记忆。',
+    poolTags: ['修真', '都市', '历史'],
+    weight: 1,
+    stackable: true,
+    unique: false,
+    grantQuantity: 1,
+    rewardTarget: 'inventory',
+  },
+  {
+    id: 'cultivation_mengpo_soup',
+    name: '孟婆汤',
+    type: '消耗品',
+    quality: '传说',
+    description: '奈何桥边的忘川汤。饮下可彻底斩断旧怨、诅咒或精神污染，也会抹去所有珍贵关系与身份链接。',
+    poolTags: ['修真', '历史', '奇幻'],
+    weight: 1,
+    stackable: true,
+    unique: false,
+    grantQuantity: 1,
+    rewardTarget: 'inventory',
+  },
+  {
+    id: 'cultivation_elixir_of_immortality',
+    name: '长生不老药',
+    type: '消耗品',
+    quality: '神话',
+    description: '帝王方士梦寐以求的丹药。服下可停止衰老并抵抗常规疾病，但不会免除痛苦、封印或厄运，还会引来所有觊觎长生者。',
+    poolTags: ['修真', '历史', '奇幻'],
+    weight: 1,
+    stackable: true,
+    unique: true,
+    grantQuantity: 1,
+    rewardTarget: 'inventory',
+  },
+  {
+    id: 'urban_portal_gun',
+    name: '传送枪',
+    type: '道具',
+    quality: '神话',
+    description: '手持设备，可在合适平面上制造两扇相连传送门，动量会被保留，电量、角度和落点错误都可能造成灾难。',
+    poolTags: ['都市', '校园', '奇幻'],
+    weight: 1,
+    stackable: false,
+    unique: true,
+    grantQuantity: 1,
+    rewardTarget: 'inventory',
+  },
+  {
+    id: 'cultivation_bigu_dan',
+    name: '辟谷丹',
+    type: '消耗品',
+    quality: '普通',
+    description: '修行者常备丹丸。服下一粒可数日不饥不渴，但口中会残留草木苦味，期间对宴饮、香气和烟火气格外迟钝。',
+    poolTags: ['修真', '历史'],
+    weight: 1.4,
+    stackable: true,
+    unique: false,
+    grantQuantity: 3,
     rewardTarget: 'inventory',
   },
   {

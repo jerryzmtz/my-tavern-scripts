@@ -5,6 +5,7 @@ import { injectDatabaseStyles, setDatabaseToastMute } from './database-ui-overri
 import { createTutorialModule, type TutorialModule, type TutorialScope } from './tutorial';
 import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './types';
 import {
+  BUILTIN_GACHA_POOL_DEFINITIONS,
   GACHA_CATALOG_EXPORT_KIND,
   GACHA_CATALOG_VERSION,
   FORTUNE_CURRENCY_NAME,
@@ -24,6 +25,7 @@ import {
   GACHA_RECENT_REWARD_LIMIT,
   GACHA_REWARD_TARGETS,
   GACHA_SHARD_VALUES,
+  type GachaPoolDefinition,
   type GachaItemDefinition,
   type GachaPoolTag,
   type GachaRarity,
@@ -1580,6 +1582,9 @@ import {
   const GACHA_SHARD_EXCHANGE_COST = 10;
   const STORAGE_KEY_GACHA_STATE = 'acu_gacha_state_v1';
   const STORAGE_KEY_GACHA_SHARD_SHOP_RARITY = 'acu_gacha_shard_shop_rarity_v1';
+  const STORAGE_KEY_GACHA_POOL_SETTINGS = 'acu_gacha_pool_settings_v1';
+  const STORAGE_KEY_GACHA_SETTINGS_POOL_TAG = 'acu_gacha_settings_pool_tag_v1';
+  const STORAGE_KEY_GACHA_ITEM_SETTINGS = 'acu_gacha_item_settings_v1';
   const GACHA_SHOP_UI_REFRESH_MS = 250;
   const GACHA_CATALOG_RAW_ROW_INDEX_PROP = '__acuRawRowIndex';
 
@@ -1950,7 +1955,7 @@ import {
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.7.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v5.17'; // 脚本版本号
+  const SCRIPT_VERSION = 'v5.21'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -6785,6 +6790,53 @@ import {
       return `<i class="ti ti-${icon.slice(3)}"></i>`;
     }
     return escapeHtml(icon);
+  };
+
+  const renderGachaItemIconContent = (item: Pick<GachaItemDefinition, 'name' | 'type' | 'icon' | 'iconUrl' | 'localIconKey'>): string => {
+    const fallback = renderThemeIconContent(item.icon || getElementEmoji(item.name, item.type));
+    if (item.localIconKey) {
+      return `<span class="acu-gacha-image-icon acu-gacha-local-icon" data-gacha-local-icon-key="${escapeHtml(item.localIconKey)}">${fallback}</span>`;
+    }
+    if (item.iconUrl) {
+      return `<span class="acu-gacha-image-icon acu-gacha-url-icon" data-gacha-icon-url="${escapeHtml(item.iconUrl)}">${fallback}</span>`;
+    }
+    return fallback;
+  };
+
+  const applyGachaIconUrlToElement = (element: HTMLElement, url: string) => {
+    if (!url) return;
+    element.dataset.gachaResolvedIconUrl = url;
+    element.style.backgroundImage = '';
+    element.classList.remove('has-image');
+    const image = new Image();
+    image.onload = () => {
+      if (!element.isConnected || element.dataset.gachaResolvedIconUrl !== url) return;
+      element.style.backgroundImage = `url("${url.replace(/"/g, '%22')}")`;
+      element.classList.add('has-image');
+    };
+    image.onerror = () => {
+      if (!element.isConnected || element.dataset.gachaResolvedIconUrl !== url) return;
+      element.style.backgroundImage = '';
+      element.classList.remove('has-image');
+    };
+    image.src = url;
+  };
+
+  const hydrateGachaLocalIconsIn = (root: HTMLElement | JQuery<HTMLElement> | Document = document) => {
+    const rootEl = root instanceof HTMLElement || root instanceof Document ? root : root[0];
+    if (!rootEl) return;
+    rootEl.querySelectorAll<HTMLElement>('.acu-gacha-url-icon[data-gacha-icon-url]').forEach(element => {
+      const url = String(element.dataset.gachaIconUrl || '').trim();
+      applyGachaIconUrlToElement(element, url);
+    });
+    rootEl.querySelectorAll<HTMLElement>('.acu-gacha-local-icon[data-gacha-local-icon-key]').forEach(element => {
+      const key = String(element.dataset.gachaLocalIconKey || '').trim();
+      if (!key) return;
+      void GachaItemIconDB.get(key).then(url => {
+        if (!url || !element.isConnected) return;
+        applyGachaIconUrlToElement(element, url);
+      });
+    });
   };
 
   // ========================================
@@ -27701,6 +27753,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     'inventoryDetail',
     'shardShop',
     'gacha',
+    'gachaSettings',
+    'gachaItemEditor',
   ];
 
   const isTutorialScope = (value: string): value is TutorialScope => TUTORIAL_SCOPES.includes(value as TutorialScope);
@@ -31520,6 +31574,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     cancelSelector?: string;
     onOrderChange: (newOrder: string[]) => void;
     getItemId: (item: HTMLElement) => string | null;
+    canStartDrag?: () => boolean;
     ghostClass?: string;
     dragClass?: string;
     placeholderClass?: string;
@@ -31719,6 +31774,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const target = e.target as HTMLElement | null;
         if (!target) return;
         if (options.cancelSelector && target.closest(options.cancelSelector)) return;
+        if (options.canStartDrag && !options.canStartDrag()) return;
 
         const item = target.closest(options.itemSelector) as HTMLElement | null;
         if (!item) return;
@@ -39835,6 +39891,22 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     quantityChanged: boolean;
     isChanged: boolean;
   };
+  type GachaRewardColumnMap = {
+    name: number;
+    type: number;
+    quantity: number;
+    quality: number;
+    description: number;
+    part?: number;
+    status?: number;
+  };
+  type GachaRewardParseResult = {
+    tableName: string;
+    tableKey: string;
+    headers: unknown[];
+    items: InventoryParsedItem[];
+    colMap: GachaRewardColumnMap;
+  };
   type InventoryMetadataRecord = {
     acquiredAt: string;
     acquiredAtLocation: string;
@@ -39873,6 +39945,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   };
   type GachaCatalogImportAnalysis = {
     items: NormalizedGachaCatalogItem[];
+    pools: GachaPoolDefinition[];
     skipped: number;
     errors: string[];
     conflictIds: string[];
@@ -39882,6 +39955,46 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     updated: number;
     renamed: number;
     skipped: number;
+  };
+  type GachaSettingsItemSourceFilter = 'all' | 'custom' | 'builtin';
+  type GachaSettingsItemStatusFilter = 'all' | 'enabled' | 'disabled';
+  type GachaSettingsItemSortMode =
+    | 'default'
+    | 'nameAsc'
+    | 'nameDesc'
+    | 'createdDesc'
+    | 'createdAsc'
+    | 'qualityDesc'
+    | 'weightDesc';
+  type GachaSettingsItemFilterState = {
+    search: string;
+    source: GachaSettingsItemSourceFilter;
+    status: GachaSettingsItemStatusFilter;
+    sort: GachaSettingsItemSortMode;
+  };
+  type GachaSettingsFilterField = 'source' | 'status' | 'sort';
+  type GachaSettingsFilterOption<T extends string> = {
+    readonly value: T;
+    readonly label: string;
+    readonly iconClass: string;
+  };
+  type NormalizedImportedGachaPools = {
+    pools: GachaPoolDefinition[];
+    tagAliases: Record<string, GachaPoolTag>;
+  };
+  type GachaPoolSettingsRecord = {
+    version: number;
+    pools: GachaPoolDefinition[];
+    updatedAt: number;
+  };
+  type GachaItemSettingsEntry = {
+    enabled: boolean;
+    order: number;
+  };
+  type GachaItemSettingsRecord = {
+    version: number;
+    items: Record<string, GachaItemSettingsEntry>;
+    updatedAt: number;
   };
   type GachaPityState = {
     rare: number;
@@ -39965,10 +40078,33 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   const GACHA_PICKUP_CHAT_DEPTH_BUCKET = 30;
   const GACHA_PICKUP_RARITIES: GachaRarity[] = ['史诗', '传说', '神话'];
   const GACHA_PICKUP_FALLBACK_LIMIT = 3;
+  const GACHA_ALL_POOL_TAG: GachaPoolTag = '全部';
   const GACHA_CUSTOM_ONLY_POOL_TAG: GachaPoolTag = '自定义';
-  const GACHA_EXPANDABLE_POOL_TAGS: GachaPoolTag[] = GACHA_POOL_TAGS.filter(
-    tag => tag !== '全部' && tag !== GACHA_CUSTOM_ONLY_POOL_TAG,
-  );
+  const DEFAULT_GACHA_SETTINGS_ITEM_FILTERS: GachaSettingsItemFilterState = {
+    search: '',
+    source: 'all',
+    status: 'all',
+    sort: 'default',
+  };
+  const GACHA_SETTINGS_SOURCE_FILTER_OPTIONS: readonly GachaSettingsFilterOption<GachaSettingsItemSourceFilter>[] = [
+    { value: 'all', label: '全部来源', iconClass: 'fa-layer-group' },
+    { value: 'custom', label: '自定义', iconClass: 'fa-pen-nib' },
+    { value: 'builtin', label: '内置', iconClass: 'fa-box-archive' },
+  ];
+  const GACHA_SETTINGS_STATUS_FILTER_OPTIONS: readonly GachaSettingsFilterOption<GachaSettingsItemStatusFilter>[] = [
+    { value: 'all', label: '全部状态', iconClass: 'fa-toggle-on' },
+    { value: 'enabled', label: '启用', iconClass: 'fa-circle-check' },
+    { value: 'disabled', label: '禁用', iconClass: 'fa-circle-pause' },
+  ];
+  const GACHA_SETTINGS_SORT_OPTIONS: readonly GachaSettingsFilterOption<GachaSettingsItemSortMode>[] = [
+    { value: 'default', label: '默认排序', iconClass: 'fa-arrow-down-wide-short' },
+    { value: 'nameAsc', label: '名称 A-Z', iconClass: 'fa-arrow-down-a-z' },
+    { value: 'nameDesc', label: '名称 Z-A', iconClass: 'fa-arrow-down-z-a' },
+    { value: 'createdDesc', label: '最新创建', iconClass: 'fa-clock' },
+    { value: 'createdAsc', label: '最早创建', iconClass: 'fa-clock-rotate-left' },
+    { value: 'qualityDesc', label: '品质高到低', iconClass: 'fa-gem' },
+    { value: 'weightDesc', label: '权重高到低', iconClass: 'fa-scale-balanced' },
+  ];
   const INVENTORY_TYPE_FILTER_META: InventoryFilterButtonMeta<InventoryTypeFilter>[] = [
     { value: '全部', icon: 'fa-boxes-stacked', label: '全部类型' },
     { value: '消耗品', icon: 'fa-flask', label: '消耗品' },
@@ -40087,6 +40223,276 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     });
   };
 
+  const normalizeGachaPoolId = (value: unknown): GachaPoolTag =>
+    String(value ?? '')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .slice(0, 40);
+
+  const normalizeGachaPoolName = (value: unknown, fallback: GachaPoolTag): string =>
+    String(value ?? fallback)
+      .trim()
+      .replace(/\s+/g, ' ')
+      .slice(0, 40) || fallback;
+
+  const isBuiltinGachaPoolId = (poolId: GachaPoolTag): boolean =>
+    BUILTIN_GACHA_POOL_DEFINITIONS.some(pool => pool.id === poolId);
+
+  const canDeleteGachaPoolDefinition = (pool: GachaPoolDefinition): boolean => {
+    if (pool.id === GACHA_ALL_POOL_TAG) return false;
+    return !pool.builtin;
+  };
+
+  const cloneGachaPoolDefinitions = (pools: readonly GachaPoolDefinition[]): GachaPoolDefinition[] =>
+    JSON.parse(JSON.stringify(pools)) as GachaPoolDefinition[];
+
+  const buildDefaultGachaPoolDefinition = (
+    id: GachaPoolTag,
+    options: Partial<Omit<GachaPoolDefinition, 'id'>> = {},
+  ): GachaPoolDefinition => ({
+    id,
+    name: options.name || id,
+    builtin: options.builtin === true,
+    visibleInTabs: options.visibleInTabs !== false,
+    includeInAll: id !== GACHA_ALL_POOL_TAG && options.includeInAll === true,
+    order: Number.isFinite(Number(options.order)) ? Number(options.order) : 999,
+  });
+
+  const normalizeGachaPoolDefinition = (rawPool: unknown): GachaPoolDefinition | null => {
+    if (!rawPool || typeof rawPool !== 'object') return null;
+    const record = rawPool as Record<string, unknown>;
+    const id = normalizeGachaPoolId(record.id || record.tag || record.name);
+    if (!id) return null;
+    const builtin = isBuiltinGachaPoolId(id);
+    const allPool = id === GACHA_ALL_POOL_TAG;
+    return {
+      id,
+      name: normalizeGachaPoolName(record.name || record.label || id, id),
+      builtin,
+      visibleInTabs: allPool ? true : record.visibleInTabs !== false && record.visible !== false,
+      includeInAll: allPool ? false : record.includeInAll === true || record.includeInAll === undefined,
+      order: Number.isFinite(Number(record.order)) ? Number(record.order) : builtin ? 100 : 999,
+    };
+  };
+
+  const getStoredGachaPoolSettings = (): GachaPoolSettingsRecord => {
+    const stored = Store.get(STORAGE_KEY_GACHA_POOL_SETTINGS, null);
+    const record = stored && typeof stored === 'object' ? (stored as Record<string, unknown>) : {};
+    const pools = Array.isArray(record.pools)
+      ? record.pools.map(normalizeGachaPoolDefinition).filter((pool): pool is GachaPoolDefinition => Boolean(pool))
+      : [];
+    return {
+      version: Number(record.version) || 1,
+      pools,
+      updatedAt: Math.max(0, Number(record.updatedAt) || 0),
+    };
+  };
+
+  const saveGachaPoolSettings = (pools: readonly GachaPoolDefinition[]) => {
+    const normalized = cloneGachaPoolDefinitions(pools).map(pool => ({
+      ...pool,
+      visibleInTabs: pool.id === GACHA_ALL_POOL_TAG ? true : pool.visibleInTabs !== false,
+      includeInAll: pool.id === GACHA_ALL_POOL_TAG ? false : pool.includeInAll === true,
+    }));
+    Store.set(STORAGE_KEY_GACHA_POOL_SETTINGS, {
+      version: 1,
+      pools: normalized,
+      updatedAt: Date.now(),
+    } satisfies GachaPoolSettingsRecord);
+  };
+
+  const getConfiguredGachaPoolDefinitions = (): GachaPoolDefinition[] => {
+    const byId = new Map<GachaPoolTag, GachaPoolDefinition>();
+    BUILTIN_GACHA_POOL_DEFINITIONS.forEach(pool => byId.set(pool.id, { ...pool }));
+    getStoredGachaPoolSettings().pools.forEach(pool => {
+      const existing = byId.get(pool.id);
+      byId.set(pool.id, {
+        ...buildDefaultGachaPoolDefinition(pool.id, existing || pool),
+        ...existing,
+        ...pool,
+        builtin: existing?.builtin === true,
+        visibleInTabs: pool.id === GACHA_ALL_POOL_TAG ? true : pool.visibleInTabs !== false,
+        includeInAll: pool.id === GACHA_ALL_POOL_TAG ? false : pool.includeInAll === true,
+      });
+    });
+    if (!byId.has(GACHA_ALL_POOL_TAG)) {
+      byId.set(GACHA_ALL_POOL_TAG, buildDefaultGachaPoolDefinition(GACHA_ALL_POOL_TAG, { builtin: true, order: 0 }));
+    }
+    return Array.from(byId.values()).sort((a, b) => {
+      if (a.id === GACHA_ALL_POOL_TAG) return -1;
+      if (b.id === GACHA_ALL_POOL_TAG) return 1;
+      return (a.order ?? 999) - (b.order ?? 999) || a.name.localeCompare(b.name, 'zh-Hans-CN');
+    });
+  };
+
+  const collectGachaPoolTagsFromItems = (rawData = getRuntimeGachaRawData()): GachaPoolTag[] => {
+    const tags = new Set<GachaPoolTag>();
+    try {
+      getAllGachaItemDefinitions(rawData).forEach(item => {
+        (item.poolTags || []).forEach(tag => {
+          const normalized = normalizeGachaPoolId(tag);
+          if (normalized && normalized !== GACHA_ALL_POOL_TAG) tags.add(normalized);
+        });
+      });
+    } catch {
+      GACHA_POOL_TAGS.forEach(tag => {
+        if (tag !== GACHA_ALL_POOL_TAG) tags.add(tag);
+      });
+    }
+    return Array.from(tags);
+  };
+
+  const ensureGachaPoolsForTags = (tags: readonly GachaPoolTag[]): GachaPoolDefinition[] => {
+    const pools = getConfiguredGachaPoolDefinitions();
+    const known = new Set(pools.map(pool => pool.id));
+    let changed = false;
+    let nextOrder = pools.reduce((max, pool) => Math.max(max, Number(pool.order) || 0), 0) + 10;
+    tags.forEach(rawTag => {
+      const id = normalizeGachaPoolId(rawTag);
+      if (!id || id === GACHA_ALL_POOL_TAG || known.has(id)) return;
+      pools.push(
+        buildDefaultGachaPoolDefinition(id, {
+          name: id,
+          builtin: false,
+          visibleInTabs: true,
+          includeInAll: true,
+          order: nextOrder,
+        }),
+      );
+      known.add(id);
+      nextOrder += 10;
+      changed = true;
+    });
+    if (changed) saveGachaPoolSettings(pools);
+    return getConfiguredGachaPoolDefinitions();
+  };
+
+  const getAllGachaPoolConfigDefinitions = (rawData = getRuntimeGachaRawData()): GachaPoolDefinition[] => {
+    ensureGachaPoolsForTags(collectGachaPoolTagsFromItems(rawData));
+    return getConfiguredGachaPoolDefinitions();
+  };
+
+  const getVisibleGachaPoolConfigDefinitions = (rawData = getRuntimeGachaRawData()): GachaPoolDefinition[] =>
+    getAllGachaPoolConfigDefinitions(rawData).filter(pool => pool.id === GACHA_ALL_POOL_TAG || pool.visibleInTabs !== false);
+
+  const getGachaAllExpandablePoolTags = (rawData = getRuntimeGachaRawData()): GachaPoolTag[] => {
+    return getAllGachaPoolConfigDefinitions(rawData)
+      .filter(pool => pool.id !== GACHA_ALL_POOL_TAG && pool.includeInAll === true)
+      .map(pool => pool.id);
+  };
+
+  const getGachaPoolDisplayName = (poolTag: GachaPoolTag, rawData = getRuntimeGachaRawData()): string =>
+    getAllGachaPoolConfigDefinitions(rawData).find(pool => pool.id === poolTag)?.name || poolTag;
+
+  const formatGachaPoolTags = (poolTags: readonly GachaPoolTag[], rawData = getRuntimeGachaRawData()): string =>
+    poolTags.map(tag => getGachaPoolDisplayName(tag, rawData)).join('、');
+
+  const updateGachaPoolConfig = (poolId: GachaPoolTag, updates: Partial<GachaPoolDefinition>): boolean => {
+    const id = normalizeGachaPoolId(poolId);
+    if (!id) return false;
+    const pools = getConfiguredGachaPoolDefinitions();
+    const index = pools.findIndex(pool => pool.id === id);
+    if (index < 0) return false;
+    const existing = pools[index];
+    pools[index] = {
+      ...existing,
+      ...updates,
+      id,
+      builtin: existing.builtin,
+      visibleInTabs: id === GACHA_ALL_POOL_TAG ? true : updates.visibleInTabs ?? existing.visibleInTabs,
+      includeInAll: id === GACHA_ALL_POOL_TAG ? false : updates.includeInAll ?? existing.includeInAll,
+      name: updates.name !== undefined ? normalizeGachaPoolName(updates.name, id) : existing.name,
+    };
+    saveGachaPoolSettings(pools);
+    return true;
+  };
+
+  const setGachaPoolOrder = (poolId: GachaPoolTag, order: number): boolean =>
+    updateGachaPoolConfig(poolId, { order: Math.max(1, Math.floor(Number(order) || 0)) });
+
+  const normalizeGachaItemEnabled = (value: unknown): boolean => value !== false;
+
+  const normalizeGachaItemOrder = (value: unknown, fallback = 999): number => {
+    const order = Number(value);
+    return Number.isFinite(order) ? Math.max(1, Math.floor(order)) : fallback;
+  };
+
+  const getStoredGachaItemSettings = (): GachaItemSettingsRecord => {
+    const stored = Store.get(STORAGE_KEY_GACHA_ITEM_SETTINGS, null);
+    const record = stored && typeof stored === 'object' ? (stored as Record<string, unknown>) : {};
+    const rawItems =
+      record.items && typeof record.items === 'object' && !Array.isArray(record.items)
+        ? (record.items as Record<string, unknown>)
+        : {};
+    const items: Record<string, GachaItemSettingsEntry> = {};
+    Object.entries(rawItems).forEach(([rawId, rawEntry]) => {
+      const id = String(rawId || '').trim();
+      if (!id || !rawEntry || typeof rawEntry !== 'object') return;
+      const entry = rawEntry as Record<string, unknown>;
+      items[id] = {
+        enabled: normalizeGachaItemEnabled(entry.enabled),
+        order: normalizeGachaItemOrder(entry.order),
+      };
+    });
+    return {
+      version: Number(record.version) || 1,
+      items,
+      updatedAt: Math.max(0, Number(record.updatedAt) || 0),
+    };
+  };
+
+  const saveGachaItemSettingsRecord = (items: Record<string, GachaItemSettingsEntry>) => {
+    Store.set(STORAGE_KEY_GACHA_ITEM_SETTINGS, {
+      version: 1,
+      items,
+      updatedAt: Date.now(),
+    } satisfies GachaItemSettingsRecord);
+  };
+
+  const withGachaItemSettings = (
+    item: GachaItemDefinition,
+    settings: GachaItemSettingsRecord = getStoredGachaItemSettings(),
+  ): GachaItemDefinition => {
+    const stored = settings.items[item.id];
+    return {
+      ...item,
+      enabled: stored ? stored.enabled : normalizeGachaItemEnabled(item.enabled),
+      order: stored ? stored.order : normalizeGachaItemOrder(item.order),
+    };
+  };
+
+  const isGachaItemEnabled = (item: Pick<GachaItemDefinition, 'enabled'>): boolean =>
+    normalizeGachaItemEnabled(item.enabled);
+
+  const updateGachaItemSetting = (itemId: string, updates: Partial<GachaItemSettingsEntry>): boolean => {
+    const id = String(itemId || '').trim();
+    if (!id) return false;
+    const record = getStoredGachaItemSettings();
+    const existing = record.items[id] || { enabled: true, order: 999 };
+    saveGachaItemSettingsRecord({
+      ...record.items,
+      [id]: {
+        enabled: updates.enabled !== undefined ? normalizeGachaItemEnabled(updates.enabled) : existing.enabled,
+        order: updates.order !== undefined ? normalizeGachaItemOrder(updates.order) : existing.order,
+      },
+    });
+    return true;
+  };
+
+  const setGachaItemOrder = (itemId: string, order: number): boolean =>
+    updateGachaItemSetting(itemId, { order: normalizeGachaItemOrder(order) });
+
+  const deleteGachaItemSetting = (itemId: string): boolean => {
+    const id = String(itemId || '').trim();
+    if (!id) return false;
+    const record = getStoredGachaItemSettings();
+    if (!record.items[id]) return false;
+    const nextSettings = { ...record.items };
+    delete nextSettings[id];
+    saveGachaItemSettingsRecord(nextSettings);
+    return true;
+  };
+
   const createDefaultGachaState = (): GachaState => ({
     wallet: {
       fortune: GACHA_TEST_DEFAULT_FORTUNE,
@@ -40137,9 +40543,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           : '普通';
         const rewardTarget =
           (record as Record<string, unknown>).rewardTarget === 'equipment' ? 'equipment' : 'inventory';
-        const poolTag = GACHA_POOL_TAGS.includes((record as Record<string, unknown>).poolTag as GachaPoolTag)
-          ? ((record as Record<string, unknown>).poolTag as GachaPoolTag)
-          : '全部';
+        const normalizedPoolTag = normalizeGachaPoolId((record as Record<string, unknown>).poolTag);
+        const poolTag = getConfiguredGachaPoolDefinitions().some(pool => pool.id === normalizedPoolTag)
+          ? normalizedPoolTag
+          : GACHA_ALL_POOL_TAG;
         return {
           itemId: String((record as Record<string, unknown>).itemId || ''),
           name: String((record as Record<string, unknown>).name || ''),
@@ -40196,8 +40603,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     const defaultState = createDefaultGachaState();
     const rawRecord = rawValue as Record<string, unknown>;
-    const activePoolTag = GACHA_POOL_TAGS.includes(rawRecord.activePoolTag as GachaPoolTag)
-      ? (rawRecord.activePoolTag as GachaPoolTag)
+    const storedActivePoolTag = normalizeGachaPoolId(rawRecord.activePoolTag);
+    const activePoolTag = getConfiguredGachaPoolDefinitions().some(pool => pool.id === storedActivePoolTag)
+      ? storedActivePoolTag
       : defaultState.activePoolTag;
 
     return {
@@ -40431,6 +40839,110 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     },
   };
 
+  const GachaItemIconDB = {
+    DB_NAME: 'acu_gacha_item_icons',
+    STORE_NAME: 'icons',
+    DB_VERSION: 1,
+    _db: null as IDBDatabase | null,
+    _urlCache: new Map<string, string>(),
+
+    async init(): Promise<IDBDatabase> {
+      if (this._db) return this._db;
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(this.DB_NAME, this.DB_VERSION);
+        request.onerror = () => {
+          console.error('[DICE][GACHA]物品图标 IndexedDB 打开失败:', request.error);
+          reject(request.error);
+        };
+        request.onsuccess = () => {
+          this._db = request.result;
+          resolve(this._db);
+        };
+        request.onupgradeneeded = event => {
+          const db = (event.target as IDBOpenDBRequest).result;
+          if (!db.objectStoreNames.contains(this.STORE_NAME)) {
+            db.createObjectStore(this.STORE_NAME, { keyPath: 'key' });
+          }
+        };
+      });
+    },
+
+    async save(key: string, blob: Blob): Promise<boolean> {
+      if (!key || !blob) return false;
+      try {
+        const db = await this.init();
+        if (this._urlCache.has(key)) {
+          URL.revokeObjectURL(this._urlCache.get(key) || '');
+          this._urlCache.delete(key);
+        }
+        return await new Promise(resolve => {
+          const tx = db.transaction(this.STORE_NAME, 'readwrite');
+          const request = tx.objectStore(this.STORE_NAME).put({
+            key,
+            blob,
+            size: blob.size,
+            type: blob.type,
+            updatedAt: Date.now(),
+          });
+          request.onsuccess = () => resolve(true);
+          request.onerror = () => {
+            console.error('[DICE][GACHA]保存物品图标失败:', request.error);
+            resolve(false);
+          };
+        });
+      } catch (error) {
+        console.error('[DICE][GACHA]保存物品图标异常:', error);
+        return false;
+      }
+    },
+
+    async get(key: string): Promise<string | null> {
+      if (!key) return null;
+      if (this._urlCache.has(key)) return this._urlCache.get(key) || null;
+      try {
+        const db = await this.init();
+        return await new Promise(resolve => {
+          const tx = db.transaction(this.STORE_NAME, 'readonly');
+          const request = tx.objectStore(this.STORE_NAME).get(key);
+          request.onsuccess = () => {
+            const result = request.result as { blob?: Blob } | undefined;
+            if (!result?.blob) {
+              resolve(null);
+              return;
+            }
+            const url = URL.createObjectURL(result.blob);
+            this._urlCache.set(key, url);
+            resolve(url);
+          };
+          request.onerror = () => resolve(null);
+        });
+      } catch (error) {
+        console.warn('[DICE][GACHA]读取物品图标失败:', error);
+        return null;
+      }
+    },
+
+    async delete(key: string): Promise<boolean> {
+      if (!key) return false;
+      try {
+        if (this._urlCache.has(key)) {
+          URL.revokeObjectURL(this._urlCache.get(key) || '');
+          this._urlCache.delete(key);
+        }
+        const db = await this.init();
+        return await new Promise(resolve => {
+          const tx = db.transaction(this.STORE_NAME, 'readwrite');
+          const request = tx.objectStore(this.STORE_NAME).delete(key);
+          request.onsuccess = () => resolve(true);
+          request.onerror = () => resolve(false);
+        });
+      } catch (error) {
+        console.warn('[DICE][GACHA]删除物品图标失败:', error);
+        return false;
+      }
+    },
+  };
+
   const normalizeGachaCatalogRecord = (catalogRaw: unknown): GachaCatalog | null => {
     if (!catalogRaw || typeof catalogRaw !== 'object') return null;
     const record = catalogRaw as Record<string, unknown>;
@@ -40498,7 +41010,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const byId = new Map<string, GachaItemDefinition>();
     GACHA_ITEM_DEFINITIONS.forEach(item => byId.set(item.id, item));
     getCustomGachaItemDefinitions(rawData).forEach(item => byId.set(item.id, item));
-    return Array.from(byId.values());
+    const settings = getStoredGachaItemSettings();
+    return Array.from(byId.values()).map(item => withGachaItemSettings(item, settings));
   };
 
   const hashGachaCatalogSeed = (value: string): number => {
@@ -40532,16 +41045,28 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return nextId;
   };
 
-  const normalizeImportedGachaPoolTags = (rawTags: unknown): GachaPoolTag[] => {
+  const normalizeGachaTimestamp = (value: unknown): number | undefined => {
+    if (value === undefined || value === null || value === '') return undefined;
+    const numeric = typeof value === 'number' ? value : Number(value);
+    if (Number.isFinite(numeric) && numeric > 0) return Math.floor(numeric);
+    const parsed = Date.parse(String(value));
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+  };
+
+  const normalizeImportedGachaPoolTags = (
+    rawTags: unknown,
+    tagAliases: Record<string, GachaPoolTag> = {},
+  ): GachaPoolTag[] => {
     const values = Array.isArray(rawTags) ? rawTags : typeof rawTags === 'string' ? rawTags.split(/[、,，\s]+/) : [];
     const tags = new Set<GachaPoolTag>();
     values.forEach(value => {
-      const tag = String(value || '').trim() as GachaPoolTag;
-      if (!GACHA_POOL_TAGS.includes(tag)) return;
-      if (tag === '全部') {
-        GACHA_EXPANDABLE_POOL_TAGS.forEach(candidate => tags.add(candidate));
+      const tag = normalizeGachaPoolId(value);
+      if (!tag) return;
+      const aliasedTag = tagAliases[tag] || tag;
+      if (aliasedTag === GACHA_ALL_POOL_TAG) {
+        getGachaAllExpandablePoolTags().forEach(candidate => tags.add(candidate));
       } else {
-        tags.add(tag);
+        tags.add(aliasedTag);
       }
     });
     return Array.from(tags);
@@ -40551,6 +41076,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     rawItem: unknown,
     index: number,
     errors: string[],
+    tagAliases: Record<string, GachaPoolTag> = {},
   ): NormalizedGachaCatalogItem | null => {
     if (!rawItem || typeof rawItem !== 'object') {
       errors.push(`第 ${index + 1} 项不是有效对象`);
@@ -40567,7 +41093,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       errors.push(`「${name}」的 quality 无效，已跳过`);
       return null;
     }
-    const poolTags = normalizeImportedGachaPoolTags(record.poolTags);
+    const poolTags = normalizeImportedGachaPoolTags(
+      record.poolTags ?? record.poolTag ?? record.pools ?? record.tags ?? record.pool,
+      tagAliases,
+    );
     if (poolTags.length === 0) {
       errors.push(`「${name}」没有有效 poolTags，已跳过`);
       return null;
@@ -40587,6 +41116,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       : 'inventory';
     const type = String(record.type || (rewardTarget === 'equipment' ? '装备' : '道具')).trim() || '道具';
     const generatedId = !String(record.id || '').trim();
+    const order = Number(record.order);
     const item: NormalizedGachaCatalogItem = {
       id: generatedId ? buildStableGachaCustomItemId({ name, quality, type }) : String(record.id || '').trim(),
       name,
@@ -40594,6 +41124,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       quality,
       description: String(record.description || '').trim(),
       poolTags,
+      icon: String(record.icon || '').trim() || undefined,
+      iconUrl: String(record.iconUrl || record.icon_url || '').trim() || undefined,
+      enabled: normalizeGachaItemEnabled(record.enabled),
+      order: Number.isFinite(order) ? normalizeGachaItemOrder(order) : undefined,
+      createdAt: normalizeGachaTimestamp(record.createdAt || record.created_at),
+      updatedAt: normalizeGachaTimestamp(record.updatedAt || record.updated_at),
       weight,
       stackable: record.stackable === true,
       unique: record.unique === true,
@@ -40604,21 +41140,66 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return item;
   };
 
+  const normalizeImportedGachaPools = (rawPools: unknown): NormalizedImportedGachaPools => {
+    const result: NormalizedImportedGachaPools = { pools: [], tagAliases: {} };
+    if (!Array.isArray(rawPools)) return result;
+    result.pools = rawPools
+      .map((rawPool, index) => {
+        if (typeof rawPool === 'string') {
+          const id = normalizeGachaPoolId(rawPool);
+          if (!id || id === GACHA_ALL_POOL_TAG) return null;
+          return buildDefaultGachaPoolDefinition(id, {
+            name: id,
+            builtin: isBuiltinGachaPoolId(id),
+            visibleInTabs: true,
+            includeInAll: true,
+            order: 100 + index * 10,
+          });
+        }
+        if (!rawPool || typeof rawPool !== 'object') return null;
+        const record = rawPool as Record<string, unknown>;
+        const rawId = normalizeGachaPoolId(record.id || record.tag || record.name);
+        const rawName = normalizeGachaPoolName(record.name || record.label || rawId, rawId || GACHA_CUSTOM_ONLY_POOL_TAG);
+        const shouldUseNameAsCustomId =
+          rawId &&
+          rawId !== GACHA_ALL_POOL_TAG &&
+          rawName !== rawId &&
+          (rawId === GACHA_CUSTOM_ONLY_POOL_TAG || (isBuiltinGachaPoolId(rawId) && record.builtin !== true));
+        const normalized = normalizeGachaPoolDefinition({
+          ...record,
+          id: shouldUseNameAsCustomId ? rawName : rawId,
+          name: rawName,
+        });
+        if (!normalized || normalized.id === GACHA_ALL_POOL_TAG) return null;
+        if (shouldUseNameAsCustomId) {
+          result.tagAliases[rawId] = normalized.id;
+        }
+        return {
+          ...normalized,
+          builtin: isBuiltinGachaPoolId(normalized.id),
+          order: Number.isFinite(Number(normalized.order)) ? Number(normalized.order) : 100 + index * 10,
+        };
+      })
+      .filter((pool): pool is GachaPoolDefinition => Boolean(pool));
+    return result;
+  };
+
   const analyzeGachaCatalogImport = (jsonString: string, rawData): GachaCatalogImportAnalysis | null => {
     let data: unknown;
     try {
       data = JSON.parse(stripJsonCommentsAndTrailingCommas(jsonString));
     } catch (error) {
-      console.error('[DICE][GACHA]自定义物品池 JSON 解析失败:', error);
+      console.error('[DICE][GACHA]自定义物品卡池 JSON 解析失败:', error);
       return null;
     }
     const record = data && typeof data === 'object' ? (data as Record<string, unknown>) : {};
     const rawItems = Array.isArray(record.items) ? record.items : Array.isArray(data) ? data : [];
     if (!Array.isArray(rawItems)) return null;
+    const importedPools = normalizeImportedGachaPools(record.pools);
 
     const errors: string[] = [];
     const items = rawItems
-      .map((item, index) => normalizeImportedGachaItem(item, index, errors))
+      .map((item, index) => normalizeImportedGachaItem(item, index, errors, importedPools.tagAliases))
       .filter((item): item is NormalizedGachaCatalogItem => Boolean(item));
     const existingIds = new Set(getAllGachaItemDefinitions(rawData).map(item => item.id));
     const seenImportIds = new Set<string>();
@@ -40632,10 +41213,30 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     );
     return {
       items,
+      pools: importedPools.pools,
       skipped: rawItems.length - items.length,
       errors,
       conflictIds,
     };
+  };
+
+  const mergeImportedGachaPools = (pools: readonly GachaPoolDefinition[]) => {
+    if (!pools.length) return;
+    const current = getConfiguredGachaPoolDefinitions();
+    const byId = new Map(current.map(pool => [pool.id, pool]));
+    pools.forEach(pool => {
+      if (!pool.id || pool.id === GACHA_ALL_POOL_TAG) return;
+      const existing = byId.get(pool.id);
+      byId.set(pool.id, {
+        ...(existing || buildDefaultGachaPoolDefinition(pool.id, pool)),
+        name: pool.name || existing?.name || pool.id,
+        builtin: existing?.builtin === true,
+        visibleInTabs: pool.visibleInTabs !== false,
+        includeInAll: pool.includeInAll === true,
+        order: Number.isFinite(Number(pool.order)) ? Number(pool.order) : existing?.order ?? 999,
+      });
+    });
+    saveGachaPoolSettings(Array.from(byId.values()));
   };
 
   const applyGachaCatalogImport = async (
@@ -40644,11 +41245,14 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     mode: GachaCatalogImportMode,
   ): Promise<GachaCatalogImportStats> => {
     await ensureGachaCatalogLoaded(rawData);
+    mergeImportedGachaPools(analysis.pools);
     const customItems = [...getCustomGachaItemDefinitions(rawData)];
     const customIndexById = new Map(customItems.map((item, index) => [item.id, index]));
     const builtInIds = new Set(GACHA_ITEM_DEFINITIONS.map(item => item.id));
     const existingIds = new Set(getAllGachaItemDefinitions(rawData).map(item => item.id));
+    const importedItemSettings: Array<{ id: string; enabled: boolean; order?: number }> = [];
     const stats: GachaCatalogImportStats = { added: 0, updated: 0, renamed: 0, skipped: analysis.skipped };
+    const importTimestamp = Date.now();
 
     analysis.items.forEach(item => {
       const isBuiltInConflict = builtInIds.has(item.id);
@@ -40666,6 +41270,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         quality: item.quality,
         description: item.description,
         poolTags: [...item.poolTags],
+        icon: item.icon,
+        iconUrl: item.iconUrl,
+        enabled: isGachaItemEnabled(item),
+        order: item.order,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt || importTimestamp,
         weight: item.weight,
         stackable: item.stackable,
         unique: item.unique,
@@ -40675,25 +41285,43 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
       if (hasConflict && mode === 'rename') {
         nextItem.id = createUniqueGachaItemId(item.id, existingIds);
+        nextItem.createdAt = nextItem.createdAt || importTimestamp;
         customItems.push(nextItem);
         customIndexById.set(nextItem.id, customItems.length - 1);
+        importedItemSettings.push({ id: nextItem.id, enabled: isGachaItemEnabled(nextItem), order: nextItem.order });
         stats.renamed += 1;
         return;
       }
 
       if (customIndex !== undefined) {
+        nextItem.createdAt = customItems[customIndex].createdAt || nextItem.createdAt || importTimestamp;
         customItems[customIndex] = nextItem;
         stats.updated += 1;
       } else {
+        nextItem.createdAt = nextItem.createdAt || importTimestamp;
         customItems.push(nextItem);
         customIndexById.set(nextItem.id, customItems.length - 1);
         existingIds.add(nextItem.id);
         hasConflict ? (stats.updated += 1) : (stats.added += 1);
       }
+      importedItemSettings.push({ id: nextItem.id, enabled: isGachaItemEnabled(nextItem), order: nextItem.order });
     });
 
     const savedCatalog = await saveStoredGachaCatalog(customItems);
     if (!savedCatalog) throw new Error('自定义物品保存失败');
+    if (importedItemSettings.length > 0) {
+      const record = getStoredGachaItemSettings();
+      const nextSettings = { ...record.items };
+      importedItemSettings.forEach(entry => {
+        const existing = nextSettings[entry.id] || { enabled: true, order: 999 };
+        nextSettings[entry.id] = {
+          enabled: entry.enabled,
+          order: entry.order !== undefined ? normalizeGachaItemOrder(entry.order) : existing.order,
+        };
+      });
+      saveGachaItemSettingsRecord(nextSettings);
+    }
+    ensureGachaPoolsForTags(customItems.flatMap(item => [...item.poolTags]));
     return stats;
   };
 
@@ -40701,11 +41329,14 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     await runInSaveQueue(async () => {
       const rawData = getRuntimeGachaRawData();
       await ensureGachaCatalogLoaded(rawData);
-      const count = getCustomGachaItemDefinitions(rawData).length;
+      const customIds = getCustomGachaItemDefinitions(rawData).map(item => item.id);
+      const count = customIds.length;
       const savedCatalog = await saveStoredGachaCatalog([]);
       if (!savedCatalog) throw new Error('自定义物品清空失败');
+      customIds.forEach(deleteGachaItemSetting);
       refreshGachaVisualization();
       refreshGachaShardShop();
+      if ($('.acu-gacha-settings-overlay').length) void showGachaSettingsDialog();
       if (window.toastr) window.toastr.success(`已清空当前聊天的 ${count} 个自定义物品`);
     });
   };
@@ -40714,11 +41345,21 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     await runInSaveQueue(async () => {
       const records = await GachaCatalogDB.getAll();
       const count = records.reduce((sum, record) => sum + (Array.isArray(record.items) ? record.items.length : 0), 0);
+      const customIds = new Set<string>();
+      records.forEach(record => {
+        if (!Array.isArray(record.items)) return;
+        record.items.forEach(item => {
+          const id = String(item?.id || '').trim();
+          if (id) customIds.add(id);
+        });
+      });
       const cleared = await GachaCatalogDB.clear();
       if (!cleared) throw new Error('自定义物品全部清空失败');
+      customIds.forEach(deleteGachaItemSetting);
       gachaCatalogCache = { scopeKey: getGachaCatalogScopeKey(), catalog: createEmptyGachaCatalog() };
       refreshGachaVisualization();
       refreshGachaShardShop();
+      if ($('.acu-gacha-settings-overlay').length) void showGachaSettingsDialog();
       if (window.toastr) window.toastr.success(`已清空所有聊天的 ${count} 个自定义物品`);
     });
   };
@@ -40731,7 +41372,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const count = getCustomGachaItemDefinitions(rawData).length;
     $('.acu-import-confirm-overlay').remove();
     const dialog = $(`
-      <div class="acu-import-confirm-overlay acu-theme-${config.theme}">
+      <div class="acu-import-confirm-overlay acu-gacha-catalog-dialog-overlay acu-theme-${config.theme}">
         <div class="acu-import-confirm-dialog">
           <div class="acu-import-confirm-header">
             <span class="acu-import-confirm-title"><i class="fa-solid fa-broom"></i> 清空自定义物品</span>
@@ -40743,7 +41384,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             <div class="acu-import-warning-container">
               <i class="fa-solid fa-broom acu-import-warning-icon acu-gacha-catalog-import-icon"></i>
               <div class="acu-import-warning-title">当前聊天有 ${escapeHtml(String(count))} 个自定义物品</div>
-              <div class="acu-import-warning-message">清空后不会影响内置物品池，也不会删除已经写入物品表的物品。</div>
+              <div class="acu-import-warning-message">清空后不会影响内置卡池，也不会删除已经写入物品表或装备表的奖励。</div>
             </div>
           </div>
           <div class="acu-import-confirm-footer acu-gacha-catalog-clear-footer">
@@ -40851,7 +41492,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   };
 
   const buildGachaCatalogTemplateJsonc = (): string => `{
-  // 骰子商店自定义物品导入模板。
+  // 骰子商店自定义物品与卡池导入模板。
   // 使用方法：
   // 1. 复制下面被 /* ... */ 注释包住的示例物品。
   // 2. 删除包住某个物品的 /* 和 */，再按你的设定修改字段。
@@ -40860,6 +41501,26 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   "kind": "${GACHA_CATALOG_EXPORT_KIND}",
   "version": ${GACHA_CATALOG_VERSION},
   "exportedAt": ${Date.now()},
+  "pools": [
+    /*
+    {
+      // id：卡池唯一标识。物品的 poolTags 使用这个值。
+      "id": "赛博朋克",
+
+      // name：卡池显示名。
+      "name": "赛博朋克",
+
+      // visibleInTabs：是否显示在骰子商城顶部快捷切换栏。
+      "visibleInTabs": true,
+
+      // includeInAll：是否加入“全部”卡池的抽取范围。
+      "includeInAll": true,
+
+      // order：排序，越小越靠前。
+      "order": 100
+    }
+    */
+  ],
   "items": [
     /*
     {
@@ -40869,17 +41530,29 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       // name：物品显示名称，必填。
       "name": "幸运硬币",
 
-      // type：写入物品表的类型，可按你的数据库习惯填写，比如 道具、消耗品、材料、任务物品、装备。
+      // type：写入对应表格的类型，可按你的数据库习惯填写，比如 道具、消耗品、材料、任务物品、装备。
       "type": "道具",
 
       // quality：必填，只能是 普通、优秀、稀有、史诗、传说、神话。
       "quality": "稀有",
 
-      // description：物品描述，会写入物品表，也会在商店详情中展示。
+      // description：物品描述，会写入对应表格，也会在商店详情中展示。
       "description": "一枚总能落在正面的硬币。使用后可让下一次普通检定获得轻微好运。",
 
-      // poolTags：出现在哪些奖池。可用值：奇幻、修真、都市、校园、历史、自定义；写 全部 会自动展开为前五类通用奖池。
-      "poolTags": ["全部"],
+      // poolTags：出现在哪些卡池。可填写内置卡池或自定义卡池 id；写 全部 会自动展开为当前加入“全部”的卡池。
+      "poolTags": ["赛博朋克"],
+
+      // icon：可选，符号图标。支持 fa:box、ti:wand 这类格式，也可直接写一个 emoji。
+      "icon": "fa:coins",
+
+      // iconUrl：可选，外链图片 URL。优先级高于 icon。
+      "iconUrl": "",
+
+      // enabled：是否参与抽取和碎片商城兑换；设置页仍会显示禁用物品。
+      "enabled": true,
+
+      // order：物品排序，越小越靠前。留空时按品质与名称兜底排序。
+      "order": 100,
 
       // weight：同品质内的抽取权重，必须大于 0。越大越容易被抽到。
       "weight": 1,
@@ -40893,7 +41566,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       // grantQuantity：抽到时发放数量，必须是正整数。
       "grantQuantity": 1,
 
-      // rewardTarget：inventory 写入物品表；equipment 当前会按既有逻辑转为对应品质碎片。
+      // rewardTarget：inventory 写入物品表；equipment 写入装备表。
       "rewardTarget": "inventory"
     }
     */
@@ -40901,33 +41574,90 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 }
 `;
 
-  const exportGachaCatalogJson = (rawData): string => {
-    const items = getCustomGachaItemDefinitions(rawData);
-    if (items.length === 0) return buildGachaCatalogTemplateJsonc();
+  const serializeGachaCatalogItemForExport = (item: GachaItemDefinition): GachaItemDefinition => {
+    const exported: GachaItemDefinition = {
+      id: item.id,
+      name: item.name,
+      type: item.type,
+      quality: item.quality,
+      description: item.description,
+      poolTags: [...item.poolTags],
+      enabled: isGachaItemEnabled(item),
+      order: normalizeGachaItemOrder(item.order),
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+      weight: item.weight,
+      stackable: item.stackable,
+      unique: item.unique,
+      grantQuantity: item.grantQuantity,
+      rewardTarget: item.rewardTarget,
+    };
+    if (item.icon) exported.icon = item.icon;
+    if (item.iconUrl) exported.iconUrl = item.iconUrl;
+    return exported;
+  };
+
+  const buildGachaExportNamePart = (value: string): string =>
+    String(value || '自定义物品')
+      .trim()
+      .replace(/[\\/:*?"<>|]/g, '_')
+      .replace(/\s+/g, '_')
+      .slice(0, 48) || '自定义物品';
+
+  const getGachaCatalogItemsForExport = (rawData, poolId?: GachaPoolTag): GachaItemDefinition[] => {
+    const normalizedPoolId = normalizeGachaPoolId(poolId);
+    const allItems = getAllGachaItemDefinitions(rawData);
+    if (!normalizedPoolId) {
+      const customIds = new Set(getCustomGachaItemDefinitions(rawData).map(item => item.id));
+      return allItems.filter(item => customIds.has(item.id));
+    }
+    const activeTags = normalizedPoolId === GACHA_ALL_POOL_TAG ? getGachaAllExpandablePoolTags(rawData) : [normalizedPoolId];
+    return allItems.filter(item => item.poolTags.some(tag => activeTags.includes(tag)));
+  };
+
+  const exportGachaCatalogJson = (rawData, poolId?: GachaPoolTag): string => {
+    const normalizedPoolId = normalizeGachaPoolId(poolId);
+    const isPoolExport = Boolean(normalizedPoolId);
+    const items = getGachaCatalogItemsForExport(rawData, normalizedPoolId);
+    if (!isPoolExport && items.length === 0) return buildGachaCatalogTemplateJsonc();
+    const pools = getAllGachaPoolConfigDefinitions(rawData).filter(pool => {
+      if (pool.id === GACHA_ALL_POOL_TAG) return false;
+      if (!normalizedPoolId || normalizedPoolId === GACHA_ALL_POOL_TAG) return true;
+      return pool.id === normalizedPoolId;
+    });
     const exportData = {
       kind: GACHA_CATALOG_EXPORT_KIND,
       version: GACHA_CATALOG_VERSION,
       exportedAt: Date.now(),
-      items,
+      pools,
+      items: items.map(serializeGachaCatalogItemForExport),
     };
     return JSON.stringify(exportData, null, 2);
   };
 
-  const downloadGachaCatalogJson = async () => {
+  const downloadGachaCatalogJson = async (poolId?: GachaPoolTag) => {
     const rawData = getRuntimeGachaRawData();
     await ensureGachaCatalogLoaded(rawData);
-    const json = exportGachaCatalogJson(rawData);
-    const hasCustomItems = getCustomGachaItemDefinitions(rawData).length > 0;
-    const blob = new Blob([json], { type: hasCustomItems ? 'application/json' : 'application/jsonc' });
+    const normalizedPoolId = normalizeGachaPoolId(poolId);
+    const isPoolExport = Boolean(normalizedPoolId);
+    const json = exportGachaCatalogJson(rawData, normalizedPoolId);
+    const hasExportableItems = getGachaCatalogItemsForExport(rawData, normalizedPoolId).length > 0;
+    const blob = new Blob([json], { type: hasExportableItems || isPoolExport ? 'application/json' : 'application/jsonc' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `gacha-items_${new Date().toISOString().slice(0, 10)}.${hasCustomItems ? 'json' : 'jsonc'}`;
+    const datePart = new Date().toISOString().slice(0, 10);
+    if (isPoolExport) {
+      const pool = getAllGachaPoolConfigDefinitions(rawData).find(candidate => candidate.id === normalizedPoolId);
+      a.download = `gacha-pool_${buildGachaExportNamePart(pool?.name || normalizedPoolId)}_${datePart}.json`;
+    } else {
+      a.download = `gacha-items_${datePart}.${hasExportableItems ? 'json' : 'jsonc'}`;
+    }
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    if (window.toastr) window.toastr.success('自定义物品池已导出');
+    if (window.toastr) window.toastr.success(isPoolExport ? '卡池 JSON 已导出' : '自定义物品卡池已导出');
   };
 
   const formatGachaCatalogImportStatsText = (stats: GachaCatalogImportStats): string =>
@@ -40951,7 +41681,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             .join('')}${analysis.errors.length > 6 ? '<div>还有更多无效项已跳过…</div>' : ''}</div>`
         : '';
     const dialogHtml = `
-      <div class="acu-import-confirm-overlay acu-theme-${config.theme}">
+      <div class="acu-import-confirm-overlay acu-gacha-catalog-dialog-overlay acu-theme-${config.theme}">
         <div class="acu-import-confirm-dialog">
           <div class="acu-import-confirm-header">
             <span class="acu-import-confirm-title"><i class="fa-solid fa-file-import"></i> 导入自定义物品</span>
@@ -41001,7 +41731,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       width: 100vw !important;
       height: 100vh !important;
       background: rgba(0,0,0,0.6) !important;
-      z-index: 31300 !important;
+      z-index: 31380 !important;
       display: flex;
       justify-content: center !important;
       align-items: center !important;
@@ -41029,6 +41759,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const stats = await applyGachaCatalogImport(rawData, latestAnalysis, mode);
         refreshGachaVisualization();
         refreshGachaShardShop();
+        if ($('.acu-gacha-settings-overlay').length) void showGachaSettingsDialog();
         if (window.toastr) window.toastr.success(formatGachaCatalogImportStatsText(stats), '骰子商店导入完成');
       });
     });
@@ -41038,11 +41769,19 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json,.jsonc,application/json,application/jsonc';
+    input.style.display = 'none';
+    const cleanupInput = () => {
+      if (input.isConnected) input.remove();
+    };
     input.onchange = () => {
       const file = input.files?.[0];
-      if (!file) return;
+      if (!file) {
+        cleanupInput();
+        return;
+      }
       const reader = new FileReader();
       reader.onload = () => {
+        cleanupInput();
         void (async () => {
           const jsonString = String(reader.result || '');
           const rawData = getRuntimeGachaRawData();
@@ -41056,10 +41795,13 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         })();
       };
       reader.onerror = () => {
+        cleanupInput();
         if (window.toastr) window.toastr.error('读取文件失败');
       };
       reader.readAsText(file);
     };
+    input.addEventListener('cancel', cleanupInput, { once: true });
+    document.body.appendChild(input);
     input.click();
   };
 
@@ -41201,12 +41943,31 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   const getGachaRarityIconClass = (rarity: GachaRarity): string =>
     INVENTORY_QUALITY_FILTER_META.find(option => option.value === rarity)?.icon || 'fa-gem';
 
+  const compareGachaItemDefinitionsForDisplay = (a: GachaItemDefinition, b: GachaItemDefinition): number =>
+    normalizeGachaItemOrder(a.order) - normalizeGachaItemOrder(b.order) ||
+    getGachaRarityRank(b.quality) - getGachaRarityRank(a.quality) ||
+    a.name.localeCompare(b.name, 'zh-Hans-CN');
+
   const addGachaShards = (state: GachaState, rarity: GachaRarity, amount: number) => {
     const safeAmount = Math.max(0, Math.floor(Number(amount) || 0));
     if (safeAmount <= 0) return 0;
     state.wallet.shards[rarity] = Math.max(0, Math.floor(Number(state.wallet.shards[rarity] || 0))) + safeAmount;
     return safeAmount;
   };
+
+  const getGachaRewardTargetTableLabel = (target: GachaRewardTarget): string =>
+    target === 'equipment' ? '装备表' : '物品表';
+
+  const getGachaRewardParseResult = (rawData, target: GachaRewardTarget): GachaRewardParseResult =>
+    target === 'equipment' ? parseEquipmentItems(rawData) : parseInventoryItems(rawData);
+
+  const hasGachaRewardTable = (rawData, target: GachaRewardTarget): boolean => {
+    const parsed = getGachaRewardParseResult(rawData, target);
+    return Boolean(parsed.tableKey && rawData?.[parsed.tableKey] && Array.isArray(rawData[parsed.tableKey]?.content));
+  };
+
+  const getAvailableGachaRewardTargets = (rawData): Set<GachaRewardTarget> =>
+    new Set(GACHA_REWARD_TARGETS.filter(target => hasGachaRewardTable(rawData, target)));
 
   const getGachaMinimumRarity = (state: GachaState): GachaRarity | null => {
     if (state.pity.legend >= GACHA_LEGEND_PITY_THRESHOLD) return '传说';
@@ -41228,7 +41989,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   };
 
   const getActiveGachaPoolTags = (poolTag: GachaPoolTag): GachaPoolTag[] => {
-    if (poolTag === '全部') return GACHA_EXPANDABLE_POOL_TAGS;
+    if (poolTag === GACHA_ALL_POOL_TAG) return getGachaAllExpandablePoolTags();
     return [poolTag];
   };
 
@@ -41236,22 +41997,27 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     poolTag: GachaPoolTag,
     rawData = getRuntimeGachaRawData(),
   ): GachaItemDefinition[] => {
-    if (poolTag === GACHA_CUSTOM_ONLY_POOL_TAG) return getCustomGachaItemDefinitions(rawData);
+    ensureGachaPoolsForTags(collectGachaPoolTagsFromItems(rawData));
     const activeTags = getActiveGachaPoolTags(poolTag);
-    return getAllGachaItemDefinitions(rawData).filter(item => item.poolTags.some(tag => activeTags.includes(tag)));
+    return getAllGachaItemDefinitions(rawData)
+      .filter(item => isGachaItemEnabled(item) && item.poolTags.some(tag => activeTags.includes(tag)))
+      .sort(compareGachaItemDefinitionsForDisplay);
   };
 
   const getStoredGachaActivePoolTag = (fallback: GachaPoolTag): GachaPoolTag => {
-    const stored = String(Store.get(STORAGE_KEY_GACHA_ACTIVE_POOL_TAG, fallback) || fallback) as GachaPoolTag;
-    return GACHA_POOL_TAGS.includes(stored) ? stored : fallback;
+    const stored = normalizeGachaPoolId(Store.get(STORAGE_KEY_GACHA_ACTIVE_POOL_TAG, fallback) || fallback);
+    return getConfiguredGachaPoolDefinitions().some(pool => pool.id === stored) ? stored : fallback;
   };
 
   const saveStoredGachaActivePoolTag = (poolTag: GachaPoolTag) => {
     Store.set(STORAGE_KEY_GACHA_ACTIVE_POOL_TAG, poolTag);
   };
 
-  const getGachaActivePoolTag = (state?: Pick<GachaState, 'activePoolTag'> | null): GachaPoolTag =>
-    getStoredGachaActivePoolTag(state?.activePoolTag || '全部');
+  const getGachaActivePoolTag = (state?: Pick<GachaState, 'activePoolTag'> | null): GachaPoolTag => {
+    const stored = getStoredGachaActivePoolTag(state?.activePoolTag || GACHA_ALL_POOL_TAG);
+    const visibleIds = new Set(getVisibleGachaPoolConfigDefinitions().map(pool => pool.id));
+    return visibleIds.has(stored) ? stored : GACHA_ALL_POOL_TAG;
+  };
 
   const getGachaChatIdSeed = (): string => {
     const st = (window.SillyTavern || window.parent?.SillyTavern) as
@@ -41308,8 +42074,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     poolTag: GachaPoolTag,
     minimumRarity: GachaRarity | null,
     rawData = getRuntimeGachaRawData(),
+    availableTargets?: ReadonlySet<GachaRewardTarget>,
   ): GachaRarity | null => {
-    const availableItems = getGachaPoolDefinitions(poolTag, rawData);
+    const availableItems = getGachaPoolDefinitions(poolTag, rawData).filter(
+      item => !availableTargets || availableTargets.has(item.rewardTarget),
+    );
     if (availableItems.length === 0) return null;
     const minimumRank = minimumRarity ? getGachaRarityRank(minimumRarity) : -1;
     const rarityCandidates = GACHA_RARITY_ORDER.filter(rarity => {
@@ -41334,10 +42103,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     rarity: GachaRarity,
     rewardTarget?: GachaRewardTarget,
     rawData = getRuntimeGachaRawData(),
+    availableTargets?: ReadonlySet<GachaRewardTarget>,
   ): GachaItemDefinition | null => {
     const candidates = getGachaPoolDefinitions(poolTag, rawData).filter(item => {
       if (item.quality !== rarity) return false;
       if (rewardTarget && item.rewardTarget !== rewardTarget) return false;
+      if (availableTargets && !availableTargets.has(item.rewardTarget)) return false;
       return true;
     });
     return pickWeightedValue(
@@ -41379,6 +42150,17 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     if (colMap.description >= 0) row[colMap.description] = item.description;
   };
 
+  const setEquipmentRowBasicFields = (row: unknown[], colMap, item: GachaItemDefinition, quantity: number) => {
+    if (colMap.name >= 0) row[colMap.name] = item.name;
+    if (colMap.type >= 0) row[colMap.type] = item.type || '装备';
+    if (colMap.quantity >= 0) row[colMap.quantity] = String(quantity);
+    if (colMap.quality >= 0) row[colMap.quality] = item.quality;
+    if (colMap.description >= 0) row[colMap.description] = item.description;
+    if (typeof colMap.status === 'number' && colMap.status >= 0 && !String(row[colMap.status] || '').trim()) {
+      row[colMap.status] = '闲置';
+    }
+  };
+
   const getGachaItemGrantQuantity = (item: Pick<GachaItemDefinition, 'grantQuantity'>): number =>
     Math.max(1, Math.floor(Number(item.grantQuantity) || 1));
 
@@ -41402,7 +42184,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     }
 
     const existing = parsed.items.find(candidate => candidate.name === item.name) || null;
-    if (existing && !item.stackable) {
+    if (existing && (item.unique || !item.stackable)) {
       const shardGain = addGachaShards(state, item.quality, GACHA_SHARD_VALUES[item.quality] * Math.max(1, quantity));
       return {
         outcome: {
@@ -41463,6 +42245,81 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     };
   };
 
+  const grantEquipmentGachaReward = (
+    rawData,
+    state: GachaState,
+    item: GachaItemDefinition,
+    quantity: number,
+  ): { outcome: GachaDrawOutcome; modifiedSheetKey?: string } | null => {
+    const parsed = parseEquipmentItems(rawData);
+    if (!parsed.tableKey || !rawData?.[parsed.tableKey] || !Array.isArray(rawData[parsed.tableKey]?.content)) {
+      return null;
+    }
+
+    const existing = parsed.items.find(candidate => candidate.name === item.name) || null;
+    const canStackInEquipmentTable = item.stackable && !item.unique && parsed.colMap.quantity >= 0;
+    if (existing && !canStackInEquipmentTable) {
+      const shardGain = addGachaShards(state, item.quality, GACHA_SHARD_VALUES[item.quality] * Math.max(1, quantity));
+      return {
+        outcome: {
+          kind: 'shards',
+          item,
+          quantity,
+          duplicateConverted: true,
+          shardGain,
+        },
+      };
+    }
+
+    const table = rawData[parsed.tableKey];
+    if (existing) {
+      const row = table.content[existing.rowIndex + 1];
+      if (!Array.isArray(row)) return null;
+      const currentQuantity = Math.max(
+        0,
+        Number.parseInt(String(row[parsed.colMap.quantity] ?? existing.quantity ?? 0), 10) || 0,
+      );
+      const nextQuantity = currentQuantity + Math.max(1, quantity);
+      setEquipmentRowBasicFields(row, parsed.colMap, item, nextQuantity);
+      return {
+        outcome: {
+          kind: 'item',
+          item,
+          quantity,
+          duplicateConverted: false,
+          shardGain: 0,
+        },
+        modifiedSheetKey: parsed.tableKey,
+      };
+    }
+
+    const headerRow = Array.isArray(table.content[0]) ? table.content[0] : parsed.headers;
+    const newRow = new Array(Math.max(headerRow.length, 1)).fill('');
+    if (newRow.length > 0) newRow[0] = String(table.content.length);
+    setEquipmentRowBasicFields(newRow, parsed.colMap, item, Math.max(1, quantity));
+    table.content.push(newRow);
+    return {
+      outcome: {
+        kind: 'item',
+        item,
+        quantity,
+        duplicateConverted: false,
+        shardGain: 0,
+      },
+      modifiedSheetKey: parsed.tableKey,
+    };
+  };
+
+  const grantGachaReward = (
+    rawData,
+    state: GachaState,
+    item: GachaItemDefinition,
+    quantity: number,
+  ): { outcome: GachaDrawOutcome; modifiedSheetKey?: string } | null =>
+    item.rewardTarget === 'equipment'
+      ? grantEquipmentGachaReward(rawData, state, item, quantity)
+      : grantInventoryGachaReward(rawData, state, item, quantity);
+
   const applyGachaPityAfterDraw = (state: GachaState, rarity: GachaRarity) => {
     state.totalDraws += 1;
     state.pity.rare = getGachaRarityRank(rarity) >= getGachaRarityRank('稀有') ? 0 : state.pity.rare + 1;
@@ -41488,29 +42345,16 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   const drawSingleGachaOutcome = (
     rawData,
     state: GachaState,
+    availableTargets: ReadonlySet<GachaRewardTarget> = getAvailableGachaRewardTargets(rawData),
   ): { outcome: GachaDrawOutcome; modifiedSheetKey?: string } | null => {
     const poolTag = state.activePoolTag;
     const minimumRarity = getGachaMinimumRarity(state);
-    const rarity = pickGachaRarity(poolTag, minimumRarity, rawData);
+    const rarity = pickGachaRarity(poolTag, minimumRarity, rawData, availableTargets);
     if (!rarity) return null;
-    const item = pickGachaItemDefinition(poolTag, rarity, undefined, rawData);
+    const item = pickGachaItemDefinition(poolTag, rarity, undefined, rawData, availableTargets);
     if (!item) return null;
 
-    let result: { outcome: GachaDrawOutcome; modifiedSheetKey?: string } | null = null;
-    if (item.rewardTarget === 'inventory') {
-      result = grantInventoryGachaReward(rawData, state, item, getGachaItemGrantQuantity(item));
-    } else {
-      const shardGain = addGachaShards(state, item.quality, GACHA_SHARD_VALUES[item.quality]);
-      result = {
-        outcome: {
-          kind: 'shards',
-          item,
-          quantity: 1,
-          duplicateConverted: true,
-          shardGain,
-        },
-      };
-    }
+    const result = grantGachaReward(rawData, state, item, getGachaItemGrantQuantity(item));
     if (!result) return null;
 
     applyGachaPityAfterDraw(state, item.quality);
@@ -41534,11 +42378,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         <div class="acu-gacha-pickup-grid">
           ${pickupItems
             .map(item => {
-              const icon = getElementEmoji(item.name, null);
               return `
                 <button class="acu-gacha-pickup-card acu-gacha-pickup-detail-btn" type="button" data-item-id="${escapeHtml(item.id)}">
                   <span class="acu-gacha-pickup-rarity">${escapeHtml(item.quality)}</span>
-                  <strong><span class="acu-gacha-pickup-card-icon">${renderThemeIconContent(icon)}</span><span>${escapeHtml(item.name)}</span></strong>
+                  <strong><span class="acu-gacha-pickup-card-icon">${renderGachaItemIconContent(item)}</span><span>${escapeHtml(item.name)}</span></strong>
                   <span>${escapeHtml(item.description)}</span>
                 </button>
               `;
@@ -41660,7 +42503,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const item = getAllGachaItemDefinitions().find(definition => definition.id === itemId);
     if (!item) return;
 
-    const icon = getElementEmoji(item.name, null);
     const targetLabel = item.rewardTarget === 'equipment' ? '装备' : '物品';
     const stackableLabel = item.stackable ? '可堆叠' : '不可堆叠';
     const uniqueLabel = item.unique ? '唯一' : '可重复';
@@ -41669,7 +42511,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         <div class="acu-inventory-detail acu-gacha-pickup-detail">
           <div class="acu-inventory-detail-header">
             <div class="acu-inventory-detail-head-main">
-              <div class="acu-inventory-detail-icon">${renderThemeIconContent(icon)}</div>
+              <div class="acu-inventory-detail-icon">${renderGachaItemIconContent(item)}</div>
               <div class="acu-inventory-detail-summary">
                 <div class="acu-inventory-detail-title-row">
                   <div class="acu-inventory-detail-title">${escapeHtml(item.name)}</div>
@@ -41684,8 +42526,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           <div class="acu-inventory-detail-meta-wrap">
             <div class="acu-inventory-detail-meta">
               <div class="acu-inventory-detail-field-row" style="cursor:default;">
-                <span class="acu-inventory-detail-field-label">适用池子</span>
-                <span class="acu-inventory-detail-field-value">${escapeHtml(item.poolTags.join('、'))}</span>
+                <span class="acu-inventory-detail-field-label">适用卡池</span>
+                <span class="acu-inventory-detail-field-value">${escapeHtml(formatGachaPoolTags(item.poolTags))}</span>
               </div>
               <div class="acu-inventory-detail-field-row" style="cursor:default;">
                 <span class="acu-inventory-detail-field-label">发放目标</span>
@@ -41704,6 +42546,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     $('.acu-gacha-pickup-detail-overlay').remove();
     $('body').append(detail);
+    hydrateGachaLocalIconsIn(detail);
     const detailEl = detail[0] as HTMLElement | undefined;
     if (detailEl) {
       detailEl.style.setProperty('position', 'fixed', 'important');
@@ -41716,7 +42559,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       detailEl.style.setProperty('display', 'flex', 'important');
       detailEl.style.setProperty('justify-content', 'center', 'important');
       detailEl.style.setProperty('align-items', 'center', 'important');
-      detailEl.style.setProperty('z-index', '31340', 'important');
+      detailEl.style.setProperty('z-index', '31365', 'important');
     }
     setupOverlayClose(detail, 'acu-inventory-detail-overlay', () => detail.remove());
     detail.on('click', '.acu-preview-close', () => detail.remove());
@@ -41729,6 +42572,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     );
 
   const renderGachaPanelHtml = rawData => {
+    const config = getConfig();
+    const horizontalScrollbarClass = config.showHorizontalScrollbar === true ? 'acu-show-horizontal-scrollbar' : '';
     const state = getGachaState(rawData, true) || createDefaultGachaState();
     const activePoolTag = getGachaActivePoolTag(state);
     const inventoryTable = parseInventoryItems(rawData);
@@ -41751,40 +42596,35 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             .join('')
         : `<div class="acu-inventory-empty compact"><i class="fa-solid fa-receipt"></i><span>还没有最近抽取记录</span></div>`;
     const totalShards = getTotalGachaShards(state);
+    const poolDefinitions = getVisibleGachaPoolConfigDefinitions(rawData);
 
-    const poolButtonsHtml = GACHA_POOL_TAGS.map(tag => {
-      const isActive = activePoolTag === tag;
+    const poolButtonsHtml = poolDefinitions.map(pool => {
+      const isActive = activePoolTag === pool.id;
       return `
         <button
           class="acu-gacha-pool-tab acu-gacha-pool-btn ${isActive ? 'active' : ''}"
           type="button"
           role="tab"
           aria-selected="${isActive ? 'true' : 'false'}"
-          data-pool-tag="${escapeHtml(tag)}"
-          title="${escapeHtml(tag)}"
+          data-pool-tag="${escapeHtml(pool.id)}"
+          title="${escapeHtml(pool.name)}"
         >
           <i class="fa-solid fa-tags"></i>
-          <span>${escapeHtml(tag)}</span>
+          <span>${escapeHtml(pool.name)}</span>
         </button>
       `;
     }).join('');
 
     return `
-      <div class="acu-gacha-shell acu-theme-${getConfig().theme}">
+      <div class="acu-gacha-shell acu-theme-${config.theme} ${horizontalScrollbarClass}">
         <div class="acu-panel-header acu-inventory-window-header">
           <div class="acu-panel-title">
             <div class="acu-title-main"><i class="fa-solid fa-store"></i> <span class="acu-title-text">骰子商店</span></div>
           </div>
           <div class="acu-header-actions">
             ${getTutorialButtonHtml('gacha', '查看骰子商店教程')}
-            <button class="acu-view-btn acu-gacha-import-items" type="button" title="导入自定义物品" aria-label="导入自定义物品">
-              <i class="fa-solid fa-file-import"></i>
-            </button>
-            <button class="acu-view-btn acu-gacha-export-items" type="button" title="导出自定义物品" aria-label="导出自定义物品">
-              <i class="fa-solid fa-file-export"></i>
-            </button>
-            <button class="acu-view-btn acu-gacha-clear-items" type="button" title="清空自定义物品" aria-label="清空自定义物品">
-              <i class="fa-solid fa-broom"></i>
+            <button class="acu-view-btn acu-gacha-settings-open" type="button" title="骰子商城设置" aria-label="骰子商城设置">
+              <i class="fa-solid fa-gear"></i>
             </button>
             <button class="acu-view-btn acu-gacha-inventory-open" type="button" title="打开物品栏" aria-label="打开物品栏">
               <i class="fa-solid fa-box-open"></i>
@@ -41909,15 +42749,18 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       if (!rawData) return;
       await ensureGachaCatalogLoaded(rawData);
 
-      const parsed = parseInventoryItems(rawData);
-      if (!parsed.tableKey || !rawData?.[parsed.tableKey]) {
-        if (window.toastr) window.toastr.warning('未找到物品表，暂时无法发放扭蛋奖励');
-        return;
-      }
-
       const state = touchGachaActivity(getGachaState(rawData, true));
       if (!state) return;
       state.activePoolTag = getGachaActivePoolTag(state);
+      const availableTargets = getAvailableGachaRewardTargets(rawData);
+      const poolTargets = new Set(
+        getGachaPoolDefinitions(state.activePoolTag, rawData).map(item => item.rewardTarget),
+      ) as Set<GachaRewardTarget>;
+      if (poolTargets.size > 0 && Array.from(poolTargets).every(target => !availableTargets.has(target))) {
+        const label = Array.from(poolTargets).map(getGachaRewardTargetTableLabel).join('或');
+        if (window.toastr) window.toastr.warning(`未找到${label}，暂时无法发放骰子商店奖励`);
+        return;
+      }
       if (state.wallet.fortune < drawCost) {
         if (window.toastr) window.toastr.warning(`${FORTUNE_CURRENCY_NAME}不足，无法抽取`);
         return;
@@ -41927,7 +42770,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const modifiedSheetKeys = new Set<string>();
       const outcomes: GachaDrawOutcome[] = [];
       for (let index = 0; index < safeDrawCount; index++) {
-        const result = drawSingleGachaOutcome(rawData, state);
+        const result = drawSingleGachaOutcome(rawData, state, availableTargets);
         if (!result) continue;
         if (result.modifiedSheetKey) modifiedSheetKeys.add(result.modifiedSheetKey);
         outcomes.push(result.outcome);
@@ -41935,7 +42778,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
       if (outcomes.length === 0) {
         state.wallet.fortune += drawCost;
-        if (window.toastr) window.toastr.warning('当前奖池没有可发放的奖励');
+        if (window.toastr) window.toastr.warning('当前卡池没有可发放的奖励');
         return;
       }
 
@@ -41987,6 +42830,1177 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     if (state) state.activePoolTag = poolTag;
     if (state) saveStoredGachaStateSnapshot(state);
     refreshGachaPoolSelectionUi(poolTag);
+    refreshGachaShardShop();
+  };
+
+  const deleteGachaPoolConfig = async (poolId: GachaPoolTag, rawData): Promise<boolean> => {
+    const id = normalizeGachaPoolId(poolId);
+    if (!id || id === GACHA_ALL_POOL_TAG) return false;
+    const pool = getConfiguredGachaPoolDefinitions().find(candidate => candidate.id === id);
+    if (!pool || !canDeleteGachaPoolDefinition(pool)) return false;
+
+    await ensureGachaCatalogLoaded(rawData);
+    const deletingFallbackPool = id === GACHA_CUSTOM_ONLY_POOL_TAG;
+    const nextItems: GachaItemDefinition[] = [];
+    const removedItemIds: string[] = [];
+    const removedIconKeys: string[] = [];
+    let needsFallbackPool = false;
+
+    getCustomGachaItemDefinitions(rawData).forEach(item => {
+      if (!item.poolTags.includes(id)) {
+        nextItems.push(item);
+        return;
+      }
+      const nextTags = item.poolTags.filter(tag => tag !== id);
+      if (nextTags.length > 0) {
+        nextItems.push({
+          ...item,
+          poolTags: nextTags,
+        });
+        return;
+      }
+      if (deletingFallbackPool) {
+        removedItemIds.push(item.id);
+        if (item.localIconKey) removedIconKeys.push(item.localIconKey);
+        return;
+      }
+      needsFallbackPool = true;
+      nextItems.push({
+        ...item,
+        poolTags: [GACHA_CUSTOM_ONLY_POOL_TAG],
+      });
+    });
+
+    const pools = getConfiguredGachaPoolDefinitions().filter(candidate => candidate.id !== id);
+    if (needsFallbackPool && !pools.some(candidate => candidate.id === GACHA_CUSTOM_ONLY_POOL_TAG)) {
+      const nextOrder = pools.reduce((max, candidate) => Math.max(max, Number(candidate.order) || 0), 0) + 10;
+      pools.push(
+        buildDefaultGachaPoolDefinition(GACHA_CUSTOM_ONLY_POOL_TAG, {
+          name: GACHA_CUSTOM_ONLY_POOL_TAG,
+          builtin: false,
+          visibleInTabs: true,
+          includeInAll: false,
+          order: nextOrder,
+        }),
+      );
+    }
+
+    const savedCatalog = await saveStoredGachaCatalog(nextItems);
+    if (!savedCatalog) return false;
+    saveGachaPoolSettings(pools);
+    removedItemIds.forEach(deleteGachaItemSetting);
+    await Promise.all(removedIconKeys.map(iconKey => GachaItemIconDB.delete(iconKey)));
+    if (getStoredGachaActivePoolTag(GACHA_ALL_POOL_TAG) === id) saveStoredGachaActivePoolTag(GACHA_ALL_POOL_TAG);
+    if (normalizeGachaPoolId(Store.get(STORAGE_KEY_GACHA_SETTINGS_POOL_TAG, GACHA_ALL_POOL_TAG)) === id) {
+      saveStoredGachaSettingsPoolTag(GACHA_ALL_POOL_TAG);
+    }
+    return true;
+  };
+
+  const getStoredGachaSettingsPoolTag = (rawData): GachaPoolTag => {
+    const stored = normalizeGachaPoolId(Store.get(STORAGE_KEY_GACHA_SETTINGS_POOL_TAG, GACHA_ALL_POOL_TAG));
+    const pools = getAllGachaPoolConfigDefinitions(rawData);
+    return pools.some(pool => pool.id === stored) ? stored : GACHA_ALL_POOL_TAG;
+  };
+
+  const saveStoredGachaSettingsPoolTag = (poolTag: GachaPoolTag) => {
+    const normalizedPoolId = normalizeGachaPoolId(poolTag);
+    if (!normalizedPoolId) return;
+    Store.set(STORAGE_KEY_GACHA_SETTINGS_POOL_TAG, normalizedPoolId);
+  };
+
+  const showGachaPoolNameDialog = (options: {
+    title: string;
+    label: string;
+    initialValue?: string;
+    confirmText?: string;
+  }): Promise<string | null> => {
+    const { $ } = getCore();
+    const config = getConfig();
+    return new Promise(resolve => {
+      $('.acu-gacha-name-dialog-overlay').remove();
+      const overlay = $(`
+        <div class="acu-edit-overlay acu-gacha-name-dialog-overlay acu-theme-${config.theme}">
+          <form class="acu-edit-dialog acu-gacha-name-dialog">
+            <div class="acu-gacha-settings-header">
+              <div class="acu-gacha-settings-title"><i class="fa-solid fa-tags"></i> ${escapeHtml(options.title)}</div>
+              <button class="acu-close-btn acu-gacha-name-cancel" type="button" title="关闭"><i class="fa-solid fa-times"></i></button>
+            </div>
+            <label class="acu-gacha-name-field">
+              <span>${escapeHtml(options.label)}</span>
+              <input class="acu-gacha-name-input" type="text" value="${escapeHtml(options.initialValue || '')}" maxlength="40" autocomplete="off" />
+            </label>
+            <div class="acu-gacha-settings-footer">
+              <button class="acu-dialog-btn acu-gacha-name-cancel" type="button">取消</button>
+              <button class="acu-dialog-btn acu-btn-confirm" type="submit">${escapeHtml(options.confirmText || '确定')}</button>
+            </div>
+          </form>
+        </div>
+      `);
+      let settled = false;
+      const finish = (value: string | null) => {
+        if (settled) return;
+        settled = true;
+        overlay.remove();
+        resolve(value);
+      };
+      $('body').append(overlay);
+      setupOverlayClose(overlay, 'acu-gacha-name-dialog-overlay', () => finish(null));
+      overlay.on('click', '.acu-gacha-name-cancel', () => finish(null));
+      overlay.on('submit', '.acu-gacha-name-dialog', event => {
+        event.preventDefault();
+        finish(String(overlay.find('.acu-gacha-name-input').val() || '').trim());
+      });
+      window.setTimeout(() => {
+        const input = overlay.find('.acu-gacha-name-input')[0] as HTMLInputElement | undefined;
+        input?.focus();
+        input?.select();
+      }, 0);
+    });
+  };
+
+  const showGachaConfirmDialog = (options: {
+    title: string;
+    message: string;
+    detail?: string;
+    iconClass?: string;
+    confirmText?: string;
+    cancelText?: string;
+    danger?: boolean;
+  }): Promise<boolean> => {
+    const { $ } = getCore();
+    const config = getConfig();
+    return new Promise(resolve => {
+      $('.acu-gacha-confirm-overlay').remove();
+      const overlay = $(`
+        <div class="acu-import-confirm-overlay acu-gacha-confirm-overlay acu-theme-${config.theme}">
+          <div class="acu-import-confirm-dialog acu-gacha-confirm-dialog">
+            <div class="acu-import-confirm-header">
+              <span class="acu-import-confirm-title">
+                <i class="fa-solid ${escapeHtml(options.iconClass || 'fa-triangle-exclamation')}"></i>
+                ${escapeHtml(options.title)}
+              </span>
+              <button class="acu-import-close-btn acu-gacha-confirm-cancel" type="button" title="关闭" aria-label="关闭">
+                <i class="fa-solid fa-times"></i>
+              </button>
+            </div>
+            <div class="acu-import-confirm-body">
+              <div class="acu-import-warning-container">
+                <i class="fa-solid ${escapeHtml(options.iconClass || 'fa-triangle-exclamation')} acu-import-warning-icon ${options.danger ? 'danger' : ''}"></i>
+                <div class="acu-import-warning-title">${escapeHtml(options.message)}</div>
+                ${options.detail ? `<div class="acu-import-warning-message">${escapeHtml(options.detail)}</div>` : ''}
+              </div>
+            </div>
+            <div class="acu-import-confirm-footer">
+              <button class="acu-import-cancel-btn acu-gacha-confirm-cancel" type="button">${escapeHtml(options.cancelText || '取消')}</button>
+              <button class="acu-import-confirm-btn acu-gacha-confirm-ok ${options.danger ? 'danger' : ''}" type="button">${escapeHtml(options.confirmText || '确认')}</button>
+            </div>
+          </div>
+        </div>
+      `);
+      let settled = false;
+      const finish = (confirmed: boolean) => {
+        if (settled) return;
+        settled = true;
+        overlay.remove();
+        resolve(confirmed);
+      };
+      $('body').append(overlay);
+      setupOverlayClose(overlay, 'acu-gacha-confirm-overlay', () => finish(false));
+      overlay.on('click', '.acu-gacha-confirm-cancel', () => finish(false));
+      overlay.on('click', '.acu-gacha-confirm-ok', () => finish(true));
+    });
+  };
+
+  const getGachaSettingsPoolItems = (rawData, poolId: GachaPoolTag): GachaItemDefinition[] =>
+    getGachaCatalogItemsForExport(rawData, poolId);
+
+  const getGachaItemCreatedAtMs = (item: Pick<GachaItemDefinition, 'createdAt' | 'updatedAt'>): number => {
+    const createdAt = normalizeGachaTimestamp(item.createdAt);
+    if (createdAt) return createdAt;
+    return normalizeGachaTimestamp(item.updatedAt) || 0;
+  };
+
+  const formatGachaItemCreatedAt = (item: Pick<GachaItemDefinition, 'createdAt' | 'updatedAt'>): string => {
+    const createdAt = getGachaItemCreatedAtMs(item);
+    if (!createdAt) return '创建时间未知';
+    return new Date(createdAt).toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' });
+  };
+
+  const renderGachaSettingsPoolTabsHtml = (rawData, selectedPoolId: GachaPoolTag): string => {
+    const pools = getAllGachaPoolConfigDefinitions(rawData);
+    return `
+      <div class="acu-gacha-pool-tabs acu-gacha-settings-pool-tabs" role="tablist">
+        ${pools
+          .map(pool => {
+            const active = pool.id === selectedPoolId;
+            return `
+              <button
+                class="acu-gacha-pool-tab acu-gacha-settings-pool-tab ${active ? 'active' : ''}"
+                type="button"
+                role="tab"
+                aria-selected="${active ? 'true' : 'false'}"
+                data-pool-id="${escapeHtml(pool.id)}"
+                title="${escapeHtml(pool.name)}"
+              >
+                <i class="fa-solid fa-tags"></i>
+                <span>${escapeHtml(pool.name)}</span>
+              </button>
+            `;
+          })
+          .join('')}
+      </div>
+    `;
+  };
+
+  const renderGachaSettingsPoolItemsHtml = (rawData, poolId: GachaPoolTag): string => {
+    const customIds = new Set(getCustomGachaItemDefinitions(rawData).map(item => item.id));
+    const items = getGachaSettingsPoolItems(rawData, poolId);
+    const sortedItems = items.slice().sort(compareGachaItemDefinitionsForDisplay);
+    if (sortedItems.length === 0) {
+      return `<div class="acu-inventory-empty compact"><i class="fa-solid fa-box-open"></i><span>这个卡池里还没有物品</span></div>`;
+    }
+
+    return sortedItems
+      .map((item, index) => {
+        const custom = customIds.has(item.id);
+        const enabled = isGachaItemEnabled(item);
+        const customText = custom ? '自定义' : '内置';
+        const enabledText = enabled ? '启用' : '禁用';
+        const createdAt = getGachaItemCreatedAtMs(item);
+        const qualityRank = getGachaRarityRank(item.quality);
+        const searchText =
+          `${item.name} ${item.type} ${item.quality} ${item.description} ${formatGachaPoolTags(item.poolTags, rawData)} ${customText} ${enabledText}`.toLowerCase();
+        return `
+          <article
+            class="acu-gacha-settings-item ${enabled ? '' : 'is-disabled'}"
+            data-item-id="${escapeHtml(item.id)}"
+            data-search="${escapeHtml(searchText)}"
+            data-source="${custom ? 'custom' : 'builtin'}"
+            data-enabled="${enabled ? 'true' : 'false'}"
+            data-name="${escapeHtml(item.name.toLocaleLowerCase('zh-CN'))}"
+            data-created-at="${escapeHtml(String(createdAt))}"
+            data-quality-rank="${escapeHtml(String(qualityRank))}"
+            data-weight="${escapeHtml(String(Number(item.weight) || 0))}"
+            data-default-index="${escapeHtml(String(index))}"
+            role="button"
+            tabindex="0"
+            aria-label="${escapeHtml(`查看 ${item.name} 详情`)}"
+          >
+            <div class="acu-preset-handle acu-gacha-item-handle" title="拖拽排序"><i class="fa-solid fa-grip-vertical"></i></div>
+            <div class="acu-gacha-settings-item-icon">${renderGachaItemIconContent(item)}</div>
+            <div class="acu-gacha-settings-item-main">
+              <div class="acu-gacha-settings-item-name">
+                ${escapeHtml(item.name)}
+                <span>${escapeHtml(item.quality)}</span>
+                <span>${custom ? '自定义' : '内置'}</span>
+                ${enabled ? '' : '<span class="acu-gacha-settings-disabled-tag">禁用</span>'}
+              </div>
+              <div class="acu-gacha-settings-item-desc">${escapeHtml(item.description || '暂无描述')}</div>
+              <div class="acu-gacha-settings-item-meta">${escapeHtml(item.type)} · ${escapeHtml(formatGachaPoolTags(item.poolTags, rawData))} · 权重 ${escapeHtml(String(item.weight))} · ${escapeHtml(formatGachaItemCreatedAt(item))}</div>
+            </div>
+            <div class="acu-gacha-settings-actions">
+              <label class="acu-toggle acu-gacha-item-enabled-toggle" title="${enabled ? '已参与抽取与兑换' : '已从抽取与兑换中移除'}">
+                <input class="acu-gacha-item-enabled-check" type="checkbox" ${enabled ? 'checked' : ''} />
+                <span class="acu-toggle-slider"></span>
+              </label>
+              ${
+                custom
+                  ? `<span class="acu-gacha-settings-inline-actions">
+                      <button class="acu-preset-btn acu-gacha-item-edit" type="button" title="编辑"><i class="fa-solid fa-pen"></i></button>
+                      <button class="acu-preset-btn acu-gacha-item-delete acu-preset-delete" type="button" title="删除"><i class="fa-solid fa-trash"></i></button>
+                    </span>
+                    <details class="acu-gacha-settings-more">
+                      <summary class="acu-preset-btn" title="更多操作"><i class="fa-solid fa-ellipsis-vertical"></i></summary>
+                      <div class="acu-gacha-settings-more-menu">
+                        <button class="acu-gacha-item-edit" type="button"><i class="fa-solid fa-pen"></i><span>编辑</span></button>
+                        <button class="acu-gacha-item-delete danger" type="button"><i class="fa-solid fa-trash"></i><span>删除</span></button>
+                      </div>
+                    </details>`
+                  : ''
+              }
+            </div>
+          </article>
+        `;
+      })
+      .join('');
+  };
+
+  const getGachaSettingsFilterLabel = (field: GachaSettingsFilterField, value: string): string => {
+    if (field === 'source') {
+      return GACHA_SETTINGS_SOURCE_FILTER_OPTIONS.find(option => option.value === value)?.label || '全部来源';
+    }
+    if (field === 'status') {
+      return GACHA_SETTINGS_STATUS_FILTER_OPTIONS.find(option => option.value === value)?.label || '全部状态';
+    }
+    return GACHA_SETTINGS_SORT_OPTIONS.find(option => option.value === value)?.label || '默认排序';
+  };
+
+  const renderGachaSettingsFilterMenuHtml = <T extends string>(
+    field: GachaSettingsFilterField,
+    options: readonly GachaSettingsFilterOption<T>[],
+    selectedValue: T,
+  ): string => {
+    const fallback = options[0];
+    if (!fallback) return '';
+    const selected = options.find(option => option.value === selectedValue) || fallback;
+    const optionHtml = options
+      .map(option => {
+        const active = option.value === selected.value;
+        return `
+          <button
+            class="acu-gacha-settings-filter-option ${active ? 'active' : ''}"
+            type="button"
+            role="menuitemradio"
+            aria-checked="${active ? 'true' : 'false'}"
+            data-filter-value="${escapeHtml(option.value)}"
+          >
+            <i class="fa-solid ${escapeHtml(option.iconClass)}"></i>
+            <span>${escapeHtml(option.label)}</span>
+          </button>
+        `;
+      })
+      .join('');
+    return `
+      <input class="acu-gacha-settings-${field}-filter" type="hidden" value="${escapeHtml(selected.value)}" />
+      <div class="acu-gacha-settings-filter-menu" data-filter-field="${field}">
+        <button class="acu-gacha-settings-filter-trigger" type="button" aria-haspopup="menu" aria-expanded="false">
+          <i class="fa-solid ${escapeHtml(selected.iconClass)}"></i>
+          <span class="acu-gacha-settings-filter-menu-label">${escapeHtml(selected.label)}</span>
+          <i class="fa-solid fa-chevron-down acu-gacha-settings-filter-chevron"></i>
+        </button>
+        <div class="acu-gacha-settings-filter-menu-list" role="menu">
+          ${optionHtml}
+        </div>
+      </div>
+    `;
+  };
+
+  const renderGachaPoolSettingsListHtml = (rawData): string => {
+    const itemDefinitions = getAllGachaItemDefinitions(rawData);
+    const counts = new Map<GachaPoolTag, number>();
+    itemDefinitions.forEach(item => {
+      item.poolTags.forEach(tag => {
+        counts.set(tag, (counts.get(tag) || 0) + 1);
+      });
+    });
+    const allPoolItems = getGachaCatalogItemsForExport(rawData, GACHA_ALL_POOL_TAG);
+    return getAllGachaPoolConfigDefinitions(rawData)
+      .map(pool => {
+        const isAllPool = pool.id === GACHA_ALL_POOL_TAG;
+        const poolItems = isAllPool ? allPoolItems : itemDefinitions.filter(item => item.poolTags.includes(pool.id));
+        const countText = isAllPool
+          ? `${poolItems.length} 个候选`
+          : `${counts.get(pool.id) || 0} 个物品`;
+        const visible = isAllPool || pool.visibleInTabs !== false;
+        const includeInAll = pool.includeInAll === true;
+        const canDeletePool = canDeleteGachaPoolDefinition(pool);
+        return `
+          <article class="acu-preset-item acu-gacha-settings-pool-item ${visible ? '' : 'is-hidden'}" data-pool-id="${escapeHtml(pool.id)}">
+            ${!isAllPool ? `<div class="acu-preset-handle acu-gacha-pool-handle" title="拖拽排序"><i class="fa-solid fa-grip-vertical"></i></div>` : '<div class="acu-gacha-pool-handle-placeholder"></div>'}
+            <div class="acu-gacha-settings-pool-main">
+              <div class="acu-gacha-settings-pool-name">
+                ${escapeHtml(pool.name)}
+                ${pool.builtin && !canDeletePool ? '<span>内置</span>' : '<span>自定义</span>'}
+              </div>
+              <div class="acu-gacha-settings-pool-meta">${escapeHtml(pool.id)} · ${escapeHtml(countText)}</div>
+            </div>
+            <div class="acu-gacha-settings-actions">
+              <button class="acu-preset-check acu-gacha-pool-visible-toggle" type="button" title="${isAllPool ? '全部卡池固定显示' : '显示/隐藏快捷标签'}" ${isAllPool ? 'disabled' : ''}>
+                <i class="fa-solid ${visible ? 'fa-eye' : 'fa-eye-slash'}"></i>
+              </button>
+              ${
+                isAllPool
+                  ? `<span class="acu-gacha-pool-all-fixed" title="全部是聚合卡池，不加入自身"><i class="fa-solid fa-layer-group"></i></span>`
+                  : `<label class="acu-toggle acu-gacha-pool-all-toggle" title="${includeInAll ? '已进入全部抽取范围' : '未进入全部抽取范围'}">
+                      <input class="acu-gacha-pool-all-check" type="checkbox" ${includeInAll ? 'checked' : ''} />
+                      <span class="acu-toggle-slider"></span>
+                    </label>`
+              }
+              <button class="acu-preset-btn acu-gacha-pool-export" type="button" title="导出此卡池"><i class="fa-solid fa-download"></i></button>
+              ${!isAllPool ? `<button class="acu-preset-btn acu-gacha-pool-rename" type="button" title="重命名"><i class="fa-solid fa-pen"></i></button>` : ''}
+              ${canDeletePool ? `<button class="acu-preset-btn acu-gacha-pool-delete acu-preset-delete" type="button" title="删除"><i class="fa-solid fa-trash"></i></button>` : ''}
+            </div>
+          </article>
+        `;
+      })
+      .join('');
+  };
+
+  const renderGachaSettingsPoolViewerHtml = (rawData, selectedPoolId: GachaPoolTag): string => {
+    const pool = getAllGachaPoolConfigDefinitions(rawData).find(candidate => candidate.id === selectedPoolId);
+    const safePoolId = pool?.id || GACHA_ALL_POOL_TAG;
+    const items = getGachaSettingsPoolItems(rawData, safePoolId);
+    return `
+      <section class="acu-gacha-settings-section acu-gacha-settings-items-section" data-pool-id="${escapeHtml(safePoolId)}">
+        <div class="acu-gacha-settings-section-head">
+          <div>
+            <strong>卡池物品：${escapeHtml(pool?.name || safePoolId)}</strong>
+            <span class="acu-gacha-settings-count">当前 ${escapeHtml(String(items.length))} 个</span>
+          </div>
+          <div class="acu-gacha-settings-toolbar">
+            ${renderGachaSettingsFilterMenuHtml('source', GACHA_SETTINGS_SOURCE_FILTER_OPTIONS, DEFAULT_GACHA_SETTINGS_ITEM_FILTERS.source)}
+            ${renderGachaSettingsFilterMenuHtml('status', GACHA_SETTINGS_STATUS_FILTER_OPTIONS, DEFAULT_GACHA_SETTINGS_ITEM_FILTERS.status)}
+            ${renderGachaSettingsFilterMenuHtml('sort', GACHA_SETTINGS_SORT_OPTIONS, DEFAULT_GACHA_SETTINGS_ITEM_FILTERS.sort)}
+            <label class="acu-gacha-settings-search">
+              <i class="fa-solid fa-search"></i>
+              <input class="acu-gacha-settings-item-search" type="text" placeholder="名称、类型、描述" autocomplete="off" />
+            </label>
+          </div>
+        </div>
+        ${renderGachaSettingsPoolTabsHtml(rawData, safePoolId)}
+        <div class="acu-gacha-settings-item-list">
+          ${renderGachaSettingsPoolItemsHtml(rawData, safePoolId)}
+          <div class="acu-inventory-empty compact acu-gacha-settings-filter-empty" style="display:none;"><i class="fa-solid fa-filter-circle-xmark"></i><span>没有符合筛选条件的物品</span></div>
+        </div>
+      </section>
+    `;
+  };
+
+  const showGachaSettingsDialog = async () => {
+    const { $ } = getCore();
+    const rawData = cachedRawData || getTableData();
+    await ensureGachaCatalogLoaded(rawData);
+    ensureGachaPoolsForTags(collectGachaPoolTagsFromItems(rawData));
+    $('.acu-gacha-settings-overlay').remove();
+
+    const config = getConfig();
+    const selectedSettingsPoolId = getStoredGachaSettingsPoolTag(rawData);
+    const overlay = $(`
+      <div class="acu-edit-overlay acu-gacha-settings-overlay acu-theme-${config.theme} ${config.showHorizontalScrollbar === true ? 'acu-show-horizontal-scrollbar' : ''}">
+        <div class="acu-edit-dialog acu-gacha-settings-dialog">
+          <div class="acu-gacha-settings-header">
+            <div class="acu-gacha-settings-title"><i class="fa-solid fa-sliders"></i> 骰子商城设置</div>
+            <div class="acu-gacha-settings-header-actions">
+              ${getTutorialButtonHtml('gachaSettings', '查看骰子商城设置教程', 'acu-help-btn')}
+              <button class="acu-close-btn acu-gacha-settings-close" type="button" title="关闭"><i class="fa-solid fa-times"></i></button>
+            </div>
+          </div>
+          <div class="acu-gacha-settings-body">
+            <section class="acu-gacha-settings-section">
+              <div class="acu-gacha-settings-section-head">
+                <div>
+                  <strong>卡池管理</strong>
+                </div>
+              </div>
+              <div class="acu-gacha-settings-pool-list" id="acu-gacha-settings-pool-list">
+                ${renderGachaPoolSettingsListHtml(rawData)}
+              </div>
+            </section>
+            ${renderGachaSettingsPoolViewerHtml(rawData, selectedSettingsPoolId)}
+          </div>
+          <div class="acu-gacha-settings-footer">
+            <button class="acu-dialog-btn acu-btn-confirm acu-gacha-pool-new" type="button"><i class="fa-solid fa-plus"></i> 新建卡池</button>
+            <button class="acu-dialog-btn acu-gacha-item-new" type="button"><i class="fa-solid fa-plus"></i> 新建物品</button>
+            <button class="acu-dialog-btn acu-gacha-settings-import" type="button"><i class="fa-solid fa-file-import"></i> 导入 JSON</button>
+            <button class="acu-dialog-btn acu-gacha-settings-export" type="button"><i class="fa-solid fa-file-export"></i> 导出 JSON</button>
+            <button class="acu-dialog-btn acu-gacha-settings-clear danger" type="button"><i class="fa-solid fa-broom"></i> 清空自定义</button>
+            <button class="acu-dialog-btn acu-gacha-settings-close" type="button"><i class="fa-solid fa-arrow-left"></i> 返回</button>
+          </div>
+        </div>
+      </div>
+    `);
+
+    $('body').append(overlay);
+    hydrateGachaLocalIconsIn(overlay);
+    bindTutorialButtonsIn(overlay);
+
+    const closeSettings = () => {
+      overlay.remove();
+      refreshGachaVisualization(rawData);
+      refreshGachaShardShop();
+    };
+    const settingsItemFilters: GachaSettingsItemFilterState = { ...DEFAULT_GACHA_SETTINGS_ITEM_FILTERS };
+    const getCurrentSettingsItemFiltersActive = () =>
+      Boolean(
+        settingsItemFilters.search ||
+          settingsItemFilters.source !== 'all' ||
+          settingsItemFilters.status !== 'all' ||
+          settingsItemFilters.sort !== 'default',
+      );
+    const toSettingsSourceFilter = (value: unknown): GachaSettingsItemSourceFilter => {
+      const text = String(value || '');
+      return text === 'custom' || text === 'builtin' ? text : 'all';
+    };
+    const toSettingsStatusFilter = (value: unknown): GachaSettingsItemStatusFilter => {
+      const text = String(value || '');
+      return text === 'enabled' || text === 'disabled' ? text : 'all';
+    };
+    const toSettingsSortMode = (value: unknown): GachaSettingsItemSortMode => {
+      const text = String(value || '');
+      return text === 'nameAsc' ||
+        text === 'nameDesc' ||
+        text === 'createdDesc' ||
+        text === 'createdAsc' ||
+        text === 'qualityDesc' ||
+        text === 'weightDesc'
+        ? text
+        : 'default';
+    };
+    const readNumberDataset = (element: HTMLElement, key: string): number => {
+      const value = Number(element.dataset[key] || 0);
+      return Number.isFinite(value) ? value : 0;
+    };
+    const filterInputSelectors: Record<GachaSettingsFilterField, string> = {
+      source: '.acu-gacha-settings-source-filter',
+      status: '.acu-gacha-settings-status-filter',
+      sort: '.acu-gacha-settings-sort-filter',
+    };
+    const normalizeGachaSettingsFilterField = (value: unknown): GachaSettingsFilterField | null => {
+      const text = String(value || '');
+      return text === 'source' || text === 'status' || text === 'sort' ? text : null;
+    };
+    const closeSettingsFilterMenus = (except?: HTMLElement) => {
+      overlay.find('.acu-gacha-settings-filter-menu.is-open').each(function () {
+        if (except && this === except) return;
+        this.classList.remove('is-open');
+        $(this).find('.acu-gacha-settings-filter-trigger').attr('aria-expanded', 'false');
+      });
+    };
+    const syncSettingsFilterMenuLabels = ($section: JQuery<HTMLElement>) => {
+      const syncMenu = (field: GachaSettingsFilterField, value: string, defaultValue: string) => {
+        const $menu = $section.find(`.acu-gacha-settings-filter-menu[data-filter-field="${field}"]`);
+        if (!$menu.length) return;
+        $menu.toggleClass('is-active', value !== defaultValue);
+        $menu.find('.acu-gacha-settings-filter-menu-label').text(getGachaSettingsFilterLabel(field, value));
+        $menu.find('.acu-gacha-settings-filter-option').each(function () {
+          const active = String($(this).data('filter-value') || '') === value;
+          $(this).toggleClass('active', active).attr('aria-checked', active ? 'true' : 'false');
+        });
+      };
+      syncMenu('source', settingsItemFilters.source, DEFAULT_GACHA_SETTINGS_ITEM_FILTERS.source);
+      syncMenu('status', settingsItemFilters.status, DEFAULT_GACHA_SETTINGS_ITEM_FILTERS.status);
+      syncMenu('sort', settingsItemFilters.sort, DEFAULT_GACHA_SETTINGS_ITEM_FILTERS.sort);
+    };
+    const syncSettingsItemFilterControls = () => {
+      const $section = overlay.find('.acu-gacha-settings-items-section').first();
+      if (!$section.length) return;
+      $section.find('.acu-gacha-settings-item-search').val(settingsItemFilters.search);
+      $section.find('.acu-gacha-settings-source-filter').val(settingsItemFilters.source);
+      $section.find('.acu-gacha-settings-status-filter').val(settingsItemFilters.status);
+      $section.find('.acu-gacha-settings-sort-filter').val(settingsItemFilters.sort);
+      syncSettingsFilterMenuLabels($section as JQuery<HTMLElement>);
+    };
+    const applySettingsItemFilters = () => {
+      const $section = overlay.find('.acu-gacha-settings-items-section').first();
+      if (!$section.length) return;
+      settingsItemFilters.search = String($section.find('.acu-gacha-settings-item-search').val() || '')
+        .trim()
+        .toLowerCase();
+      settingsItemFilters.source = toSettingsSourceFilter($section.find('.acu-gacha-settings-source-filter').val());
+      settingsItemFilters.status = toSettingsStatusFilter($section.find('.acu-gacha-settings-status-filter').val());
+      settingsItemFilters.sort = toSettingsSortMode($section.find('.acu-gacha-settings-sort-filter').val());
+
+      const items = $section.find('.acu-gacha-settings-item').toArray() as HTMLElement[];
+      let visibleCount = 0;
+      items.forEach(item => {
+        const searchMatched = !settingsItemFilters.search || String(item.dataset.search || '').includes(settingsItemFilters.search);
+        const sourceMatched =
+          settingsItemFilters.source === 'all' || String(item.dataset.source || '') === settingsItemFilters.source;
+        const statusMatched =
+          settingsItemFilters.status === 'all' ||
+          (settingsItemFilters.status === 'enabled' && item.dataset.enabled === 'true') ||
+          (settingsItemFilters.status === 'disabled' && item.dataset.enabled === 'false');
+        const matched = searchMatched && sourceMatched && statusMatched;
+        item.style.display = matched ? '' : 'none';
+        item.classList.toggle('is-filtered-out', !matched);
+        if (matched) visibleCount += 1;
+      });
+
+      const sortedItems = [...items].sort((left, right) => {
+        if (settingsItemFilters.sort === 'nameAsc') {
+          return String(left.dataset.name || '').localeCompare(String(right.dataset.name || ''), 'zh-CN');
+        }
+        if (settingsItemFilters.sort === 'nameDesc') {
+          return String(right.dataset.name || '').localeCompare(String(left.dataset.name || ''), 'zh-CN');
+        }
+        if (settingsItemFilters.sort === 'createdDesc') {
+          return readNumberDataset(right, 'createdAt') - readNumberDataset(left, 'createdAt');
+        }
+        if (settingsItemFilters.sort === 'createdAsc') {
+          return readNumberDataset(left, 'createdAt') - readNumberDataset(right, 'createdAt');
+        }
+        if (settingsItemFilters.sort === 'qualityDesc') {
+          return readNumberDataset(right, 'qualityRank') - readNumberDataset(left, 'qualityRank');
+        }
+        if (settingsItemFilters.sort === 'weightDesc') {
+          return readNumberDataset(right, 'weight') - readNumberDataset(left, 'weight');
+        }
+        return readNumberDataset(left, 'defaultIndex') - readNumberDataset(right, 'defaultIndex');
+      });
+
+      const list = $section.find('.acu-gacha-settings-item-list')[0];
+      if (list) sortedItems.forEach(item => list.appendChild(item));
+      $section.find('.acu-gacha-settings-count').text(`当前 ${visibleCount} / ${items.length} 个`);
+      $section.find('.acu-gacha-settings-filter-empty').toggle(visibleCount === 0 && items.length > 0);
+      $section.toggleClass('is-searching', getCurrentSettingsItemFiltersActive());
+      syncSettingsFilterMenuLabels($section as JQuery<HTMLElement>);
+    };
+    const bindSettingsItemSortable = () => {
+      const $list = overlay.find('.acu-gacha-settings-item-list').first();
+      if (!$list.length) return;
+      createSortableList({
+        container: $list,
+        itemSelector: '.acu-gacha-settings-item',
+        handleSelector: '.acu-gacha-item-handle',
+        cancelSelector: 'button, input, textarea, select, label, summary, .acu-gacha-settings-more',
+        canStartDrag: () => {
+          if (!getCurrentSettingsItemFiltersActive()) return true;
+          if (window.toastr) window.toastr.info('筛选或排序时暂不允许拖拽排序，请恢复默认条件后再调整顺序');
+          return false;
+        },
+        getItemId: item => {
+          const id = item.dataset.itemId;
+          return id ? String(id) : null;
+        },
+        onOrderChange: newOrderIds => {
+          newOrderIds.forEach((id, index) => setGachaItemOrder(id, (index + 1) * 10));
+          const currentPoolId = normalizeGachaPoolId(overlay.find('.acu-gacha-settings-items-section').data('pool-id'));
+          refreshSettingsPoolViewer(currentPoolId || GACHA_ALL_POOL_TAG);
+          refreshGachaVisualization(rawData);
+          refreshGachaShardShop();
+        },
+      });
+    };
+    const refreshSettingsPoolViewer = (poolId: GachaPoolTag) => {
+      const normalizedPoolId = normalizeGachaPoolId(poolId);
+      if (!getAllGachaPoolConfigDefinitions(rawData).some(pool => pool.id === normalizedPoolId)) return;
+      saveStoredGachaSettingsPoolTag(normalizedPoolId);
+      overlay
+        .find('.acu-gacha-settings-items-section')
+        .replaceWith(renderGachaSettingsPoolViewerHtml(rawData, normalizedPoolId));
+      hydrateGachaLocalIconsIn(overlay);
+      syncSettingsItemFilterControls();
+      applySettingsItemFilters();
+      bindSettingsItemSortable();
+    };
+
+    overlay.on('click', '.acu-gacha-settings-close', closeSettings);
+    setupOverlayClose(overlay, 'acu-gacha-settings-overlay', closeSettings);
+
+    overlay.on('click', '.acu-gacha-pool-new', () => {
+      void (async () => {
+        const name = await showGachaPoolNameDialog({
+          title: '新建卡池',
+          label: '卡池显示名',
+          initialValue: '新卡池',
+          confirmText: '创建',
+        });
+        const poolId = normalizeGachaPoolId(name);
+        if (!poolId) return;
+        if (getConfiguredGachaPoolDefinitions().some(pool => pool.id === poolId)) {
+          if (window.toastr) window.toastr.warning('这个卡池已经存在');
+          return;
+        }
+        ensureGachaPoolsForTags([poolId]);
+        saveStoredGachaSettingsPoolTag(poolId);
+        void showGachaSettingsDialog();
+      })();
+    });
+
+    overlay.on('click', '.acu-gacha-settings-pool-tab', function () {
+      const poolId = normalizeGachaPoolId($(this).data('pool-id'));
+      if (!poolId) return;
+      refreshSettingsPoolViewer(poolId);
+    });
+
+    overlay.on('click', '.acu-gacha-pool-visible-toggle', function () {
+      const poolId = normalizeGachaPoolId($(this).closest('.acu-gacha-settings-pool-item').data('pool-id'));
+      const pool = getConfiguredGachaPoolDefinitions().find(candidate => candidate.id === poolId);
+      if (!pool || pool.id === GACHA_ALL_POOL_TAG) return;
+      updateGachaPoolConfig(poolId, { visibleInTabs: pool.visibleInTabs === false });
+      void showGachaSettingsDialog();
+    });
+
+    overlay.on('change', '.acu-gacha-pool-all-check', function () {
+      const poolId = normalizeGachaPoolId($(this).closest('.acu-gacha-settings-pool-item').data('pool-id'));
+      const pool = getConfiguredGachaPoolDefinitions().find(candidate => candidate.id === poolId);
+      if (!pool || pool.id === GACHA_ALL_POOL_TAG) return;
+      updateGachaPoolConfig(poolId, { includeInAll: pool.includeInAll !== true });
+      void showGachaSettingsDialog();
+    });
+
+    overlay.on('click', '.acu-gacha-pool-rename', function () {
+      void (async () => {
+        const poolId = normalizeGachaPoolId($(this).closest('.acu-gacha-settings-pool-item').data('pool-id'));
+        const pool = getConfiguredGachaPoolDefinitions().find(candidate => candidate.id === poolId);
+        if (!pool || pool.id === GACHA_ALL_POOL_TAG) return;
+        const name = await showGachaPoolNameDialog({
+          title: '重命名卡池',
+          label: '卡池显示名',
+          initialValue: pool.name,
+          confirmText: '保存',
+        });
+        if (name === null) return;
+        updateGachaPoolConfig(poolId, { name });
+        void showGachaSettingsDialog();
+      })();
+    });
+
+    overlay.on('click', '.acu-gacha-pool-export', function () {
+      const poolId = normalizeGachaPoolId($(this).closest('.acu-gacha-settings-pool-item').data('pool-id'));
+      if (!poolId) return;
+      void downloadGachaCatalogJson(poolId);
+    });
+
+    overlay.on('click', '.acu-gacha-pool-delete', function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      const poolId = normalizeGachaPoolId($(this).closest('.acu-gacha-settings-pool-item').data('pool-id'));
+      const pool = getConfiguredGachaPoolDefinitions().find(candidate => candidate.id === poolId);
+      if (!pool || !canDeleteGachaPoolDefinition(pool)) return;
+      void (async () => {
+        const confirmed = await showGachaConfirmDialog({
+          title: '删除卡池',
+          message: `确定删除卡池「${pool.name}」吗？`,
+          detail:
+            pool.id === GACHA_CUSTOM_ONLY_POOL_TAG
+              ? '仅属于该卡池的自定义物品会一并删除；已经写入物品表或装备表的奖励不会被删除。'
+              : '仅属于该卡池的自定义物品会转入“自定义”卡池；已经写入物品表或装备表的奖励不会被删除。',
+          iconClass: 'fa-trash',
+          confirmText: '删除',
+          danger: true,
+        });
+        if (!confirmed) return;
+        await deleteGachaPoolConfig(poolId, rawData);
+        void showGachaSettingsDialog();
+      })();
+    });
+
+    overlay.on('click', '.acu-gacha-settings-filter-trigger', function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      const menu = $(this).closest('.acu-gacha-settings-filter-menu')[0] as HTMLElement | undefined;
+      if (!menu) return;
+      const nextOpen = !menu.classList.contains('is-open');
+      closeSettingsFilterMenus(menu);
+      menu.classList.toggle('is-open', nextOpen);
+      $(this).attr('aria-expanded', nextOpen ? 'true' : 'false');
+    });
+
+    overlay.on('click', '.acu-gacha-settings-filter-option', function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      const $menu = $(this).closest('.acu-gacha-settings-filter-menu');
+      const field = normalizeGachaSettingsFilterField($menu.data('filter-field'));
+      if (!field) return;
+      const value = String($(this).data('filter-value') || '');
+      const $section = $(this).closest('.acu-gacha-settings-items-section');
+      $section.find(filterInputSelectors[field]).val(value);
+      closeSettingsFilterMenus();
+      applySettingsItemFilters();
+    });
+
+    overlay.on('click', function (event) {
+      const target = event.target;
+      if (target instanceof Element && target.closest('.acu-gacha-settings-filter-menu')) return;
+      closeSettingsFilterMenus();
+    });
+
+    overlay.on('input', '.acu-gacha-settings-item-search', function () {
+      applySettingsItemFilters();
+    });
+
+    overlay.on(
+      'change',
+      '.acu-gacha-settings-source-filter, .acu-gacha-settings-status-filter, .acu-gacha-settings-sort-filter',
+      function () {
+        applySettingsItemFilters();
+      },
+    );
+
+    overlay.on('keydown', '.acu-gacha-settings-item-search', function (event) {
+      const key = event.originalEvent?.key || '';
+      if (key !== 'Escape') return;
+      $(this).val('');
+      applySettingsItemFilters();
+    });
+
+    const shouldIgnoreGachaSettingsItemRowClick = (target: EventTarget | null): boolean => {
+      if (!(target instanceof Element)) return false;
+      return Boolean(
+        target.closest(
+          '.acu-gacha-settings-actions, .acu-gacha-settings-more, .acu-gacha-settings-filter-menu, .acu-gacha-item-handle, button, input, label, select, textarea, a, summary',
+        ),
+      );
+    };
+
+    const showSettingsItemDetailFromRow = (row: HTMLElement) => {
+      const itemId = String($(row).data('item-id') || '').trim();
+      if (itemId) showGachaPickupItemDetail(itemId);
+    };
+
+    overlay.on('click', '.acu-gacha-settings-item', function (event) {
+      if (shouldIgnoreGachaSettingsItemRowClick(event.target)) return;
+      showSettingsItemDetailFromRow(this);
+    });
+
+    overlay.on('keydown', '.acu-gacha-settings-item', function (event) {
+      const key = event.originalEvent?.key || '';
+      if (key !== 'Enter' && key !== ' ') return;
+      if (shouldIgnoreGachaSettingsItemRowClick(event.target)) return;
+      event.preventDefault();
+      showSettingsItemDetailFromRow(this);
+    });
+
+    overlay.on('change', '.acu-gacha-item-enabled-check', function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      const itemId = String($(this).closest('.acu-gacha-settings-item').data('item-id') || '').trim();
+      if (!itemId) return;
+      updateGachaItemSetting(itemId, { enabled: $(this).prop('checked') === true });
+      const currentPoolId = normalizeGachaPoolId($(this).closest('.acu-gacha-settings-items-section').data('pool-id'));
+      refreshSettingsPoolViewer(currentPoolId || GACHA_ALL_POOL_TAG);
+      refreshGachaVisualization(rawData);
+      refreshGachaShardShop();
+    });
+
+    overlay.on('click', '.acu-gacha-item-new', function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      const $itemSection = $(this).closest('.acu-gacha-settings-items-section').length
+        ? $(this).closest('.acu-gacha-settings-items-section')
+        : overlay.find('.acu-gacha-settings-items-section').first();
+      const selectedPoolId = normalizeGachaPoolId($itemSection.data('pool-id'));
+      const initialPoolId = selectedPoolId && selectedPoolId !== GACHA_ALL_POOL_TAG ? selectedPoolId : GACHA_CUSTOM_ONLY_POOL_TAG;
+      void showGachaItemEditorDialog(null, initialPoolId);
+    });
+
+    overlay.on('click', '.acu-gacha-item-edit', function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      const itemId = String($(this).closest('.acu-gacha-settings-item').data('item-id') || '').trim();
+      if (itemId) void showGachaItemEditorDialog(itemId);
+    });
+
+    overlay.on('click', '.acu-gacha-item-delete', function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      const itemId = String($(this).closest('.acu-gacha-settings-item').data('item-id') || '').trim();
+      if (!itemId) return;
+      const item = getCustomGachaItemDefinitions(rawData).find(candidate => candidate.id === itemId);
+      if (!item) return;
+      void (async () => {
+        const confirmed = await showGachaConfirmDialog({
+          title: '删除自定义物品',
+          message: `确定删除「${item.name}」吗？`,
+          detail: '只会从骰子商店自定义卡池中删除，不会删除已经写入物品表或装备表的奖励。',
+          iconClass: 'fa-trash',
+          confirmText: '删除',
+          danger: true,
+        });
+        if (!confirmed) return;
+        const nextItems = getCustomGachaItemDefinitions(rawData).filter(candidate => candidate.id !== itemId);
+        if (item.localIconKey) await GachaItemIconDB.delete(item.localIconKey);
+        deleteGachaItemSetting(itemId);
+        await saveStoredGachaCatalog(nextItems);
+        refreshGachaVisualization(rawData);
+        refreshGachaShardShop();
+        void showGachaSettingsDialog();
+      })();
+    });
+
+    overlay.on('click', '.acu-gacha-settings-import', () => importGachaCatalogJsonFromFile());
+    overlay.on('click', '.acu-gacha-settings-export', () => void downloadGachaCatalogJson());
+    overlay.on('click', '.acu-gacha-settings-clear', () => void showGachaCatalogClearDialog());
+
+    createSortableList({
+      container: overlay.find('#acu-gacha-settings-pool-list'),
+      itemSelector: '.acu-gacha-settings-pool-item',
+      handleSelector: '.acu-gacha-pool-handle',
+      cancelSelector: 'button, input, textarea, select',
+      getItemId: item => {
+        const id = $(item).data('pool-id');
+        if (typeof id === 'string') return id;
+        if (id !== undefined && id !== null) return String(id);
+        return null;
+      },
+      onOrderChange: newOrderIds => {
+        newOrderIds
+          .filter(id => id !== GACHA_ALL_POOL_TAG)
+          .forEach((id, index) => setGachaPoolOrder(id, (index + 1) * 10));
+        void showGachaSettingsDialog();
+      },
+    });
+    applySettingsItemFilters();
+    bindSettingsItemSortable();
+  };
+
+  const showGachaItemEditorDialog = async (itemId: string | null, initialPoolTag?: GachaPoolTag) => {
+    const { $ } = getCore();
+    const rawData = cachedRawData || getTableData();
+    await ensureGachaCatalogLoaded(rawData);
+    const customItems = getCustomGachaItemDefinitions(rawData);
+    const existingItem = itemId ? customItems.find(item => item.id === itemId) || null : null;
+    if (itemId && !existingItem) {
+      if (window.toastr) window.toastr.warning('内置物品不能编辑定义，只能调整启用状态和顺序');
+      return;
+    }
+    const existingResolvedItem = existingItem
+      ? getAllGachaItemDefinitions(rawData).find(item => item.id === existingItem.id) || existingItem
+      : null;
+    const storedPools = getAllGachaPoolConfigDefinitions(rawData).filter(pool => pool.id !== GACHA_ALL_POOL_TAG);
+    const normalizedInitialPoolTag = normalizeGachaPoolId(initialPoolTag);
+    const needsDefaultCustomPool =
+      !existingItem &&
+      (!normalizedInitialPoolTag ||
+        normalizedInitialPoolTag === GACHA_ALL_POOL_TAG ||
+        !storedPools.some(pool => pool.id === normalizedInitialPoolTag));
+    const pools =
+      needsDefaultCustomPool && !storedPools.some(pool => pool.id === GACHA_CUSTOM_ONLY_POOL_TAG)
+        ? [
+            ...storedPools,
+            buildDefaultGachaPoolDefinition(GACHA_CUSTOM_ONLY_POOL_TAG, {
+              name: GACHA_CUSTOM_ONLY_POOL_TAG,
+              builtin: false,
+              visibleInTabs: true,
+              includeInAll: false,
+              order: storedPools.reduce((max, pool) => Math.max(max, Number(pool.order) || 0), 0) + 10,
+            }),
+          ]
+        : storedPools;
+    const initialPoolExists = pools.some(pool => pool.id === normalizedInitialPoolTag);
+    const item = existingResolvedItem || {
+      id: '',
+      name: '',
+      type: '道具',
+      quality: '普通' as GachaRarity,
+      description: '',
+      poolTags: [initialPoolExists ? normalizedInitialPoolTag : GACHA_CUSTOM_ONLY_POOL_TAG],
+      enabled: true,
+      order: undefined,
+      weight: 1,
+      stackable: false,
+      unique: false,
+      grantQuantity: 1,
+      rewardTarget: 'inventory' as GachaRewardTarget,
+    };
+    const config = getConfig();
+    const poolOptionsHtml = pools
+      .map(pool => {
+        const checked = item.poolTags.includes(pool.id);
+        return `
+          <label class="acu-gacha-item-pool-option">
+            <input class="acu-gacha-item-pool-check" type="checkbox" value="${escapeHtml(pool.id)}" ${checked ? 'checked' : ''} />
+            <span>${escapeHtml(pool.name)}</span>
+          </label>
+        `;
+      })
+      .join('');
+    const rarityOptionsHtml = GACHA_RARITY_ORDER.map(
+      rarity => `<option value="${escapeHtml(rarity)}" ${item.quality === rarity ? 'selected' : ''}>${escapeHtml(rarity)}</option>`,
+    ).join('');
+    const targetOptionsHtml = GACHA_REWARD_TARGETS.map(
+      target => `<option value="${escapeHtml(target)}" ${item.rewardTarget === target ? 'selected' : ''}>${target === 'equipment' ? '装备' : '物品'}</option>`,
+    ).join('');
+
+    $('.acu-gacha-item-editor-overlay').remove();
+    const overlay = $(`
+      <div class="acu-edit-overlay acu-gacha-item-editor-overlay acu-theme-${config.theme}">
+        <form class="acu-edit-dialog acu-gacha-item-editor">
+          <div class="acu-gacha-settings-header">
+            <div class="acu-gacha-settings-title"><i class="fa-solid fa-box"></i> ${existingItem ? '编辑自定义物品' : '新建自定义物品'}</div>
+            <div class="acu-gacha-settings-header-actions">
+              ${getTutorialButtonHtml('gachaItemEditor', '查看自定义物品编辑教程', 'acu-help-btn')}
+              <button class="acu-close-btn acu-gacha-item-editor-close" type="button" title="关闭"><i class="fa-solid fa-times"></i></button>
+            </div>
+          </div>
+          <div class="acu-gacha-item-editor-body">
+            <label class="acu-gacha-item-field acu-gacha-item-name-field"><span>名称</span><input class="acu-gacha-item-name" type="text" value="${escapeHtml(item.name)}" maxlength="80" required /></label>
+            <label class="acu-gacha-item-field acu-gacha-item-type-field"><span>类型</span><input class="acu-gacha-item-type" type="text" value="${escapeHtml(item.type)}" maxlength="40" /></label>
+            <label class="acu-gacha-item-field acu-gacha-item-quality-field"><span>品质</span><select class="acu-gacha-item-quality">${rarityOptionsHtml}</select></label>
+            <label class="acu-gacha-item-field acu-gacha-item-target-field"><span>发放目标</span><select class="acu-gacha-item-target">${targetOptionsHtml}</select></label>
+            <label class="acu-gacha-item-field acu-gacha-item-weight-field"><span>权重</span><input class="acu-gacha-item-weight" type="number" min="0.01" step="0.01" value="${escapeHtml(String(item.weight || 1))}" /></label>
+            <label class="acu-gacha-item-field acu-gacha-item-quantity-field"><span>发放数量</span><input class="acu-gacha-item-quantity" type="number" min="1" step="1" value="${escapeHtml(String(item.grantQuantity || 1))}" /></label>
+            <label class="wide acu-gacha-item-field acu-gacha-item-description-field"><span>描述</span><textarea class="acu-gacha-item-description" rows="3">${escapeHtml(item.description || '')}</textarea></label>
+            <div class="wide acu-gacha-item-pools">
+              <span>所属卡池</span>
+              <div>${poolOptionsHtml}</div>
+            </div>
+            <div class="wide acu-gacha-icon-editor-card">
+              <div class="acu-gacha-icon-editor-preview">${renderGachaItemIconContent(item)}</div>
+              <div class="acu-gacha-icon-editor-fields">
+                <label class="acu-gacha-item-field acu-gacha-item-icon-field"><span>符号图标</span><input class="acu-gacha-item-icon" type="text" value="${escapeHtml(item.icon || '')}" placeholder="fa:coins / ti:wand / ✨" /></label>
+                <label class="acu-gacha-item-field acu-gacha-item-icon-url-field"><span>图片 URL</span><input class="acu-gacha-item-icon-url" type="url" value="${escapeHtml(item.iconUrl || '')}" placeholder="https://..." /></label>
+                <label class="acu-gacha-icon-upload">
+                  <span><i class="fa-solid fa-image"></i> 本地图标</span>
+                  <input class="acu-gacha-item-icon-file" type="file" accept="image/*" />
+                  <strong><i class="fa-solid fa-upload"></i> 选择图片</strong>
+                  <small>仅保存到本机 IndexedDB，普通 JSON 导出不会包含图片文件</small>
+                </label>
+                ${
+                  item.localIconKey
+                    ? `<label class="acu-gacha-item-checkbox acu-gacha-clear-local-icon-row"><input class="acu-gacha-item-clear-local-icon" type="checkbox" /> <span>清除当前本地图标</span></label>`
+                    : ''
+                }
+              </div>
+            </div>
+            <div class="wide acu-gacha-item-flags">
+              <label class="acu-gacha-item-checkbox acu-gacha-item-stackable-field"><input class="acu-gacha-item-stackable" type="checkbox" ${item.stackable ? 'checked' : ''} /> <span>可堆叠</span></label>
+              <label class="acu-gacha-item-checkbox acu-gacha-item-unique-field"><input class="acu-gacha-item-unique" type="checkbox" ${item.unique ? 'checked' : ''} /> <span>唯一物品</span></label>
+            </div>
+          </div>
+          <div class="acu-gacha-settings-footer">
+            <button class="acu-dialog-btn acu-gacha-item-editor-close" type="button">取消</button>
+            <button class="acu-dialog-btn acu-btn-confirm" type="submit"><i class="fa-solid fa-check"></i> 保存</button>
+          </div>
+        </form>
+      </div>
+    `);
+    $('body').append(overlay);
+    hydrateGachaLocalIconsIn(overlay);
+    bindTutorialButtonsIn(overlay);
+
+    let previewObjectUrl: string | null = null;
+    const revokePreviewObjectUrl = () => {
+      if (!previewObjectUrl) return;
+      URL.revokeObjectURL(previewObjectUrl);
+      previewObjectUrl = null;
+    };
+    const refreshEditorIconPreview = () => {
+      revokePreviewObjectUrl();
+      const icon = String(overlay.find('.acu-gacha-item-icon').val() || '').trim();
+      const iconUrl = String(overlay.find('.acu-gacha-item-icon-url').val() || '').trim();
+      const shouldClearLocalIcon = overlay.find('.acu-gacha-item-clear-local-icon').prop('checked') === true;
+      const fileInput = overlay.find('.acu-gacha-item-icon-file')[0] as HTMLInputElement | undefined;
+      const iconFile = fileInput?.files?.[0] || null;
+      if (iconFile && iconFile.type.startsWith('image/')) {
+        previewObjectUrl = URL.createObjectURL(iconFile);
+      }
+      const previewItem: Pick<GachaItemDefinition, 'name' | 'type' | 'icon' | 'iconUrl' | 'localIconKey'> = {
+        name: String(overlay.find('.acu-gacha-item-name').val() || item.name || '').trim(),
+        type: String(overlay.find('.acu-gacha-item-type').val() || item.type || '').trim(),
+        icon: icon || undefined,
+        iconUrl: previewObjectUrl || iconUrl || undefined,
+        localIconKey: (previewObjectUrl || iconUrl || shouldClearLocalIcon) ? undefined : item.localIconKey,
+      };
+      const $preview = overlay.find('.acu-gacha-icon-editor-preview');
+      $preview.html(renderGachaItemIconContent(previewItem));
+      hydrateGachaLocalIconsIn($preview);
+    };
+    const closeEditor = () => {
+      revokePreviewObjectUrl();
+      overlay.remove();
+    };
+    overlay.on('click', '.acu-gacha-item-editor-close', closeEditor);
+    setupOverlayClose(overlay, 'acu-gacha-item-editor-overlay', closeEditor);
+    overlay.on(
+      'input change',
+      '.acu-gacha-item-name, .acu-gacha-item-type, .acu-gacha-item-icon, .acu-gacha-item-icon-url, .acu-gacha-item-icon-file, .acu-gacha-item-clear-local-icon',
+      refreshEditorIconPreview,
+    );
+
+    overlay.on('submit', '.acu-gacha-item-editor', function (event) {
+      event.preventDefault();
+      void (async () => {
+        const name = String(overlay.find('.acu-gacha-item-name').val() || '').trim();
+        const type = String(overlay.find('.acu-gacha-item-type').val() || '').trim() || '道具';
+        const quality = String(overlay.find('.acu-gacha-item-quality').val() || '普通') as GachaRarity;
+        const rewardTarget = String(overlay.find('.acu-gacha-item-target').val() || 'inventory') as GachaRewardTarget;
+        const description = String(overlay.find('.acu-gacha-item-description').val() || '').trim();
+        const icon = String(overlay.find('.acu-gacha-item-icon').val() || '').trim();
+        const iconUrl = String(overlay.find('.acu-gacha-item-icon-url').val() || '').trim();
+        const weight = Number(overlay.find('.acu-gacha-item-weight').val());
+        const grantQuantity = Math.floor(Number(overlay.find('.acu-gacha-item-quantity').val()));
+        const stackable = overlay.find('.acu-gacha-item-stackable').prop('checked') === true;
+        const unique = overlay.find('.acu-gacha-item-unique').prop('checked') === true;
+        const poolTags = overlay
+          .find('.acu-gacha-item-pool-check:checked')
+          .toArray()
+          .map(element => normalizeGachaPoolId((element as HTMLInputElement).value))
+          .filter(Boolean);
+
+        if (!name) {
+          if (window.toastr) window.toastr.warning('请输入物品名称');
+          return;
+        }
+        if (!GACHA_RARITY_ORDER.includes(quality)) {
+          if (window.toastr) window.toastr.warning('物品品质不合法');
+          return;
+        }
+        if (!GACHA_REWARD_TARGETS.includes(rewardTarget)) {
+          if (window.toastr) window.toastr.warning('发放目标不合法');
+          return;
+        }
+        if (!Number.isFinite(weight) || weight <= 0) {
+          if (window.toastr) window.toastr.warning('权重必须大于 0');
+          return;
+        }
+        if (!Number.isFinite(grantQuantity) || grantQuantity <= 0) {
+          if (window.toastr) window.toastr.warning('发放数量必须是正整数');
+          return;
+        }
+        if (poolTags.length === 0) {
+          if (window.toastr) window.toastr.warning('请至少选择一个卡池');
+          return;
+        }
+
+        ensureGachaPoolsForTags(poolTags);
+        const existingIds = new Set(getAllGachaItemDefinitions(rawData).map(candidate => candidate.id));
+        if (existingItem) existingIds.delete(existingItem.id);
+        const id = existingItem?.id || createUniqueGachaItemId(buildStableGachaCustomItemId({ name, quality, type }), existingIds);
+        let localIconKey = existingItem?.localIconKey;
+        const shouldClearLocalIcon = overlay.find('.acu-gacha-item-clear-local-icon').prop('checked') === true;
+        const fileInput = overlay.find('.acu-gacha-item-icon-file')[0] as HTMLInputElement | undefined;
+        const iconFile = fileInput?.files?.[0] || null;
+        if (shouldClearLocalIcon && localIconKey) {
+          await GachaItemIconDB.delete(localIconKey);
+          localIconKey = undefined;
+        }
+        if (iconFile) {
+          if (!iconFile.type.startsWith('image/')) {
+            if (window.toastr) window.toastr.warning('请选择图片文件');
+            return;
+          }
+          if (iconFile.size > 5 * 1024 * 1024) {
+            if (window.toastr) window.toastr.warning('图片大小不能超过 5MB');
+            return;
+          }
+          localIconKey = localIconKey || `gacha_item_${id}`;
+          const saved = await GachaItemIconDB.save(localIconKey, iconFile);
+          if (!saved) {
+            if (window.toastr) window.toastr.error('本地图标保存失败');
+            return;
+          }
+        }
+
+        const savedAt = Date.now();
+        const nextItem: GachaItemDefinition = {
+          id,
+          name,
+          type,
+          quality,
+          description,
+          poolTags,
+          icon: icon || undefined,
+          iconUrl: iconUrl || undefined,
+          localIconKey,
+          enabled: isGachaItemEnabled(item),
+          order: item.order,
+          createdAt: existingItem?.createdAt || savedAt,
+          updatedAt: savedAt,
+          weight,
+          stackable,
+          unique,
+          grantQuantity,
+          rewardTarget,
+        };
+        const nextItems = existingItem
+          ? customItems.map(candidate => (candidate.id === existingItem.id ? nextItem : candidate))
+          : [...customItems, nextItem];
+        await saveStoredGachaCatalog(nextItems);
+        refreshGachaVisualization(rawData);
+        refreshGachaShardShop();
+        closeEditor();
+        if (window.toastr) window.toastr.success(existingItem ? '自定义物品已更新' : '自定义物品已创建');
+        void showGachaSettingsDialog();
+      })();
+    });
   };
 
   const dismantleInventoryItem = async (rowIndex: number) => {
@@ -42368,6 +44382,83 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return { tableName, tableKey: inventoryResult.key || '', headers, items, colMap };
   };
 
+  const getEquipmentResult = rawData => {
+    const tables = processJsonData(rawData || {});
+    return DashboardDataParser.findTable(tables, 'equip');
+  };
+
+  const getEquipmentColumnMap = equipmentResult => {
+    const headers = equipmentResult?.data?.headers || [];
+    const config = equipmentResult?.config || DASHBOARD_TABLE_CONFIG.equip;
+    const findExtra = (keywords, fallbackIndex) => {
+      for (let i = 0; i < headers.length; i++) {
+        const header = String(headers[i] || '').toLowerCase();
+        if (keywords.some(keyword => header.includes(keyword.toLowerCase()))) return i;
+      }
+      return fallbackIndex;
+    };
+    return {
+      name: DashboardDataParser.findColumnIndex(headers, 'name', config),
+      type: DashboardDataParser.findColumnIndex(headers, 'type', config),
+      part: DashboardDataParser.findColumnIndex(headers, 'part', config),
+      status: DashboardDataParser.findColumnIndex(headers, 'isEquipped', config),
+      quantity: findExtra(['数量', '件数', '持有数'], -1),
+      quality: findExtra(['品质', '稀有度', '品级'], 5),
+      description: findExtra(['描述', '说明', '效果', '备注'], 6),
+    };
+  };
+
+  const parseEquipmentItems = rawData => {
+    const equipmentResult = getEquipmentResult(rawData);
+    if (!equipmentResult?.data) {
+      return {
+        tableName: '装备表',
+        tableKey: '',
+        headers: [],
+        items: [] as InventoryParsedItem[],
+        colMap: getEquipmentColumnMap(equipmentResult),
+      };
+    }
+
+    const headers = equipmentResult.data.headers || [];
+    const rows = equipmentResult.data.rows || [];
+    const colMap = getEquipmentColumnMap(equipmentResult);
+    const tableName = equipmentResult.name || '装备表';
+
+    const items = rows
+      .map((row, rowIndex) => {
+        const name = String(row[colMap.name] ?? '').trim();
+        if (!name) return null;
+        const rawRowIndex = Number((row as Record<string, unknown>)[GACHA_CATALOG_RAW_ROW_INDEX_PROP]);
+        const rawQuantity = colMap.quantity >= 0 ? String(row[colMap.quantity] ?? '1').trim() : '1';
+        const quantity = Number.parseInt(rawQuantity, 10);
+        const rowNewKey = `${tableName}-row-${rowIndex}`;
+        const statusChangedKey =
+          typeof colMap.status === 'number' && colMap.status >= 0 ? `${tableName}-${rowIndex}-${colMap.status}` : '';
+        const isNew = currentDiffMap.has(rowNewKey);
+        const quantityChanged =
+          (colMap.quantity >= 0 && currentDiffMap.has(`${tableName}-${rowIndex}-${colMap.quantity}`)) ||
+          (statusChangedKey ? currentDiffMap.has(statusChangedKey) : false);
+        return {
+          name,
+          type: String(row[colMap.type] ?? '装备').trim() || '装备',
+          quantityText: rawQuantity || '1',
+          quantity: Number.isFinite(quantity) ? quantity : 1,
+          quality: String(row[colMap.quality] ?? '普通').trim() || '普通',
+          description: String(row[colMap.description] ?? '').trim(),
+          rowIndex: Number.isFinite(rawRowIndex) ? rawRowIndex : rowIndex,
+          tableName,
+          tableKey: equipmentResult.key || '',
+          isNew,
+          quantityChanged,
+          isChanged: isNew || quantityChanged,
+        };
+      })
+      .filter((item): item is InventoryParsedItem => Boolean(item));
+
+    return { tableName, tableKey: equipmentResult.key || '', headers, items, colMap };
+  };
+
   const getStoredGachaShardShopRarity = (): GachaRarity => {
     const stored = String(Store.get(STORAGE_KEY_GACHA_SHARD_SHOP_RARITY, '普通') || '普通') as GachaRarity;
     return GACHA_RARITY_ORDER.includes(stored) ? stored : '普通';
@@ -42378,15 +44469,34 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   };
 
   const isGachaItemOwned = (rawData, item: GachaItemDefinition): boolean => {
-    const parsed = parseInventoryItems(rawData);
+    const parsed = getGachaRewardParseResult(rawData, item.rewardTarget);
     return parsed.items.some(candidate => candidate.name === item.name);
   };
 
   const renderGachaShardShopHtml = rawData => {
     const config = getConfig();
+    const horizontalScrollbarClass = config.showHorizontalScrollbar === true ? 'acu-show-horizontal-scrollbar' : '';
     const state = getGachaState(rawData, true) || createDefaultGachaState();
+    const activePoolTag = getGachaActivePoolTag(state);
     const activeRarity = getStoredGachaShardShopRarity();
-    const parsed = parseInventoryItems(rawData);
+    const poolTabsHtml = getVisibleGachaPoolConfigDefinitions(rawData)
+      .map(pool => {
+        const isActive = activePoolTag === pool.id;
+        return `
+          <button
+            class="acu-gacha-pool-tab acu-gacha-shard-pool-tab ${isActive ? 'active' : ''}"
+            type="button"
+            role="tab"
+            aria-selected="${isActive ? 'true' : 'false'}"
+            data-pool-tag="${escapeHtml(pool.id)}"
+            title="${escapeHtml(pool.name)}"
+          >
+            <i class="fa-solid fa-tags"></i>
+            <span>${escapeHtml(pool.name)}</span>
+          </button>
+        `;
+      })
+      .join('');
     const rarityTabsHtml = GACHA_RARITY_ORDER.map(rarity => {
       const isActive = activeRarity === rarity;
       const shardCount = Math.max(0, Math.floor(Number(state.wallet.shards[rarity] || 0)));
@@ -42404,14 +44514,14 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         </button>
       `;
     }).join('');
-    const items = getAllGachaItemDefinitions(rawData)
+    const items = getGachaPoolDefinitions(activePoolTag, rawData)
       .filter(item => item.quality === activeRarity)
-      .sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'));
+      .sort(compareGachaItemDefinitionsForDisplay);
     const itemCardsHtml =
       items.length > 0
         ? items
             .map(item => {
-              const owned = parsed.items.some(candidate => candidate.name === item.name);
+              const owned = isGachaItemOwned(rawData, item);
               const balance = Math.max(0, Math.floor(Number(state.wallet.shards[item.quality] || 0)));
               const canAfford = balance >= GACHA_SHARD_EXCHANGE_COST;
               const ownedBlocked = owned && (item.unique || !item.stackable);
@@ -42435,7 +44545,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                   </button>
                   ${statusHtml}
                   <button class="acu-gacha-shard-card-main acu-gacha-shard-detail-btn" type="button" data-item-id="${escapeHtml(item.id)}" aria-label="${escapeHtml(`查看 ${item.name}`)}">
-                    <span class="acu-gacha-shard-item-icon">${renderThemeIconContent(getElementEmoji(item.name, null))}</span>
+                    <span class="acu-gacha-shard-item-icon">${renderGachaItemIconContent(item)}</span>
                     <span class="acu-gacha-shard-item-main">
                     <span class="acu-gacha-shard-item-head">
                       <strong>${escapeHtml(item.name)}</strong>
@@ -42448,10 +44558,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
               `;
             })
             .join('')
-        : `<div class="acu-inventory-empty compact"><i class="fa-solid fa-cubes-stacked"></i><span>这个稀有度暂无可兑换物品</span></div>`;
+        : `<div class="acu-inventory-empty compact"><i class="fa-solid fa-cubes-stacked"></i><span>${escapeHtml(getGachaPoolDisplayName(activePoolTag, rawData))} · ${escapeHtml(activeRarity)} 暂无可兑换物品</span></div>`;
 
     return `
-      <div class="acu-inventory-detail-overlay acu-theme-${config.theme} acu-gacha-shard-shop-overlay">
+      <div class="acu-inventory-detail-overlay acu-theme-${config.theme} acu-gacha-shard-shop-overlay ${horizontalScrollbarClass}">
         <div class="acu-inventory-detail acu-gacha-shard-shop">
           <div class="acu-inventory-detail-header">
             <div class="acu-inventory-detail-head-main">
@@ -42467,6 +44577,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
               <button class="acu-preview-close acu-gacha-shard-shop-close" title="关闭"><i class="fa-solid fa-times"></i></button>
             </div>
           </div>
+          <div class="acu-gacha-shard-pool-tabs acu-gacha-pool-tabs" role="tablist">${poolTabsHtml}</div>
           <div class="acu-gacha-shard-tabs" role="tablist">${rarityTabsHtml}</div>
           <div class="acu-gacha-shard-items">${itemCardsHtml}</div>
         </div>
@@ -42510,6 +44621,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const $nextOverlay = $(renderGachaShardShopHtml(rawData));
       $shopOverlay.children().replaceWith($nextOverlay.children());
       bindGachaShardShopInteractions($shopOverlay as JQuery<HTMLElement>);
+      hydrateGachaLocalIconsIn($shopOverlay as JQuery<HTMLElement>);
     })();
   };
 
@@ -42535,6 +44647,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       overlayEl.style.setProperty('z-index', '31320', 'important');
     }
     bindGachaShardShopInteractions(overlay as JQuery<HTMLElement>);
+    hydrateGachaLocalIconsIn(overlay);
     setupOverlayClose(overlay, 'acu-inventory-detail-overlay', () => overlay.remove());
   };
 
@@ -42545,9 +44658,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       await ensureGachaCatalogLoaded(rawData);
       const item = getAllGachaItemDefinitions(rawData).find(definition => definition.id === itemId);
       if (!item) return;
-      const parsed = parseInventoryItems(rawData);
-      if (!parsed.tableKey || !rawData?.[parsed.tableKey]) {
-        if (window.toastr) window.toastr.warning('未找到物品表，暂时无法兑换');
+      if (!isGachaItemEnabled(item)) {
+        if (window.toastr) window.toastr.warning('这个物品已禁用，暂时无法兑换');
+        return;
+      }
+      if (!hasGachaRewardTable(rawData, item.rewardTarget)) {
+        if (window.toastr) window.toastr.warning(`未找到${getGachaRewardTargetTableLabel(item.rewardTarget)}，暂时无法兑换`);
         return;
       }
       const state = touchGachaActivity(getGachaState(rawData, true));
@@ -42563,7 +44679,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         return;
       }
       state.wallet.shards[item.quality] = balance - GACHA_SHARD_EXCHANGE_COST;
-      const result = grantInventoryGachaReward(rawData, state, item, 1);
+      const result = grantGachaReward(rawData, state, item, 1);
       if (!result || result.outcome.duplicateConverted) {
         state.wallet.shards[item.quality] = balance;
         if (window.toastr) window.toastr.warning('兑换失败，碎片已退回');
@@ -42583,6 +44699,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const rawData = cachedRawData || getTableData();
     const item = getAllGachaItemDefinitions(rawData).find(definition => definition.id === itemId);
     if (!item) return;
+    if (!isGachaItemEnabled(item)) {
+      if (window.toastr) window.toastr.warning('这个物品已禁用，暂时无法兑换');
+      return;
+    }
     const state = getGachaState(rawData, true) || createDefaultGachaState();
     const balance = Math.max(0, Math.floor(Number(state.wallet.shards[item.quality] || 0)));
     if (balance < GACHA_SHARD_EXCHANGE_COST) {
@@ -42595,12 +44715,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     }
 
     $('.acu-gacha-shard-confirm-overlay').remove();
-    const icon = getElementEmoji(item.name, null);
     const overlay = $(`
       <div class="acu-gacha-shard-confirm-overlay acu-theme-${config.theme}">
         <div class="acu-gacha-shard-confirm">
           <div class="acu-gacha-shard-confirm-head">
-            <div class="acu-gacha-shard-confirm-icon">${renderThemeIconContent(icon)}</div>
+            <div class="acu-gacha-shard-confirm-icon">${renderGachaItemIconContent(item)}</div>
             <div class="acu-gacha-shard-confirm-text">
               <strong>兑换 ${escapeHtml(item.name)}</strong>
               <span><i class="fa-solid ${getGachaRarityIconClass(item.quality)}"></i> ${escapeHtml(String(GACHA_SHARD_EXCHANGE_COST))} / 持有 ${escapeHtml(String(balance))}</span>
@@ -42614,6 +44733,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       </div>
     `);
     $('body').append(overlay);
+    hydrateGachaLocalIconsIn(overlay);
     const overlayEl = overlay[0] as HTMLElement | undefined;
     if (overlayEl) {
       overlayEl.style.setProperty('position', 'fixed', 'important');
@@ -42733,6 +44853,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       await ensureGachaCatalogLoaded(rawData);
       if (!overlay.isConnected) return;
       overlay.innerHTML = renderGachaPanelHtml(rawData);
+      hydrateGachaLocalIconsIn(overlay);
     })();
   };
 
@@ -42745,6 +44866,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const overlay = $(`<div class="acu-gacha-overlay acu-theme-${getConfig().theme}"></div>`);
     overlay.html(renderGachaPanelHtml(rawData));
     $('body').append(overlay);
+    hydrateGachaLocalIconsIn(overlay);
     gachaShopRootElement = overlay[0] as HTMLElement | null;
     startGachaShopUiRefresh();
     updateGachaShopProgressUi();
@@ -45847,7 +47969,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         e.stopPropagation();
         e.preventDefault();
         const nextPoolTag = String($(this).data('pool-tag') || '').trim() as GachaPoolTag;
-        if (!GACHA_POOL_TAGS.includes(nextPoolTag)) return;
+        if (!getConfiguredGachaPoolDefinitions().some(pool => pool.id === nextPoolTag)) return;
         void updateGachaPoolTag(nextPoolTag);
       });
     $('body')
@@ -45866,25 +47988,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         void showGachaShardShop();
       });
     $('body')
-      .off('click.acu_gacha_import_items')
-      .on('click.acu_gacha_import_items', '.acu-gacha-import-items', function (e) {
+      .off('click.acu_gacha_settings_open')
+      .on('click.acu_gacha_settings_open', '.acu-gacha-settings-open', function (e) {
         e.stopPropagation();
         e.preventDefault();
-        importGachaCatalogJsonFromFile();
-      });
-    $('body')
-      .off('click.acu_gacha_export_items')
-      .on('click.acu_gacha_export_items', '.acu-gacha-export-items', function (e) {
-        e.stopPropagation();
-        e.preventDefault();
-        void downloadGachaCatalogJson();
-      });
-    $('body')
-      .off('click.acu_gacha_clear_items')
-      .on('click.acu_gacha_clear_items', '.acu-gacha-clear-items', function (e) {
-        e.stopPropagation();
-        e.preventDefault();
-        void showGachaCatalogClearDialog();
+        void showGachaSettingsDialog();
       });
     $('body')
       .off('click.acu_gacha_shard_shop_close')
@@ -45902,6 +48010,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         if (!GACHA_RARITY_ORDER.includes(rarity)) return;
         saveStoredGachaShardShopRarity(rarity);
         refreshGachaShardShop();
+      });
+    $('body')
+      .off('click.acu_gacha_shard_pool_tab')
+      .on('click.acu_gacha_shard_pool_tab', '.acu-gacha-shard-pool-tab', function (e) {
+        e.stopPropagation();
+        e.preventDefault();
+        const nextPoolTag = String($(this).data('pool-tag') || '').trim() as GachaPoolTag;
+        if (!getVisibleGachaPoolConfigDefinitions().some(pool => pool.id === nextPoolTag)) return;
+        updateGachaPoolTag(nextPoolTag);
       });
     const debugWindow = window as Window & { _acuGachaShardDebugBound?: boolean };
     if (!debugWindow._acuGachaShardDebugBound) {

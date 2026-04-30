@@ -8391,13 +8391,19 @@ export const MAIN_STYLES = `
         flex-wrap: nowrap;
         gap: 2px;
         min-height: 42px;
-        overflow: visible;
+        overflow-x: auto;
+        overflow-y: hidden;
         padding: 0 0 1px 0;
+        align-items: flex-end;
         border-bottom: 1px solid color-mix(in srgb, var(--acu-accent) 26%, var(--acu-border));
+        scrollbar-width: none;
+    }
+    .acu-gacha-pool-tabs::-webkit-scrollbar {
+        display: none;
     }
     .acu-gacha-pool-tab {
-        flex: 1 1 0;
-        min-width: 0;
+        flex: 0 0 auto;
+        min-width: 78px;
         min-height: 38px;
         display: inline-flex;
         align-items: center;
@@ -8433,6 +8439,848 @@ export const MAIN_STYLES = `
             inset 0 -3px 0 var(--acu-btn-active-text, rgba(255, 255, 255, .95)),
             0 0 0 1px color-mix(in srgb, var(--acu-btn-active-text, #fff) 36%, transparent),
             0 8px 18px color-mix(in srgb, var(--acu-accent) 32%, transparent);
+    }
+    .acu-gacha-image-icon {
+        width: 100%;
+        height: 100%;
+        min-width: 18px;
+        min-height: 18px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: inherit;
+        background-position: center;
+        background-size: contain;
+        background-repeat: no-repeat;
+        overflow: hidden;
+        line-height: 1;
+    }
+    .acu-gacha-image-icon.has-image > * {
+        display: none;
+    }
+    .acu-gacha-image-icon.has-image {
+        color: transparent;
+    }
+    .acu-gacha-settings-overlay,
+    .acu-gacha-item-editor-overlay {
+        position: fixed;
+        inset: 0;
+        width: 100vw;
+        height: 100dvh;
+        z-index: 31340 !important;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+        background: rgba(0, 0, 0, .72);
+    }
+    .acu-gacha-item-editor-overlay {
+        z-index: 31355 !important;
+    }
+    .acu-gacha-name-dialog-overlay {
+        z-index: 31360 !important;
+        height: 100dvh;
+    }
+    .acu-gacha-catalog-dialog-overlay,
+    .acu-gacha-confirm-overlay {
+        z-index: 31380 !important;
+    }
+    .acu-gacha-settings-dialog,
+    .acu-gacha-item-editor,
+    .acu-gacha-name-dialog {
+        width: min(920px, 94vw);
+        max-height: min(88dvh, 920px);
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 16px;
+        border: 1px solid var(--acu-border);
+        border-radius: 12px;
+        background: var(--acu-bg-panel);
+        color: var(--acu-text-main);
+        box-shadow: 0 22px 60px rgba(0, 0, 0, .42);
+        color-scheme: light;
+    }
+    .acu-gacha-item-editor {
+        width: min(720px, 94vw);
+    }
+    .acu-gacha-name-dialog {
+        width: min(420px, 92vw);
+    }
+    .acu-gacha-settings-header,
+    .acu-gacha-settings-footer,
+    .acu-gacha-settings-section-head {
+        flex: 0 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+    }
+    .acu-gacha-settings-header {
+        padding-bottom: 10px;
+        border-bottom: 1px solid var(--acu-border);
+    }
+    .acu-gacha-settings-title {
+        min-width: 0;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 17px;
+        font-weight: 800;
+    }
+    .acu-gacha-settings-header-actions {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        flex: 0 0 auto;
+    }
+    .acu-gacha-settings-body,
+    .acu-gacha-item-editor-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: hidden auto;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        padding-right: 2px;
+    }
+    .acu-gacha-settings-section {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+    .acu-gacha-settings-items-section {
+        gap: 10px;
+    }
+    .acu-gacha-settings-items-section > .acu-gacha-settings-section-head {
+        display: grid;
+        grid-template-columns: minmax(150px, max-content) minmax(0, 1fr);
+        align-items: center;
+        gap: 14px;
+        padding: 0 0 2px;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+    }
+    .acu-gacha-settings-section-head > div:first-child {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+    .acu-gacha-settings-section-head strong {
+        font-size: 14px;
+        color: var(--acu-text-main);
+    }
+    .acu-gacha-settings-section-head span {
+        color: var(--acu-text-sub);
+        font-size: 11px;
+        line-height: 1.35;
+    }
+    .acu-gacha-settings-section-head .acu-dialog-btn,
+    .acu-gacha-settings-toolbar .acu-dialog-btn {
+        flex: 0 0 auto !important;
+        width: auto !important;
+        min-width: 124px;
+        min-height: 34px;
+        padding: 7px 12px;
+        border-radius: 8px;
+        font-size: 12px;
+        white-space: nowrap;
+    }
+    .acu-gacha-settings-pool-list,
+    .acu-gacha-settings-item-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+    .acu-gacha-settings-pool-item,
+    .acu-gacha-settings-item {
+        min-width: 0;
+        display: grid;
+        align-items: center;
+        gap: 10px;
+        padding: 10px;
+        border: 1px solid color-mix(in srgb, var(--acu-border) 86%, var(--acu-accent));
+        border-radius: 10px;
+        background: color-mix(in srgb, var(--acu-card-bg) 90%, transparent);
+    }
+    .acu-gacha-settings-pool-item {
+        grid-template-columns: 28px minmax(0, 1fr) auto;
+        margin-bottom: 0;
+    }
+    .acu-gacha-settings-item {
+        grid-template-columns: 22px 38px minmax(0, 1fr) auto;
+        gap: 8px;
+        padding: 9px 10px;
+        border-radius: 9px;
+        cursor: pointer;
+    }
+    .acu-gacha-settings-item:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--acu-accent) 72%, transparent);
+        outline-offset: 2px;
+    }
+    .acu-gacha-settings-item .acu-gacha-settings-actions {
+        cursor: auto;
+    }
+    .acu-gacha-settings-item .acu-gacha-item-handle {
+        cursor: grab;
+    }
+    .acu-gacha-settings-pool-item.is-hidden,
+    .acu-gacha-settings-item.is-disabled,
+    .acu-gacha-settings-item[style*="display: none"] {
+        opacity: .55;
+    }
+    .acu-gacha-settings-pool-main,
+    .acu-gacha-settings-item-main {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+    }
+    .acu-gacha-settings-pool-name,
+    .acu-gacha-settings-item-name {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        color: var(--acu-text-main);
+        font-size: 14px;
+        font-weight: 800;
+        line-height: 1.25;
+    }
+    .acu-gacha-settings-pool-name span,
+    .acu-gacha-settings-item-name span {
+        flex: 0 0 auto;
+        padding: 1px 6px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--acu-accent) 18%, transparent);
+        color: var(--acu-text-sub);
+        font-size: 10px;
+        font-weight: 700;
+    }
+    .acu-gacha-settings-pool-meta,
+    .acu-gacha-settings-item-meta,
+    .acu-gacha-settings-item-desc {
+        min-width: 0;
+        color: var(--acu-text-sub);
+        font-size: 11px;
+        line-height: 1.35;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .acu-gacha-settings-actions {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+    }
+    .acu-gacha-settings-inline-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .acu-gacha-settings-more {
+        position: relative;
+        display: none;
+    }
+    .acu-gacha-settings-more > summary {
+        list-style: none;
+    }
+    .acu-gacha-settings-more > summary::-webkit-details-marker {
+        display: none;
+    }
+    .acu-gacha-settings-more-menu {
+        position: absolute;
+        right: 0;
+        top: calc(100% + 6px);
+        z-index: 3;
+        min-width: 116px;
+        display: grid;
+        gap: 4px;
+        padding: 6px;
+        border: 1px solid color-mix(in srgb, var(--acu-border) 76%, transparent);
+        border-radius: 9px;
+        background: color-mix(in srgb, var(--acu-bg-panel) 96%, #000);
+        box-shadow: 0 12px 26px rgba(0, 0, 0, .36);
+    }
+    .acu-gacha-settings-more:not([open]) .acu-gacha-settings-more-menu {
+        display: none;
+    }
+    .acu-gacha-settings-more-menu button {
+        min-height: 30px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border: 0;
+        border-radius: 7px;
+        background: transparent;
+        color: var(--acu-text-main);
+        padding: 6px 8px;
+        font: inherit;
+        font-size: 12px;
+        font-weight: 800;
+        cursor: pointer;
+        text-align: left;
+    }
+    .acu-gacha-settings-more-menu button:hover {
+        background: color-mix(in srgb, var(--acu-table-hover) 80%, transparent);
+    }
+    .acu-gacha-settings-more-menu button.danger {
+        color: var(--acu-error-text);
+    }
+    .acu-gacha-pool-all-fixed,
+    .acu-gacha-settings-toolbar,
+    .acu-gacha-settings-search {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .acu-gacha-pool-all-fixed {
+        justify-content: center;
+        width: 44px;
+        height: 24px;
+        flex: 0 0 44px;
+        border: 1px solid color-mix(in srgb, var(--acu-border) 72%, transparent);
+        border-radius: 999px;
+        color: var(--acu-text-sub);
+        background: color-mix(in srgb, var(--acu-btn-bg) 70%, transparent);
+        font-size: 10px;
+        font-weight: 800;
+    }
+    .acu-gacha-pool-all-toggle {
+        flex: 0 0 44px;
+        margin: 0;
+    }
+    .acu-gacha-pool-visible-toggle:disabled {
+        opacity: .45;
+        cursor: default;
+    }
+    .acu-gacha-pool-handle,
+    .acu-gacha-pool-handle-placeholder,
+    .acu-gacha-item-handle {
+        width: 22px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--acu-text-sub);
+        touch-action: none;
+    }
+    .acu-gacha-settings-items-section.is-searching .acu-gacha-item-handle {
+        opacity: .38;
+        cursor: not-allowed;
+    }
+    .acu-gacha-settings-item-icon {
+        width: 34px;
+        aspect-ratio: 1 / 1;
+        height: auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 9px;
+        background: color-mix(in srgb, var(--acu-accent) 12%, transparent);
+        font-size: 18px;
+        overflow: hidden;
+    }
+    .acu-gacha-settings-toolbar {
+        width: 100%;
+        min-width: 0;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(104px, max-content)) minmax(220px, 1fr);
+        align-items: center;
+        justify-content: stretch;
+        gap: 8px;
+    }
+    .acu-gacha-settings-toolbar .acu-dialog-btn {
+        min-width: 124px;
+        justify-content: center;
+    }
+    .acu-gacha-settings-search {
+        width: 100%;
+        min-width: 0;
+        justify-self: end;
+        min-height: 34px;
+        padding: 0 10px;
+        border: 1px solid var(--acu-border);
+        border-radius: 9px;
+        background: var(--acu-btn-bg);
+        color: var(--acu-text-sub);
+    }
+    .acu-gacha-settings-search input {
+        width: 100%;
+        min-width: 0;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: var(--acu-text-main);
+        font: inherit;
+        font-size: 12px;
+    }
+    .acu-gacha-settings-filter {
+        width: 100%;
+        min-width: 0;
+        min-height: 34px;
+        max-width: none;
+        border: 1px solid var(--acu-border);
+        border-radius: 9px;
+        background: var(--acu-btn-bg);
+        color: var(--acu-text-main);
+        padding: 0 28px 0 10px;
+        font: inherit;
+        font-size: 12px;
+        outline: 0;
+        appearance: none;
+        -webkit-appearance: none;
+        background-image: linear-gradient(45deg, transparent 50%, var(--acu-text-sub) 50%), linear-gradient(135deg, var(--acu-text-sub) 50%, transparent 50%);
+        background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%;
+        background-size: 5px 5px, 5px 5px;
+        background-repeat: no-repeat;
+    }
+    .acu-gacha-settings-filter:focus {
+        border-color: color-mix(in srgb, var(--acu-accent) 70%, var(--acu-border));
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--acu-accent) 18%, transparent);
+    }
+    .acu-gacha-settings-filter option {
+        background: var(--acu-bg-panel);
+        color: var(--acu-text-main);
+    }
+    .acu-gacha-settings-filter-menu {
+        position: relative;
+        min-width: 104px;
+        min-height: 34px;
+    }
+    .acu-gacha-settings-filter-trigger {
+        width: 100%;
+        min-height: 34px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 7px;
+        border: 1px solid color-mix(in srgb, var(--acu-border) 84%, transparent);
+        border-radius: 9px;
+        background: color-mix(in srgb, var(--acu-btn-bg) 78%, transparent);
+        color: var(--acu-text-main);
+        padding: 0 10px;
+        font: inherit;
+        font-size: 12px;
+        font-weight: 800;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+    .acu-gacha-settings-filter-trigger > i:first-child {
+        color: var(--acu-text-sub);
+        font-size: 11px;
+    }
+    .acu-gacha-settings-filter-menu-label {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .acu-gacha-settings-filter-chevron {
+        color: var(--acu-text-sub);
+        font-size: 10px;
+        transition: transform .16s ease;
+    }
+    .acu-gacha-settings-filter-menu.is-open .acu-gacha-settings-filter-chevron {
+        transform: rotate(180deg);
+    }
+    .acu-gacha-settings-filter-menu.is-active .acu-gacha-settings-filter-trigger,
+    .acu-gacha-settings-filter-trigger:hover,
+    .acu-gacha-settings-filter-trigger:focus-visible {
+        border-color: color-mix(in srgb, var(--acu-accent) 72%, var(--acu-border));
+        background: color-mix(in srgb, var(--acu-accent) 12%, var(--acu-btn-bg));
+        outline: 0;
+    }
+    .acu-gacha-settings-filter-menu-list {
+        position: absolute;
+        right: 0;
+        top: calc(100% + 7px);
+        z-index: 4;
+        min-width: 168px;
+        display: none;
+        gap: 4px;
+        padding: 6px;
+        border: 1px solid color-mix(in srgb, var(--acu-border) 76%, transparent);
+        border-radius: 10px;
+        background: color-mix(in srgb, var(--acu-bg-panel) 96%, #000);
+        box-shadow: 0 14px 28px rgba(0, 0, 0, .38);
+    }
+    .acu-gacha-settings-filter-menu.is-open .acu-gacha-settings-filter-menu-list {
+        display: grid;
+    }
+    .acu-gacha-settings-filter-option {
+        min-height: 30px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border: 0;
+        border-radius: 7px;
+        background: transparent;
+        color: var(--acu-text-main);
+        padding: 6px 8px;
+        font: inherit;
+        font-size: 12px;
+        font-weight: 800;
+        cursor: pointer;
+        text-align: left;
+    }
+    .acu-gacha-settings-filter-option i {
+        width: 14px;
+        color: var(--acu-text-sub);
+        text-align: center;
+    }
+    .acu-gacha-settings-filter-option:hover,
+    .acu-gacha-settings-filter-option.active {
+        background: color-mix(in srgb, var(--acu-accent) 16%, var(--acu-table-hover));
+        color: var(--acu-text-main);
+    }
+    .acu-gacha-settings-filter-option.active i {
+        color: var(--acu-accent);
+    }
+    .acu-gacha-settings-pool-tabs {
+        min-height: auto;
+        gap: 6px;
+        align-items: center;
+        padding: 0 0 6px;
+        border-bottom-color: color-mix(in srgb, var(--acu-accent) 22%, var(--acu-border));
+    }
+    .acu-gacha-settings-pool-tabs .acu-gacha-pool-tab {
+        min-width: 72px;
+        min-height: 32px;
+        padding: 6px 10px;
+        border: 1px solid color-mix(in srgb, var(--acu-border) 78%, transparent);
+        border-radius: 8px;
+        background: color-mix(in srgb, var(--acu-btn-bg) 74%, transparent);
+        font-size: 12px;
+    }
+    .acu-gacha-settings-pool-tabs .acu-gacha-pool-tab.active {
+        border-color: color-mix(in srgb, var(--acu-accent) 72%, var(--acu-border));
+        background: var(--acu-btn-active-bg, var(--acu-accent));
+        color: var(--acu-btn-active-text, var(--acu-button-text-on-accent, #fff));
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--acu-accent) 22%, transparent);
+    }
+    .acu-gacha-settings-pool-tabs .acu-gacha-pool-tab.active i {
+        color: inherit;
+    }
+    .acu-gacha-confirm-overlay .acu-import-warning-icon.danger,
+    .acu-gacha-confirm-overlay .acu-import-confirm-btn.danger {
+        background: var(--acu-error-bg) !important;
+        border-color: var(--acu-error-text) !important;
+        color: var(--acu-error-text) !important;
+    }
+    .acu-gacha-name-field {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        color: var(--acu-text-sub);
+        font-size: 12px;
+        font-weight: 800;
+    }
+    .acu-gacha-name-field input {
+        min-height: 42px;
+        border: 1px solid var(--acu-border);
+        border-radius: 10px;
+        background: var(--acu-btn-bg);
+        color: var(--acu-text-main);
+        padding: 8px 10px;
+        font: inherit;
+        outline: none;
+    }
+    .acu-gacha-name-field input:focus {
+        border-color: var(--acu-accent);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--acu-accent) 18%, transparent);
+    }
+    .acu-gacha-item-editor-body {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        overflow: hidden auto;
+    }
+    .acu-gacha-item-editor-body label,
+    .acu-gacha-item-pools,
+    .acu-gacha-item-flags {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        color: var(--acu-text-sub);
+        font-size: 11px;
+        font-weight: 700;
+    }
+    .acu-gacha-item-editor-body label > span,
+    .acu-gacha-item-pools > span {
+        color: var(--acu-text-sub);
+        line-height: 1.2;
+    }
+    .acu-gacha-item-editor-body label.wide,
+    .acu-gacha-item-pools.wide,
+    .acu-gacha-item-flags.wide,
+    .acu-gacha-item-checkbox.wide {
+        grid-column: 1 / -1;
+    }
+    .acu-gacha-item-editor-body input,
+    .acu-gacha-item-editor-body select,
+    .acu-gacha-item-editor-body textarea {
+        width: 100%;
+        min-width: 0;
+        border: 1px solid var(--acu-border);
+        border-radius: 8px;
+        background: color-mix(in srgb, var(--acu-btn-bg) 96%, var(--acu-bg-panel)) !important;
+        color: var(--acu-text-main) !important;
+        -webkit-text-fill-color: var(--acu-text-main);
+        padding: 8px 9px;
+        font: inherit;
+        font-size: 12px;
+        box-shadow: none !important;
+        color-scheme: light;
+        forced-color-adjust: none;
+        appearance: none;
+        -webkit-appearance: none;
+    }
+    .acu-gacha-item-editor-body input:focus,
+    .acu-gacha-item-editor-body select:focus,
+    .acu-gacha-item-editor-body textarea:focus {
+        outline: 0;
+        border-color: color-mix(in srgb, var(--acu-accent) 70%, var(--acu-border));
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--acu-accent) 18%, transparent) !important;
+    }
+    .acu-gacha-item-editor-body input[type="file"] {
+        min-height: 38px;
+        padding: 6px;
+        cursor: pointer;
+    }
+    .acu-gacha-item-editor-body input[type="file"]::file-selector-button {
+        margin-right: 10px;
+        border: 1px solid color-mix(in srgb, var(--acu-accent) 45%, var(--acu-border));
+        border-radius: 7px;
+        background: color-mix(in srgb, var(--acu-accent) 18%, var(--acu-btn-bg));
+        color: var(--acu-text-main);
+        padding: 5px 9px;
+        font: inherit;
+        font-size: 11px;
+        font-weight: 800;
+        cursor: pointer;
+    }
+    .acu-gacha-item-editor-body select {
+        padding-right: 28px;
+        background-image: linear-gradient(45deg, transparent 50%, var(--acu-text-sub) 50%), linear-gradient(135deg, var(--acu-text-sub) 50%, transparent 50%);
+        background-position: calc(100% - 16px) 50%, calc(100% - 11px) 50%;
+        background-size: 5px 5px, 5px 5px;
+        background-repeat: no-repeat;
+    }
+    .acu-gacha-item-editor-body option {
+        background: var(--acu-bg-panel);
+        color: var(--acu-text-main);
+    }
+    .acu-gacha-item-editor-body input::placeholder,
+    .acu-gacha-item-editor-body textarea::placeholder,
+    .acu-gacha-settings-search input::placeholder {
+        color: color-mix(in srgb, var(--acu-text-sub) 78%, transparent);
+        -webkit-text-fill-color: color-mix(in srgb, var(--acu-text-sub) 78%, transparent);
+    }
+    .acu-gacha-item-editor-body textarea {
+        resize: vertical;
+        min-height: 76px;
+    }
+    .acu-gacha-item-pools > div {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+    }
+    .acu-gacha-item-flags {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+    }
+    .acu-gacha-icon-editor-card {
+        grid-column: 1 / -1;
+        display: grid;
+        grid-template-columns: minmax(92px, 112px) minmax(0, 1fr);
+        gap: 12px;
+        align-items: start;
+        padding: 12px;
+        border: 1px solid color-mix(in srgb, var(--acu-border) 82%, var(--acu-accent));
+        border-radius: 12px;
+        background: color-mix(in srgb, var(--acu-card-bg) 88%, transparent);
+    }
+    .acu-gacha-icon-editor-preview {
+        width: 100%;
+        aspect-ratio: 1 / 1;
+        min-height: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid color-mix(in srgb, var(--acu-accent) 28%, var(--acu-border));
+        border-radius: 14px;
+        background:
+            linear-gradient(135deg, color-mix(in srgb, var(--acu-accent) 14%, transparent), transparent),
+            color-mix(in srgb, var(--acu-btn-bg) 82%, transparent);
+        color: var(--acu-text-main);
+        font-size: 30px;
+        overflow: hidden;
+    }
+    .acu-gacha-icon-editor-fields {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+    }
+    .acu-gacha-icon-upload,
+    .acu-gacha-clear-local-icon-row {
+        grid-column: 1 / -1;
+    }
+    .acu-gacha-icon-upload {
+        position: relative;
+        min-height: 70px;
+        justify-content: center;
+        padding: 10px 12px;
+        border: 1px dashed color-mix(in srgb, var(--acu-accent) 50%, var(--acu-border));
+        border-radius: 10px;
+        background: color-mix(in srgb, var(--acu-btn-bg) 74%, transparent);
+        cursor: pointer;
+        transition: border-color .14s ease, background-color .14s ease, color .14s ease;
+    }
+    .acu-gacha-icon-upload input[type="file"] {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        opacity: 0;
+        cursor: pointer;
+    }
+    .acu-gacha-icon-upload strong {
+        width: fit-content;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border-radius: 8px;
+        background: color-mix(in srgb, var(--acu-accent) 16%, var(--acu-btn-bg));
+        color: var(--acu-text-main);
+        font-size: 12px;
+        line-height: 1;
+        transition: background-color .14s ease, color .14s ease;
+    }
+    .acu-gacha-icon-upload small {
+        color: var(--acu-text-sub);
+        font-size: 10px;
+        font-weight: 600;
+        line-height: 1.35;
+    }
+    .acu-gacha-icon-upload:hover {
+        border-color: var(--acu-accent);
+        background: color-mix(in srgb, var(--acu-accent) 10%, var(--acu-btn-bg));
+    }
+    .acu-gacha-icon-upload:hover strong {
+        background: var(--acu-accent);
+        color: var(--acu-btn-active-text, var(--acu-button-text-on-accent, #fff));
+    }
+    .acu-gacha-item-pool-option,
+    .acu-gacha-item-checkbox {
+        flex-direction: row !important;
+        align-items: center;
+        gap: 6px !important;
+    }
+    .acu-gacha-item-pool-option {
+        width: auto !important;
+        min-height: 34px;
+        padding: 6px 10px;
+        border: 1px solid var(--acu-border);
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--acu-btn-bg) 86%, transparent);
+        color: var(--acu-text-sub);
+        transition: border-color .14s ease, background-color .14s ease, color .14s ease;
+    }
+    .acu-gacha-item-pool-option:hover {
+        border-color: color-mix(in srgb, var(--acu-accent) 58%, var(--acu-border));
+        background: color-mix(in srgb, var(--acu-accent) 10%, var(--acu-btn-bg));
+        color: var(--acu-text-main);
+    }
+    .acu-gacha-item-pool-option:has(input:checked) {
+        border-color: color-mix(in srgb, var(--acu-accent) 72%, var(--acu-border));
+        background: color-mix(in srgb, var(--acu-accent) 18%, var(--acu-btn-bg));
+        color: var(--acu-text-main);
+    }
+    .acu-gacha-item-pool-option input,
+    .acu-gacha-item-checkbox input {
+        width: 18px;
+        height: 18px;
+        flex: 0 0 auto;
+        margin: 0;
+        padding: 0;
+        border-radius: 6px;
+        border: 1px solid var(--acu-border);
+        background: color-mix(in srgb, var(--acu-btn-bg) 90%, transparent) !important;
+        appearance: none;
+        -webkit-appearance: none;
+        display: inline-grid;
+        place-items: center;
+        color-scheme: light;
+        forced-color-adjust: none;
+    }
+    .acu-gacha-item-pool-option input:checked,
+    .acu-gacha-item-checkbox input:checked {
+        border-color: var(--acu-accent);
+        background: var(--acu-accent) !important;
+    }
+    .acu-gacha-item-pool-option input:checked::after,
+    .acu-gacha-item-checkbox input:checked::after {
+        content: "";
+        width: 8px;
+        height: 5px;
+        border-left: 2px solid var(--acu-btn-active-text, #fff);
+        border-bottom: 2px solid var(--acu-btn-active-text, #fff);
+        transform: rotate(-45deg) translate(1px, -1px);
+    }
+    .acu-gacha-item-checkbox {
+        min-height: 34px;
+        padding: 6px 0;
+        color: var(--acu-text-main);
+    }
+    .acu-gacha-settings-footer {
+        padding-top: 12px;
+        border-top: 1px solid var(--acu-border);
+        flex-wrap: wrap;
+    }
+    .acu-gacha-settings-footer .acu-dialog-btn {
+        flex: 1 1 132px;
+        min-width: 0;
+        min-height: 38px;
+        border-radius: 8px;
+        color: var(--acu-text-main);
+        background: var(--acu-btn-bg);
+        border-color: var(--acu-border);
+        transition: background-color .14s ease, border-color .14s ease, color .14s ease, opacity .14s ease;
+    }
+    .acu-gacha-settings-footer .acu-dialog-btn:hover {
+        background: var(--acu-btn-hover);
+        border-color: var(--acu-accent);
+        color: var(--acu-text-main);
+        opacity: 1;
+    }
+    .acu-gacha-settings-footer .acu-btn-confirm,
+    .acu-gacha-settings-footer .acu-btn-confirm:hover {
+        background: var(--acu-accent);
+        border-color: var(--acu-accent);
+        color: var(--acu-btn-active-text, var(--acu-button-text-on-accent, #fff));
+    }
+    .acu-gacha-settings-footer .danger:hover {
+        border-color: var(--acu-error-text);
+        color: var(--acu-error-text);
+        background: var(--acu-error-bg);
+    }
+    .acu-gacha-item-editor .acu-dialog-btn:hover {
+        background: var(--acu-btn-hover);
+        border-color: var(--acu-accent);
+        color: var(--acu-text-main);
+        opacity: 1;
+    }
+    .acu-gacha-item-editor .acu-btn-confirm:hover {
+        background: var(--acu-accent);
+        border-color: var(--acu-accent);
+        color: var(--acu-btn-active-text, var(--acu-button-text-on-accent, #fff));
+        opacity: .9;
     }
     .acu-gacha-pickup-section {
         display: flex;
@@ -8684,6 +9532,12 @@ export const MAIN_STYLES = `
     .acu-gacha-shard-tab.active strong {
         color: inherit;
     }
+    .acu-gacha-shard-shop-overlay {
+        z-index: 31320 !important;
+    }
+    .acu-gacha-pickup-detail-overlay {
+        z-index: 31365 !important;
+    }
     .acu-gacha-shard-shop {
         width: min(760px, 94vw);
         max-height: min(86dvh, 760px);
@@ -8857,7 +9711,8 @@ export const MAIN_STYLES = `
     }
     .acu-gacha-shard-item-icon {
         width: 56px;
-        height: 56px;
+        aspect-ratio: 1 / 1;
+        height: auto;
         display: grid;
         place-items: center;
         border-radius: 12px;
@@ -8900,6 +9755,7 @@ export const MAIN_STYLES = `
         line-height: 1.45;
     }
     .acu-gacha-shard-confirm-overlay {
+        z-index: 31370 !important;
         padding: 18px;
         background: rgba(0, 0, 0, 0.42);
         backdrop-filter: blur(4px);
@@ -9936,6 +10792,166 @@ export const MAIN_STYLES = `
             border-radius: 9px 9px 0 0;
             font-size: 12px;
         }
+        .acu-gacha-settings-overlay,
+        .acu-gacha-item-editor-overlay,
+        .acu-gacha-name-dialog-overlay {
+            padding: 0;
+            align-items: flex-end;
+        }
+        .acu-gacha-settings-dialog,
+        .acu-gacha-item-editor,
+        .acu-gacha-name-dialog {
+            width: 100vw;
+            max-height: 94dvh;
+            border-radius: 18px 18px 0 0;
+            border-left: 0;
+            border-right: 0;
+            border-bottom: 0;
+            padding: 12px;
+        }
+        .acu-gacha-settings-section-head {
+            align-items: stretch;
+            flex-direction: column;
+        }
+        .acu-gacha-settings-items-section > .acu-gacha-settings-section-head {
+            display: grid;
+            grid-template-columns: 1fr;
+            padding: 8px;
+            gap: 8px;
+            border: 1px solid color-mix(in srgb, var(--acu-border) 64%, transparent);
+            border-radius: 10px;
+            background: color-mix(in srgb, var(--acu-btn-bg) 42%, transparent);
+        }
+        .acu-gacha-settings-toolbar {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+            justify-content: stretch;
+        }
+        .acu-gacha-settings-search {
+            grid-column: 1 / -1;
+            grid-row: 2 / 3;
+            flex: 1 1 auto;
+        }
+        .acu-gacha-settings-filter {
+            width: 100%;
+            min-width: 0;
+        }
+        .acu-gacha-settings-filter-menu {
+            min-width: 0;
+        }
+        .acu-gacha-settings-filter-trigger {
+            min-width: 0;
+            min-height: 40px;
+            justify-content: flex-start;
+            padding: 0 9px;
+            font-size: 12px;
+        }
+        .acu-gacha-settings-filter-menu-label {
+            flex: 1 1 auto;
+            text-align: left;
+        }
+        .acu-gacha-settings-filter-menu-list {
+            left: 0;
+            right: auto;
+            min-width: min(210px, 76vw);
+        }
+        .acu-gacha-settings-toolbar .acu-dialog-btn {
+            grid-column: 2 / 3;
+            width: 100% !important;
+            min-width: 0;
+            justify-content: center;
+        }
+        .acu-gacha-settings-search input {
+            width: 100%;
+        }
+        .acu-gacha-settings-pool-item {
+            grid-template-columns: 24px minmax(0, 1fr) auto;
+            gap: 8px;
+        }
+        .acu-gacha-settings-pool-item .acu-gacha-settings-actions {
+            grid-column: 3 / 4;
+            grid-row: 1 / 2;
+            justify-content: flex-end;
+        }
+        .acu-gacha-pool-handle,
+        .acu-gacha-pool-handle-placeholder {
+            grid-column: 1 / 2;
+            grid-row: 1 / 2;
+        }
+        .acu-gacha-settings-item {
+            grid-template-columns: 18px 32px minmax(0, 1fr) auto;
+            gap: 8px;
+            padding: 8px;
+        }
+        .acu-gacha-settings-item .acu-gacha-settings-actions {
+            grid-column: 4 / 5;
+            grid-row: 1 / 2;
+            align-self: center;
+            justify-content: flex-end;
+            gap: 6px;
+        }
+        .acu-gacha-settings-inline-actions {
+            display: none;
+        }
+        .acu-gacha-settings-more {
+            display: inline-block;
+        }
+        .acu-gacha-settings-more > summary {
+            width: 34px;
+            height: 34px;
+            min-width: 34px;
+            min-height: 34px;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+        }
+        .acu-gacha-item-handle {
+            grid-column: 1 / 2;
+            grid-row: 1 / 2;
+        }
+        .acu-gacha-settings-item-icon {
+            width: 32px;
+        }
+        .acu-gacha-settings-item-name {
+            flex-wrap: wrap;
+            gap: 5px;
+            font-size: 13px;
+        }
+        .acu-gacha-settings-item-meta {
+            white-space: normal;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+        }
+        .acu-gacha-settings-item-desc {
+            display: none;
+        }
+        .acu-gacha-settings-pool-tabs {
+            gap: 5px;
+            padding-bottom: 6px;
+        }
+        .acu-gacha-settings-pool-tabs .acu-gacha-pool-tab {
+            min-width: 62px;
+            min-height: 30px;
+            padding: 6px 8px;
+            border-radius: 8px;
+            font-size: 11px;
+        }
+        .acu-gacha-item-editor-body {
+            grid-template-columns: 1fr;
+        }
+        .acu-gacha-icon-editor-card {
+            grid-template-columns: 1fr;
+        }
+        .acu-gacha-icon-editor-preview {
+            width: min(92px, 34vw);
+            justify-self: center;
+        }
+        .acu-gacha-icon-editor-fields {
+            grid-template-columns: 1fr;
+        }
         .acu-gacha-pickup-section {
             gap: 6px;
             padding: 8px;
@@ -10076,6 +11092,31 @@ export const MAIN_STYLES = `
         width: 0 !important;
         height: 0 !important;
         display: none !important;
+    }
+
+    .acu-show-horizontal-scrollbar .acu-gacha-pool-tabs,
+    .acu-show-horizontal-scrollbar.acu-gacha-pool-tabs {
+        scrollbar-width: thin !important;
+        scrollbar-color: var(--acu-scrollbar-thumb) var(--acu-scrollbar-track) !important;
+        padding-bottom: 8px;
+    }
+
+    .acu-show-horizontal-scrollbar .acu-gacha-pool-tabs::-webkit-scrollbar:horizontal,
+    .acu-show-horizontal-scrollbar.acu-gacha-pool-tabs::-webkit-scrollbar:horizontal {
+        height: 8px !important;
+        display: block !important;
+    }
+
+    .acu-show-horizontal-scrollbar .acu-gacha-pool-tabs::-webkit-scrollbar-track:horizontal,
+    .acu-show-horizontal-scrollbar.acu-gacha-pool-tabs::-webkit-scrollbar-track:horizontal {
+        background: var(--acu-scrollbar-track) !important;
+        border-radius: 4px !important;
+    }
+
+    .acu-show-horizontal-scrollbar .acu-gacha-pool-tabs::-webkit-scrollbar-thumb:horizontal,
+    .acu-show-horizontal-scrollbar.acu-gacha-pool-tabs::-webkit-scrollbar-thumb:horizontal {
+        background: var(--acu-scrollbar-thumb) !important;
+        border-radius: 4px !important;
     }
 
     .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-panel-content,
