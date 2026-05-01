@@ -1955,7 +1955,7 @@ import {
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.7.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v5.30'; // 脚本版本号
+  const SCRIPT_VERSION = 'v5.31'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -28348,10 +28348,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       let jsonString;
       try {
         jsonString = JSON.stringify(dataToSave);
-        // 检查数据大小（约 10MB 限制）
+        // 检查数据大小（约 20MB 限制）
         const sizeInMB = new Blob([jsonString]).size / (1024 * 1024);
-        if (sizeInMB > 10) {
-          throw new Error(`数据太大 (${sizeInMB.toFixed(2)}MB)，超过 10MB 限制`);
+        if (sizeInMB > 20) {
+          throw new Error(`数据太大 (${sizeInMB.toFixed(2)}MB)，超过 20MB 限制`);
         }
         console.info(`[DICE]数据序列化完成，大小: ${sizeInMB.toFixed(2)}MB`);
       } catch (stringifyError) {
@@ -28497,10 +28497,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       let jsonString;
       try {
         jsonString = JSON.stringify(dataToSave);
-        // 检查数据大小（约 10MB 限制）
+        // 检查数据大小（约 20MB 限制）
         const sizeInMB = new Blob([jsonString]).size / (1024 * 1024);
-        if (sizeInMB > 10) {
-          throw new Error(`数据太大 (${sizeInMB.toFixed(2)}MB)，超过 10MB 限制`);
+        if (sizeInMB > 20) {
+          throw new Error(`数据太大 (${sizeInMB.toFixed(2)}MB)，超过 20MB 限制`);
         }
       } catch (stringifyError) {
         console.error('[DICE]ACU JSON 序列化失败:', stringifyError);
@@ -36798,13 +36798,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   let viewportInputMutationDocument: Document | null = null;
   let viewportInputTargetsRaf: number | null = null;
 
-  const VIEWPORT_BOTTOM_ANCHOR_SELECTORS = [
-    '#send_form',
-    '#form_sheld',
-    '#send_textarea',
-    '#chat_input',
-    '#send_but',
-  ] as const;
+  const VIEWPORT_BOTTOM_ANCHOR_SELECTORS = ['#send_form', '#form_sheld', '#send_textarea', '#chat_input', '#send_but'] as const;
   const VIEWPORT_BOTTOM_REFRESH_EVENTS = [
     'input',
     'change',
@@ -36858,9 +36852,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const rect = el.getBoundingClientRect();
         const isComposerElement = VIEWPORT_COMPOSER_ELEMENT_IDS.has(el.id) || el.tagName.toLowerCase() === 'textarea';
         const minTopRatio = isComposerElement ? 0.2 : 0.45;
-        const maxHeight = isComposerElement
-          ? Math.max(520, viewportHeight * 0.75)
-          : Math.max(220, viewportHeight * 0.4);
+        const maxHeight = isComposerElement ? Math.max(520, viewportHeight * 0.75) : Math.max(220, viewportHeight * 0.4);
         if (rect.width <= 0 || rect.height <= 0) return false;
         if (viewportHeight <= 0) return rect.bottom > 0;
         if (rect.top < viewportTop || rect.bottom > viewportBottom + 80) return false;
