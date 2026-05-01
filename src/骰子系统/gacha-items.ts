@@ -1288,7 +1288,8 @@ export const GACHA_ITEM_DEFINITIONS: readonly GachaItemDefinition[] = [
     name: '长生不老药',
     type: '消耗品',
     quality: '神话',
-    description: '帝王方士梦寐以求的丹药。服下可停止衰老并抵抗常规疾病，但不会免除痛苦、封印或厄运，还会引来所有觊觎长生者。',
+    description:
+      '帝王方士梦寐以求的丹药。服下可停止衰老并抵抗常规疾病，但不会免除痛苦、封印或厄运，还会引来所有觊觎长生者。',
     poolTags: ['修真', '历史', '奇幻'],
     weight: 1,
     stackable: true,
