@@ -262,7 +262,8 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '.acu-settings-group[data-group="appearance"] .acu-settings-group-title',
       title: '外观样式',
-      content: '外观样式负责界面的整体观感。这里适合先调主题和字体，再根据阅读习惯微调界面字号、选项字号和变化高亮。',
+      content:
+        '外观样式负责界面的整体观感。这里适合先调主题和字体，再根据阅读习惯微调界面字号、选项字号、导航栏字号和变化高亮。',
       placement: 'bottom',
     },
     {
@@ -280,13 +281,21 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '#settings-row-font-main',
       title: '界面字号',
-      content: '界面字号影响表格、按钮和面板文字。桌面端可以稍小一点，移动端建议保持较大字号方便点击和阅读。',
+      content:
+        '界面字号主要影响表格卡片正文、面板内容、变量/收藏夹等主体阅读区域。',
       placement: 'left',
     },
     {
       selector: '#settings-row-font-option',
       title: '选项字号',
       content: '行动选项有独立字号。选项文本较长时可以调小一点，想要更容易点按时可以调大。',
+      placement: 'left',
+    },
+    {
+      selector: '#settings-row-font-nav',
+      title: '导航栏字号',
+      content:
+        '导航栏字号专门控制底部或顶部导航栏里的按钮文字与右侧图标按钮大小，例如导航盘的按钮大小',
       placement: 'left',
     },
     {
@@ -1339,8 +1348,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '.acu-gacha-shard-item-card:first-child .acu-gacha-shard-buy-btn',
       title: '兑换按钮',
-      content:
-        '左侧价格按钮会显示兑换需要的碎片数量。点击后会弹出确认框，确认后奖励会写入物品表或装备表并扣除对应碎片。',
+      content: '左侧价格按钮会显示兑换需要的碎片数量。点击后会弹出确认框，确认后奖励会写入物品表或装备表并扣除对应碎片。',
       placement: 'bottom',
     },
   ],
@@ -1888,8 +1896,7 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
     const safeRect = getTargetSafeRect(getCurrentPopoverRect(), target);
     const rect = target.getBoundingClientRect();
     const horizontalMargin = 4;
-    const hasHorizontalPresence =
-      rect.right >= safeRect.left + horizontalMargin && rect.left <= safeRect.right - horizontalMargin;
+    const hasHorizontalPresence = rect.right >= safeRect.left + horizontalMargin && rect.left <= safeRect.right - horizontalMargin;
     const hasVerticalPresence =
       rect.height > safeRect.height
         ? rect.bottom >= safeRect.top && rect.top <= safeRect.bottom
@@ -2199,7 +2206,12 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
   const getActionTarget = (target: EventTarget | null): HTMLElement | null => {
     if (!target) return null;
     const win = getWin();
-    const element = target instanceof win.Element ? target : target instanceof win.Node ? target.parentElement : null;
+    const element =
+      target instanceof win.Element
+        ? target
+        : target instanceof win.Node
+          ? target.parentElement
+          : null;
     const actionTarget = element?.closest('[data-action]');
     return actionTarget instanceof win.HTMLElement ? actionTarget : null;
   };

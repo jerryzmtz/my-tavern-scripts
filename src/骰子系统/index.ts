@@ -1955,7 +1955,7 @@ import {
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.7.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v5.22'; // 脚本版本号
+  const SCRIPT_VERSION = 'v5.30'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -6792,9 +6792,7 @@ import {
     return escapeHtml(icon);
   };
 
-  const renderGachaItemIconContent = (
-    item: Pick<GachaItemDefinition, 'name' | 'type' | 'icon' | 'iconUrl' | 'localIconKey'>,
-  ): string => {
+  const renderGachaItemIconContent = (item: Pick<GachaItemDefinition, 'name' | 'type' | 'icon' | 'iconUrl' | 'localIconKey'>): string => {
     const fallback = renderThemeIconContent(item.icon || getElementEmoji(item.name, item.type));
     if (item.localIconKey) {
       return `<span class="acu-gacha-image-icon acu-gacha-local-icon" data-gacha-local-icon-key="${escapeHtml(item.localIconKey)}">${fallback}</span>`;
@@ -14337,8 +14335,21 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     showOptionPanel: true, // [新增] 显示选项面板
     clickOptionToAutoSend: true, // [新增] 点击选项自动发送
     optionFontSize: 12, // [新增] 行动选项独立字体大小
+    navFontSize: 13,
     syncDatabaseTheme: true,
     muteDatabaseToasts: false,
+  };
+
+  const getNavigationFontMetrics = (size: unknown) => {
+    const rawFontSize = typeof size === 'number' && Number.isFinite(size) ? size : DEFAULT_CONFIG.navFontSize;
+    const fontSize = Math.max(10, Math.min(20, Math.round(rawFontSize)));
+
+    return {
+      fontSize,
+      buttonSize: Math.max(28, Math.min(48, Math.round(fontSize * 2.46))),
+      iconSize: Math.max(14, Math.min(22, Math.round(fontSize * 1.08))),
+      paddingX: Math.max(10, Math.min(20, Math.round(fontSize * 0.92))),
+    };
   };
 
   const FONTS = [
@@ -28047,10 +28058,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     }
 
     // [优化] 尺寸和颜色变化只更新 CSS 变量，完全不闪烁
+    const navMetrics = getNavigationFontMetrics(config.navFontSize);
     const cssVars = {
       '--acu-card-width': `${config.cardWidth}px`,
       '--acu-font-size': `${config.fontSize}px`,
       '--acu-opt-font-size': `${config.optionFontSize || 12}px`,
+      '--acu-nav-button-size': `${navMetrics.buttonSize}px`,
+      '--acu-nav-font-size': `${navMetrics.fontSize}px`,
+      '--acu-nav-icon-size': `${navMetrics.iconSize}px`,
+      '--acu-nav-button-padding-x': `${navMetrics.paddingX}px`,
       '--acu-grid-cols': config.gridColumns,
     };
 
@@ -35345,7 +35361,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                         </div>
                         <div class="acu-setting-row" id="settings-row-font-main">
                             <div class="acu-setting-info">
-                                <span class="acu-setting-label">字体大小 (界面)</span>
+                                <span class="acu-setting-label">字体大小（界面）</span>
                             </div>
                             <div class="acu-stepper" data-id="cfg-font-main" data-min="10" data-max="24" data-step="1">
                                 <button class="acu-stepper-btn acu-stepper-dec"><i class="fa-solid fa-minus"></i></button>
@@ -35355,11 +35371,21 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                         </div>
                         <div class="acu-setting-row" id="settings-row-font-option">
                             <div class="acu-setting-info">
-                                <span class="acu-setting-label">字体大小 (选项)</span>
+                                <span class="acu-setting-label">字体大小（选项）</span>
                             </div>
                             <div class="acu-stepper" data-id="cfg-font-opt" data-min="10" data-max="24" data-step="1">
                                 <button class="acu-stepper-btn acu-stepper-dec"><i class="fa-solid fa-minus"></i></button>
                                 <span class="acu-stepper-value">${config.optionFontSize || 12}px</span>
+                                <button class="acu-stepper-btn acu-stepper-inc"><i class="fa-solid fa-plus"></i></button>
+                            </div>
+                        </div>
+                        <div class="acu-setting-row" id="settings-row-font-nav">
+                            <div class="acu-setting-info">
+                                <span class="acu-setting-label">字体大小（导航栏）</span>
+                            </div>
+                            <div class="acu-stepper" data-id="cfg-font-nav" data-min="10" data-max="20" data-step="1">
+                                <button class="acu-stepper-btn acu-stepper-dec"><i class="fa-solid fa-minus"></i></button>
+                                <span class="acu-stepper-value">${getNavigationFontMetrics(config.navFontSize).fontSize}px</span>
                                 <button class="acu-stepper-btn acu-stepper-inc"><i class="fa-solid fa-plus"></i></button>
                             </div>
                         </div>
@@ -36016,6 +36042,14 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         } else if (id === 'cfg-font-opt') {
           $('.acu-wrapper, .acu-embedded-options-container').css('--acu-opt-font-size', newVal + 'px');
           saveConfig({ optionFontSize: newVal });
+        } else if (id === 'cfg-font-nav') {
+          const navMetrics = getNavigationFontMetrics(newVal);
+          $('.acu-wrapper')
+            .css('--acu-nav-button-size', navMetrics.buttonSize + 'px')
+            .css('--acu-nav-font-size', navMetrics.fontSize + 'px')
+            .css('--acu-nav-icon-size', navMetrics.iconSize + 'px')
+            .css('--acu-nav-button-padding-x', navMetrics.paddingX + 'px');
+          saveConfig({ navFontSize: navMetrics.fontSize });
         } else if (id === 'cfg-per-page') {
           saveConfig({ itemsPerPage: newVal });
         }
@@ -37387,7 +37421,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     lastOptionHash = currentOptionHash; // 更新缓存
 
     // [修复] 悬浮收起模式需要特殊类，防止 wrapper 坍塌导致按钮消失
-    let html = `<div class="acu-wrapper ${positionClass} acu-theme-${config.theme} ${layoutClass} ${horizontalScrollbarClass}" style="--acu-card-width:${config.cardWidth}px; --acu-font-size:${config.fontSize}px; --acu-opt-font-size:${config.optionFontSize || 12}px; --acu-grid-cols:${finalGridCols}">`;
+    const navMetrics = getNavigationFontMetrics(config.navFontSize);
+    let html = `<div class="acu-wrapper ${positionClass} acu-theme-${config.theme} ${layoutClass} ${horizontalScrollbarClass}" style="--acu-card-width:${config.cardWidth}px; --acu-font-size:${config.fontSize}px; --acu-opt-font-size:${config.optionFontSize || 12}px; --acu-nav-button-size:${navMetrics.buttonSize}px; --acu-nav-font-size:${navMetrics.fontSize}px; --acu-nav-icon-size:${navMetrics.iconSize}px; --acu-nav-button-padding-x:${navMetrics.paddingX}px; --acu-grid-cols:${finalGridCols}">`;
 
     // [布局核心] 如果是嵌入模式，选项放在 DOM 最前面（因为是 column-reverse，视觉上在最下面）
     // [修改] 增加 optionPanelVisible 判断
@@ -40524,9 +40559,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   };
 
   const getVisibleGachaPoolConfigDefinitions = (rawData = getRuntimeGachaRawData()): GachaPoolDefinition[] =>
-    getAllGachaPoolConfigDefinitions(rawData).filter(
-      pool => pool.id === GACHA_ALL_POOL_TAG || pool.visibleInTabs !== false,
-    );
+    getAllGachaPoolConfigDefinitions(rawData).filter(pool => pool.id === GACHA_ALL_POOL_TAG || pool.visibleInTabs !== false);
 
   const getGachaAllExpandablePoolTags = (rawData = getRuntimeGachaRawData()): GachaPoolTag[] => {
     return getAllGachaPoolConfigDefinitions(rawData)
@@ -40552,8 +40585,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       ...updates,
       id,
       builtin: existing.builtin,
-      visibleInTabs: id === GACHA_ALL_POOL_TAG ? true : (updates.visibleInTabs ?? existing.visibleInTabs),
-      includeInAll: id === GACHA_ALL_POOL_TAG ? false : (updates.includeInAll ?? existing.includeInAll),
+      visibleInTabs: id === GACHA_ALL_POOL_TAG ? true : updates.visibleInTabs ?? existing.visibleInTabs,
+      includeInAll: id === GACHA_ALL_POOL_TAG ? false : updates.includeInAll ?? existing.includeInAll,
       name: updates.name !== undefined ? normalizeGachaPoolName(updates.name, id) : existing.name,
     };
     saveGachaPoolSettings(pools);
@@ -41312,10 +41345,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         if (!rawPool || typeof rawPool !== 'object') return null;
         const record = rawPool as Record<string, unknown>;
         const rawId = normalizeGachaPoolId(record.id || record.tag || record.name);
-        const rawName = normalizeGachaPoolName(
-          record.name || record.label || rawId,
-          rawId || GACHA_CUSTOM_ONLY_POOL_TAG,
-        );
+        const rawName = normalizeGachaPoolName(record.name || record.label || rawId, rawId || GACHA_CUSTOM_ONLY_POOL_TAG);
         const shouldUseNameAsCustomId =
           rawId &&
           rawId !== GACHA_ALL_POOL_TAG &&
@@ -41389,7 +41419,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         builtin: existing?.builtin === true,
         visibleInTabs: pool.visibleInTabs !== false,
         includeInAll: pool.includeInAll === true,
-        order: Number.isFinite(Number(pool.order)) ? Number(pool.order) : (existing?.order ?? 999),
+        order: Number.isFinite(Number(pool.order)) ? Number(pool.order) : existing?.order ?? 999,
       });
     });
     saveGachaPoolSettings(Array.from(byId.values()));
@@ -41767,8 +41797,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const customIds = new Set(getCustomGachaItemDefinitions(rawData).map(item => item.id));
       return allItems.filter(item => customIds.has(item.id));
     }
-    const activeTags =
-      normalizedPoolId === GACHA_ALL_POOL_TAG ? getGachaAllExpandablePoolTags(rawData) : [normalizedPoolId];
+    const activeTags = normalizedPoolId === GACHA_ALL_POOL_TAG ? getGachaAllExpandablePoolTags(rawData) : [normalizedPoolId];
     return allItems.filter(item => item.poolTags.some(tag => activeTags.includes(tag)));
   };
 
@@ -41799,9 +41828,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const isPoolExport = Boolean(normalizedPoolId);
     const json = exportGachaCatalogJson(rawData, normalizedPoolId);
     const hasExportableItems = getGachaCatalogItemsForExport(rawData, normalizedPoolId).length > 0;
-    const blob = new Blob([json], {
-      type: hasExportableItems || isPoolExport ? 'application/json' : 'application/jsonc',
-    });
+    const blob = new Blob([json], { type: hasExportableItems || isPoolExport ? 'application/json' : 'application/jsonc' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -42757,10 +42784,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const totalShards = getTotalGachaShards(state);
     const poolDefinitions = getVisibleGachaPoolConfigDefinitions(rawData);
 
-    const poolButtonsHtml = poolDefinitions
-      .map(pool => {
-        const isActive = activePoolTag === pool.id;
-        return `
+    const poolButtonsHtml = poolDefinitions.map(pool => {
+      const isActive = activePoolTag === pool.id;
+      return `
         <button
           class="acu-gacha-pool-tab acu-gacha-pool-btn ${isActive ? 'active' : ''}"
           type="button"
@@ -42773,8 +42799,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           <span>${escapeHtml(pool.name)}</span>
         </button>
       `;
-      })
-      .join('');
+    }).join('');
 
     return `
       <div class="acu-gacha-shell acu-theme-${config.theme} ${horizontalScrollbarClass}">
@@ -43350,7 +43375,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       .map(pool => {
         const isAllPool = pool.id === GACHA_ALL_POOL_TAG;
         const poolItems = isAllPool ? allPoolItems : itemDefinitions.filter(item => item.poolTags.includes(pool.id));
-        const countText = isAllPool ? `${poolItems.length} 个候选` : `${counts.get(pool.id) || 0} 个物品`;
+        const countText = isAllPool
+          ? `${poolItems.length} 个候选`
+          : `${counts.get(pool.id) || 0} 个物品`;
         const visible = isAllPool || pool.visibleInTabs !== false;
         const includeInAll = pool.includeInAll === true;
         const canDeletePool = canDeleteGachaPoolDefinition(pool);
@@ -43473,9 +43500,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const getCurrentSettingsItemFiltersActive = () =>
       Boolean(
         settingsItemFilters.search ||
-        settingsItemFilters.source !== 'all' ||
-        settingsItemFilters.status !== 'all' ||
-        settingsItemFilters.sort !== 'default',
+          settingsItemFilters.source !== 'all' ||
+          settingsItemFilters.status !== 'all' ||
+          settingsItemFilters.sort !== 'default',
       );
     const toSettingsSourceFilter = (value: unknown): GachaSettingsItemSourceFilter => {
       const text = String(value || '');
@@ -43524,9 +43551,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         $menu.find('.acu-gacha-settings-filter-menu-label').text(getGachaSettingsFilterLabel(field, value));
         $menu.find('.acu-gacha-settings-filter-option').each(function () {
           const active = String($(this).data('filter-value') || '') === value;
-          $(this)
-            .toggleClass('active', active)
-            .attr('aria-checked', active ? 'true' : 'false');
+          $(this).toggleClass('active', active).attr('aria-checked', active ? 'true' : 'false');
         });
       };
       syncMenu('source', settingsItemFilters.source, DEFAULT_GACHA_SETTINGS_ITEM_FILTERS.source);
@@ -43555,8 +43580,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const items = $section.find('.acu-gacha-settings-item').toArray() as HTMLElement[];
       let visibleCount = 0;
       items.forEach(item => {
-        const searchMatched =
-          !settingsItemFilters.search || String(item.dataset.search || '').includes(settingsItemFilters.search);
+        const searchMatched = !settingsItemFilters.search || String(item.dataset.search || '').includes(settingsItemFilters.search);
         const sourceMatched =
           settingsItemFilters.source === 'all' || String(item.dataset.source || '') === settingsItemFilters.source;
         const statusMatched =
@@ -43827,8 +43851,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         ? $(this).closest('.acu-gacha-settings-items-section')
         : overlay.find('.acu-gacha-settings-items-section').first();
       const selectedPoolId = normalizeGachaPoolId($itemSection.data('pool-id'));
-      const initialPoolId =
-        selectedPoolId && selectedPoolId !== GACHA_ALL_POOL_TAG ? selectedPoolId : GACHA_CUSTOM_ONLY_POOL_TAG;
+      const initialPoolId = selectedPoolId && selectedPoolId !== GACHA_ALL_POOL_TAG ? selectedPoolId : GACHA_CUSTOM_ONLY_POOL_TAG;
       void showGachaItemEditorDialog(null, initialPoolId);
     });
 
@@ -43956,12 +43979,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       })
       .join('');
     const rarityOptionsHtml = GACHA_RARITY_ORDER.map(
-      rarity =>
-        `<option value="${escapeHtml(rarity)}" ${item.quality === rarity ? 'selected' : ''}>${escapeHtml(rarity)}</option>`,
+      rarity => `<option value="${escapeHtml(rarity)}" ${item.quality === rarity ? 'selected' : ''}>${escapeHtml(rarity)}</option>`,
     ).join('');
     const targetOptionsHtml = GACHA_REWARD_TARGETS.map(
-      target =>
-        `<option value="${escapeHtml(target)}" ${item.rewardTarget === target ? 'selected' : ''}>${target === 'equipment' ? '装备' : '物品'}</option>`,
+      target => `<option value="${escapeHtml(target)}" ${item.rewardTarget === target ? 'selected' : ''}>${target === 'equipment' ? '装备' : '物品'}</option>`,
     ).join('');
 
     $('.acu-gacha-item-editor-overlay').remove();
@@ -44042,7 +44063,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         type: String(overlay.find('.acu-gacha-item-type').val() || item.type || '').trim(),
         icon: icon || undefined,
         iconUrl: previewObjectUrl || iconUrl || undefined,
-        localIconKey: previewObjectUrl || iconUrl || shouldClearLocalIcon ? undefined : item.localIconKey,
+        localIconKey: (previewObjectUrl || iconUrl || shouldClearLocalIcon) ? undefined : item.localIconKey,
       };
       const $preview = overlay.find('.acu-gacha-icon-editor-preview');
       $preview.html(renderGachaItemIconContent(previewItem));
@@ -44108,9 +44129,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         ensureGachaPoolsForTags(poolTags);
         const existingIds = new Set(getAllGachaItemDefinitions(rawData).map(candidate => candidate.id));
         if (existingItem) existingIds.delete(existingItem.id);
-        const id =
-          existingItem?.id ||
-          createUniqueGachaItemId(buildStableGachaCustomItemId({ name, quality, type }), existingIds);
+        const id = existingItem?.id || createUniqueGachaItemId(buildStableGachaCustomItemId({ name, quality, type }), existingIds);
         let localIconKey = existingItem?.localIconKey;
         const shouldClearLocalIcon = overlay.find('.acu-gacha-item-clear-local-icon').prop('checked') === true;
         const fileInput = overlay.find('.acu-gacha-item-icon-file')[0] as HTMLInputElement | undefined;
@@ -44830,8 +44849,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         return;
       }
       if (!hasGachaRewardTable(rawData, item.rewardTarget)) {
-        if (window.toastr)
-          window.toastr.warning(`未找到${getGachaRewardTargetTableLabel(item.rewardTarget)}，暂时无法兑换`);
+        if (window.toastr) window.toastr.warning(`未找到${getGachaRewardTargetTableLabel(item.rewardTarget)}，暂时无法兑换`);
         return;
       }
       const state = touchGachaActivity(getGachaState(rawData, true));
