@@ -1955,7 +1955,7 @@ import {
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.7.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v5.21'; // 脚本版本号
+  const SCRIPT_VERSION = 'v5.22'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -36755,6 +36755,41 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   let viewportBoundsListenerWindow: Window | null = null;
   let viewportBoundsRefreshHandler: (() => void) | null = null;
   let viewportBoundsRaf: number | null = null;
+  let viewportInputResizeObserver: ResizeObserver | null = null;
+  let viewportInputMutationObserver: MutationObserver | null = null;
+  let viewportInputObservedElements: HTMLElement[] = [];
+  let viewportInputMutationWindow: Window | null = null;
+  let viewportInputMutationDocument: Document | null = null;
+  let viewportInputTargetsRaf: number | null = null;
+
+  const VIEWPORT_BOTTOM_ANCHOR_SELECTORS = ['#send_form', '#form_sheld', '#send_textarea', '#chat_input', '#send_but'] as const;
+  const VIEWPORT_BOTTOM_REFRESH_EVENTS = [
+    'input',
+    'change',
+    'focus',
+    'blur',
+    'keyup',
+    'compositionend',
+    'click',
+    'pointerup',
+    'transitionend',
+  ] as const;
+  const VIEWPORT_COMPOSER_ELEMENT_IDS = new Set(['send_form', 'form_sheld', 'send_textarea', 'chat_input']);
+
+  const getViewportBottomAnchorElements = (targetDocument: Document): HTMLElement[] => {
+    const seen = new Set<HTMLElement>();
+    const elements: HTMLElement[] = [];
+
+    VIEWPORT_BOTTOM_ANCHOR_SELECTORS.forEach(selector => {
+      targetDocument.querySelectorAll<HTMLElement>(selector).forEach(el => {
+        if (seen.has(el)) return;
+        seen.add(el);
+        elements.push(el);
+      });
+    });
+
+    return elements;
+  };
 
   const getViewportAnchorRect = (): DOMRect | null => {
     const targetDocument = getTavernHostDocument();
@@ -36774,20 +36809,19 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const viewportHeight =
       visualViewport?.height || targetWindow.innerHeight || targetDocument.documentElement.clientHeight || 0;
     const viewportBottom = viewportTop + viewportHeight;
-    const selectors = ['#send_form', '#form_sheld', '#send_textarea', '#chat_input', '#send_but'];
-
-    const candidates = selectors
-      .map(selector => targetDocument.querySelector<HTMLElement>(selector))
+    const candidates = getViewportBottomAnchorElements(targetDocument)
       .filter((el): el is HTMLElement => {
-        if (!el) return false;
         const style = targetWindow.getComputedStyle(el);
         if (style.display === 'none' || style.visibility === 'hidden') return false;
         const rect = el.getBoundingClientRect();
+        const isComposerElement = VIEWPORT_COMPOSER_ELEMENT_IDS.has(el.id) || el.tagName.toLowerCase() === 'textarea';
+        const minTopRatio = isComposerElement ? 0.2 : 0.45;
+        const maxHeight = isComposerElement ? Math.max(520, viewportHeight * 0.75) : Math.max(220, viewportHeight * 0.4);
         if (rect.width <= 0 || rect.height <= 0) return false;
         if (viewportHeight <= 0) return rect.bottom > 0;
         if (rect.top < viewportTop || rect.bottom > viewportBottom + 80) return false;
-        if (rect.top < viewportTop + viewportHeight * 0.45) return false;
-        if (rect.height > Math.max(220, viewportHeight * 0.4)) return false;
+        if (rect.top < viewportTop + viewportHeight * minTopRatio) return false;
+        if (rect.height > maxHeight) return false;
         return true;
       })
       .map(el => el.getBoundingClientRect());
@@ -36796,7 +36830,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     const top = Math.min(...candidates.map(rect => rect.top));
     const offset = viewportBottom - top + 8;
-    const maxOffset = Math.max(12, Math.round(viewportHeight * 0.45));
+    const maxOffset = Math.max(12, Math.round(viewportHeight * 0.65));
     return Math.min(maxOffset, Math.max(12, Math.round(offset)));
   };
 
@@ -36894,10 +36928,103 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     wrapper.style.setProperty('bottom', `${bottomOffset}px`, 'important');
   };
 
-  const setupViewportBoundsListeners = () => {
-    const targetWindow = getTavernHostWindow();
-    if (viewportBoundsListenerAttached && viewportBoundsListenerWindow === targetWindow) return;
+  const scheduleViewportBoundsRefresh = () => {
+    const config = getConfig();
+    if (config.positionMode !== 'viewport') return;
+    if (viewportBoundsRaf !== null) return;
 
+    viewportBoundsRaf = requestAnimationFrame(() => {
+      viewportBoundsRaf = null;
+      updateViewportWrapperBounds();
+    });
+  };
+
+  const clearViewportInputTargetListeners = () => {
+    if (viewportInputResizeObserver) {
+      viewportInputResizeObserver.disconnect();
+      viewportInputResizeObserver = null;
+    }
+
+    if (viewportBoundsRefreshHandler) {
+      const eventHandler = viewportBoundsRefreshHandler as EventListener;
+      viewportInputObservedElements.forEach(el => {
+        VIEWPORT_BOTTOM_REFRESH_EVENTS.forEach(eventName => {
+          el.removeEventListener(eventName, eventHandler, true);
+        });
+      });
+    }
+
+    viewportInputObservedElements = [];
+  };
+
+  const refreshViewportInputTargetListeners = (targetWindow: Window, targetDocument: Document) => {
+    clearViewportInputTargetListeners();
+
+    if (!viewportBoundsRefreshHandler) return;
+
+    const elements = getViewportBottomAnchorElements(targetDocument);
+    const eventHandler = viewportBoundsRefreshHandler as EventListener;
+    viewportInputObservedElements = elements;
+
+    elements.forEach(el => {
+      VIEWPORT_BOTTOM_REFRESH_EVENTS.forEach(eventName => {
+        el.addEventListener(eventName, eventHandler, { capture: true, passive: true });
+      });
+    });
+
+    const ResizeObserverCtor = targetWindow.ResizeObserver || window.ResizeObserver;
+    if (ResizeObserverCtor) {
+      viewportInputResizeObserver = new ResizeObserverCtor(() => viewportBoundsRefreshHandler?.());
+      elements.forEach(el => viewportInputResizeObserver?.observe(el));
+    }
+  };
+
+  const scheduleViewportInputTargetRefresh = () => {
+    if (viewportInputTargetsRaf !== null) return;
+
+    viewportInputTargetsRaf = requestAnimationFrame(() => {
+      viewportInputTargetsRaf = null;
+      const targetWindow = getTavernHostWindow();
+      const targetDocument = getTavernHostDocument();
+      refreshViewportInputTargetListeners(targetWindow, targetDocument);
+      scheduleViewportBoundsRefresh();
+    });
+  };
+
+  const clearViewportInputMutationObserver = () => {
+    if (viewportInputMutationObserver) {
+      viewportInputMutationObserver.disconnect();
+      viewportInputMutationObserver = null;
+    }
+    viewportInputMutationWindow = null;
+    viewportInputMutationDocument = null;
+
+    if (viewportInputTargetsRaf !== null) {
+      cancelAnimationFrame(viewportInputTargetsRaf);
+      viewportInputTargetsRaf = null;
+    }
+  };
+
+  const setupViewportInputMutationObserver = (targetWindow: Window, targetDocument: Document) => {
+    if (
+      viewportInputMutationObserver &&
+      viewportInputMutationWindow === targetWindow &&
+      viewportInputMutationDocument === targetDocument
+    ) {
+      return;
+    }
+
+    clearViewportInputMutationObserver();
+    if (!targetDocument.body) return;
+
+    const MutationObserverCtor = targetWindow.MutationObserver || window.MutationObserver;
+    viewportInputMutationObserver = new MutationObserverCtor(() => scheduleViewportInputTargetRefresh());
+    viewportInputMutationObserver.observe(targetDocument.body, { childList: true, subtree: true });
+    viewportInputMutationWindow = targetWindow;
+    viewportInputMutationDocument = targetDocument;
+  };
+
+  const clearViewportBoundsListeners = () => {
     if (viewportBoundsListenerWindow && viewportBoundsRefreshHandler) {
       viewportBoundsListenerWindow.removeEventListener('resize', viewportBoundsRefreshHandler);
       viewportBoundsListenerWindow.removeEventListener('orientationchange', viewportBoundsRefreshHandler);
@@ -36905,17 +37032,37 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       viewportBoundsListenerWindow.visualViewport?.removeEventListener('scroll', viewportBoundsRefreshHandler);
     }
 
-    const refreshBounds = () => {
-      const config = getConfig();
-      if (config.positionMode !== 'viewport') return;
-      if (viewportBoundsRaf !== null) return;
+    clearViewportInputTargetListeners();
+    clearViewportInputMutationObserver();
 
-      viewportBoundsRaf = requestAnimationFrame(() => {
-        viewportBoundsRaf = null;
-        updateViewportWrapperBounds();
-      });
-    };
+    if (viewportBoundsRaf !== null) {
+      cancelAnimationFrame(viewportBoundsRaf);
+      viewportBoundsRaf = null;
+    }
 
+    viewportBoundsListenerWindow = null;
+    viewportBoundsRefreshHandler = null;
+    viewportBoundsListenerAttached = false;
+  };
+
+  const setupViewportBoundsListeners = () => {
+    const config = getConfig();
+    if (config.positionMode !== 'viewport') {
+      clearViewportBoundsListeners();
+      return;
+    }
+
+    const targetWindow = getTavernHostWindow();
+    const targetDocument = getTavernHostDocument();
+    if (viewportBoundsListenerAttached && viewportBoundsListenerWindow === targetWindow) {
+      refreshViewportInputTargetListeners(targetWindow, targetDocument);
+      setupViewportInputMutationObserver(targetWindow, targetDocument);
+      return;
+    }
+
+    clearViewportBoundsListeners();
+
+    const refreshBounds = scheduleViewportBoundsRefresh;
     targetWindow.addEventListener('resize', refreshBounds, { passive: true });
     targetWindow.addEventListener('orientationchange', refreshBounds, { passive: true });
     targetWindow.visualViewport?.addEventListener('resize', refreshBounds, { passive: true });
@@ -36923,6 +37070,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     viewportBoundsListenerWindow = targetWindow;
     viewportBoundsRefreshHandler = refreshBounds;
     viewportBoundsListenerAttached = true;
+    refreshViewportInputTargetListeners(targetWindow, targetDocument);
+    setupViewportInputMutationObserver(targetWindow, targetDocument);
   };
 
   const renderInterface = () => {
