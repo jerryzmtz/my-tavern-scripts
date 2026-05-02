@@ -281,7 +281,8 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '#settings-row-font-main',
       title: '界面字号',
-      content: '界面字号主要影响表格卡片正文、面板内容、变量/收藏夹等主体阅读区域。',
+      content:
+        '界面字号主要影响表格卡片正文、面板内容、变量/收藏夹等主体阅读区域。',
       placement: 'left',
     },
     {
@@ -293,7 +294,8 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '#settings-row-font-nav',
       title: '导航栏字号',
-      content: '导航栏字号专门控制底部或顶部导航栏里的按钮文字与右侧图标按钮大小，例如导航盘的按钮大小',
+      content:
+        '导航栏字号专门控制底部或顶部导航栏里的按钮文字与右侧图标按钮大小，例如导航盘的按钮大小',
       placement: 'left',
     },
     {
@@ -507,13 +509,6 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
       selector: '#settings-row-db-toast-mute',
       title: '屏蔽数据库弹窗',
       content: '开启后会尽量屏蔽数据库本体弹出的提示消息，适合不想被打扰时使用。',
-      placement: 'left',
-    },
-    {
-      selector: '#settings-row-db-theme-sync',
-      title: '数据库主题同步',
-      content:
-        '@spv2.1 之前用于让数据库本体跟随骰子系统主题的旧功能。现在数据库本体已经有自己的主题功能，这个旧功能今后不会再继续维护。',
       placement: 'left',
     },
   ],
@@ -1346,8 +1341,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '.acu-gacha-shard-item-card:first-child .acu-gacha-shard-buy-btn',
       title: '兑换按钮',
-      content:
-        '左侧价格按钮会显示兑换需要的碎片数量。点击后会弹出确认框，确认后奖励会写入物品表或装备表并扣除对应碎片。',
+      content: '左侧价格按钮会显示兑换需要的碎片数量。点击后会弹出确认框，确认后奖励会写入物品表或装备表并扣除对应碎片。',
       placement: 'bottom',
     },
   ],
@@ -1895,8 +1889,7 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
     const safeRect = getTargetSafeRect(getCurrentPopoverRect(), target);
     const rect = target.getBoundingClientRect();
     const horizontalMargin = 4;
-    const hasHorizontalPresence =
-      rect.right >= safeRect.left + horizontalMargin && rect.left <= safeRect.right - horizontalMargin;
+    const hasHorizontalPresence = rect.right >= safeRect.left + horizontalMargin && rect.left <= safeRect.right - horizontalMargin;
     const hasVerticalPresence =
       rect.height > safeRect.height
         ? rect.bottom >= safeRect.top && rect.top <= safeRect.bottom
@@ -2206,7 +2199,12 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
   const getActionTarget = (target: EventTarget | null): HTMLElement | null => {
     if (!target) return null;
     const win = getWin();
-    const element = target instanceof win.Element ? target : target instanceof win.Node ? target.parentElement : null;
+    const element =
+      target instanceof win.Element
+        ? target
+        : target instanceof win.Node
+          ? target.parentElement
+          : null;
     const actionTarget = element?.closest('[data-action]');
     return actionTarget instanceof win.HTMLElement ? actionTarget : null;
   };
