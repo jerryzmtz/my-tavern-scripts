@@ -281,7 +281,8 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '#settings-row-font-main',
       title: '界面字号',
-      content: '界面字号主要影响表格卡片正文、面板内容、变量/收藏夹等主体阅读区域。',
+      content:
+        '界面字号主要影响表格卡片正文、面板内容、变量/收藏夹等主体阅读区域。',
       placement: 'left',
     },
     {
@@ -293,7 +294,8 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '#settings-row-font-nav',
       title: '导航栏字号',
-      content: '导航栏字号专门控制底部或顶部导航栏里的按钮文字与右侧图标按钮大小，例如导航盘的按钮大小',
+      content:
+        '导航栏字号专门控制底部或顶部导航栏里的按钮文字与右侧图标按钮大小，例如导航盘的按钮大小',
       placement: 'left',
     },
     {
@@ -337,22 +339,19 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '#settings-row-grid-cols',
       title: '移动端导航栏列数',
-      content:
-        '这里控制移动端导航栏的按钮列数。列数越多，同一行能放下的入口越多；列数越少，按钮会更宽、更容易点击。选择“自动”时会根据入口数量智能分配。',
+      content: '这里控制移动端导航栏的按钮列数。列数越多，同一行能放下的入口越多；列数越少，按钮会更宽、更容易点击。选择“自动”时会根据入口数量智能分配。',
       placement: 'left',
     },
     {
       selector: '#settings-row-desktop-nav-aligned',
       title: 'PC导航栏按钮对齐',
-      content:
-        '开启后，PC端导航栏会使用等宽网格，让按钮边缘更整齐。默认关闭以保留紧凑排列；开启后列宽会跟随导航栏字号自动调整，字号越小越容易排出更多列。',
+      content: '开启后，PC端导航栏会使用等宽网格，让按钮边缘更整齐。默认关闭以保留紧凑排列；开启后列宽会跟随导航栏字号自动调整，字号越小越容易排出更多列。',
       placement: 'left',
     },
     {
       selector: '#settings-row-per-page',
       title: '每页显示条数',
-      content:
-        '这里控制单个表格分页时每页显示多少条记录。数值越大，一页能看到的卡片越多；数值越小，翻页更频繁但界面更轻、更容易浏览。',
+      content: '这里控制单个表格分页时每页显示多少条记录。数值越大，一页能看到的卡片越多；数值越小，翻页更频繁但界面更轻、更容易浏览。',
       placement: 'left',
     },
   ],
@@ -1360,8 +1359,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '.acu-gacha-shard-item-card:first-child .acu-gacha-shard-buy-btn',
       title: '兑换按钮',
-      content:
-        '左侧价格按钮会显示兑换需要的碎片数量。点击后会弹出确认框，确认后奖励会写入物品表或装备表并扣除对应碎片。',
+      content: '左侧价格按钮会显示兑换需要的碎片数量。点击后会弹出确认框，确认后奖励会写入物品表或装备表并扣除对应碎片。',
       placement: 'bottom',
     },
   ],
@@ -1909,8 +1907,7 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
     const safeRect = getTargetSafeRect(getCurrentPopoverRect(), target);
     const rect = target.getBoundingClientRect();
     const horizontalMargin = 4;
-    const hasHorizontalPresence =
-      rect.right >= safeRect.left + horizontalMargin && rect.left <= safeRect.right - horizontalMargin;
+    const hasHorizontalPresence = rect.right >= safeRect.left + horizontalMargin && rect.left <= safeRect.right - horizontalMargin;
     const hasVerticalPresence =
       rect.height > safeRect.height
         ? rect.bottom >= safeRect.top && rect.top <= safeRect.bottom
@@ -2220,7 +2217,12 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
   const getActionTarget = (target: EventTarget | null): HTMLElement | null => {
     if (!target) return null;
     const win = getWin();
-    const element = target instanceof win.Element ? target : target instanceof win.Node ? target.parentElement : null;
+    const element =
+      target instanceof win.Element
+        ? target
+        : target instanceof win.Node
+          ? target.parentElement
+          : null;
     const actionTarget = element?.closest('[data-action]');
     return actionTarget instanceof win.HTMLElement ? actionTarget : null;
   };
