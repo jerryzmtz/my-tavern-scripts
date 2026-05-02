@@ -1604,6 +1604,12 @@ export const MAIN_STYLES = `
                 .acu-order-controls { margin: 0 0 8px 0; padding: 4px; }
                 .acu-actions-group { width: auto !important; margin-left: auto !important; border-top: none !important; border-bottom: none !important; padding: 0; margin-top: 0 !important; margin-bottom: 0 !important; gap: 4px !important; background: transparent; justify-content: flex-end; order: 9999 !important; display: flex; }
                 .acu-pos-top .acu-actions-group { order: -1 !important; margin-left: 0 !important; margin-right: 10px !important; justify-content: flex-start !important; }
+                .acu-wrapper.acu-desktop-nav-aligned.acu-mode-embedded .acu-nav-container { width: 100% !important; }
+                .acu-wrapper.acu-desktop-nav-aligned .acu-nav-container { display: grid !important; grid-template-columns: repeat(auto-fill, minmax(clamp(118px, calc(var(--acu-nav-button-size, 32px) + var(--acu-nav-font-size, 13px) + var(--acu-nav-font-size, 13px) + 70px), 168px), 1fr)) !important; flex-wrap: initial !important; justify-content: stretch !important; align-items: center !important; }
+                .acu-wrapper.acu-desktop-nav-aligned .acu-nav-container .acu-nav-btn { width: 100% !important; min-width: 0 !important; flex: none !important; }
+                .acu-wrapper.acu-desktop-nav-aligned .acu-nav-btn span { max-width: 100%; }
+                .acu-wrapper.acu-desktop-nav-aligned .acu-actions-group { grid-column: span 2 / -1 !important; justify-self: end; width: auto !important; margin-left: 0 !important; margin-right: 0 !important; }
+                .acu-wrapper.acu-desktop-nav-aligned .acu-nav-container.acu-pos-top .acu-actions-group { grid-column: 1 / span 2 !important; justify-self: start; margin-right: 0 !important; }
             }
             @media (max-width: 768px) {
                 .acu-panel-content { -webkit-overflow-scrolling: touch !important; overscroll-behavior-y: auto; }

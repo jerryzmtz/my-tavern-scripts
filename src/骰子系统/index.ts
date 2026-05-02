@@ -1955,7 +1955,7 @@ import {
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.7.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v5.32'; // 脚本版本号
+  const SCRIPT_VERSION = 'v5.33'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -14330,6 +14330,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     itemsPerPage: 50,
     actionsPosition: 'bottom',
     gridColumns: 'auto', // [修改] 默认为智能自动列数
+    desktopNavAligned: false,
     showHorizontalScrollbar: true,
     positionMode: 'fixed', // fixed=悬浮底部, embedded=跟随消息, viewport=固定底部
     showOptionPanel: true, // [新增] 显示选项面板
@@ -28090,6 +28091,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         .filter(className => className.startsWith('acu-theme-'))
         .forEach(className => node.classList.remove(className));
       node.classList.add(`acu-theme-${config.theme}`);
+      if (node.classList.contains('acu-wrapper')) {
+        node.classList.toggle('acu-desktop-nav-aligned', config.desktopNavAligned === true);
+      }
       Object.entries(cssVars).forEach(([key, value]) => {
         node.style.setProperty(key, String(value));
       });
@@ -35466,8 +35470,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                             </div>
                             <div class="acu-setting-row" id="settings-row-grid-cols">
                                 <div class="acu-setting-info">
-                                    <span class="acu-setting-label">底部按钮列数</span>
-                                    <span class="acu-setting-hint">仅移动端</span>
+                                    <span class="acu-setting-label">移动端导航栏列数</span>
                                 </div>
                                 <select id="cfg-grid-cols" class="acu-setting-select acu-select-short">
                                     <option value="2" ${config.gridColumns == 2 ? 'selected' : ''}>2列</option>
@@ -35475,6 +35478,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                     <option value="4" ${config.gridColumns == 4 ? 'selected' : ''}>4列</option>
                                     <option value="auto" ${config.gridColumns === 'auto' ? 'selected' : ''}>自动</option>
                                 </select>
+                            </div>
+                            <div class="acu-setting-row acu-setting-row-toggle" id="settings-row-desktop-nav-aligned">
+                                <div class="acu-setting-info">
+                                    <span class="acu-setting-label">PC导航栏按钮对齐</span>
+                                </div>
+                                <label class="acu-toggle">
+                                    <input type="checkbox" id="cfg-desktop-nav-aligned" ${config.desktopNavAligned === true ? 'checked' : ''}>
+                                    <span class="acu-toggle-slider"></span>
+                                </label>
                             </div>
                             <div class="acu-setting-row" id="settings-row-per-page">
                                 <div class="acu-setting-info">
@@ -35932,6 +35944,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     });
     dialog.find('#cfg-grid-cols').on('change', function () {
       saveConfig({ gridColumns: $(this).val() });
+    });
+    dialog.find('#cfg-desktop-nav-aligned').on('change', function () {
+      saveConfig({ desktopNavAligned: $(this).is(':checked') });
+      renderInterface();
     });
 
     // 位置
@@ -36800,13 +36816,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   let viewportInputMutationDocument: Document | null = null;
   let viewportInputTargetsRaf: number | null = null;
 
-  const VIEWPORT_BOTTOM_ANCHOR_SELECTORS = [
-    '#send_form',
-    '#form_sheld',
-    '#send_textarea',
-    '#chat_input',
-    '#send_but',
-  ] as const;
+  const VIEWPORT_BOTTOM_ANCHOR_SELECTORS = ['#send_form', '#form_sheld', '#send_textarea', '#chat_input', '#send_but'] as const;
   const VIEWPORT_BOTTOM_REFRESH_EVENTS = [
     'input',
     'change',
@@ -36860,9 +36870,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const rect = el.getBoundingClientRect();
         const isComposerElement = VIEWPORT_COMPOSER_ELEMENT_IDS.has(el.id) || el.tagName.toLowerCase() === 'textarea';
         const minTopRatio = isComposerElement ? 0.2 : 0.45;
-        const maxHeight = isComposerElement
-          ? Math.max(520, viewportHeight * 0.75)
-          : Math.max(220, viewportHeight * 0.4);
+        const maxHeight = isComposerElement ? Math.max(520, viewportHeight * 0.75) : Math.max(220, viewportHeight * 0.4);
         if (rect.width <= 0 || rect.height <= 0) return false;
         if (viewportHeight <= 0) return rect.bottom > 0;
         if (rect.top < viewportTop || rect.bottom > viewportBottom + 80) return false;
@@ -37332,6 +37340,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     const layoutClass = config.layout === 'vertical' ? 'acu-layout-vertical' : '';
     const horizontalScrollbarClass = config.showHorizontalScrollbar === true ? 'acu-show-horizontal-scrollbar' : '';
+    const desktopNavClass = config.desktopNavAligned === true ? 'acu-desktop-nav-aligned' : '';
     // [补回这行] 定义面板位置样式 (悬浮/嵌入)
     const positionClass = `acu-mode-${config.positionMode || 'fixed'}`;
 
@@ -37432,7 +37441,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     // [修复] 悬浮收起模式需要特殊类，防止 wrapper 坍塌导致按钮消失
     const navMetrics = getNavigationFontMetrics(config.navFontSize);
-    let html = `<div class="acu-wrapper ${positionClass} acu-theme-${config.theme} ${layoutClass} ${horizontalScrollbarClass}" style="--acu-card-width:${config.cardWidth}px; --acu-font-size:${config.fontSize}px; --acu-opt-font-size:${config.optionFontSize || 12}px; --acu-nav-button-size:${navMetrics.buttonSize}px; --acu-nav-font-size:${navMetrics.fontSize}px; --acu-nav-icon-size:${navMetrics.iconSize}px; --acu-nav-button-padding-x:${navMetrics.paddingX}px; --acu-grid-cols:${finalGridCols}">`;
+    let html = `<div class="acu-wrapper ${positionClass} acu-theme-${config.theme} ${layoutClass} ${horizontalScrollbarClass} ${desktopNavClass}" style="--acu-card-width:${config.cardWidth}px; --acu-font-size:${config.fontSize}px; --acu-opt-font-size:${config.optionFontSize || 12}px; --acu-nav-button-size:${navMetrics.buttonSize}px; --acu-nav-font-size:${navMetrics.fontSize}px; --acu-nav-icon-size:${navMetrics.iconSize}px; --acu-nav-button-padding-x:${navMetrics.paddingX}px; --acu-grid-cols:${finalGridCols}">`;
 
     // [布局核心] 如果是嵌入模式，选项放在 DOM 最前面（因为是 column-reverse，视觉上在最下面）
     // [修改] 增加 optionPanelVisible 判断
