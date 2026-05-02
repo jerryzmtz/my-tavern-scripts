@@ -337,19 +337,22 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '#settings-row-grid-cols',
       title: '移动端导航栏列数',
-      content: '这里控制移动端导航栏的按钮列数。列数越多，同一行能放下的入口越多；列数越少，按钮会更宽、更容易点击。选择“自动”时会根据入口数量智能分配。',
+      content:
+        '这里控制移动端导航栏的按钮列数。列数越多，同一行能放下的入口越多；列数越少，按钮会更宽、更容易点击。选择“自动”时会根据入口数量智能分配。',
       placement: 'left',
     },
     {
       selector: '#settings-row-desktop-nav-aligned',
       title: 'PC导航栏按钮对齐',
-      content: '开启后，PC端导航栏会使用等宽网格，让按钮边缘更整齐。默认关闭以保留紧凑排列；开启后列宽会跟随导航栏字号自动调整，字号越小越容易排出更多列。',
+      content:
+        '开启后，PC端导航栏会使用等宽网格，让按钮边缘更整齐。默认关闭以保留紧凑排列；开启后列宽会跟随导航栏字号自动调整，字号越小越容易排出更多列。',
       placement: 'left',
     },
     {
       selector: '#settings-row-per-page',
       title: '每页显示条数',
-      content: '这里控制单个表格分页时每页显示多少条记录。数值越大，一页能看到的卡片越多；数值越小，翻页更频繁但界面更轻、更容易浏览。',
+      content:
+        '这里控制单个表格分页时每页显示多少条记录。数值越大，一页能看到的卡片越多；数值越小，翻页更频繁但界面更轻、更容易浏览。',
       placement: 'left',
     },
   ],
