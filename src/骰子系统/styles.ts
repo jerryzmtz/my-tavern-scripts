@@ -19,8 +19,8 @@
  */
 export const MAIN_STYLES = `
     /* ========== 核心隔离层 ========== */
-    .acu-wrapper,
-    .acu-wrapper *:not(i[class*="fa-"]):not(i[class*="ti-"]),
+    .acu-wrapper.acu-dice-ui-root,
+    .acu-wrapper.acu-dice-ui-root *:not(i[class*="fa-"]):not(i[class*="ti-"]),
     .acu-edit-overlay,
     .acu-edit-overlay *:not(i[class*="fa-"]):not(i[class*="ti-"]),
     .acu-cell-menu,
@@ -50,7 +50,7 @@ export const MAIN_STYLES = `
         -webkit-font-smoothing: antialiased;
     }
     /* ========== 基础样式 ========== */
-    .acu-wrapper,
+    .acu-wrapper.acu-dice-ui-root,
     .acu-edit-overlay,
     .acu-dice-panel,
     .acu-contest-panel,
@@ -151,23 +151,23 @@ export const MAIN_STYLES = `
         color: var(--acu-text-main);
     }
     /* 搜索框样式 */
-    .acu-wrapper .acu-search-input {
+    .acu-wrapper.acu-dice-ui-root .acu-search-input {
         background-color: var(--acu-input-bg) !important;
         color: var(--acu-text-main) !important;
         border: 1px solid var(--acu-border);
     }
-    .acu-wrapper .acu-search-input:focus {
+    .acu-wrapper.acu-dice-ui-root .acu-search-input:focus {
         outline: none;
         border-color: var(--acu-accent);
         box-shadow: none !important;
     }
-    .acu-wrapper .acu-search-input::placeholder {
+    .acu-wrapper.acu-dice-ui-root .acu-search-input::placeholder {
         color: var(--acu-text-sub) !important;
         opacity: 0.7;
     }
     /* ========== 通用组件基类 ========== */
     /* 按钮基类 */
-    .acu-wrapper button,
+    .acu-wrapper.acu-dice-ui-root button,
     .acu-edit-overlay button,
     .acu-dice-panel button,
     .acu-contest-panel button,
@@ -186,7 +186,7 @@ export const MAIN_STYLES = `
         transition: all 0.2s ease;
         outline: none;
     }
-    .acu-wrapper button:hover,
+    .acu-wrapper.acu-dice-ui-root button:hover,
     .acu-edit-overlay button:hover,
     .acu-dice-panel button:hover,
     .acu-contest-panel button:hover,
@@ -196,7 +196,7 @@ export const MAIN_STYLES = `
     .acu-embedded-options-container button:not(.acu-opt-btn):hover {
         background: var(--acu-btn-hover);
     }
-    .acu-wrapper button:focus,
+    .acu-wrapper.acu-dice-ui-root button:focus,
     .acu-edit-overlay button:focus,
     .acu-dice-panel button:focus,
     .acu-contest-panel button:focus,
@@ -209,9 +209,9 @@ export const MAIN_STYLES = `
     }
 
     /* 输入框基类 */
-    .acu-wrapper input,
-    .acu-wrapper textarea,
-    .acu-wrapper select,
+    .acu-wrapper.acu-dice-ui-root input,
+    .acu-wrapper.acu-dice-ui-root textarea,
+    .acu-wrapper.acu-dice-ui-root select,
     .acu-edit-overlay input,
     .acu-edit-overlay textarea,
     .acu-edit-overlay select,
@@ -230,9 +230,9 @@ export const MAIN_STYLES = `
         outline: none;
         transition: border-color 0.2s;
     }
-    .acu-wrapper input:focus,
-    .acu-wrapper textarea:focus,
-    .acu-wrapper select:focus,
+    .acu-wrapper.acu-dice-ui-root input:focus,
+    .acu-wrapper.acu-dice-ui-root textarea:focus,
+    .acu-wrapper.acu-dice-ui-root select:focus,
     .acu-edit-overlay input:focus,
     .acu-edit-overlay textarea:focus,
     .acu-edit-overlay select:focus,
@@ -245,8 +245,8 @@ export const MAIN_STYLES = `
         box-shadow: none;
         outline: none;
     }
-    .acu-wrapper input::placeholder,
-    .acu-wrapper textarea::placeholder,
+    .acu-wrapper.acu-dice-ui-root input::placeholder,
+    .acu-wrapper.acu-dice-ui-root textarea::placeholder,
     .acu-dice-panel input::placeholder,
     .acu-contest-panel input::placeholder,
     .acu-avatar-manager-overlay input.acu-input::placeholder {
@@ -255,15 +255,19 @@ export const MAIN_STYLES = `
     }
 
     /* 确保重要人物表（卡片）和 MVU 面板中的输入框始终有高对比度 */
-    .acu-data-card input,
-    .acu-data-card textarea,
+    .acu-wrapper.acu-dice-ui-root .acu-data-card input,
+    .acu-wrapper.acu-dice-ui-root .acu-data-card textarea,
+    .acu-preview-overlay .acu-data-card input,
+    .acu-preview-overlay .acu-data-card textarea,
     .acu-mvu-panel input,
     .acu-mvu-panel textarea {
         color: var(--SillyTavern-text-color, #e0e0e0) !important;
         background-color: var(--SillyTavern-bar-color, #0b0b0b) !important;
     }
-    .acu-data-card input::placeholder,
-    .acu-data-card textarea::placeholder,
+    .acu-wrapper.acu-dice-ui-root .acu-data-card input::placeholder,
+    .acu-wrapper.acu-dice-ui-root .acu-data-card textarea::placeholder,
+    .acu-preview-overlay .acu-data-card input::placeholder,
+    .acu-preview-overlay .acu-data-card textarea::placeholder,
     .acu-mvu-panel input::placeholder,
     .acu-mvu-panel textarea::placeholder {
         color: var(--SillyTavern-text-color, #e0e0e0) !important;
@@ -598,11 +602,26 @@ export const MAIN_STYLES = `
     /* 酒馆全局规则: @media (hover: none) and (pointer: coarse) { button { min-width: 44px; min-height: 44px; } } */
     /* 使用通配符一次性禁用所有骰子系统容器内的按钮，避免逐个添加 */
     @media (hover: none) and (pointer: coarse) {
-        [class^="acu-"] button,
-        [class*=" acu-"] button,
-        [class^="acu-"] button[class],
-        [class*=" acu-"] button[class],
-        [id^="shujuku"] button {
+        .acu-wrapper.acu-dice-ui-root button,
+        .acu-wrapper.acu-dice-ui-root button[class],
+        .acu-edit-overlay button,
+        .acu-edit-overlay button[class],
+        .acu-dice-panel button,
+        .acu-dice-panel button[class],
+        .acu-contest-panel button,
+        .acu-contest-panel button[class],
+        .acu-preview-overlay button,
+        .acu-preview-overlay button[class],
+        .acu-gacha-overlay button,
+        .acu-gacha-overlay button[class],
+        .acu-inventory-overlay button,
+        .acu-inventory-overlay button[class],
+        .acu-inventory-detail-overlay button,
+        .acu-inventory-detail-overlay button[class],
+        .acu-import-confirm-overlay button,
+        .acu-import-confirm-overlay button[class],
+        .acu-embedded-options-container button,
+        .acu-embedded-options-container button[class] {
             min-width: unset !important;
             min-height: unset !important;
         }
@@ -693,9 +712,42 @@ export const MAIN_STYLES = `
         color: var(--acu-accent);
     }
 
-    /* 滚动条全局隐藏 */
-    [class^="acu-"], [class^="acu-"] * { scrollbar-width: none; -ms-overflow-style: none; }
-    [class^="acu-"] *::-webkit-scrollbar { display: none !important; }
+    /* 滚动条默认隐藏仅限骰子前端自身，避免影响数据库本体 */
+    .acu-wrapper.acu-dice-ui-root,
+    .acu-wrapper.acu-dice-ui-root *,
+    .acu-edit-overlay,
+    .acu-edit-overlay *,
+    .acu-dice-panel,
+    .acu-dice-panel *,
+    .acu-contest-panel,
+    .acu-contest-panel *,
+    .acu-preview-overlay,
+    .acu-preview-overlay *,
+    .acu-gacha-overlay,
+    .acu-gacha-overlay *,
+    .acu-inventory-overlay,
+    .acu-inventory-overlay *,
+    .acu-inventory-detail-overlay,
+    .acu-inventory-detail-overlay *,
+    .acu-import-confirm-overlay,
+    .acu-import-confirm-overlay *,
+    .acu-embedded-options-container,
+    .acu-embedded-options-container * {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+    .acu-wrapper.acu-dice-ui-root *::-webkit-scrollbar,
+    .acu-edit-overlay *::-webkit-scrollbar,
+    .acu-dice-panel *::-webkit-scrollbar,
+    .acu-contest-panel *::-webkit-scrollbar,
+    .acu-preview-overlay *::-webkit-scrollbar,
+    .acu-gacha-overlay *::-webkit-scrollbar,
+    .acu-inventory-overlay *::-webkit-scrollbar,
+    .acu-inventory-detail-overlay *::-webkit-scrollbar,
+    .acu-import-confirm-overlay *::-webkit-scrollbar,
+    .acu-embedded-options-container *::-webkit-scrollbar {
+        display: none !important;
+    }
 
     /* ========== 主题变量定义 ========== */
     /* 主题维护提示：这里是骰子系统主题色源头。修改或新增 .acu-theme-* 时，
@@ -708,7 +760,8 @@ export const MAIN_STYLES = `
     .acu-theme-ocean { --acu-bg-nav: #e3f2fd; --acu-bg-panel: #e3f2fd; --acu-border: #90caf9; --acu-text-main: #1565c0; --acu-text-sub: #64b5f6; --acu-btn-bg: #bbdefb; --acu-btn-hover: #90caf9; --acu-btn-active-bg: #1976d2; --acu-btn-active-text: #fff; --acu-accent: #2196f3; --acu-table-head: #bbdefb; --acu-table-hover: #e1f5fe; --acu-opt-hover: #e1f5fe; --acu-opt-bg: #ffffff; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #e3f2fd; --acu-menu-bg: #fff; --acu-menu-text: #1565c0; --acu-success-text: #0288d1; --acu-success-bg: rgba(2, 136, 209, 0.15); --acu-scrollbar-track: #e3f2fd; --acu-scrollbar-thumb: #90caf9; --acu-hl-manual: #ff4757; --acu-hl-manual-bg: rgba(255, 71, 87, 0.15); --acu-hl-diff: #0277bd; --acu-hl-diff-bg: rgba(2, 119, 189, 0.2); --acu-error-text: #d32f2f; --acu-error-bg: rgba(211, 47, 47, 0.15); --acu-error-border: rgba(211, 47, 47, 0.5); --acu-warning-icon: #f57c00; --acu-warning-text: #f57c00; --acu-warning-bg: rgba(245, 124, 0, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(0,0,0,0.4); --acu-light-bg: rgba(0,0,0,0.1); --acu-very-light-bg: rgba(0,0,0,0.02); --acu-button-text: #1565c0; --acu-gray-bg: rgba(128,128,128,0.1); --acu-button-text-on-accent: #fff; }
     .acu-theme-cyber { --acu-bg-nav: #000000; --acu-bg-panel: #0a0a0a; --acu-border: #333; --acu-text-main: #00ffcc; --acu-text-sub: #ff00ff; --acu-btn-bg: #111; --acu-btn-hover: #222; --acu-btn-active-bg: #ff00ff; --acu-btn-active-text: #000; --acu-accent: #00ffcc; --acu-table-head: #050505; --acu-table-hover: #111; --acu-opt-hover: rgba(0, 255, 204, 0.15); --acu-opt-bg: rgba(0, 255, 204, 0.08); --acu-shadow: 0 0 15px rgba(0,255,204,0.15); --acu-card-bg: #050505; --acu-badge-bg: #1a1a1a; --acu-menu-bg: #111; --acu-menu-text: #00ffcc; --acu-success-text: #0f0; --acu-success-bg: rgba(0, 255, 0, 0.15); --acu-scrollbar-track: #000; --acu-scrollbar-thumb: #333; --acu-hl-manual: #ff9f43; --acu-hl-manual-bg: rgba(255, 159, 67, 0.2); --acu-hl-diff: #0abde3; --acu-hl-diff-bg: rgba(10, 189, 227, 0.2); --acu-error-text: #ff6b6b; --acu-error-bg: rgba(255, 107, 107, 0.2); --acu-error-border: rgba(255, 107, 107, 0.5); --acu-warning-icon: #ffa726; --acu-warning-text: #ffa726; --acu-warning-bg: rgba(255, 167, 38, 0.2); --acu-overlay-bg: rgba(0,0,0,0.85); --acu-overlay-bg-light: rgba(0,0,0,0.75); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(0, 255, 204, 0.08); --acu-very-light-bg: rgba(0, 255, 204, 0.02); --acu-button-text-on-accent: #000; --acu-input-text: #ff00ff; --acu-input-placeholder: #ff00ff; }
     .acu-theme-cyber .acu-nav-btn { border-color: #222; }
-    .acu-theme-cyber .acu-data-card { border-color: #222; }
+    .acu-wrapper.acu-dice-ui-root.acu-theme-cyber .acu-data-card,
+    .acu-preview-overlay.acu-theme-cyber .acu-data-card { border-color: #222; }
     .acu-theme-nightowl { --acu-bg-nav: #0a2133; --acu-bg-panel: #011627; --acu-border: #132e45; --acu-text-main: #e0e6f2; --acu-text-sub: #a6b8cc; --acu-btn-bg: #1f3a52; --acu-btn-hover: #2a4a68; --acu-btn-active-bg: #7fdbca; --acu-btn-active-text: #011627; --acu-accent: #7fdbca; --acu-table-head: #0a2133; --acu-table-hover: #01294a; --acu-opt-hover: rgba(127, 219, 202, 0.15); --acu-opt-bg: rgba(127, 219, 202, 0.08); --acu-shadow: rgba(0,0,0,0.5); --acu-card-bg: #0a2133; --acu-badge-bg: #1f3a52; --acu-menu-bg: #011627; --acu-menu-text: #e0e6f2; --acu-success-text: #addb67; --acu-success-bg: rgba(173, 219, 103, 0.15); --acu-scrollbar-track: #011627; --acu-scrollbar-thumb: #1f3a52; --acu-hl-manual: #ff8f66; --acu-hl-manual-bg: rgba(255, 143, 102, 0.2); --acu-hl-diff: #82aaff; --acu-hl-diff-bg: rgba(130, 170, 255, 0.2); --acu-error-text: #ef5350; --acu-error-bg: rgba(239, 83, 80, 0.2); --acu-error-border: rgba(239, 83, 80, 0.5); --acu-warning-icon: #ffcb6b; --acu-warning-text: #ffcb6b; --acu-warning-bg: rgba(255, 203, 107, 0.2); --acu-overlay-bg: rgba(1, 22, 39, 0.85); --acu-overlay-bg-light: rgba(1, 22, 39, 0.75); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(127, 219, 202, 0.08); --acu-very-light-bg: rgba(127, 219, 202, 0.02); --acu-button-text: #e0e6f2; --acu-gray-bg: rgba(127, 219, 202, 0.08); --acu-button-text-on-accent: #011627; }
     .acu-theme-sakura { --acu-bg-nav: #F9F0EF; --acu-bg-panel: #F9F0EF; --acu-border: #EBDCD9; --acu-text-main: #6B5552; --acu-text-sub: #C08D8D; --acu-btn-bg: #EBDCD9; --acu-btn-hover: #D8C7C4; --acu-btn-active-bg: #C08D8D; --acu-btn-active-text: #F9F0EF; --acu-accent: #C08D8D; --acu-table-head: #F9F0EF; --acu-table-hover: #F5EAE8; --acu-opt-hover: #F5EAE8; --acu-opt-bg: #ffffff; --acu-shadow: rgba(0,0,0,0.15); --acu-card-bg: #ffffff; --acu-badge-bg: #F9F0EF; --acu-menu-bg: #fff; --acu-menu-text: #6B5552; --acu-success-text: #6B5552; --acu-success-bg: rgba(192, 141, 141, 0.12); --acu-scrollbar-track: #F9F0EF; --acu-scrollbar-thumb: #EBDCD9; --acu-hl-manual: #A68A7A; --acu-hl-manual-bg: rgba(166, 138, 122, 0.12); --acu-hl-diff: #9B7A7A; --acu-hl-diff-bg: rgba(155, 122, 122, 0.2); --acu-error-text: #9B7A7A; --acu-error-bg: rgba(155, 122, 122, 0.12); --acu-error-border: rgba(155, 122, 122, 0.4); --acu-warning-icon: #A68A7A; --acu-warning-text: #A68A7A; --acu-warning-bg: rgba(166, 138, 122, 0.12); --acu-overlay-bg: rgba(107, 85, 82, 0.6); --acu-overlay-bg-light: rgba(107, 85, 82, 0.5); --acu-shadow-bg: rgba(107, 85, 82, 0.3); --acu-light-bg: rgba(192, 141, 141, 0.08); --acu-very-light-bg: rgba(192, 141, 141, 0.02); --acu-button-text: #6B5552; --acu-gray-bg: rgba(192, 141, 141, 0.08); --acu-button-text-on-accent: #F9F0EF; }
     .acu-theme-minepink { --acu-bg-nav: #1a1a1a; --acu-bg-panel: #1a1a1a; --acu-border: #333333; --acu-text-main: #ffb3d9; --acu-text-sub: #ff80c1; --acu-btn-bg: #2a2a2a; --acu-btn-hover: #3a3a3a; --acu-btn-active-bg: #ff80c1; --acu-btn-active-text: #1a1a1a; --acu-accent: #ff80c1; --acu-table-head: #252525; --acu-table-hover: #2a2a2a; --acu-opt-hover: rgba(255, 128, 193, 0.15); --acu-opt-bg: rgba(255, 128, 193, 0.08); --acu-shadow: rgba(0,0,0,0.6); --acu-card-bg: #222222; --acu-badge-bg: #2a2a2a; --acu-menu-bg: #1a1a1a; --acu-menu-text: #ffb3d9; --acu-success-text: #ff80c1; --acu-success-bg: rgba(255, 128, 193, 0.2); --acu-scrollbar-track: #1a1a1a; --acu-scrollbar-thumb: #333333; --acu-hl-manual: #ffa726; --acu-hl-manual-bg: rgba(255, 167, 38, 0.2); --acu-hl-diff: #ff80c1; --acu-hl-diff-bg: rgba(255, 128, 193, 0.2); --acu-error-text: #ff6b6b; --acu-error-bg: rgba(255, 107, 107, 0.2); --acu-error-border: rgba(255, 107, 107, 0.5); --acu-warning-icon: #ffa726; --acu-warning-text: #ffa726; --acu-warning-bg: rgba(255, 167, 38, 0.2); --acu-overlay-bg: rgba(0,0,0,0.8); --acu-overlay-bg-light: rgba(0,0,0,0.7); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(255, 128, 193, 0.1); --acu-very-light-bg: rgba(255, 128, 193, 0.02); --acu-button-text: #1a1a1a; --acu-gray-bg: rgba(255, 128, 193, 0.1); --acu-button-text-on-accent: #1a1a1a; }
@@ -717,18 +770,23 @@ export const MAIN_STYLES = `
     .acu-theme-educational { --acu-bg-nav: #000000; --acu-bg-panel: #000000; --acu-border: #1B1B1B; --acu-text-main: #FFFFFF; --acu-text-sub: #CCCCCC; --acu-btn-bg: #1B1B1B; --acu-btn-hover: #2B2B2B; --acu-btn-active-bg: #FF9900; --acu-btn-active-text: #000000; --acu-accent: #FF9900; --acu-table-head: #1B1B1B; --acu-table-hover: #2B2B2B; --acu-opt-hover: rgba(255, 153, 0, 0.18); --acu-opt-bg: rgba(255, 153, 0, 0.1); --acu-shadow: rgba(0,0,0,0.6); --acu-card-bg: #1B1B1B; --acu-badge-bg: #1B1B1B; --acu-menu-bg: #000000; --acu-menu-text: #FFFFFF; --acu-success-text: #FF9900; --acu-success-bg: rgba(255, 153, 0, 0.15); --acu-scrollbar-track: #000000; --acu-scrollbar-thumb: #1B1B1B; --acu-input-bg: #1B1B1B; --acu-hl-manual: #FF9900; --acu-hl-manual-bg: rgba(255, 153, 0, 0.15); --acu-hl-diff: #FFB84D; --acu-hl-diff-bg: rgba(255, 184, 77, 0.2); --acu-error-text: #FF6B6B; --acu-error-bg: rgba(255, 107, 107, 0.2); --acu-error-border: rgba(255, 107, 107, 0.5); --acu-warning-icon: #FFAA00; --acu-warning-text: #FFAA00; --acu-warning-bg: rgba(255, 170, 0, 0.2); --acu-overlay-bg: rgba(0,0,0,0.8); --acu-overlay-bg-light: rgba(0,0,0,0.7); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(255, 153, 0, 0.1); --acu-very-light-bg: rgba(255, 153, 0, 0.02); --acu-button-text: #FFFFFF; --acu-gray-bg: rgba(255, 255, 255, 0.1); --acu-button-text-on-accent: #000; }
     .acu-theme-vaporwave { --acu-bg-nav: #191970; --acu-bg-panel: #191970; --acu-border: rgba(0, 255, 255, 0.3); --acu-text-main: #00FFFF; --acu-text-sub: #FF00FF; --acu-btn-bg: rgba(25, 25, 112, 0.8); --acu-btn-hover: rgba(0, 255, 255, 0.2); --acu-btn-active-bg: #FF00FF; --acu-btn-active-text: #191970; --acu-accent: #00FFFF; --acu-table-head: rgba(25, 25, 112, 0.9); --acu-table-hover: rgba(0, 255, 255, 0.1); --acu-opt-hover: rgba(0, 255, 255, 0.18); --acu-opt-bg: rgba(0, 255, 255, 0.1); --acu-shadow: 0 0 15px rgba(0, 255, 255, 0.3); --acu-card-bg: rgba(25, 25, 112, 0.95); --acu-badge-bg: rgba(25, 25, 112, 0.8); --acu-menu-bg: #191970; --acu-menu-text: #00FFFF; --acu-success-text: #00FFFF; --acu-success-bg: rgba(0, 255, 255, 0.15); --acu-scrollbar-track: #191970; --acu-scrollbar-thumb: rgba(0, 255, 255, 0.3); --acu-input-bg: rgba(25, 25, 112, 0.6); --acu-hl-manual: #00FFFF; --acu-hl-manual-bg: rgba(0, 255, 255, 0.2); --acu-hl-diff: #FF00FF; --acu-hl-diff-bg: rgba(255, 0, 255, 0.2); --acu-error-text: #FF00FF; --acu-error-bg: rgba(255, 0, 255, 0.2); --acu-error-border: rgba(255, 0, 255, 0.5); --acu-warning-icon: #FF00FF; --acu-warning-text: #FF00FF; --acu-warning-bg: rgba(255, 0, 255, 0.15); --acu-overlay-bg: rgba(25, 25, 112, 0.85); --acu-overlay-bg-light: rgba(25, 25, 112, 0.75); --acu-shadow-bg: rgba(0, 255, 255, 0.3); --acu-light-bg: rgba(0, 255, 255, 0.05); --acu-very-light-bg: rgba(0, 255, 255, 0.02); --acu-button-text: #F0F8FF; --acu-gray-bg: rgba(0, 255, 255, 0.1); --acu-button-text-on-accent: #191970; --acu-input-text: #00FFFF; --acu-input-placeholder: #FF00FF; }
     .acu-theme-vaporwave .acu-nav-btn { border-color: rgba(0, 255, 255, 0.3); }
-    .acu-theme-vaporwave .acu-data-card { border-color: rgba(0, 255, 255, 0.3); }
+    .acu-wrapper.acu-dice-ui-root.acu-theme-vaporwave .acu-data-card,
+    .acu-preview-overlay.acu-theme-vaporwave .acu-data-card { border-color: rgba(0, 255, 255, 0.3); }
     .acu-theme-classicpackaging { --acu-bg-nav: #000000; --acu-bg-panel: #000000; --acu-border: #FFFF00; --acu-text-main: #FFFF00; --acu-text-sub: #CCCC00; --acu-btn-bg: #FF0000; --acu-btn-hover: #CC0000; --acu-btn-active-bg: #0000FF; --acu-btn-active-text: #FFFF00; --acu-accent: #FF0000; --acu-table-head: #1a1a1a; --acu-table-hover: #2a2a2a; --acu-opt-hover: rgba(255, 255, 0, 0.15); --acu-opt-bg: rgba(255, 255, 0, 0.08); --acu-shadow: rgba(255,255,0,0.3); --acu-card-bg: #1a1a1a; --acu-badge-bg: #FF0000; --acu-menu-bg: #000000; --acu-menu-text: #FFFF00; --acu-success-text: #0000FF; --acu-success-bg: rgba(0, 0, 255, 0.2); --acu-scrollbar-track: #000000; --acu-scrollbar-thumb: #FFFF00; --acu-input-bg: #1a1a1a; --acu-hl-manual: #FF0000; --acu-hl-manual-bg: rgba(255, 0, 0, 0.2); --acu-hl-diff: #0000FF; --acu-hl-diff-bg: rgba(0, 0, 255, 0.2); --acu-error-text: #FF0000; --acu-error-bg: rgba(255, 0, 0, 0.2); --acu-error-border: rgba(255, 0, 0, 0.8); --acu-warning-icon: #FF0000; --acu-warning-text: #FF0000; --acu-warning-bg: rgba(255, 0, 0, 0.15); --acu-overlay-bg: rgba(0,0,0,0.9); --acu-overlay-bg-light: rgba(0,0,0,0.8); --acu-shadow-bg: rgba(0,0,0,0.6); --acu-light-bg: rgba(255,255,0,0.1); --acu-very-light-bg: rgba(255,255,0,0.02); --acu-button-text: #FFFF00; --acu-gray-bg: rgba(255,255,0,0.1); --acu-button-text-on-accent: #FFFF00; --acu-input-text: #FFFF00; --acu-input-placeholder: #666600; }
     .acu-theme-classicpackaging .acu-nav-btn { border-color: #FFFF00; border-width: 2px; font-weight: bold; }
-    .acu-theme-classicpackaging .acu-data-card { border-color: #FFFF00; border-width: 2px; }
+    .acu-wrapper.acu-dice-ui-root.acu-theme-classicpackaging .acu-data-card,
+    .acu-preview-overlay.acu-theme-classicpackaging .acu-data-card { border-color: #FFFF00; border-width: 2px; }
     .acu-theme-galgame { --acu-bg-nav: #FFF0F5; --acu-bg-panel: #FFF0F5; --acu-border: #F0D4E4; --acu-text-main: #6B4A5A; --acu-text-sub: #B08A9A; --acu-btn-bg: #FFE4E9; --acu-btn-hover: #FFD4E4; --acu-btn-active-bg: #E8B4D9; --acu-btn-active-text: #6B4A5A; --acu-accent: #E8B4D9; --acu-table-head: #FFF5F9; --acu-table-hover: #FFF0F8; --acu-opt-hover: #FFF0F8; --acu-opt-bg: #ffffff; --acu-shadow: rgba(232, 180, 217, 0.25); --acu-card-bg: #ffffff; --acu-badge-bg: #FFF5F9; --acu-menu-bg: #fff; --acu-menu-text: #6B4A5A; --acu-success-text: #D4A5C8; --acu-success-bg: rgba(212, 165, 200, 0.15); --acu-scrollbar-track: #FFF0F5; --acu-scrollbar-thumb: #F0D4E4; --acu-input-bg: #FFF8FA; --acu-hl-manual: #D4A5A5; --acu-hl-manual-bg: rgba(212, 165, 165, 0.15); --acu-hl-diff: #E8B4D9; --acu-hl-diff-bg: rgba(232, 180, 217, 0.2); --acu-error-text: #C88A9A; --acu-error-bg: rgba(200, 138, 154, 0.15); --acu-error-border: rgba(200, 138, 154, 0.4); --acu-warning-icon: #D4A5A5; --acu-warning-text: #D4A5A5; --acu-warning-bg: rgba(212, 165, 165, 0.15); --acu-overlay-bg: rgba(0,0,0,0.6); --acu-overlay-bg-light: rgba(0,0,0,0.5); --acu-shadow-bg: rgba(232, 180, 217, 0.25); --acu-light-bg: rgba(232, 180, 217, 0.08); --acu-very-light-bg: rgba(232, 180, 217, 0.02); --acu-button-text: #6B4A5A; --acu-button-text-on-accent: #6B4A5A; --acu-gray-bg: rgba(232, 180, 217, 0.1); }
     .acu-theme-galgame .acu-nav-btn { border-radius: 8px; transition: all 0.3s ease; }
-    .acu-theme-galgame .acu-data-card { border-radius: 12px; box-shadow: 0 4px 12px rgba(232, 180, 217, 0.15); transition: all 0.3s ease; }
-    .acu-theme-galgame .acu-data-card:hover { box-shadow: 0 6px 20px rgba(232, 180, 217, 0.25); transform: translateY(-2px); }
+    .acu-wrapper.acu-dice-ui-root.acu-theme-galgame .acu-data-card,
+    .acu-preview-overlay.acu-theme-galgame .acu-data-card { border-radius: 12px; box-shadow: 0 4px 12px rgba(232, 180, 217, 0.15); transition: all 0.3s ease; }
+    .acu-wrapper.acu-dice-ui-root.acu-theme-galgame .acu-data-card:hover,
+    .acu-preview-overlay.acu-theme-galgame .acu-data-card:hover { box-shadow: 0 6px 20px rgba(232, 180, 217, 0.25); transform: translateY(-2px); }
     .acu-theme-galgame .acu-nav-btn:hover { box-shadow: 0 2px 8px rgba(232, 180, 217, 0.2); }
     .acu-theme-terminal { --acu-bg-nav: #0c0c0c; --acu-bg-panel: #0c0c0c; --acu-border: #00ff00; --acu-text-main: #00ff00; --acu-text-sub: #00cc00; --acu-btn-bg: #1a1a1a; --acu-btn-hover: #2a2a2a; --acu-btn-active-bg: #00ff00; --acu-btn-active-text: #0c0c0c; --acu-accent: #00ff00; --acu-table-head: #0a0a0a; --acu-table-hover: #1a1a1a; --acu-opt-hover: rgba(0, 255, 0, 0.12); --acu-opt-bg: rgba(0, 255, 0, 0.06); --acu-shadow: rgba(0,255,0,0.2); --acu-card-bg: #0c0c0c; --acu-badge-bg: #1a1a1a; --acu-menu-bg: #0c0c0c; --acu-menu-text: #00ff00; --acu-success-text: #00ff00; --acu-success-bg: rgba(0, 255, 0, 0.15); --acu-scrollbar-track: #0c0c0c; --acu-scrollbar-thumb: #00ff00; --acu-input-bg: #0c0c0c; --acu-hl-manual: #ffff00; --acu-hl-manual-bg: rgba(255, 255, 0, 0.15); --acu-hl-diff: #00ffff; --acu-hl-diff-bg: rgba(0, 255, 255, 0.15); --acu-error-text: #ff0000; --acu-error-bg: rgba(255, 0, 0, 0.15); --acu-error-border: rgba(255, 0, 0, 0.5); --acu-warning-icon: #ffff00; --acu-warning-text: #ffff00; --acu-warning-bg: rgba(255, 255, 0, 0.15); --acu-overlay-bg: rgba(0,0,0,0.9); --acu-overlay-bg-light: rgba(0,0,0,0.8); --acu-shadow-bg: rgba(0,0,0,0.7); --acu-light-bg: rgba(0,255,0,0.05); --acu-very-light-bg: rgba(0,255,0,0.02); --acu-button-text: #0c0c0c; --acu-gray-bg: rgba(0,255,0,0.05); --acu-button-text-on-accent: #0c0c0c; font-family: 'Courier New', 'Consolas', 'Monaco', monospace; --acu-input-text: #00ff00; --acu-input-placeholder: #008800; }
     .acu-theme-terminal .acu-nav-btn { border-color: #00ff00; text-shadow: 0 0 5px rgba(0,255,0,0.5); }
-    .acu-theme-terminal .acu-data-card { border-color: #00ff00; text-shadow: 0 0 2px rgba(0,255,0,0.3); }
+    .acu-wrapper.acu-dice-ui-root.acu-theme-terminal .acu-data-card,
+    .acu-preview-overlay.acu-theme-terminal .acu-data-card { border-color: #00ff00; text-shadow: 0 0 2px rgba(0,255,0,0.3); }
     .acu-theme-dreamcore { --acu-bg-nav: #F4F1EA; --acu-bg-panel: #F4F1EA; --acu-border: #D6D2C4; --acu-text-main: #5C5869; --acu-text-sub: #9490A0; --acu-btn-bg: #E6E1D5; --acu-btn-hover: #DBD8CC; --acu-btn-active-bg: #8A9AC6; --acu-btn-active-text: #FFFFFF; --acu-accent: #8A9AC6; --acu-table-head: #EBE7DE; --acu-table-hover: #F8F6F0; --acu-opt-hover: #F8F6F0; --acu-opt-bg: #FFFFFF; --acu-shadow: rgba(92, 88, 105, 0.15); --acu-card-bg: #FFFFFF; --acu-badge-bg: #EBE7DE; --acu-menu-bg: #FCFAF5; --acu-menu-text: #5C5869; --acu-success-text: #4A7A68; --acu-success-bg: rgba(74, 122, 104, 0.18); --acu-scrollbar-track: #F4F1EA; --acu-scrollbar-thumb: #D6D2C4; --acu-input-bg: #FFFFFF; --acu-hl-manual: #8A7040; --acu-hl-manual-bg: rgba(138, 112, 64, 0.18); --acu-hl-diff: #8A9AC6; --acu-hl-diff-bg: rgba(138, 154, 198, 0.18); --acu-error-text: #B85C5C; --acu-error-bg: rgba(184, 92, 92, 0.15); --acu-error-border: rgba(184, 92, 92, 0.4); --acu-warning-icon: #E0C080; --acu-warning-text: #8A7040; --acu-warning-bg: rgba(138, 112, 64, 0.18); --acu-overlay-bg: rgba(244, 241, 234, 0.85); --acu-overlay-bg-light: rgba(255, 255, 255, 0.4); --acu-shadow-bg: rgba(92, 88, 105, 0.15); --acu-light-bg: rgba(138, 154, 198, 0.08); --acu-very-light-bg: rgba(138, 154, 198, 0.03); --acu-button-text: #5C5869; --acu-gray-bg: rgba(92, 88, 105, 0.08); --acu-button-text-on-accent: #fff; }
     .acu-theme-dreamcore .acu-nav-btn { border-color: #D6D2C4; }
     /* 极光幻境 (Aurora) 主题：深邃星空与极光渐变 */
@@ -785,7 +843,8 @@ export const MAIN_STYLES = `
         --acu-button-text-on-accent: #fff;
     }
     .acu-theme-aurora .acu-nav-btn { border-color: rgba(56, 189, 248, 0.3); }
-    .acu-theme-aurora .acu-data-card { border-color: rgba(56, 189, 248, 0.3); box-shadow: 0 4px 20px rgba(56, 189, 248, 0.1), 0 2px 10px rgba(168, 85, 247, 0.08); }
+    .acu-wrapper.acu-dice-ui-root.acu-theme-aurora .acu-data-card,
+    .acu-preview-overlay.acu-theme-aurora .acu-data-card { border-color: rgba(56, 189, 248, 0.3); box-shadow: 0 4px 20px rgba(56, 189, 248, 0.1), 0 2px 10px rgba(168, 85, 247, 0.08); }
     .acu-theme-aurora .acu-dice-panel input::placeholder,
     .acu-theme-aurora .acu-contest-panel input::placeholder {
         color: #94a3b8 !important;
@@ -845,12 +904,14 @@ export const MAIN_STYLES = `
         font-weight: bold;
     }
     /* 极光幻境：数据卡片 */
-    .acu-theme-aurora .acu-data-card:hover {
+    .acu-wrapper.acu-dice-ui-root.acu-theme-aurora .acu-data-card:hover,
+    .acu-preview-overlay.acu-theme-aurora .acu-data-card:hover {
         border-color: rgba(56, 189, 248, 0.5) !important;
         box-shadow: 0 8px 30px rgba(56, 189, 248, 0.15), 0 4px 15px rgba(168, 85, 247, 0.1);
         transform: translateY(-3px);
     }
-    .acu-theme-dreamcore .acu-data-card { border-color: #D6D2C4; box-shadow: 0 2px 8px rgba(92, 88, 105, 0.1); }
+    .acu-wrapper.acu-dice-ui-root.acu-theme-dreamcore .acu-data-card,
+    .acu-preview-overlay.acu-theme-dreamcore .acu-data-card { border-color: #D6D2C4; box-shadow: 0 2px 8px rgba(92, 88, 105, 0.1); }
     .acu-theme-dreamcore .acu-dice-panel input::placeholder,
     .acu-theme-dreamcore .acu-contest-panel input::placeholder {
         color: #B0ACC0 !important;
@@ -1012,21 +1073,24 @@ export const MAIN_STYLES = `
     }
 
     /* 超天酱：数据卡片 - 赛博光晕 */
-    .acu-theme-chouten .acu-data-card {
+    .acu-wrapper.acu-dice-ui-root.acu-theme-chouten .acu-data-card,
+    .acu-preview-overlay.acu-theme-chouten .acu-data-card {
         border: 1px solid rgba(179, 136, 255, 0.3) !important;
         background: linear-gradient(160deg, rgba(30, 15, 50, 0.85) 0%, rgba(20, 8, 40, 0.9) 100%) !important;
         backdrop-filter: blur(5px);
         box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3), inset 0 0 20px rgba(179, 136, 255, 0.05);
         position: relative;
     }
-    .acu-theme-chouten .acu-data-card::after {
+    .acu-wrapper.acu-dice-ui-root.acu-theme-chouten .acu-data-card::after,
+    .acu-preview-overlay.acu-theme-chouten .acu-data-card::after {
         content: '';
         position: absolute;
         top: 0; left: 0; right: 0; height: 1px;
         background: linear-gradient(90deg, transparent, #7FFFD4, transparent);
         opacity: 0.5;
     }
-    .acu-theme-chouten .acu-data-card:hover {
+    .acu-wrapper.acu-dice-ui-root.acu-theme-chouten .acu-data-card:hover,
+    .acu-preview-overlay.acu-theme-chouten .acu-data-card:hover {
         border-color: #7FFFD4 !important;
         box-shadow: 0 8px 30px rgba(127, 255, 212, 0.15), 0 0 15px rgba(127, 255, 212, 0.1);
         transform: translateY(-2px);
@@ -1053,19 +1117,23 @@ export const MAIN_STYLES = `
     }
 
     /* 超天酱：滚动条 */
-    .acu-theme-chouten ::-webkit-scrollbar-thumb {
+    .acu-wrapper.acu-dice-ui-root.acu-theme-chouten ::-webkit-scrollbar-thumb,
+    .acu-preview-overlay.acu-theme-chouten ::-webkit-scrollbar-thumb {
         background: linear-gradient(180deg, #FF6B9D, #B388FF) !important;
         border: 1px solid rgba(255, 255, 255, 0.2);
     }
-    .acu-theme-chouten ::-webkit-scrollbar-track {
+    .acu-wrapper.acu-dice-ui-root.acu-theme-chouten ::-webkit-scrollbar-track,
+    .acu-preview-overlay.acu-theme-chouten ::-webkit-scrollbar-track {
         background: rgba(0, 0, 0, 0.2) !important;
     }
 
     /* 超天酱：表格行 - 悬停高亮 */
-    .acu-theme-chouten .acu-card-row {
+    .acu-wrapper.acu-dice-ui-root.acu-theme-chouten .acu-card-row,
+    .acu-preview-overlay.acu-theme-chouten .acu-card-row {
         border-bottom: 1px solid rgba(255, 255, 255, 0.05);
     }
-    .acu-theme-chouten .acu-card-row:hover {
+    .acu-wrapper.acu-dice-ui-root.acu-theme-chouten .acu-card-row:hover,
+    .acu-preview-overlay.acu-theme-chouten .acu-card-row:hover {
         background: linear-gradient(90deg, rgba(255, 107, 157, 0.2), rgba(179, 136, 255, 0.1)) !important;
         box-shadow: inset 2px 0 0 #FF6B9D;
     }
@@ -1102,14 +1170,14 @@ export const MAIN_STYLES = `
     .acu-theme-nightowl .acu-preset-item:hover {
         border-color: rgba(127, 219, 202, 0.4) !important;
     }
-    .acu-wrapper { position: relative; width: 100%; margin: 15px 0; z-index: 31000 !important; font-family: 'Microsoft YaHei', sans-serif; display: flex; flex-direction: column-reverse; }
-    .acu-wrapper.acu-mode-viewport { position: fixed !important; left: 0 !important; right: auto !important; bottom: max(8px, env(safe-area-inset-bottom)); width: 100% !important; max-width: 100% !important; margin: 0 !important; transform: none !important; z-index: 1000 !important; display: flex; flex-direction: column-reverse !important; }
-    .acu-wrapper.acu-mode-viewport .acu-nav-container { position: relative !important; z-index: 1 !important; }
-    .acu-wrapper.acu-mode-viewport .acu-data-display { position: absolute !important; bottom: calc(100% + 10px) !important; left: 0 !important; right: 0 !important; width: 100% !important; max-height: min(80vh, calc(100dvh - 96px)) !important; }
-    .acu-wrapper.acu-mode-embedded { position: relative !important; width: 100% !important; margin-top: 8px !important; z-index: 31001 !important; clear: both; display: flex; flex-direction: column-reverse !important; padding: 0; }
-    .acu-wrapper.acu-mode-embedded .acu-nav-container { position: relative !important; z-index: 31002 !important; border-radius: 0 !important; }
-    .acu-wrapper.acu-mode-embedded .acu-nav-container::before { border-radius: 0 !important; }
-    .acu-wrapper.acu-mode-embedded .acu-data-display { position: absolute !important; bottom: 100% !important; left: 0 !important; right: 0 !important; width: 100% !important; box-shadow: 0 -10px 30px rgba(0,0,0,0.25) !important; border: 1px solid var(--acu-border); margin-bottom: 5px; z-index: 31010 !important; max-height: 70vh !important; overflow-y: auto !important; }
+    .acu-wrapper.acu-dice-ui-root { position: relative; width: 100%; margin: 15px 0; z-index: 31000 !important; font-family: 'Microsoft YaHei', sans-serif; display: flex; flex-direction: column-reverse; }
+    .acu-wrapper.acu-dice-ui-root.acu-mode-viewport { position: fixed !important; left: 0 !important; right: auto !important; bottom: max(8px, env(safe-area-inset-bottom)); width: 100% !important; max-width: 100% !important; margin: 0 !important; transform: none !important; z-index: 1000 !important; display: flex; flex-direction: column-reverse !important; }
+    .acu-wrapper.acu-dice-ui-root.acu-mode-viewport .acu-nav-container { position: relative !important; z-index: 1 !important; }
+    .acu-wrapper.acu-dice-ui-root.acu-mode-viewport .acu-data-display { position: absolute !important; bottom: calc(100% + 10px) !important; left: 0 !important; right: 0 !important; width: 100% !important; max-height: min(80vh, calc(100dvh - 96px)) !important; }
+    .acu-wrapper.acu-dice-ui-root.acu-mode-embedded { position: relative !important; width: 100% !important; margin-top: 8px !important; z-index: 31001 !important; clear: both; display: flex; flex-direction: column-reverse !important; padding: 0; }
+    .acu-wrapper.acu-dice-ui-root.acu-mode-embedded .acu-nav-container { position: relative !important; z-index: 31002 !important; border-radius: 0 !important; }
+    .acu-wrapper.acu-dice-ui-root.acu-mode-embedded .acu-nav-container::before { border-radius: 0 !important; }
+    .acu-wrapper.acu-dice-ui-root.acu-mode-embedded .acu-data-display { position: absolute !important; bottom: 100% !important; left: 0 !important; right: 0 !important; width: 100% !important; box-shadow: 0 -10px 30px rgba(0,0,0,0.25) !important; border: 1px solid var(--acu-border); margin-bottom: 5px; z-index: 31010 !important; max-height: 70vh !important; overflow-y: auto !important; }
     .acu-nav-container { display: grid; grid-template-columns: repeat(var(--acu-grid-cols, 3), 1fr); gap: 4px; padding: 6px; background: var(--acu-bg-nav); border: 1px solid var(--acu-border); border-radius: 10px; align-items: center; box-shadow: 0 2px 6px var(--acu-shadow); position: relative; z-index: 31001 !important; }
     .acu-nav-btn { touch-action: manipulation; -webkit-tap-highlight-color: transparent; width: 100%; display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 3px; padding: 4px 2px; border: 1px solid transparent; border-radius: 6px; background: var(--acu-btn-bg); color: var(--acu-text-main); font-weight: 600; font-size: var(--acu-nav-font-size, 13px); cursor: pointer; transition: all 0.2s ease; user-select: none; overflow: hidden; height: var(--acu-nav-button-size, 32px); }
     .acu-nav-btn span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; margin-top: 1px; }
@@ -1148,12 +1216,17 @@ export const MAIN_STYLES = `
             .acu-view-btn:hover { opacity: 1; color: var(--acu-accent) !important; background: var(--acu-table-hover) !important; border-radius: 4px; }
             .acu-view-btn.acu-reverse-btn.active, .acu-reverse-btn[data-reversed="true"] { color: var(--acu-accent) !important; opacity: 1; }
             /* Grid 视图 (双列) */
-            .acu-card-body.view-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px; }
+            .acu-wrapper.acu-dice-ui-root .acu-card-body.view-grid,
+            .acu-preview-overlay .acu-card-body.view-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px; }
             /* 修复版：强制 Grid 模式使用 Flex 布局并允许高度自适应 */
-.acu-card-body.view-grid .acu-card-row { display: flex; height: auto !important; min-height: fit-content; border: 1px solid var(--acu-border); border-radius: 6px; padding: 4px 6px; flex-direction: column !important; align-items: flex-start !important; background: rgba(0,0,0,0.02); box-sizing: border-box; }
-            .acu-card-body.view-grid .acu-card-row.acu-grid-span-full { grid-column: 1 / -1; }
-            .acu-card-body.view-grid .acu-card-label { width: 100% !important; font-size: 0.85em; opacity: 0.8; margin-bottom: 2px; }
-            .acu-card-body.view-grid .acu-card-value { width: 100% !important; }
+.acu-wrapper.acu-dice-ui-root .acu-card-body.view-grid .acu-card-row,
+.acu-preview-overlay .acu-card-body.view-grid .acu-card-row { display: flex; height: auto !important; min-height: fit-content; border: 1px solid var(--acu-border); border-radius: 6px; padding: 4px 6px; flex-direction: column !important; align-items: flex-start !important; background: rgba(0,0,0,0.02); box-sizing: border-box; }
+            .acu-wrapper.acu-dice-ui-root .acu-card-body.view-grid .acu-card-row.acu-grid-span-full,
+            .acu-preview-overlay .acu-card-body.view-grid .acu-card-row.acu-grid-span-full { grid-column: 1 / -1; }
+            .acu-wrapper.acu-dice-ui-root .acu-card-body.view-grid .acu-card-label,
+            .acu-preview-overlay .acu-card-body.view-grid .acu-card-label { width: 100% !important; font-size: 0.85em; opacity: 0.8; margin-bottom: 2px; }
+            .acu-wrapper.acu-dice-ui-root .acu-card-body.view-grid .acu-card-value,
+            .acu-preview-overlay .acu-card-body.view-grid .acu-card-value { width: 100% !important; }
 
             /* List 视图 (单列 - 原版增强) */
             .acu-nav-btn.active { background: var(--acu-btn-active-bg); color: var(--acu-btn-active-text); box-shadow: inset 0 1px 3px rgba(0,0,0,0.2); outline: none; border-color: transparent; }
@@ -1223,51 +1296,66 @@ export const MAIN_STYLES = `
 /* 核心修改：flex-shrink: 0 确保这一块区域永远不会被压缩 */
 .acu-header-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
             .acu-search-wrapper { position: relative; display: flex; align-items: center; }
-            .acu-wrapper input.acu-search-input { background: var(--acu-btn-bg) !important; border: 1px solid var(--acu-border) !important; color: var(--acu-text-main) !important; padding: 4px 8px 4px 24px; border-radius: 12px; font-size: 12px; width: 120px; transition: width 0.2s, border-color 0.2s; }
-            .acu-wrapper input.acu-search-input::placeholder { color: var(--acu-text-sub) !important; opacity: 0.7; }
-            .acu-wrapper input.acu-search-input:focus { width: 160px; outline: none !important; border-color: var(--acu-accent) !important; box-shadow: none !important; }
+            .acu-wrapper.acu-dice-ui-root input.acu-search-input { background: var(--acu-btn-bg) !important; border: 1px solid var(--acu-border) !important; color: var(--acu-text-main) !important; padding: 4px 8px 4px 24px; border-radius: 12px; font-size: 12px; width: 120px; transition: width 0.2s, border-color 0.2s; }
+            .acu-wrapper.acu-dice-ui-root input.acu-search-input::placeholder { color: var(--acu-text-sub) !important; opacity: 0.7; }
+            .acu-wrapper.acu-dice-ui-root input.acu-search-input:focus { width: 160px; outline: none !important; border-color: var(--acu-accent) !important; box-shadow: none !important; }
             .acu-search-input::placeholder { color: var(--acu-text-sub) ; opacity: 0.7; }
             .acu-search-icon { position: absolute; left: 8px; font-size: 10px; color: var(--acu-text-sub); pointer-events: none; }
             /* 增加了 min-width 和 flex-shrink: 0 */
-            .acu-panel-content { flex: 1; overflow-x: auto; overflow-y: hidden; padding: 15px; background: transparent; scrollbar-width: thin; scrollbar-color: var(--acu-scrollbar-thumb) var(--acu-scrollbar-track); overscroll-behavior-x: contain; overscroll-behavior-y: auto; touch-action: pan-x pan-y; -webkit-overflow-scrolling: touch; }
+            .acu-wrapper.acu-dice-ui-root .acu-panel-content { flex: 1; overflow-x: auto; overflow-y: hidden; padding: 15px; background: transparent; scrollbar-width: thin; scrollbar-color: var(--acu-scrollbar-thumb) var(--acu-scrollbar-track); overscroll-behavior-x: contain; overscroll-behavior-y: auto; touch-action: pan-x pan-y; -webkit-overflow-scrolling: touch; }
             /* 增加了 height: 100%; 让网格容器填满面板的高度 */
-.acu-card-grid { display: flex; flex-wrap: nowrap; gap: 12px; align-items: flex-start; }
-            .acu-layout-vertical .acu-panel-content { overflow-x: hidden !important; overflow-y: auto !important; overscroll-behavior: auto; touch-action: manipulation; min-height: 0; }
+.acu-wrapper.acu-dice-ui-root .acu-card-grid { display: flex; flex-wrap: nowrap; gap: 12px; align-items: flex-start; }
+            .acu-wrapper.acu-dice-ui-root.acu-layout-vertical .acu-panel-content { overflow-x: hidden !important; overflow-y: auto !important; overscroll-behavior: auto; touch-action: manipulation; min-height: 0; }
             /* 竖向布局时恢复 auto 高度 */
-.acu-layout-vertical .acu-card-grid { flex-wrap: wrap !important; justify-content: center; padding-bottom: 20px; height: auto; }
-.acu-wrapper:not(.acu-layout-vertical) .acu-manual-mode .acu-card-grid { height: 100%; } .acu-manual-mode .acu-data-card { max-height: 100% !important; overscroll-behavior-y: auto; } .acu-data-card { flex: 0 0 var(--acu-card-width, 260px); width: var(--acu-card-width, 260px); background: var(--acu-card-bg); border: 1px solid var(--acu-border); border-radius: 8px; height: auto; max-height: 60vh; overflow-y: auto; overscroll-behavior-y: auto; touch-action: manipulation; transition: all 0.2s ease; display: flex; flex-direction: column; position: relative; }
-            .acu-data-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px var(--acu-shadow); border-color: var(--acu-accent); }
-            .acu-data-card.pending-deletion { opacity: 0.6; border: 1px dashed var(--acu-error-text, #e74c3c); }
-            .acu-data-card.pending-deletion::after { content: "待删除"; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-15deg); color: var(--acu-error-text, #e74c3c); font-size: 24px; font-weight: bold; border: 2px solid var(--acu-error-text, #e74c3c); padding: 5px 10px; border-radius: 8px; opacity: 0.8; pointer-events: none; }
-            .acu-data-card.acu-card-locked { border: 2px solid var(--acu-accent); box-shadow: 0 0 8px rgba(var(--acu-accent-rgb, 59, 130, 246), 0.3); position: relative; }
-            .acu-data-card.acu-card-locked::before { content: ""; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(135deg, rgba(var(--acu-accent-rgb, 59, 130, 246), 0.05) 0%, transparent 50%); pointer-events: none; z-index: 0; border-radius: 8px; }
+.acu-wrapper.acu-dice-ui-root.acu-layout-vertical .acu-card-grid { flex-wrap: wrap !important; justify-content: center; padding-bottom: 20px; height: auto; }
+.acu-wrapper.acu-dice-ui-root:not(.acu-layout-vertical) .acu-manual-mode .acu-card-grid { height: 100%; } .acu-wrapper.acu-dice-ui-root .acu-manual-mode .acu-data-card { max-height: 100% !important; overscroll-behavior-y: auto; } .acu-wrapper.acu-dice-ui-root .acu-data-card, .acu-preview-overlay .acu-data-card { flex: 0 0 var(--acu-card-width, 260px); width: var(--acu-card-width, 260px); background: var(--acu-card-bg); border: 1px solid var(--acu-border); border-radius: 8px; height: auto; max-height: 60vh; overflow-y: auto; overscroll-behavior-y: auto; touch-action: manipulation; transition: all 0.2s ease; display: flex; flex-direction: column; position: relative; }
+            .acu-wrapper.acu-dice-ui-root .acu-data-card:hover,
+            .acu-preview-overlay .acu-data-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px var(--acu-shadow); border-color: var(--acu-accent); }
+            .acu-wrapper.acu-dice-ui-root .acu-data-card.pending-deletion,
+            .acu-preview-overlay .acu-data-card.pending-deletion { opacity: 0.6; border: 1px dashed var(--acu-error-text, #e74c3c); }
+            .acu-wrapper.acu-dice-ui-root .acu-data-card.pending-deletion::after,
+            .acu-preview-overlay .acu-data-card.pending-deletion::after { content: "待删除"; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-15deg); color: var(--acu-error-text, #e74c3c); font-size: 24px; font-weight: bold; border: 2px solid var(--acu-error-text, #e74c3c); padding: 5px 10px; border-radius: 8px; opacity: 0.8; pointer-events: none; }
+            .acu-wrapper.acu-dice-ui-root .acu-data-card.acu-card-locked,
+            .acu-preview-overlay .acu-data-card.acu-card-locked { border: 2px solid var(--acu-accent); box-shadow: 0 0 8px rgba(var(--acu-accent-rgb, 59, 130, 246), 0.3); position: relative; }
+            .acu-wrapper.acu-dice-ui-root .acu-data-card.acu-card-locked::before,
+            .acu-preview-overlay .acu-data-card.acu-card-locked::before { content: ""; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(135deg, rgba(var(--acu-accent-rgb, 59, 130, 246), 0.05) 0%, transparent 50%); pointer-events: none; z-index: 0; border-radius: 8px; }
             .acu-row-lock-badge { color: var(--acu-accent); font-size: 14px; opacity: 0.9; margin-left: 4px; flex-shrink: 0; }
             @keyframes pulse-highlight { 0% { opacity: 0.7; } 50% { opacity: 1; } 100% { opacity: 0.7; } }
             .acu-highlight-manual { color: var(--acu-hl-manual) !important; background-color: var(--acu-hl-manual-bg) !important; border-radius: 4px; padding: 0 4px; font-weight: bold; animation: pulse-highlight 2s infinite; display: inline-block; }
             .acu-highlight-diff { color: var(--acu-hl-diff) !important; background-color: var(--acu-hl-diff-bg) !important; border-radius: 4px; padding: 0 4px; font-weight: bold; animation: pulse-highlight 2s infinite; display: inline-block; }
             .acu-editable-title.acu-highlight-manual, .acu-editable-title.acu-highlight-diff { width: auto; display: inline-block; }
-            .acu-card-header { flex: 0 0 auto; padding: 8px 10px; background: var(--acu-table-head); border-bottom: 1px dashed var(--acu-border); font-weight: bold; color: var(--acu-text-main); font-size: 14px; display: flex; flex-direction: row !important; align-items: center !important; justify-content: flex-start !important; gap: 8px; min-height: 40px; height: auto !important; position: relative; }
+            .acu-wrapper.acu-dice-ui-root .acu-card-header,
+            .acu-preview-overlay .acu-card-header { flex: 0 0 auto; padding: 8px 10px; background: var(--acu-table-head); border-bottom: 1px dashed var(--acu-border); font-weight: bold; color: var(--acu-text-main); font-size: 14px; display: flex; flex-direction: row !important; align-items: center !important; justify-content: flex-start !important; gap: 8px; min-height: 40px; height: auto !important; position: relative; }
             .acu-editable-title { flex: 1; width: auto !important; cursor: pointer; border-bottom: 1px dashed transparent; transition: all 0.2s; white-space: pre-wrap !important; overflow: visible !important; word-break: break-word !important; text-align: center; line-height: 1.3; margin: 0; }
             .acu-editable-title:hover { border-bottom-color: var(--acu-accent); color: var(--acu-accent); }
             .acu-card-index { position: static !important; transform: none !important; margin: 0; flex-shrink: 0; font-size: 11px; color: var(--acu-text-sub); font-weight: normal; background: var(--acu-badge-bg); padding: 2px 6px; border-radius: 4px; }
             .acu-bookmark-icon { position: absolute; top: 8px; right: 8px; color: var(--acu-accent); cursor: pointer; font-size: 16px; opacity: 0.3; transition: opacity 0.2s, color 0.2s, transform 0.2s; z-index: 10; }
             .acu-bookmark-icon:hover { opacity: 0.6; transform: scale(1.1); }
             .acu-bookmark-icon.bookmarked { color: var(--acu-accent); opacity: 1; }
-            .acu-card-body { padding: 6px 12px; display: flex; flex-direction: column; gap: 0; font-size: var(--acu-font-size, 13px); flex: 1; }
-            .acu-card-row { display: block; padding: 6px 0; border-bottom: 1px dashed var(--acu-border); cursor: pointer; overflow: hidden; }
-            .acu-card-row:last-child { border-bottom: none; }
-            .acu-card-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; border-top: 1px dashed var(--acu-border); background: var(--acu-table-head); }
+            .acu-wrapper.acu-dice-ui-root .acu-card-body,
+            .acu-preview-overlay .acu-card-body { padding: 6px 12px; display: flex; flex-direction: column; gap: 0; font-size: var(--acu-font-size, 13px); flex: 1; }
+            .acu-wrapper.acu-dice-ui-root .acu-card-row,
+            .acu-preview-overlay .acu-card-row { display: block; padding: 6px 0; border-bottom: 1px dashed var(--acu-border); cursor: pointer; overflow: hidden; }
+            .acu-wrapper.acu-dice-ui-root .acu-card-row:last-child,
+            .acu-preview-overlay .acu-card-row:last-child { border-bottom: none; }
+            .acu-wrapper.acu-dice-ui-root .acu-card-actions,
+            .acu-preview-overlay .acu-card-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; border-top: 1px dashed var(--acu-border); background: var(--acu-table-head); }
             .acu-action-item { padding: 4px 10px; font-size: 11px; border: 1px solid var(--acu-border); border-radius: 4px; background: var(--acu-btn-bg); color: var(--acu-text-main); cursor: pointer; display: flex; align-items: center; gap: 4px; transition: all 0.15s; white-space: nowrap; }
             .acu-action-item:hover { background: var(--acu-btn-hover); border-color: var(--acu-accent); color: var(--acu-accent); transform: translateY(-1px); }
             .acu-action-item:active { transform: translateY(0); }
             .acu-action-item.check-type { border-style: dashed; }
             .acu-action-item i { font-size: 10px; opacity: 0.7; }
-            .acu-card-row:hover { background: var(--acu-table-hover); }
-            .acu-card-label { float: left !important; clear: left; width: auto !important; margin-right: 8px !important; color: var(--acu-text-sub); font-size: 0.9em; line-height: 1.5; padding-top: 0; }
-            .acu-hide-label .acu-card-label { display: none; }
-            .acu-hide-label .acu-card-value { width: 100% !important; }
+            .acu-wrapper.acu-dice-ui-root .acu-card-row:hover,
+            .acu-preview-overlay .acu-card-row:hover { background: var(--acu-table-hover); }
+            .acu-wrapper.acu-dice-ui-root .acu-card-label,
+            .acu-preview-overlay .acu-card-label { float: left !important; clear: left; width: auto !important; margin-right: 8px !important; color: var(--acu-text-sub); font-size: 0.9em; line-height: 1.5; padding-top: 0; }
+            .acu-wrapper.acu-dice-ui-root .acu-hide-label .acu-card-label,
+            .acu-preview-overlay .acu-hide-label .acu-card-label { display: none; }
+            .acu-wrapper.acu-dice-ui-root .acu-hide-label .acu-card-value,
+            .acu-preview-overlay .acu-hide-label .acu-card-value { width: 100% !important; }
             .acu-inline-dice-btn:hover { opacity: 1 !important; transform: scale(1.2); }
-            .acu-card-value { display: block; width: auto !important; margin: 0; text-align: left !important; word-break: break-all !important; white-space: pre-wrap !important; line-height: 1.5 !important; color: var(--acu-text-main); font-size: 1em; }
+            .acu-wrapper.acu-dice-ui-root .acu-card-value,
+            .acu-preview-overlay .acu-card-value { display: block; width: auto !important; margin: 0; text-align: left !important; word-break: break-all !important; white-space: pre-wrap !important; line-height: 1.5 !important; color: var(--acu-text-main); font-size: 1em; }
             .acu-tag-container { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 2px; }
             .acu-multi-attr-container { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; }
             .acu-badge { display: inline-block; padding: 1px 8px; border-radius: 12px; font-size: 0.9em; font-weight: 500; line-height: 1.2; }
@@ -1591,9 +1679,9 @@ export const MAIN_STYLES = `
             @keyframes acu-breathe { 0% { opacity: 1; transform: scale(1); } 50% { opacity: 0.6; transform: scale(0.85); color: #ff7e67; } 100% { opacity: 1; transform: scale(1); } } .acu-icon-breathe { animation: acu-breathe 3s infinite ease-in-out !important; display: inline-block; }
 
             @media (min-width: 768px) {
-                .acu-wrapper.acu-mode-viewport { bottom: max(12px, env(safe-area-inset-bottom)); }
-                .acu-wrapper.acu-mode-embedded .acu-nav-container { width: fit-content !important; min-width: 300px; max-width: 100%; margin: 0 auto; border-radius: 0 !important; box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important; border: 1px solid var(--acu-border); padding: 6px 20px; background: var(--acu-bg-nav) !important; }
-                .acu-wrapper.acu-mode-embedded .acu-data-display { bottom: calc(100% + 12px) !important; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.2) !important; }
+                .acu-wrapper.acu-dice-ui-root.acu-mode-viewport { bottom: max(12px, env(safe-area-inset-bottom)); }
+                .acu-wrapper.acu-dice-ui-root.acu-mode-embedded .acu-nav-container { width: fit-content !important; min-width: 300px; max-width: 100%; margin: 0 auto; border-radius: 0 !important; box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important; border: 1px solid var(--acu-border); padding: 6px 20px; background: var(--acu-bg-nav) !important; }
+                .acu-wrapper.acu-dice-ui-root.acu-mode-embedded .acu-data-display { bottom: calc(100% + 12px) !important; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.2) !important; }
                 .acu-nav-container { display: flex; flex-wrap: wrap !important; gap: 6px !important; padding: 6px 10px; grid-template-columns: none !important; flex-direction: row !important; justify-content: flex-start !important; align-items: center !important; height: auto !important; }
                 .acu-nav-container .acu-nav-btn { width: fit-content !important; flex: 0 0 auto !important; height: var(--acu-nav-button-size, 32px) !important; padding: 0 var(--acu-nav-button-padding-x, 12px); font-size: var(--acu-nav-font-size, 13px) !important; min-width: auto !important; }
                 .acu-nav-btn span { max-width: 200px; }
@@ -1604,17 +1692,19 @@ export const MAIN_STYLES = `
                 .acu-order-controls { margin: 0 0 8px 0; padding: 4px; }
                 .acu-actions-group { width: auto !important; margin-left: auto !important; border-top: none !important; border-bottom: none !important; padding: 0; margin-top: 0 !important; margin-bottom: 0 !important; gap: 4px !important; background: transparent; justify-content: flex-end; order: 9999 !important; display: flex; }
                 .acu-pos-top .acu-actions-group { order: -1 !important; margin-left: 0 !important; margin-right: 10px !important; justify-content: flex-start !important; }
-                .acu-wrapper.acu-desktop-nav-aligned.acu-mode-embedded .acu-nav-container { width: 100% !important; }
-                .acu-wrapper.acu-desktop-nav-aligned .acu-nav-container { display: grid !important; grid-template-columns: repeat(auto-fill, minmax(clamp(118px, calc(var(--acu-nav-button-size, 32px) + var(--acu-nav-font-size, 13px) + var(--acu-nav-font-size, 13px) + 70px), 168px), 1fr)) !important; flex-wrap: initial !important; justify-content: stretch !important; align-items: center !important; }
-                .acu-wrapper.acu-desktop-nav-aligned .acu-nav-container .acu-nav-btn { width: 100% !important; min-width: 0 !important; flex: none !important; }
-                .acu-wrapper.acu-desktop-nav-aligned .acu-nav-btn span { max-width: 100%; }
-                .acu-wrapper.acu-desktop-nav-aligned .acu-actions-group { grid-column: span 2 / -1 !important; justify-self: end; width: auto !important; margin-left: 0 !important; margin-right: 0 !important; }
-                .acu-wrapper.acu-desktop-nav-aligned .acu-nav-container.acu-pos-top .acu-actions-group { grid-column: 1 / span 2 !important; justify-self: start; margin-right: 0 !important; }
+                .acu-wrapper.acu-dice-ui-root.acu-desktop-nav-aligned.acu-mode-embedded .acu-nav-container { width: 100% !important; }
+                .acu-wrapper.acu-dice-ui-root.acu-desktop-nav-aligned .acu-nav-container { display: grid !important; grid-template-columns: repeat(auto-fill, minmax(clamp(118px, calc(var(--acu-nav-button-size, 32px) + var(--acu-nav-font-size, 13px) + var(--acu-nav-font-size, 13px) + 70px), 168px), 1fr)) !important; flex-wrap: initial !important; justify-content: stretch !important; align-items: center !important; }
+                .acu-wrapper.acu-dice-ui-root.acu-desktop-nav-aligned .acu-nav-container .acu-nav-btn { width: 100% !important; min-width: 0 !important; flex: none !important; }
+                .acu-wrapper.acu-dice-ui-root.acu-desktop-nav-aligned .acu-nav-btn span { max-width: 100%; }
+                .acu-wrapper.acu-dice-ui-root.acu-desktop-nav-aligned .acu-actions-group { grid-column: span 2 / -1 !important; justify-self: end; width: auto !important; margin-left: 0 !important; margin-right: 0 !important; }
+                .acu-wrapper.acu-dice-ui-root.acu-desktop-nav-aligned .acu-nav-container.acu-pos-top .acu-actions-group { grid-column: 1 / span 2 !important; justify-self: start; margin-right: 0 !important; }
             }
             @media (max-width: 768px) {
-                .acu-panel-content { -webkit-overflow-scrolling: touch !important; overscroll-behavior-y: auto; }
-                .acu-data-card { box-shadow: none !important; border: 1px solid var(--acu-border); transform: translateZ(0); }
-                .acu-data-card:hover { transform: none !important; box-shadow: none !important; }
+                .acu-wrapper.acu-dice-ui-root .acu-panel-content { -webkit-overflow-scrolling: touch !important; overscroll-behavior-y: auto; }
+                .acu-wrapper.acu-dice-ui-root .acu-data-card,
+                .acu-preview-overlay .acu-data-card { box-shadow: none !important; border: 1px solid var(--acu-border); transform: translateZ(0); }
+                .acu-wrapper.acu-dice-ui-root .acu-data-card:hover,
+                .acu-preview-overlay .acu-data-card:hover { transform: none !important; box-shadow: none !important; }
                 .acu-nav-btn:hover { transform: none !important; }
             }
             /* === 移动端投骰面板适配 === */
@@ -11091,13 +11181,49 @@ export const MAIN_STYLES = `
         }
     }
 
-    [class*="acu-"],
-    [class*="acu-"] * {
+    .acu-wrapper.acu-dice-ui-root,
+    .acu-wrapper.acu-dice-ui-root *,
+    .acu-edit-overlay,
+    .acu-edit-overlay *,
+    .acu-dice-panel,
+    .acu-dice-panel *,
+    .acu-contest-panel,
+    .acu-contest-panel *,
+    .acu-preview-overlay,
+    .acu-preview-overlay *,
+    .acu-gacha-overlay,
+    .acu-gacha-overlay *,
+    .acu-inventory-overlay,
+    .acu-inventory-overlay *,
+    .acu-inventory-detail-overlay,
+    .acu-inventory-detail-overlay *,
+    .acu-import-confirm-overlay,
+    .acu-import-confirm-overlay *,
+    .acu-embedded-options-container,
+    .acu-embedded-options-container * {
         scrollbar-width: none !important;
         -ms-overflow-style: none !important;
     }
-    [class*="acu-"]::-webkit-scrollbar,
-    [class*="acu-"] *::-webkit-scrollbar {
+    .acu-wrapper.acu-dice-ui-root::-webkit-scrollbar,
+    .acu-wrapper.acu-dice-ui-root *::-webkit-scrollbar,
+    .acu-edit-overlay::-webkit-scrollbar,
+    .acu-edit-overlay *::-webkit-scrollbar,
+    .acu-dice-panel::-webkit-scrollbar,
+    .acu-dice-panel *::-webkit-scrollbar,
+    .acu-contest-panel::-webkit-scrollbar,
+    .acu-contest-panel *::-webkit-scrollbar,
+    .acu-preview-overlay::-webkit-scrollbar,
+    .acu-preview-overlay *::-webkit-scrollbar,
+    .acu-gacha-overlay::-webkit-scrollbar,
+    .acu-gacha-overlay *::-webkit-scrollbar,
+    .acu-inventory-overlay::-webkit-scrollbar,
+    .acu-inventory-overlay *::-webkit-scrollbar,
+    .acu-inventory-detail-overlay::-webkit-scrollbar,
+    .acu-inventory-detail-overlay *::-webkit-scrollbar,
+    .acu-import-confirm-overlay::-webkit-scrollbar,
+    .acu-import-confirm-overlay *::-webkit-scrollbar,
+    .acu-embedded-options-container::-webkit-scrollbar,
+    .acu-embedded-options-container *::-webkit-scrollbar {
         width: 0 !important;
         height: 0 !important;
         display: none !important;
@@ -11128,38 +11254,38 @@ export const MAIN_STYLES = `
         border-radius: 4px !important;
     }
 
-    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-panel-content,
-    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-changes-content.acu-changes-horizontal,
-    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-dash-body.acu-dash-horizontal,
-    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-dashboard-content,
-    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-fav-panel-content {
+    .acu-wrapper.acu-dice-ui-root.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-panel-content,
+    .acu-wrapper.acu-dice-ui-root.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-changes-content.acu-changes-horizontal,
+    .acu-wrapper.acu-dice-ui-root.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-dash-body.acu-dash-horizontal,
+    .acu-wrapper.acu-dice-ui-root.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-dashboard-content,
+    .acu-wrapper.acu-dice-ui-root.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-fav-panel-content {
         scrollbar-width: thin !important;
         scrollbar-color: var(--acu-scrollbar-thumb) var(--acu-scrollbar-track) !important;
     }
 
-    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-panel-content::-webkit-scrollbar:horizontal,
-    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-changes-content.acu-changes-horizontal::-webkit-scrollbar:horizontal,
-    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-dash-body.acu-dash-horizontal::-webkit-scrollbar:horizontal,
-    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-dashboard-content::-webkit-scrollbar:horizontal,
-    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-fav-panel-content::-webkit-scrollbar:horizontal {
+    .acu-wrapper.acu-dice-ui-root.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-panel-content::-webkit-scrollbar:horizontal,
+    .acu-wrapper.acu-dice-ui-root.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-changes-content.acu-changes-horizontal::-webkit-scrollbar:horizontal,
+    .acu-wrapper.acu-dice-ui-root.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-dash-body.acu-dash-horizontal::-webkit-scrollbar:horizontal,
+    .acu-wrapper.acu-dice-ui-root.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-dashboard-content::-webkit-scrollbar:horizontal,
+    .acu-wrapper.acu-dice-ui-root.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-fav-panel-content::-webkit-scrollbar:horizontal {
         height: 8px !important;
         display: block !important;
     }
 
-    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-panel-content::-webkit-scrollbar-track:horizontal,
-    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-changes-content.acu-changes-horizontal::-webkit-scrollbar-track:horizontal,
-    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-dash-body.acu-dash-horizontal::-webkit-scrollbar-track:horizontal,
-    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-dashboard-content::-webkit-scrollbar-track:horizontal,
-    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-fav-panel-content::-webkit-scrollbar-track:horizontal {
+    .acu-wrapper.acu-dice-ui-root.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-panel-content::-webkit-scrollbar-track:horizontal,
+    .acu-wrapper.acu-dice-ui-root.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-changes-content.acu-changes-horizontal::-webkit-scrollbar-track:horizontal,
+    .acu-wrapper.acu-dice-ui-root.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-dash-body.acu-dash-horizontal::-webkit-scrollbar-track:horizontal,
+    .acu-wrapper.acu-dice-ui-root.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-dashboard-content::-webkit-scrollbar-track:horizontal,
+    .acu-wrapper.acu-dice-ui-root.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-fav-panel-content::-webkit-scrollbar-track:horizontal {
         background: var(--acu-scrollbar-track) !important;
         border-radius: 4px !important;
     }
 
-    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-panel-content::-webkit-scrollbar-thumb:horizontal,
-    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-changes-content.acu-changes-horizontal::-webkit-scrollbar-thumb:horizontal,
-    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-dash-body.acu-dash-horizontal::-webkit-scrollbar-thumb:horizontal,
-    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-dashboard-content::-webkit-scrollbar-thumb:horizontal,
-    .acu-wrapper.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-fav-panel-content::-webkit-scrollbar-thumb:horizontal {
+    .acu-wrapper.acu-dice-ui-root.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-panel-content::-webkit-scrollbar-thumb:horizontal,
+    .acu-wrapper.acu-dice-ui-root.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-changes-content.acu-changes-horizontal::-webkit-scrollbar-thumb:horizontal,
+    .acu-wrapper.acu-dice-ui-root.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-dash-body.acu-dash-horizontal::-webkit-scrollbar-thumb:horizontal,
+    .acu-wrapper.acu-dice-ui-root.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-dashboard-content::-webkit-scrollbar-thumb:horizontal,
+    .acu-wrapper.acu-dice-ui-root.acu-show-horizontal-scrollbar:not(.acu-layout-vertical) .acu-fav-panel-content::-webkit-scrollbar-thumb:horizontal {
         background: var(--acu-scrollbar-thumb) !important;
         border-radius: 4px !important;
     }

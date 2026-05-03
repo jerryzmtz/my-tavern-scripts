@@ -36,6 +36,8 @@ import {
   'use strict';
 
   const SCRIPT_ID = 'acu_visualizer_ui_v19_6_ai_overlay';
+  const DICE_ROOT_CLASS = 'acu-dice-ui-root';
+  const DICE_ROOT_SELECTOR = `.acu-wrapper.${DICE_ROOT_CLASS}`;
 
   // ========================================
   // 表主键配置 (用于行标识转换)
@@ -1967,7 +1969,7 @@ import {
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.7.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v5.34'; // 脚本版本号
+  const SCRIPT_VERSION = 'v5.35'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -28075,10 +28077,17 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       dynamicStyle.setAttribute('data-font-id', config.fontFamily);
       dynamicStyle.textContent = `
                     ${fontImport}
-                    .acu-wrapper, .acu-edit-dialog, .acu-cell-menu, .acu-nav-container, .acu-data-card, .acu-panel-title, .acu-settings-label, .acu-btn-block, .acu-nav-btn, .acu-edit-textarea,
-                    .acu-dice-panel, .acu-contest-panel, .acu-dice-config-dialog,
+                    ${DICE_ROOT_SELECTOR},
+                    ${DICE_ROOT_SELECTOR} *:not(i[class*="fa-"]):not(i[class*="ti-"]),
+                    .acu-edit-overlay,
+                    .acu-edit-overlay *:not(i[class*="fa-"]):not(i[class*="ti-"]),
+                    .acu-dice-panel,
+                    .acu-dice-panel *:not(i[class*="fa-"]):not(i[class*="ti-"]),
+                    .acu-contest-panel,
+                    .acu-contest-panel *:not(i[class*="fa-"]):not(i[class*="ti-"]),
+                    .acu-dice-config-dialog,
                     .acu-relation-graph-container, .acu-avatar-manager, .acu-import-confirm-dialog, .acu-inventory-overlay, .acu-inventory-shell, .acu-inventory-detail,
-                    .acu-embedded-options-container, .acu-option-panel, .acu-opt-btn {
+                    .acu-gacha-overlay, .acu-embedded-options-container, .acu-option-panel, .acu-opt-btn {
                         font-family: ${fontVal} !important;
                     }
                 `;
@@ -28098,7 +28107,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       '--acu-grid-cols': config.gridColumns,
     };
 
-    collectHostAndLocalNodes<HTMLElement>('.acu-wrapper, .acu-embedded-options-container').forEach(node => {
+    collectHostAndLocalNodes<HTMLElement>(`${DICE_ROOT_SELECTOR}, .acu-embedded-options-container`).forEach(node => {
       Array.from(node.classList)
         .filter(className => className.startsWith('acu-theme-'))
         .forEach(className => node.classList.remove(className));
@@ -28124,6 +28133,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
    */
   const addStyles = () => {
     const targetDocument = getTavernHostDocument();
+    targetDocument.getElementById('dice-db-theme-sync')?.remove();
+    if (targetDocument !== document) {
+      document.getElementById('dice-db-theme-sync')?.remove();
+    }
     if (window._acuStylesInjected && targetDocument.getElementById(`${SCRIPT_ID}-styles`)) return;
     window._acuStylesInjected = true;
 
@@ -28136,15 +28149,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       targetDocument.head.appendChild(iconLink);
     }
 
-    targetDocument.querySelectorAll<HTMLStyleElement>('style').forEach(styleEl => {
-      if (
-        styleEl.id &&
-        styleEl.id.startsWith('acu_') &&
-        styleEl.id.endsWith('-styles') &&
-        styleEl.id !== `${SCRIPT_ID}-styles`
-      )
-        styleEl.remove();
-    });
     targetDocument.getElementById(`${SCRIPT_ID}-styles`)?.remove();
     if (targetDocument !== document) {
       document.getElementById(`${SCRIPT_ID}-styles`)?.remove();
@@ -36064,17 +36068,17 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
         // 实时预览
         if (id === 'cfg-width') {
-          $('.acu-wrapper').css('--acu-card-width', newVal + 'px');
+          $(DICE_ROOT_SELECTOR).css('--acu-card-width', newVal + 'px');
           saveConfig({ cardWidth: newVal });
         } else if (id === 'cfg-font-main') {
-          $('.acu-wrapper').css('--acu-font-size', newVal + 'px');
+          $(DICE_ROOT_SELECTOR).css('--acu-font-size', newVal + 'px');
           saveConfig({ fontSize: newVal });
         } else if (id === 'cfg-font-opt') {
-          $('.acu-wrapper, .acu-embedded-options-container').css('--acu-opt-font-size', newVal + 'px');
+          $(`${DICE_ROOT_SELECTOR}, .acu-embedded-options-container`).css('--acu-opt-font-size', newVal + 'px');
           saveConfig({ optionFontSize: newVal });
         } else if (id === 'cfg-font-nav') {
           const navMetrics = getNavigationFontMetrics(newVal);
-          $('.acu-wrapper')
+          $(DICE_ROOT_SELECTOR)
             .css('--acu-nav-button-size', navMetrics.buttonSize + 'px')
             .css('--acu-nav-font-size', navMetrics.fontSize + 'px')
             .css('--acu-nav-icon-size', navMetrics.iconSize + 'px')
@@ -36907,8 +36911,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const targetWindow = getTavernHostWindow();
     const targetDocument = getTavernHostDocument();
     const wrapper =
-      targetDocument.querySelector<HTMLElement>('.acu-wrapper.acu-mode-viewport') ||
-      document.querySelector<HTMLElement>('.acu-wrapper.acu-mode-viewport');
+      targetDocument.querySelector<HTMLElement>(`${DICE_ROOT_SELECTOR}.acu-mode-viewport`) ||
+      document.querySelector<HTMLElement>(`${DICE_ROOT_SELECTOR}.acu-mode-viewport`);
     if (!wrapper) return;
 
     if (wrapper.ownerDocument !== targetDocument || wrapper.parentElement !== targetDocument.body) {
@@ -37186,7 +37190,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           }
           const children = $chat.children();
           const lastChild = children.last()[0];
-          const wrapper = $('.acu-wrapper')[0];
+          const wrapper = $(DICE_ROOT_SELECTOR)[0];
           if (wrapper && lastChild && lastChild !== wrapper) {
             if ($(lastChild).hasClass('mes') || $(lastChild).hasClass('message-body')) {
               $chat.append(wrapper);
@@ -37298,7 +37302,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     }
 
     const $searchInput = $('.acu-search-input');
-    if ($('.acu-wrapper').length && $searchInput.is(':focus')) {
+    if ($(DICE_ROOT_SELECTOR).length && $searchInput.is(':focus')) {
       if (rawData) {
         if (!isSaving) currentDiffMap = generateDiffMap(rawData);
         const tables = processJsonData(rawData);
@@ -37327,7 +37331,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       lastScrollY = $oldContent.scrollTop();
     }
 
-    $('.acu-wrapper').remove();
+    $(DICE_ROOT_SELECTOR).remove();
     const tables = processJsonData(rawData || {});
 
     if (isSaving) {
@@ -37453,7 +37457,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     // [修复] 悬浮收起模式需要特殊类，防止 wrapper 坍塌导致按钮消失
     const navMetrics = getNavigationFontMetrics(config.navFontSize);
-    let html = `<div class="acu-wrapper ${positionClass} acu-theme-${config.theme} ${layoutClass} ${horizontalScrollbarClass} ${desktopNavClass}" style="--acu-card-width:${config.cardWidth}px; --acu-font-size:${config.fontSize}px; --acu-opt-font-size:${config.optionFontSize || 12}px; --acu-nav-button-size:${navMetrics.buttonSize}px; --acu-nav-font-size:${navMetrics.fontSize}px; --acu-nav-icon-size:${navMetrics.iconSize}px; --acu-nav-button-padding-x:${navMetrics.paddingX}px; --acu-grid-cols:${finalGridCols}">`;
+    let html = `<div class="acu-wrapper ${DICE_ROOT_CLASS} ${positionClass} acu-theme-${config.theme} ${layoutClass} ${horizontalScrollbarClass} ${desktopNavClass}" style="--acu-card-width:${config.cardWidth}px; --acu-font-size:${config.fontSize}px; --acu-opt-font-size:${config.optionFontSize || 12}px; --acu-nav-button-size:${navMetrics.buttonSize}px; --acu-nav-font-size:${navMetrics.fontSize}px; --acu-nav-icon-size:${navMetrics.iconSize}px; --acu-nav-button-padding-x:${navMetrics.paddingX}px; --acu-grid-cols:${finalGridCols}">`;
 
     // [布局核心] 如果是嵌入模式，选项放在 DOM 最前面（因为是 column-reverse，视觉上在最下面）
     // [修改] 增加 optionPanelVisible 判断
@@ -37709,7 +37713,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     if (config.positionMode === 'viewport') {
       const hostDocument = getTavernHostDocument();
-      const wrapperNodes = collectHostAndLocalNodes<HTMLElement>('.acu-wrapper');
+      const wrapperNodes = collectHostAndLocalNodes<HTMLElement>(DICE_ROOT_SELECTOR);
 
       let replaced = false;
       for (const node of wrapperNodes) {
@@ -37727,7 +37731,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       }
       if (!replaced) insertHtmlToPage(html);
     } else {
-      const $existing = $('.acu-wrapper');
+      const $existing = $(DICE_ROOT_SELECTOR);
       if ($existing.length) {
         $existing.replaceWith(html);
       } else {
@@ -38016,7 +38020,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     // 2. 嵌入模式 (Embedded)：保持您原版 v19 的复杂逻辑，跟随气泡
     if (config.positionMode === 'embedded') {
-      $('.acu-wrapper').remove(); // 嵌入模式下，为了准确性，先移除旧的
+      $(DICE_ROOT_SELECTOR).remove(); // 嵌入模式下，为了准确性，先移除旧的
 
       const getTargetContainer = () => {
         const $allMes = $('#chat .mes');
@@ -38049,14 +38053,14 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const $target = getTargetContainer();
       if ($target.length) {
         if ($target.hasClass('mes_block') || $target.hasClass('mes')) {
-          if ($target.find('.acu-wrapper').length === 0) {
+          if ($target.find(DICE_ROOT_SELECTOR).length === 0) {
             $target.append(html);
           } else {
-            $target.find('.acu-wrapper').replaceWith(html);
+            $target.find(DICE_ROOT_SELECTOR).replaceWith(html);
           }
         } else {
           // Fallback
-          if ($('#chat').find('.acu-wrapper').length === 0) {
+          if ($('#chat').find(DICE_ROOT_SELECTOR).length === 0) {
             $target.append(html);
           }
         }
@@ -38069,7 +38073,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     // 3. 悬浮底部模式 (Fixed)：【核心修改】完全照搬脚本 B 的稳健逻辑
     // 不再每次都移除，而是“有则替换，无则追加”，防止闪烁
     const $chat = $('#chat');
-    const $oldWrapper = $('.acu-wrapper');
+    const $oldWrapper = $(DICE_ROOT_SELECTOR);
 
     if ($oldWrapper.length) {
       $oldWrapper.replaceWith(html);
@@ -47181,7 +47185,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
   const bindEvents = tables => {
     const { $ } = getCore();
-    const $wrapper = $('.acu-wrapper');
+    const $wrapper = $(DICE_ROOT_SELECTOR);
     if (!tutorialButtonEventsBound) {
       $('body').on('click.acu_panel_tutorial', '.acu-panel-tutorial-btn', function (e) {
         e.stopPropagation();
@@ -47372,7 +47376,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     $('body')
       .off('click.acu_delegate')
-      .on('click.acu_delegate', '.acu-wrapper', function (e) {
+      .on('click.acu_delegate', DICE_ROOT_SELECTOR, function (e) {
         if (isEditingOrder) return;
         const $target = $(e.target);
 
@@ -50180,7 +50184,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
               const children = $chat.children();
               const lastChild = children.last()[0];
-              const wrapper = $('.acu-wrapper')[0];
+              const wrapper = $(DICE_ROOT_SELECTOR)[0];
 
               if (wrapper && lastChild && lastChild !== wrapper) {
                 if ($(lastChild).hasClass('mes') || $(lastChild).hasClass('message-body')) {
