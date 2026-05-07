@@ -214,7 +214,7 @@ export const GACHA_ITEM_DEFINITIONS: readonly GachaItemDefinition[] = [
   {
     id: 'fantasy_silver_scale_breastplate',
     name: '银鳞胸甲',
-    type: '装备',
+    type: '护具',
     quality: '优秀',
     description: '银鳞胸甲，5金一件。',
     poolTags: ['奇幻'],
@@ -227,7 +227,7 @@ export const GACHA_ITEM_DEFINITIONS: readonly GachaItemDefinition[] = [
   {
     id: 'urban_physics_holy_crowbar',
     name: '物理学圣剑',
-    type: '装备',
+    type: '武器',
     quality: '稀有',
     description: '一根坚固的撬棍，可用于撬门、破坏木箱、近战格斗和简易杠杆操作。',
     poolTags: ['都市'],
@@ -240,7 +240,7 @@ export const GACHA_ITEM_DEFINITIONS: readonly GachaItemDefinition[] = [
   {
     id: 'fantasy_dark_ring',
     name: '黑暗之环',
-    type: '装备',
+    type: '饰品',
     quality: '史诗',
     description: '佩戴者胸口会出现一个巨大的黑暗之环。佩戴者死亡后可在最近的安全地点苏醒一次。',
     poolTags: ['奇幻'],
@@ -280,7 +280,7 @@ export const GACHA_ITEM_DEFINITIONS: readonly GachaItemDefinition[] = [
   {
     id: 'fantasy_twin_blades_of_azzinoth',
     name: '埃辛诺斯战刃',
-    type: '装备',
+    type: '武器',
     quality: '传说',
     description: '一对弯月形战刃，适合高速近战。双持时威力更强，但对使用者负担很大。',
     poolTags: ['奇幻'],
@@ -293,7 +293,7 @@ export const GACHA_ITEM_DEFINITIONS: readonly GachaItemDefinition[] = [
   {
     id: 'fantasy_ashbringer',
     name: '灰烬使者',
-    type: '装备',
+    type: '武器',
     quality: '传说',
     description: '圣光属性双手剑，对亡灵、诅咒和黑暗力量有额外效果。',
     poolTags: ['奇幻'],
@@ -306,7 +306,7 @@ export const GACHA_ITEM_DEFINITIONS: readonly GachaItemDefinition[] = [
   {
     id: 'fantasy_elder_wand',
     name: '老魔杖',
-    type: '装备',
+    type: '武器',
     quality: '传说',
     description:
       '极强的魔杖，施法威力显著提高，但所有权会随击败或缴械关系转移。使用时会引来追求强大魔法力量的巫师的觊觎。',
@@ -320,7 +320,7 @@ export const GACHA_ITEM_DEFINITIONS: readonly GachaItemDefinition[] = [
   {
     id: 'fantasy_invisibility_cloak',
     name: '隐身衣',
-    type: '装备',
+    type: '衣物',
     quality: '传说',
     description: '可覆盖身体的斗篷，穿戴后隐去外形，但声音、气味和触碰仍会暴露位置。',
     poolTags: ['奇幻', '校园'],
@@ -333,7 +333,7 @@ export const GACHA_ITEM_DEFINITIONS: readonly GachaItemDefinition[] = [
   {
     id: 'fantasy_excalibur',
     name: '石中剑',
-    type: '装备',
+    type: '武器',
     quality: '传说',
     description: '传说中的王权之剑，只有被认可者能拔出。可作为统治权或骑士资格象征。',
     poolTags: ['奇幻', '历史'],
@@ -398,7 +398,7 @@ export const GACHA_ITEM_DEFINITIONS: readonly GachaItemDefinition[] = [
   {
     id: 'fantasy_thunderfury',
     name: '雷霆之怒，逐风者的祝福之剑',
-    type: '装备',
+    type: '武器',
     quality: '神话',
     description: '风暴属性传说长剑，可召唤雷电和强风。使用时会明显暴露持有者位置。',
     poolTags: ['奇幻'],
@@ -424,7 +424,7 @@ export const GACHA_ITEM_DEFINITIONS: readonly GachaItemDefinition[] = [
   {
     id: 'cultivation_jingu_bang',
     name: '金箍棒',
-    type: '装备',
+    type: '武器',
     quality: '神话',
     description: '可随心伸缩和改变重量的神兵，适合近战、支撑、破坏和压制大型目标。',
     poolTags: ['修真', '奇幻', '历史'],
@@ -489,7 +489,7 @@ export const GACHA_ITEM_DEFINITIONS: readonly GachaItemDefinition[] = [
   {
     id: 'urban_coin_railgun',
     name: '超电磁炮',
-    type: '装备',
+    type: '武器',
     quality: '传说',
     description: '以硬币等金属弹丸为介质发射高速电磁弹。每次发射消耗一枚金属弹丸和大量电力。',
     poolTags: ['都市', '校园'],
@@ -580,7 +580,7 @@ export const GACHA_ITEM_DEFINITIONS: readonly GachaItemDefinition[] = [
   {
     id: 'history_sword_of_benevolence',
     name: '仁之剑',
-    type: '装备',
+    type: '武器',
     quality: '史诗',
     description:
       '刘备的双剑之一。单独使用为轻剑；与义之剑同时装备时，可提升防守和统率类行动。当持有者违背仁义之道时，失去所有能力。',
@@ -594,7 +594,7 @@ export const GACHA_ITEM_DEFINITIONS: readonly GachaItemDefinition[] = [
   {
     id: 'history_sword_of_righteousness',
     name: '义之剑',
-    type: '装备',
+    type: '武器',
     quality: '史诗',
     description:
       '刘备的双剑之一。单独使用为轻剑；与仁之剑同时装备时，可提升支援和结盟类行动。当持有者违背仁义之道时，失去所有能力。',
@@ -660,7 +660,7 @@ export const GACHA_ITEM_DEFINITIONS: readonly GachaItemDefinition[] = [
   {
     id: 'cultivation_huntian_sash',
     name: '混天绫',
-    type: '装备',
+    type: '衣物',
     quality: '传说',
     description: '红色仙绫，可缠缚目标、牵引物体或在水火中护身。对强力目标需要持续操控。',
     poolTags: ['修真', '奇幻'],
@@ -673,7 +673,7 @@ export const GACHA_ITEM_DEFINITIONS: readonly GachaItemDefinition[] = [
   {
     id: 'cultivation_qiankun_ring',
     name: '乾坤圈',
-    type: '装备',
+    type: '饰品',
     quality: '传说',
     description: '金色法圈，可投掷打击、收回护身或压制妖邪。离手后需要召回才能再次使用。',
     poolTags: ['修真', '奇幻'],
@@ -699,7 +699,7 @@ export const GACHA_ITEM_DEFINITIONS: readonly GachaItemDefinition[] = [
   {
     id: 'cultivation_nine_tooth_rake',
     name: '九齿钉耙',
-    type: '装备',
+    type: '武器',
     quality: '传说',
     description: '九齿重兵器，适合破甲、钩拽和大范围横扫。重量很高，使用者需要足够力量。',
     poolTags: ['修真', '奇幻'],
@@ -1104,7 +1104,7 @@ export const GACHA_ITEM_DEFINITIONS: readonly GachaItemDefinition[] = [
   {
     id: 'urban_handgun',
     name: '手枪',
-    type: '装备',
+    type: '武器',
     quality: '稀有',
     description: '常见小型枪械，可用于威慑和短距离自卫。弹药有限，开火会立刻引来注意。',
     poolTags: ['都市', '历史'],
@@ -1156,7 +1156,7 @@ export const GACHA_ITEM_DEFINITIONS: readonly GachaItemDefinition[] = [
   {
     id: 'urban_white_gloves',
     name: '白手套',
-    type: '装备',
+    type: '衣物',
     quality: '优秀',
     description: '一副干净得过分的白手套，适合在不留下指纹的情况下进行精细操作。',
     poolTags: ['都市', '校园', '历史'],
@@ -1169,7 +1169,7 @@ export const GACHA_ITEM_DEFINITIONS: readonly GachaItemDefinition[] = [
   {
     id: 'urban_black_gloves',
     name: '黑手套',
-    type: '装备',
+    type: '衣物',
     quality: '优秀',
     description: '一副贴合手型的黑色手套，适合潜入、伪装和夜间行动，握持工具时也更加稳当。',
     poolTags: ['都市', '校园', '奇幻'],
