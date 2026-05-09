@@ -19,6 +19,8 @@ export type TutorialScope =
   | 'relationshipGraph'
   | 'avatarManager'
   | 'table'
+  | 'optionTable'
+  | 'checkSuggestionTable'
   | 'mvu'
   | 'changes'
   | 'favorites'
@@ -399,6 +401,42 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
       selector: '#row-auto-send',
       title: '点击后发送',
       content: '开启后点击行动选项会直接发送；关闭时只写入输入框，适合想先手动修改措辞的玩法。',
+      placement: 'left',
+    },
+  ],
+  optionTable: [
+    {
+      selector: '#acu-data-area.visible .acu-option-table-row',
+      title: '选项表',
+      content:
+        '每一行都是一个可点击的行动。点击后是直接发送，还是先写入输入框，取决于设置页“行动选项”里的“点击选项直接发送”。',
+      placement: 'right',
+    },
+    {
+      selector: '#acu-data-area.visible .acu-header-actions',
+      title: '搜索与排序',
+      content: '右上角可以搜索选项、切换倒序显示、调整面板高度，或关闭当前表格。',
+      placement: 'left',
+    },
+  ],
+  checkSuggestionTable: [
+    {
+      selector: '#acu-data-area.visible .acu-option-table-panel',
+      title: '检定建议表',
+      content: '检定建议表会显示当前剧情下可选择的关键行动。每条建议背后都会自动触发对应的检定命令。',
+      placement: 'right',
+    },
+    {
+      selector: '#acu-data-area.visible .acu-check-suggestion-btn',
+      title: '点击执行',
+      content:
+        '点击建议后，系统会按骰子命令执行检定。行动文本是直接发送，还是先写入输入框，取决于设置页“行动选项”里的“点击选项直接发送”。',
+      placement: 'right',
+    },
+    {
+      selector: '#acu-data-area.visible .acu-header-actions',
+      title: '搜索与工具',
+      content: '右上角可以搜索建议、切换倒序显示、调整面板高度，或关闭当前表格。',
       placement: 'left',
     },
   ],

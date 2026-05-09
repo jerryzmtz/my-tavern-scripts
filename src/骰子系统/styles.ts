@@ -1229,8 +1229,12 @@ export const MAIN_STYLES = `
             .acu-preview-overlay .acu-card-body.view-grid .acu-card-value { width: 100% !important; }
 
             /* List 视图 (单列 - 原版增强) */
+            .acu-wrapper.acu-dice-ui-root button.acu-nav-btn.active,
             .acu-nav-btn.active { background: var(--acu-btn-active-bg); color: var(--acu-btn-active-text); box-shadow: inset 0 1px 3px rgba(0,0,0,0.2); outline: none; border-color: transparent; }
+            .acu-wrapper.acu-dice-ui-root button.acu-nav-btn.active:hover,
             .acu-nav-btn.active:hover { background: var(--acu-btn-active-bg); color: var(--acu-btn-active-text); transform: none; }
+            .acu-wrapper.acu-dice-ui-root button.acu-nav-btn.active:focus,
+            .acu-wrapper.acu-dice-ui-root button.acu-nav-btn.active:focus-visible,
             .acu-nav-btn.active:focus, .acu-nav-btn.active:focus-visible { outline: none; box-shadow: inset 0 1px 3px rgba(0,0,0,0.2) !important; }
             .acu-nav-btn.has-validation-errors { border-color: rgba(231, 76, 60, 0.5); }
             .acu-nav-btn .acu-nav-warning-icon { color: var(--acu-error-text, #e74c3c); font-size: 10px; margin-left: 2px; animation: pulse 1.5s infinite; }

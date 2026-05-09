@@ -2069,7 +2069,7 @@ import {
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.7.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v5.60'; // 脚本版本号
+  const SCRIPT_VERSION = 'v5.61'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -28737,6 +28737,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     'relationshipGraph',
     'avatarManager',
     'table',
+    'optionTable',
+    'checkSuggestionTable',
     'mvu',
     'changes',
     'favorites',
@@ -49521,7 +49523,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                     <div class="acu-title-sub">(${displayStart}-${displayEnd} / 共${totalItems}项)${isReversed ? ' <span style="color:var(--acu-accent);">↓倒序</span>' : ''}</div>
                 </div>
                 <div class="acu-header-actions">
-                    ${getTutorialButtonHtml('settingsOptions', '查看行动选项教程')}
+                    ${getTutorialButtonHtml('optionTable', '查看选项表教程')}
                     ${reverseBtnHtml}
                     <div class="acu-height-control">
                         <i class="fa-solid fa-arrows-up-down acu-height-drag-handle" data-table="${escapeHtml(tableName)}" title="↕️ 拖动调整面板高度 | 双击恢复默认"></i>
@@ -49612,7 +49614,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                     <div class="acu-title-sub">(${displayStart}-${displayEnd} / 共${totalItems}项)${isReversed ? ' <span style="color:var(--acu-accent);">↓倒序</span>' : ''}</div>
                 </div>
                 <div class="acu-header-actions">
-                    ${getTutorialButtonHtml('dice', '查看检定教程')}
+                    ${getTutorialButtonHtml('checkSuggestionTable', '查看检定建议表教程')}
                     ${reverseBtnHtml}
                     <div class="acu-height-control">
                         <i class="fa-solid fa-arrows-up-down acu-height-drag-handle" data-table="${escapeHtml(tableName)}" title="↕️ 拖动调整面板高度 | 双击恢复默认"></i>
