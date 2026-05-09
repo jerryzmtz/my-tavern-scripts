@@ -6601,7 +6601,20 @@ import {
    * 用于决定是否对该表格的名称列应用 getDisplayName
    */
   const isCharacterTable = (tableName: string): boolean => {
-    const keywords = ['主角', '角色', '人物', '对象', 'NPC', '伙伴', '队友', '宠物', '弟子', '成员', 'player', 'character'];
+    const keywords = [
+      '主角',
+      '角色',
+      '人物',
+      '对象',
+      'NPC',
+      '伙伴',
+      '队友',
+      '宠物',
+      '弟子',
+      '成员',
+      'player',
+      'character',
+    ];
     return keywords.some(kw => tableName.toLowerCase().includes(kw.toLowerCase()));
   };
 
@@ -6869,7 +6882,9 @@ import {
     return escapeHtml(icon);
   };
 
-  const renderGachaItemIconContent = (item: Pick<GachaItemDefinition, 'name' | 'type' | 'icon' | 'iconUrl' | 'localIconKey'>): string => {
+  const renderGachaItemIconContent = (
+    item: Pick<GachaItemDefinition, 'name' | 'type' | 'icon' | 'iconUrl' | 'localIconKey'>,
+  ): string => {
     const fallback = renderThemeIconContent(item.icon || getElementEmoji(item.name, item.type));
     if (item.localIconKey) {
       return `<span class="acu-gacha-image-icon acu-gacha-local-icon" data-gacha-local-icon-key="${escapeHtml(item.localIconKey)}">${fallback}</span>`;
@@ -13598,7 +13613,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       cloned[moduleKey] = {
         tableKeywords: [...moduleConfig.tableKeywords],
         columns,
-        ...(moduleConfig.filters ? { filters: JSON.parse(JSON.stringify(moduleConfig.filters)) as Record<string, DashboardFilterConfig> } : {}),
+        ...(moduleConfig.filters
+          ? { filters: JSON.parse(JSON.stringify(moduleConfig.filters)) as Record<string, DashboardFilterConfig> }
+          : {}),
       };
     });
     return cloned;
@@ -13760,7 +13777,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return filters;
   };
 
-  const normalizeDashboardRelationshipGraphConfig = (rawModule: Record<string, unknown>): DashboardPresetModuleConfig => {
+  const normalizeDashboardRelationshipGraphConfig = (
+    rawModule: Record<string, unknown>,
+  ): DashboardPresetModuleConfig => {
     if (!Array.isArray(rawModule.sources)) {
       throw new Error('模块 relationshipGraph.sources 必须是数组');
     }
@@ -13937,7 +13956,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return modules;
   };
 
-  const parseDashboardPresetJson = (jsonText: string): { name: string; description: string; modules: DashboardPresetModules } => {
+  const parseDashboardPresetJson = (
+    jsonText: string,
+  ): { name: string; description: string; modules: DashboardPresetModules } => {
     const parsed = JSON.parse(stripJsonComments(jsonText)) as unknown;
     if (!isRecordValue(parsed)) {
       throw new Error('仪表盘预设必须是对象');
@@ -14115,7 +14136,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         return newPreset;
       },
 
-      updatePreset(id: string, updates: { name: string; description?: string; modules: DashboardPresetModules }): boolean {
+      updatePreset(
+        id: string,
+        updates: { name: string; description?: string; modules: DashboardPresetModules },
+      ): boolean {
         const stored = getStoredPresets();
         const index = stored.findIndex(preset => preset.id === id);
         if (index < 0) return false;
@@ -14166,7 +14190,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           });
         } catch (error) {
           console.error('[DICE]DashboardPresetManager 导入失败:', error);
-          if (window.toastr) window.toastr.error('导入失败: ' + (error instanceof Error ? error.message : String(error)));
+          if (window.toastr)
+            window.toastr.error('导入失败: ' + (error instanceof Error ? error.message : String(error)));
           return null;
         }
       },
@@ -18590,7 +18615,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           setHistoryEffectStateByRun(run, { effectEventSeq: seq });
 
           if (hasFailure && window.toastr) {
-            const firstError = results.find(result => !result.success && result.error)?.error || '请检查表格结构和字段约束';
+            const firstError =
+              results.find(result => !result.success && result.error)?.error || '请检查表格结构和字段约束';
             window.toastr.warning(`效果执行失败，已回滚本次全部效果：${firstError}`, '效果执行失败', {
               timeOut: 9000,
             });
@@ -23720,7 +23746,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const locations = new Map();
     const locationHeaders = locationResult.data.headers || [];
     const locationRows = locationResult.data.rows || [];
-    const locationConfig = locationResult.config || getDashboardModuleConfig('location') || DASHBOARD_TABLE_CONFIG.location;
+    const locationConfig =
+      locationResult.config || getDashboardModuleConfig('location') || DASHBOARD_TABLE_CONFIG.location;
     const locationNameIdx = DashboardDataParser.findColumnIndex(locationHeaders, 'name', locationConfig);
     const locationRegionIdx = findColumnIndex(locationHeaders, ['次要地区', '次要区域', '区域', '地区'], null);
     const locationTypeIdx = findColumnIndex(locationHeaders, ['地点类型', '地点类别', '类型'], null);
@@ -28781,7 +28808,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return Boolean(record && Array.isArray(record.content));
   };
 
-  const normalizeDiffText = (value: unknown): string => String(value ?? '').trim().replace(/\s+/g, ' ');
+  const normalizeDiffText = (value: unknown): string =>
+    String(value ?? '')
+      .trim()
+      .replace(/\s+/g, ' ');
 
   const normalizeDiffHeader = (value: unknown): string => normalizeDiffText(value).toLowerCase();
 
@@ -28945,7 +28975,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return { byKey, rows, usedIndices: new Set<number>() };
   };
 
-  const takeDiffRowMatch = (matcher: DiffRowMatcher, headers: DiffRow, row: DiffRow, rowIndex: number): DiffRowMatch | null => {
+  const takeDiffRowMatch = (
+    matcher: DiffRowMatcher,
+    headers: DiffRow,
+    row: DiffRow,
+    rowIndex: number,
+  ): DiffRowMatch | null => {
     for (const key of getDiffRowIdentityKeys(headers, row)) {
       const queue = matcher.byKey.get(key);
       while (queue?.length) {
@@ -29428,7 +29463,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   const getSheetRows = sheet => (Array.isArray(sheet?.content) ? sheet.content.slice(1) : []);
   const getSheetHeaders = sheet => (Array.isArray(sheet?.content?.[0]) ? sheet.content[0] : []);
   const sameRow = (left, right): boolean => JSON.stringify(left || []) === JSON.stringify(right || []);
-  const sameHeaders = (left, right): boolean => JSON.stringify(getSheetHeaders(left)) === JSON.stringify(getSheetHeaders(right));
+  const sameHeaders = (left, right): boolean =>
+    JSON.stringify(getSheetHeaders(left)) === JSON.stringify(getSheetHeaders(right));
   const getStableRowKeyForCrud = row => {
     if (!Array.isArray(row)) return '';
     const primary = String(row[1] ?? '').trim();
@@ -29642,7 +29678,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     if (desiredRows.length > workingRows.length) {
       for (let index = workingRows.length; index < desiredRows.length; index++) {
-        assertCrudEnumConstraints(tableName, headers, desiredRows[index], desiredSheet, index, undefined, columnAliasMap);
+        assertCrudEnumConstraints(
+          tableName,
+          headers,
+          desiredRows[index],
+          desiredSheet,
+          index,
+          undefined,
+          columnAliasMap,
+        );
         const rowData = buildRowDataForCrud(headers, desiredRows[index], undefined, columnAliasMap);
         const result = await api.insertRow({ tableName, data: rowData, skipNotify: true });
         if (result === false || result === -1) {
@@ -29713,7 +29757,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return { dataToSave, sheetKeysToSave };
   };
 
-  const applyRuntimeDataViaCrud = async (tableData, modifiedSheetKeys?: string[], options?: { commitDeletes?: boolean }) => {
+  const applyRuntimeDataViaCrud = async (
+    tableData,
+    modifiedSheetKeys?: string[],
+    options?: { commitDeletes?: boolean },
+  ) => {
     const api = assertRuntimeCrudApi();
     const isPartialSave = Array.isArray(modifiedSheetKeys);
     const { dataToSave, sheetKeysToSave } = sanitizeRuntimeTableData(
@@ -29802,7 +29850,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     try {
       return await applyRuntimeDataViaCrud(tableData, modifiedSheetKeys);
     } catch (e) {
-      console.error('[DICE]ACU saveDataOnly error:', getRuntimeErrorLogPayload(e), modifiedSheetKeys ? { modifiedSheetKeys } : undefined);
+      console.error(
+        '[DICE]ACU saveDataOnly error:',
+        getRuntimeErrorLogPayload(e),
+        modifiedSheetKeys ? { modifiedSheetKeys } : undefined,
+      );
       throw e;
     }
   };
@@ -29923,7 +29975,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const tableName = normalizeDiffText(context?.tableName) || normalizeDiffText(entry?.sheet?.name);
         const sheetForMetadata = context?.sheet || entry?.sheet;
         const headers = Array.isArray(context?.headers) ? context.headers : getSheetHeaders(entry?.sheet);
-        const currentRow = Array.isArray(context?.currentRow) ? context.currentRow : getDiffDataRow(entry?.sheet, rowIndex);
+        const currentRow = Array.isArray(context?.currentRow)
+          ? context.currentRow
+          : getDiffDataRow(entry?.sheet, rowIndex);
 
         if (!tableName) {
           throw new Error(`表格 "${tableKey}" 不存在`);
@@ -29946,7 +30000,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         if (changedColumns.size === 0) return;
 
         const columnAliasMap = buildCrudColumnAliasMap(sheetForMetadata);
-        assertCrudEnumConstraints(tableName, headers, nextRow, sheetForMetadata, rowIndex, changedColumns, columnAliasMap);
+        assertCrudEnumConstraints(
+          tableName,
+          headers,
+          nextRow,
+          sheetForMetadata,
+          rowIndex,
+          changedColumns,
+          columnAliasMap,
+        );
         const rowData = buildRowDataForCrud(headers, nextRow, changedColumns, columnAliasMap);
         const result = await api.updateRow({ tableName, rowIndex: rowIndex + 1, data: rowData, skipNotify: true });
         if (result === false || result === -1) {
@@ -29999,7 +30061,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const nextRow = [...newRowData];
       normalizeCrudRequiredTextCells(headers, [nextRow], entry.sheet);
       const columnAliasMap = buildCrudColumnAliasMap(entry.sheet);
-      assertCrudEnumConstraints(tableName, headers, nextRow, entry.sheet, getSheetRows(entry.sheet).length, undefined, columnAliasMap);
+      assertCrudEnumConstraints(
+        tableName,
+        headers,
+        nextRow,
+        entry.sheet,
+        getSheetRows(entry.sheet).length,
+        undefined,
+        columnAliasMap,
+      );
       const rowData = buildRowDataForCrud(headers, nextRow, undefined, columnAliasMap);
       const result = await api.insertRow({ tableName, data: rowData, skipNotify: true });
       if (result === false || result === -1) {
@@ -30007,7 +30077,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       }
 
       const fallbackData = cloneRuntimeDataValue(sourceData);
-      const fallbackEntry = findRuntimeSheetEntryForMutation(fallbackData, entry.key) || findRuntimeSheetEntryForMutation(fallbackData, tableKey);
+      const fallbackEntry =
+        findRuntimeSheetEntryForMutation(fallbackData, entry.key) ||
+        findRuntimeSheetEntryForMutation(fallbackData, tableKey);
       if (fallbackEntry?.sheet?.content) fallbackEntry.sheet.content.push([...nextRow]);
       updateRuntimeDataCacheAfterCrud(api, fallbackData, entry.key || tableKey);
     });
@@ -30028,7 +30100,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       if (result === false || result === -1) throw new Error(`删除 "${tableName}" 第 ${rowIndex + 1} 行失败`);
 
       const fallbackData = cloneRuntimeDataValue(sourceData);
-      const fallbackEntry = findRuntimeSheetEntryForMutation(fallbackData, entry.key) || findRuntimeSheetEntryForMutation(fallbackData, tableKey);
+      const fallbackEntry =
+        findRuntimeSheetEntryForMutation(fallbackData, entry.key) ||
+        findRuntimeSheetEntryForMutation(fallbackData, tableKey);
       if (fallbackEntry?.sheet?.content?.[rowIndex + 1]) fallbackEntry.sheet.content.splice(rowIndex + 1, 1);
       updateRuntimeDataCacheAfterCrud(api, fallbackData, entry.key || tableKey);
     });
@@ -34664,7 +34738,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         overlay.remove();
         popModal();
       } catch (error) {
-        if (window.toastr) window.toastr.error('JSONC 格式错误: ' + (error instanceof Error ? error.message : String(error)));
+        if (window.toastr)
+          window.toastr.error('JSONC 格式错误: ' + (error instanceof Error ? error.message : String(error)));
       }
     });
 
@@ -38561,7 +38636,13 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   let viewportInputMutationDocument: Document | null = null;
   let viewportInputTargetsRaf: number | null = null;
 
-  const VIEWPORT_BOTTOM_ANCHOR_SELECTORS = ['#send_form', '#form_sheld', '#send_textarea', '#chat_input', '#send_but'] as const;
+  const VIEWPORT_BOTTOM_ANCHOR_SELECTORS = [
+    '#send_form',
+    '#form_sheld',
+    '#send_textarea',
+    '#chat_input',
+    '#send_but',
+  ] as const;
   const VIEWPORT_BOTTOM_REFRESH_EVENTS = [
     'input',
     'change',
@@ -38615,7 +38696,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const rect = el.getBoundingClientRect();
         const isComposerElement = VIEWPORT_COMPOSER_ELEMENT_IDS.has(el.id) || el.tagName.toLowerCase() === 'textarea';
         const minTopRatio = isComposerElement ? 0.2 : 0.45;
-        const maxHeight = isComposerElement ? Math.max(520, viewportHeight * 0.75) : Math.max(220, viewportHeight * 0.4);
+        const maxHeight = isComposerElement
+          ? Math.max(520, viewportHeight * 0.75)
+          : Math.max(220, viewportHeight * 0.4);
         if (rect.width <= 0 || rect.height <= 0) return false;
         if (viewportHeight <= 0) return rect.bottom > 0;
         if (rect.top < viewportTop || rect.bottom > viewportBottom + 80) return false;
@@ -38980,11 +39063,13 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             if (transformResult.totalApplied > 0) {
               console.info(`[DICE]自动替换完成，共影响 ${transformResult.totalApplied} 处数据`);
 
-              saveDataOnly(rawData, transformResult.modifiedSheetKeys).catch(err => {
-                console.warn('[DICE]自动转换后保存数据失败:', err);
-              }).finally(() => {
-                isAutoTransforming = false;
-              });
+              saveDataOnly(rawData, transformResult.modifiedSheetKeys)
+                .catch(err => {
+                  console.warn('[DICE]自动转换后保存数据失败:', err);
+                })
+                .finally(() => {
+                  isAutoTransforming = false;
+                });
             }
             if (transformResult.errors.length > 0) {
               console.warn(`[DICE]自动转换遇到 ${transformResult.errors.length} 个错误:`, transformResult.errors);
@@ -39912,9 +39997,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const isValidationMode = Store.get(STORAGE_KEY_VALIDATION_MODE, false);
     const hasStructuralChanges = changes.some(
       change =>
-        change.type === 'table_deleted' ||
-        change.type === 'table_added' ||
-        change.type === 'table_structure_changed',
+        change.type === 'table_deleted' || change.type === 'table_added' || change.type === 'table_structure_changed',
     );
 
     // 根据模式渲染不同的标题和按钮
@@ -40160,9 +40243,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   const bindChangesEvents = () => {
     const { $ } = getCore();
 
-    const resolveChangesPanelJumpTarget = (
-      $item: JQuery,
-    ): { tableName: string; rowIndex: number } | null => {
+    const resolveChangesPanelJumpTarget = ($item: JQuery): { tableName: string; rowIndex: number } | null => {
       const tableNameFromItem = String($item.data('table') || '').trim();
       const tableKey = String($item.data('table-key') || '').trim();
       const rawRowIndex = $item.data('row') ?? $item.data('row-index');
@@ -40248,7 +40329,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             if (rawData[sheetId]?.name === tableName && snapshot[sheetId]) {
               const headers = rawData[sheetId].content?.[0] || [];
               const colIdx = headers.indexOf(columnName);
-              if (colIdx >= 0 && rawData[sheetId].content?.[rowIndex + 1] && snapshot[sheetId].content?.[rowIndex + 1]) {
+              if (
+                colIdx >= 0 &&
+                rawData[sheetId].content?.[rowIndex + 1] &&
+                snapshot[sheetId].content?.[rowIndex + 1]
+              ) {
                 const snapshotValue = snapshot[sheetId].content[rowIndex + 1][colIdx];
                 const nextRow = [...rawData[sheetId].content[rowIndex + 1]];
                 nextRow[colIdx] = snapshotValue;
@@ -40459,7 +40544,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         if (!snapshot || !rawData) return;
 
         const snapshotEntry = findDiffSnapshotEntry(snapshot, tableKey, getDiffSheetByKey(rawData, tableKey));
-        const rawEntry = findDiffSnapshotEntry(rawData, tableKey, snapshotEntry?.sheet || getDiffSheetByKey(rawData, tableKey));
+        const rawEntry = findDiffSnapshotEntry(
+          rawData,
+          tableKey,
+          snapshotEntry?.sheet || getDiffSheetByKey(rawData, tableKey),
+        );
         if (!rawEntry?.sheet) {
           if (window.toastr) window.toastr.warning('找不到当前表格，无法快捷拒绝该变更');
           return;
@@ -40929,7 +41018,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     // 获取快照中的旧值
     const snapshot = loadSnapshot();
     const currentRawData = cachedRawData || getTableData();
-    const snapshotEntry = snapshot ? findDiffSnapshotEntry(snapshot, tableKey, getDiffSheetByKey(currentRawData, tableKey)) : null;
+    const snapshotEntry = snapshot
+      ? findDiffSnapshotEntry(snapshot, tableKey, getDiffSheetByKey(currentRawData, tableKey))
+      : null;
     const oldRow = getDiffDataRow(snapshotEntry?.sheet, rowIndex);
     const oldValue = String(oldRow?.[colIndex] ?? '');
     const hasOldValue = oldValue !== '' && String(oldValue) !== String(value);
@@ -41033,7 +41124,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     // 获取快照中的旧行
     const snapshot = loadSnapshot();
     const currentRawData = cachedRawData || getTableData();
-    const snapshotEntry = snapshot ? findDiffSnapshotEntry(snapshot, tableKey, getDiffSheetByKey(currentRawData, tableKey)) : null;
+    const snapshotEntry = snapshot
+      ? findDiffSnapshotEntry(snapshot, tableKey, getDiffSheetByKey(currentRawData, tableKey))
+      : null;
     const oldRow = getDiffDataRow(snapshotEntry?.sheet, rowIndex) || [];
 
     // 构建字段对比列表
@@ -42217,7 +42310,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   };
 
   const getVisibleGachaPoolConfigDefinitions = (rawData = getRuntimeGachaRawData()): GachaPoolDefinition[] =>
-    getAllGachaPoolConfigDefinitions(rawData).filter(pool => pool.id === GACHA_ALL_POOL_TAG || pool.visibleInTabs !== false);
+    getAllGachaPoolConfigDefinitions(rawData).filter(
+      pool => pool.id === GACHA_ALL_POOL_TAG || pool.visibleInTabs !== false,
+    );
 
   const getGachaAllExpandablePoolTags = (rawData = getRuntimeGachaRawData()): GachaPoolTag[] => {
     return getAllGachaPoolConfigDefinitions(rawData)
@@ -42243,8 +42338,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       ...updates,
       id,
       builtin: existing.builtin,
-      visibleInTabs: id === GACHA_ALL_POOL_TAG ? true : updates.visibleInTabs ?? existing.visibleInTabs,
-      includeInAll: id === GACHA_ALL_POOL_TAG ? false : updates.includeInAll ?? existing.includeInAll,
+      visibleInTabs: id === GACHA_ALL_POOL_TAG ? true : (updates.visibleInTabs ?? existing.visibleInTabs),
+      includeInAll: id === GACHA_ALL_POOL_TAG ? false : (updates.includeInAll ?? existing.includeInAll),
       name: updates.name !== undefined ? normalizeGachaPoolName(updates.name, id) : existing.name,
     };
     saveGachaPoolSettings(pools);
@@ -43118,7 +43213,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         if (!rawPool || typeof rawPool !== 'object') return null;
         const record = rawPool as Record<string, unknown>;
         const rawId = normalizeGachaPoolId(record.id || record.tag || record.name);
-        const rawName = normalizeGachaPoolName(record.name || record.label || rawId, rawId || GACHA_CUSTOM_ONLY_POOL_TAG);
+        const rawName = normalizeGachaPoolName(
+          record.name || record.label || rawId,
+          rawId || GACHA_CUSTOM_ONLY_POOL_TAG,
+        );
         const shouldUseNameAsCustomId =
           rawId &&
           rawId !== GACHA_ALL_POOL_TAG &&
@@ -43192,7 +43290,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         builtin: existing?.builtin === true,
         visibleInTabs: pool.visibleInTabs !== false,
         includeInAll: pool.includeInAll === true,
-        order: Number.isFinite(Number(pool.order)) ? Number(pool.order) : existing?.order ?? 999,
+        order: Number.isFinite(Number(pool.order)) ? Number(pool.order) : (existing?.order ?? 999),
       });
     });
     saveGachaPoolSettings(Array.from(byId.values()));
@@ -43570,7 +43668,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const customIds = new Set(getCustomGachaItemDefinitions(rawData).map(item => item.id));
       return allItems.filter(item => customIds.has(item.id));
     }
-    const activeTags = normalizedPoolId === GACHA_ALL_POOL_TAG ? getGachaAllExpandablePoolTags(rawData) : [normalizedPoolId];
+    const activeTags =
+      normalizedPoolId === GACHA_ALL_POOL_TAG ? getGachaAllExpandablePoolTags(rawData) : [normalizedPoolId];
     return allItems.filter(item => item.poolTags.some(tag => activeTags.includes(tag)));
   };
 
@@ -43601,7 +43700,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const isPoolExport = Boolean(normalizedPoolId);
     const json = exportGachaCatalogJson(rawData, normalizedPoolId);
     const hasExportableItems = getGachaCatalogItemsForExport(rawData, normalizedPoolId).length > 0;
-    const blob = new Blob([json], { type: hasExportableItems || isPoolExport ? 'application/json' : 'application/jsonc' });
+    const blob = new Blob([json], {
+      type: hasExportableItems || isPoolExport ? 'application/json' : 'application/jsonc',
+    });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -44567,9 +44668,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const totalShards = getTotalGachaShards(state);
     const poolDefinitions = getVisibleGachaPoolConfigDefinitions(rawData);
 
-    const poolButtonsHtml = poolDefinitions.map(pool => {
-      const isActive = activePoolTag === pool.id;
-      return `
+    const poolButtonsHtml = poolDefinitions
+      .map(pool => {
+        const isActive = activePoolTag === pool.id;
+        return `
         <button
           class="acu-gacha-pool-tab acu-gacha-pool-btn ${isActive ? 'active' : ''}"
           type="button"
@@ -44582,7 +44684,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           <span>${escapeHtml(pool.name)}</span>
         </button>
       `;
-    }).join('');
+      })
+      .join('');
 
     return `
       <div class="acu-gacha-shell acu-theme-${config.theme} ${horizontalScrollbarClass}">
@@ -45162,9 +45265,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       .map(pool => {
         const isAllPool = pool.id === GACHA_ALL_POOL_TAG;
         const poolItems = isAllPool ? allPoolItems : itemDefinitions.filter(item => item.poolTags.includes(pool.id));
-        const countText = isAllPool
-          ? `${poolItems.length} 个候选`
-          : `${counts.get(pool.id) || 0} 个物品`;
+        const countText = isAllPool ? `${poolItems.length} 个候选` : `${counts.get(pool.id) || 0} 个物品`;
         const visible = isAllPool || pool.visibleInTabs !== false;
         const includeInAll = pool.includeInAll === true;
         const canDeletePool = canDeleteGachaPoolDefinition(pool);
@@ -45287,9 +45388,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const getCurrentSettingsItemFiltersActive = () =>
       Boolean(
         settingsItemFilters.search ||
-          settingsItemFilters.source !== 'all' ||
-          settingsItemFilters.status !== 'all' ||
-          settingsItemFilters.sort !== 'default',
+        settingsItemFilters.source !== 'all' ||
+        settingsItemFilters.status !== 'all' ||
+        settingsItemFilters.sort !== 'default',
       );
     const toSettingsSourceFilter = (value: unknown): GachaSettingsItemSourceFilter => {
       const text = String(value || '');
@@ -45338,7 +45439,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         $menu.find('.acu-gacha-settings-filter-menu-label').text(getGachaSettingsFilterLabel(field, value));
         $menu.find('.acu-gacha-settings-filter-option').each(function () {
           const active = String($(this).data('filter-value') || '') === value;
-          $(this).toggleClass('active', active).attr('aria-checked', active ? 'true' : 'false');
+          $(this)
+            .toggleClass('active', active)
+            .attr('aria-checked', active ? 'true' : 'false');
         });
       };
       syncMenu('source', settingsItemFilters.source, DEFAULT_GACHA_SETTINGS_ITEM_FILTERS.source);
@@ -45367,7 +45470,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const items = $section.find('.acu-gacha-settings-item').toArray() as HTMLElement[];
       let visibleCount = 0;
       items.forEach(item => {
-        const searchMatched = !settingsItemFilters.search || String(item.dataset.search || '').includes(settingsItemFilters.search);
+        const searchMatched =
+          !settingsItemFilters.search || String(item.dataset.search || '').includes(settingsItemFilters.search);
         const sourceMatched =
           settingsItemFilters.source === 'all' || String(item.dataset.source || '') === settingsItemFilters.source;
         const statusMatched =
@@ -45638,7 +45742,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         ? $(this).closest('.acu-gacha-settings-items-section')
         : overlay.find('.acu-gacha-settings-items-section').first();
       const selectedPoolId = normalizeGachaPoolId($itemSection.data('pool-id'));
-      const initialPoolId = selectedPoolId && selectedPoolId !== GACHA_ALL_POOL_TAG ? selectedPoolId : GACHA_CUSTOM_ONLY_POOL_TAG;
+      const initialPoolId =
+        selectedPoolId && selectedPoolId !== GACHA_ALL_POOL_TAG ? selectedPoolId : GACHA_CUSTOM_ONLY_POOL_TAG;
       void showGachaItemEditorDialog(null, initialPoolId);
     });
 
@@ -45770,10 +45875,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       })
       .join('');
     const rarityOptionsHtml = GACHA_RARITY_ORDER.map(
-      rarity => `<option value="${escapeHtml(rarity)}" ${item.quality === rarity ? 'selected' : ''}>${escapeHtml(rarity)}</option>`,
+      rarity =>
+        `<option value="${escapeHtml(rarity)}" ${item.quality === rarity ? 'selected' : ''}>${escapeHtml(rarity)}</option>`,
     ).join('');
     const targetOptionsHtml = GACHA_REWARD_TARGETS.map(
-      target => `<option value="${escapeHtml(target)}" ${item.rewardTarget === target ? 'selected' : ''}>${target === 'equipment' ? '装备' : '物品'}</option>`,
+      target =>
+        `<option value="${escapeHtml(target)}" ${item.rewardTarget === target ? 'selected' : ''}>${target === 'equipment' ? '装备' : '物品'}</option>`,
     ).join('');
 
     $('.acu-gacha-item-editor-overlay').remove();
@@ -45854,7 +45961,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         type: String(overlay.find('.acu-gacha-item-type').val() || item.type || '').trim(),
         icon: icon || undefined,
         iconUrl: previewObjectUrl || iconUrl || undefined,
-        localIconKey: (previewObjectUrl || iconUrl || shouldClearLocalIcon) ? undefined : item.localIconKey,
+        localIconKey: previewObjectUrl || iconUrl || shouldClearLocalIcon ? undefined : item.localIconKey,
       };
       const $preview = overlay.find('.acu-gacha-icon-editor-preview');
       $preview.html(renderGachaItemIconContent(previewItem));
@@ -45924,7 +46031,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         ensureGachaPoolsForTags(poolTags);
         const existingIds = new Set(getAllGachaItemDefinitions(rawData).map(candidate => candidate.id));
         if (existingItem) existingIds.delete(existingItem.id);
-        const id = existingItem?.id || createUniqueGachaItemId(buildStableGachaCustomItemId({ name, quality, type }), existingIds);
+        const id =
+          existingItem?.id ||
+          createUniqueGachaItemId(buildStableGachaCustomItemId({ name, quality, type }), existingIds);
         let localIconKey = existingItem?.localIconKey;
         const shouldClearLocalIcon = overlay.find('.acu-gacha-item-clear-local-icon').prop('checked') === true;
         const fileInput = overlay.find('.acu-gacha-item-icon-file')[0] as HTMLInputElement | undefined;
@@ -46004,7 +46113,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const dismantleUnitSize = definition ? getGachaItemGrantQuantity(definition) : 1;
         const maxDismantleUnits = Math.floor(quantityAvailable / dismantleUnitSize);
         if (maxDismantleUnits <= 0) {
-          if (window.toastr) window.toastr.warning(`至少需要 ${dismantleUnitSize} 个${context.item.name}才能拆解为碎片`);
+          if (window.toastr)
+            window.toastr.warning(`至少需要 ${dismantleUnitSize} 个${context.item.name}才能拆解为碎片`);
           return;
         }
 
@@ -46685,7 +46795,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           return;
         }
         if (!hasGachaRewardTable(rawData, item.rewardTarget)) {
-          if (window.toastr) window.toastr.warning(`未找到${getGachaRewardTargetTableLabel(item.rewardTarget)}，暂时无法兑换`);
+          if (window.toastr)
+            window.toastr.warning(`未找到${getGachaRewardTargetTableLabel(item.rewardTarget)}，暂时无法兑换`);
           return;
         }
         const state = touchGachaActivity(getGachaState(rawData, true));
@@ -51559,31 +51670,31 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
       // --- 数据操作 ---
       try {
-          await deleteRowInstantly(tableKey, rowIdx);
-          const latestRawData = cachedRawData || getTableData();
+        await deleteRowInstantly(tableKey, rowIdx);
+        const latestRawData = cachedRawData || getTableData();
 
-          // [Bug 3 修复] 立即同步更新diffMap，避免闪烁
-          currentDiffMap = generateDiffMap(latestRawData);
+        // [Bug 3 修复] 立即同步更新diffMap，避免闪烁
+        currentDiffMap = generateDiffMap(latestRawData);
 
-          // 刷新界面
-          renderInterface();
+        // 刷新界面
+        renderInterface();
 
-          // [修复] 如果地图overlay存在，刷新地图数据（重建viewModel）
-          if (isFromMap) {
-            const refreshMapData = $mapOverlay.data('refreshMapData');
-            if (typeof refreshMapData === 'function') {
-              await refreshMapData();
-            }
+        // [修复] 如果地图overlay存在，刷新地图数据（重建viewModel）
+        if (isFromMap) {
+          const refreshMapData = $mapOverlay.data('refreshMapData');
+          if (typeof refreshMapData === 'function') {
+            await refreshMapData();
           }
+        }
 
-          // [修复] 恢复滚动位置（在renderInterface防抖完成后）
-          setTimeout(() => {
-            const $newContent = $('.acu-panel-content');
-            if ($newContent.length && (savedScrollTop > 0 || savedScrollLeft > 0)) {
-              $newContent.scrollTop(savedScrollTop);
-              $newContent.scrollLeft(savedScrollLeft);
-            }
-          }, 60);
+        // [修复] 恢复滚动位置（在renderInterface防抖完成后）
+        setTimeout(() => {
+          const $newContent = $('.acu-panel-content');
+          if ($newContent.length && (savedScrollTop > 0 || savedScrollLeft > 0)) {
+            $newContent.scrollTop(savedScrollTop);
+            $newContent.scrollLeft(savedScrollLeft);
+          }
+        }, 60);
       } catch (e) {
         console.error('[DICE]ACU 删除保存失败:', e);
         toastr.error('删除保存失败: ' + (e instanceof Error ? e.message : String(e)));
