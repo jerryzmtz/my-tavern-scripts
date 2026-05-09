@@ -591,7 +591,16 @@ import {
       }
 
       if (latestModifiedSheetKeys.size > 0) {
-        await performSaveDataOnly(latestTransactionalData, Array.from(latestModifiedSheetKeys));
+        try {
+          await performSaveDataOnly(latestTransactionalData, Array.from(latestModifiedSheetKeys));
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          return allResults.map(result => ({
+            ...result,
+            success: false,
+            error: result.error || `保存失败：${message}`,
+          }));
+        }
       }
 
       deferredSecondaryCallbacks.forEach(run => run());
@@ -1957,6 +1966,8 @@ import {
   const STORAGE_KEY_ACTIVE_ATTR_PRESET = 'acu_active_attr_preset_v1';
   const STORAGE_KEY_ACTION_PRESETS = 'acu_action_presets_v1';
   const STORAGE_KEY_ACTIVE_ACTION_PRESET = 'acu_active_action_preset_v1';
+  const STORAGE_KEY_DASHBOARD_PRESETS = 'acu_dashboard_presets_v1';
+  const STORAGE_KEY_ACTIVE_DASHBOARD_PRESET = 'acu_active_dashboard_preset_v1';
   const STORAGE_KEY_ADVANCED_PRESETS = 'acu_advanced_presets_v1';
   const STORAGE_KEY_BUILTIN_PRESET_VISIBILITY = 'acu_builtin_preset_visibility';
   const STORAGE_KEY_BUILTIN_PRESET_ORDER = 'acu_builtin_preset_order';
@@ -1976,7 +1987,7 @@ import {
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.7.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v5.42'; // 脚本版本号
+  const SCRIPT_VERSION = 'v5.51'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -6590,7 +6601,7 @@ import {
    * 用于决定是否对该表格的名称列应用 getDisplayName
    */
   const isCharacterTable = (tableName: string): boolean => {
-    const keywords = ['主角', '角色', '人物', 'NPC', '伙伴', '队友', '宠物', '弟子', '成员', 'player', 'character'];
+    const keywords = ['主角', '角色', '人物', '对象', 'NPC', '伙伴', '队友', '宠物', '弟子', '成员', 'player', 'character'];
     return keywords.some(kw => tableName.toLowerCase().includes(kw.toLowerCase()));
   };
 
@@ -6722,6 +6733,51 @@ import {
     isDisplayName(name: string): boolean {
       return this._displayNames.has(name);
     },
+  };
+
+  const USER_NODE_KEY = '{{user}}';
+  const USER_PLACEHOLDER_KEYS = [USER_NODE_KEY, '<user>'];
+
+  const isUserPlaceholderKey = (name: string): boolean =>
+    USER_PLACEHOLDER_KEYS.some(key => name.toLowerCase() === key.toLowerCase());
+
+  const resolveUserGraphName = (name: string): string => {
+    const displayName = getDisplayName(String(name || '').trim());
+    if (!displayName) return displayName;
+
+    const avatarPrimary = AvatarManager.getPrimaryName(displayName);
+    if (isUserPlaceholderKey(displayName) || isUserPlaceholderKey(avatarPrimary)) {
+      return USER_NODE_KEY;
+    }
+
+    const userAliases = new Set<string>(USER_PLACEHOLDER_KEYS);
+    USER_PLACEHOLDER_KEYS.forEach(key => {
+      const aliases = AvatarManager.load()[key]?.aliases || [];
+      aliases.forEach(alias => {
+        if (alias) userAliases.add(alias);
+      });
+    });
+
+    const personaName = getPersonaName();
+    if (personaName) userAliases.add(getDisplayName(personaName));
+
+    const diceCfg = getDiceConfig();
+    if (diceCfg.autoMergeProtagonist !== false) {
+      userAliases.add('主角');
+      const playerName = getPlayerName();
+      if (playerName) userAliases.add(getDisplayName(playerName));
+    }
+
+    const normalizedUserAliases = [...userAliases].map(alias => alias.toLowerCase());
+    const candidates = [displayName, avatarPrimary, NameAliasRegistry.resolve(displayName)]
+      .filter(Boolean)
+      .map(candidate => candidate.toLowerCase());
+
+    if (candidates.some(candidate => normalizedUserAliases.includes(candidate))) {
+      return USER_NODE_KEY;
+    }
+
+    return avatarPrimary;
   };
 
   // 渲染图标：支持 fa:xxx 简写格式和原生emoji
@@ -13320,7 +13376,75 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   // ========================================
   // 仪表盘统一配置中心
   // ========================================
-  const DASHBOARD_TABLE_CONFIG = {
+  type DashboardColumnConfig = {
+    keywords: string[];
+    fallbackIndex: number | null;
+    isMultiple?: boolean;
+  };
+  type DashboardFilterConfig = {
+    column: string;
+    includes: string[];
+    excludeColumn?: string;
+    excludes?: string[];
+  };
+  type DashboardModuleConfig = {
+    tableKeywords: string[];
+    columns: Record<string, DashboardColumnConfig>;
+    filters?: Record<string, DashboardFilterConfig>;
+  };
+  type DashboardConfigMap = Record<string, DashboardModuleConfig>;
+  type DashboardPresetColumnConfig = {
+    keywords: string[];
+  };
+  type DashboardPresetFilterConfig = {
+    column?: string;
+    includes?: string[];
+    excludeColumn?: string;
+    excludes?: string[];
+  };
+  type DashboardRelationshipGraphSourceMode = 'fixedTarget' | 'relationList';
+  type DashboardRelationshipGraphSourceConfig = {
+    mode: DashboardRelationshipGraphSourceMode;
+    tableKeywords: string[];
+    nameColumn: string[];
+    relationColumn: string[];
+    target?: string;
+  };
+  type DashboardPresetModuleConfig = {
+    tableKeywords?: string[];
+    columns?: Record<string, DashboardPresetColumnConfig>;
+    filters?: Record<string, DashboardPresetFilterConfig>;
+    sources?: DashboardRelationshipGraphSourceConfig[];
+  };
+  type DashboardPresetModules = Record<string, DashboardPresetModuleConfig>;
+  type DashboardPreset = {
+    format: 'acu_dashboard_preset_v1';
+    version: string;
+    id: string;
+    name: string;
+    builtin?: boolean;
+    description?: string;
+    modules: DashboardPresetModules;
+    createdAt?: string;
+    updatedAt?: string;
+  };
+
+  const DASHBOARD_PRESET_FORMAT = 'acu_dashboard_preset_v1';
+  const DASHBOARD_DEFAULT_PRESET_ID = '__builtin_dashboard_default__';
+  const DASHBOARD_RELATIONSHIP_GRAPH_MODULE_KEY = 'relationshipGraph';
+  const DASHBOARD_PRESET_MODULE_KEYS = ['global', 'player', 'location', 'npc', 'quest', 'bag', 'equip'] as const;
+  const DASHBOARD_RELATIONSHIP_GRAPH_SOURCE_MODES: DashboardRelationshipGraphSourceMode[] = [
+    'fixedTarget',
+    'relationList',
+  ];
+  const DASHBOARD_PRESET_FILTER_KEYS: Record<string, readonly string[]> = {
+    equip: ['equipped'],
+  };
+  const DASHBOARD_PRESET_ADDITIONAL_COLUMNS: Record<string, readonly string[]> = {
+    quest: ['priority'],
+  };
+
+  const DASHBOARD_TABLE_CONFIG: DashboardConfigMap = {
     global: {
       tableKeywords: ['全局数据表', '全局数据', '全局'],
       columns: {
@@ -13459,11 +13583,671 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     },
   };
 
+  let dashboardRuntimeConfigCache: DashboardConfigMap | null = null;
+
+  const cloneDashboardConfig = (config: DashboardConfigMap): DashboardConfigMap => {
+    const cloned: DashboardConfigMap = {};
+    Object.entries(config).forEach(([moduleKey, moduleConfig]) => {
+      const columns: Record<string, DashboardColumnConfig> = {};
+      Object.entries(moduleConfig.columns).forEach(([columnKey, columnConfig]) => {
+        columns[columnKey] = {
+          ...columnConfig,
+          keywords: [...columnConfig.keywords],
+        };
+      });
+      cloned[moduleKey] = {
+        tableKeywords: [...moduleConfig.tableKeywords],
+        columns,
+        ...(moduleConfig.filters ? { filters: JSON.parse(JSON.stringify(moduleConfig.filters)) as Record<string, DashboardFilterConfig> } : {}),
+      };
+    });
+    return cloned;
+  };
+
+  const createDashboardPresetModulesFromConfig = (config: DashboardConfigMap): DashboardPresetModules => {
+    const modules: DashboardPresetModules = {};
+    DASHBOARD_PRESET_MODULE_KEYS.forEach(moduleKey => {
+      const moduleConfig = config[moduleKey];
+      if (!moduleConfig) return;
+      const columns: Record<string, DashboardPresetColumnConfig> = {};
+      Object.entries(moduleConfig.columns).forEach(([columnKey, columnConfig]) => {
+        columns[columnKey] = { keywords: [...columnConfig.keywords] };
+      });
+      modules[moduleKey] = {
+        tableKeywords: [...moduleConfig.tableKeywords],
+        columns,
+      };
+      const allowedFilters = DASHBOARD_PRESET_FILTER_KEYS[moduleKey] || [];
+      const filters: Record<string, DashboardPresetFilterConfig> = {};
+      allowedFilters.forEach(filterKey => {
+        const filterConfig = moduleConfig.filters?.[filterKey];
+        if (!filterConfig) return;
+        filters[filterKey] = {
+          column: filterConfig.column,
+          includes: [...filterConfig.includes],
+          ...(filterConfig.excludeColumn ? { excludeColumn: filterConfig.excludeColumn } : {}),
+          ...(filterConfig.excludes ? { excludes: [...filterConfig.excludes] } : {}),
+        };
+      });
+      if (Object.keys(filters).length > 0) {
+        modules[moduleKey].filters = filters;
+      }
+    });
+    return modules;
+  };
+
+  const cloneDashboardPresetModules = (modules: DashboardPresetModules): DashboardPresetModules => {
+    const cloned: DashboardPresetModules = {};
+    Object.entries(modules).forEach(([moduleKey, moduleConfig]) => {
+      const columns: Record<string, DashboardPresetColumnConfig> = {};
+      Object.entries(moduleConfig.columns || {}).forEach(([columnKey, columnConfig]) => {
+        columns[columnKey] = { keywords: [...columnConfig.keywords] };
+      });
+      const filters: Record<string, DashboardPresetFilterConfig> = {};
+      Object.entries(moduleConfig.filters || {}).forEach(([filterKey, filterConfig]) => {
+        filters[filterKey] = {
+          ...(filterConfig.column ? { column: filterConfig.column } : {}),
+          ...(filterConfig.includes ? { includes: [...filterConfig.includes] } : {}),
+          ...(filterConfig.excludeColumn ? { excludeColumn: filterConfig.excludeColumn } : {}),
+          ...(filterConfig.excludes ? { excludes: [...filterConfig.excludes] } : {}),
+        };
+      });
+      const sources = (moduleConfig.sources || []).map(source => ({
+        mode: source.mode,
+        tableKeywords: [...source.tableKeywords],
+        nameColumn: [...source.nameColumn],
+        relationColumn: [...source.relationColumn],
+        ...(source.target ? { target: source.target } : {}),
+      }));
+      cloned[moduleKey] = {
+        ...(moduleConfig.tableKeywords ? { tableKeywords: [...moduleConfig.tableKeywords] } : {}),
+        ...(Object.keys(columns).length > 0 ? { columns } : {}),
+        ...(Object.keys(filters).length > 0 ? { filters } : {}),
+        ...(sources.length > 0 ? { sources } : {}),
+      };
+    });
+    return cloned;
+  };
+
+  const createBuiltinDashboardPreset = (): DashboardPreset => ({
+    format: DASHBOARD_PRESET_FORMAT,
+    version: PRESET_FORMAT_VERSION,
+    id: DASHBOARD_DEFAULT_PRESET_ID,
+    name: '默认仪表盘预设',
+    builtin: true,
+    description: '内置默认仪表盘抓取规则，可导出后修改并重新导入为自定义预设',
+    modules: createDashboardPresetModulesFromConfig(DASHBOARD_TABLE_CONFIG),
+  });
+
+  const isRecordValue = (value: unknown): value is Record<string, unknown> =>
+    Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+  const normalizeDashboardKeywordArray = (value: unknown, label: string): string[] => {
+    if (!Array.isArray(value)) {
+      throw new Error(`${label} 必须是字符串数组`);
+    }
+    const keywords = value.map(item => (typeof item === 'string' ? item.trim() : '')).filter(Boolean);
+    if (keywords.length === 0) {
+      throw new Error(`${label} 至少需要一个关键词`);
+    }
+    return keywords;
+  };
+
+  const normalizeDashboardOptionalStringArray = (value: unknown, label: string): string[] => {
+    if (!Array.isArray(value)) {
+      throw new Error(`${label} 必须是字符串数组`);
+    }
+    return value.map(item => (typeof item === 'string' ? item.trim() : '')).filter(Boolean);
+  };
+
+  const normalizeDashboardPresetFilters = (
+    moduleKey: string,
+    rawFilters: unknown,
+  ): Record<string, DashboardPresetFilterConfig> => {
+    if (!isRecordValue(rawFilters)) {
+      throw new Error(`模块 ${moduleKey}.filters 必须是对象`);
+    }
+
+    const moduleConfig = DASHBOARD_TABLE_CONFIG[moduleKey];
+    const allowedFilterKeys = DASHBOARD_PRESET_FILTER_KEYS[moduleKey] || [];
+    const filters: Record<string, DashboardPresetFilterConfig> = {};
+
+    Object.entries(rawFilters).forEach(([filterKey, rawFilter]) => {
+      if (!allowedFilterKeys.includes(filterKey)) {
+        throw new Error(`模块 ${moduleKey} 不支持过滤器: ${filterKey}`);
+      }
+      if (!moduleConfig.filters?.[filterKey]) {
+        throw new Error(`模块 ${moduleKey} 不存在默认过滤器: ${filterKey}`);
+      }
+      if (!isRecordValue(rawFilter)) {
+        throw new Error(`模块 ${moduleKey}.filters.${filterKey} 必须是对象`);
+      }
+
+      const filterConfig: DashboardPresetFilterConfig = {};
+      if ('column' in rawFilter) {
+        const column = typeof rawFilter.column === 'string' ? rawFilter.column.trim() : '';
+        if (!column || !moduleConfig.columns[column]) {
+          throw new Error(`模块 ${moduleKey}.filters.${filterKey}.column 必须引用已有字段`);
+        }
+        filterConfig.column = column;
+      }
+      if ('excludeColumn' in rawFilter) {
+        const excludeColumn = typeof rawFilter.excludeColumn === 'string' ? rawFilter.excludeColumn.trim() : '';
+        if (!excludeColumn || !moduleConfig.columns[excludeColumn]) {
+          throw new Error(`模块 ${moduleKey}.filters.${filterKey}.excludeColumn 必须引用已有字段`);
+        }
+        filterConfig.excludeColumn = excludeColumn;
+      }
+      if ('includes' in rawFilter) {
+        filterConfig.includes = normalizeDashboardOptionalStringArray(
+          rawFilter.includes,
+          `模块 ${moduleKey}.filters.${filterKey}.includes`,
+        );
+      }
+      if ('excludes' in rawFilter) {
+        filterConfig.excludes = normalizeDashboardOptionalStringArray(
+          rawFilter.excludes,
+          `模块 ${moduleKey}.filters.${filterKey}.excludes`,
+        );
+      }
+
+      if (Object.keys(filterConfig).length === 0) {
+        throw new Error(`模块 ${moduleKey}.filters.${filterKey} 至少需要配置一个字段`);
+      }
+      filters[filterKey] = filterConfig;
+    });
+
+    return filters;
+  };
+
+  const normalizeDashboardRelationshipGraphConfig = (rawModule: Record<string, unknown>): DashboardPresetModuleConfig => {
+    if (!Array.isArray(rawModule.sources)) {
+      throw new Error('模块 relationshipGraph.sources 必须是数组');
+    }
+
+    const sources = rawModule.sources.map((rawSource, index) => {
+      if (!isRecordValue(rawSource)) {
+        throw new Error(`模块 relationshipGraph.sources.${index} 必须是对象`);
+      }
+
+      const mode = typeof rawSource.mode === 'string' ? rawSource.mode.trim() : '';
+      if (!DASHBOARD_RELATIONSHIP_GRAPH_SOURCE_MODES.includes(mode as DashboardRelationshipGraphSourceMode)) {
+        throw new Error(`模块 relationshipGraph.sources.${index}.mode 只能是 fixedTarget 或 relationList`);
+      }
+
+      const source: DashboardRelationshipGraphSourceConfig = {
+        mode: mode as DashboardRelationshipGraphSourceMode,
+        tableKeywords: normalizeDashboardKeywordArray(
+          rawSource.tableKeywords,
+          `模块 relationshipGraph.sources.${index}.tableKeywords`,
+        ),
+        nameColumn: normalizeDashboardKeywordArray(
+          rawSource.nameColumn,
+          `模块 relationshipGraph.sources.${index}.nameColumn`,
+        ),
+        relationColumn: normalizeDashboardKeywordArray(
+          rawSource.relationColumn,
+          `模块 relationshipGraph.sources.${index}.relationColumn`,
+        ),
+      };
+
+      if ('target' in rawSource) {
+        const target = typeof rawSource.target === 'string' ? rawSource.target.trim() : '';
+        if (!target) {
+          throw new Error(`模块 relationshipGraph.sources.${index}.target 必须是非空字符串`);
+        }
+        source.target = target;
+      }
+
+      return source;
+    });
+
+    if (sources.length === 0) {
+      throw new Error('模块 relationshipGraph.sources 至少需要一个来源');
+    }
+
+    return { sources };
+  };
+
+  const stripJsonComments = (jsonText: string): string => {
+    let result = '';
+    let inString = false;
+    let quote = '';
+    let escaped = false;
+
+    for (let i = 0; i < jsonText.length; i++) {
+      const char = jsonText[i];
+      const next = jsonText[i + 1];
+
+      if (inString) {
+        result += char;
+        if (escaped) {
+          escaped = false;
+        } else if (char === '\\') {
+          escaped = true;
+        } else if (char === quote) {
+          inString = false;
+          quote = '';
+        }
+        continue;
+      }
+
+      if (char === '"' || char === "'") {
+        inString = true;
+        quote = char;
+        result += char;
+        continue;
+      }
+
+      if (char === '/' && next === '/') {
+        while (i < jsonText.length && jsonText[i] !== '\n') i++;
+        result += '\n';
+        continue;
+      }
+
+      if (char === '/' && next === '*') {
+        i += 2;
+        while (i < jsonText.length && !(jsonText[i] === '*' && jsonText[i + 1] === '/')) {
+          if (jsonText[i] === '\n') result += '\n';
+          i++;
+        }
+        i++;
+        continue;
+      }
+
+      result += char;
+    }
+
+    return result;
+  };
+
+  const normalizeDashboardPresetModules = (rawModules: unknown): DashboardPresetModules => {
+    if (!isRecordValue(rawModules)) {
+      throw new Error('modules 必须是对象');
+    }
+
+    const modules: DashboardPresetModules = {};
+    Object.entries(rawModules).forEach(([moduleKey, rawModule]) => {
+      if (moduleKey === DASHBOARD_RELATIONSHIP_GRAPH_MODULE_KEY) {
+        if (!isRecordValue(rawModule)) {
+          throw new Error('模块 relationshipGraph 必须是对象');
+        }
+        modules[moduleKey] = normalizeDashboardRelationshipGraphConfig(rawModule);
+        return;
+      }
+
+      if (!DASHBOARD_PRESET_MODULE_KEYS.includes(moduleKey as (typeof DASHBOARD_PRESET_MODULE_KEYS)[number])) {
+        throw new Error(`未知仪表盘区域: ${moduleKey}`);
+      }
+      if (!isRecordValue(rawModule)) {
+        throw new Error(`模块 ${moduleKey} 必须是对象`);
+      }
+
+      const moduleConfig: DashboardPresetModuleConfig = {};
+      if ('tableKeywords' in rawModule) {
+        moduleConfig.tableKeywords = normalizeDashboardKeywordArray(
+          rawModule.tableKeywords,
+          `模块 ${moduleKey}.tableKeywords`,
+        );
+      }
+
+      if ('columns' in rawModule) {
+        if (!isRecordValue(rawModule.columns)) {
+          throw new Error(`模块 ${moduleKey}.columns 必须是对象`);
+        }
+        const columns: Record<string, DashboardPresetColumnConfig> = {};
+        Object.entries(rawModule.columns).forEach(([columnKey, rawColumn]) => {
+          const baseColumn = DASHBOARD_TABLE_CONFIG[moduleKey]?.columns[columnKey];
+          const allowedAdditionalColumns = DASHBOARD_PRESET_ADDITIONAL_COLUMNS[moduleKey] || [];
+          if (!baseColumn && !allowedAdditionalColumns.includes(columnKey)) {
+            throw new Error(`模块 ${moduleKey} 不存在字段: ${columnKey}`);
+          }
+
+          const keywordsSource = Array.isArray(rawColumn)
+            ? rawColumn
+            : isRecordValue(rawColumn)
+              ? rawColumn.keywords
+              : null;
+          columns[columnKey] = {
+            keywords: normalizeDashboardKeywordArray(keywordsSource, `模块 ${moduleKey}.columns.${columnKey}.keywords`),
+          };
+        });
+        if (Object.keys(columns).length > 0) {
+          moduleConfig.columns = columns;
+        }
+      }
+
+      if ('filters' in rawModule) {
+        const filters = normalizeDashboardPresetFilters(moduleKey, rawModule.filters);
+        if (Object.keys(filters).length > 0) {
+          moduleConfig.filters = filters;
+        }
+      }
+
+      if (!moduleConfig.tableKeywords && !moduleConfig.columns && !moduleConfig.filters && !moduleConfig.sources) {
+        throw new Error(`模块 ${moduleKey} 至少需要 tableKeywords、columns 或 filters`);
+      }
+      modules[moduleKey] = moduleConfig;
+    });
+
+    if (Object.keys(modules).length === 0) {
+      throw new Error('modules 至少需要配置一个仪表盘区域');
+    }
+
+    return modules;
+  };
+
+  const parseDashboardPresetJson = (jsonText: string): { name: string; description: string; modules: DashboardPresetModules } => {
+    const parsed = JSON.parse(stripJsonComments(jsonText)) as unknown;
+    if (!isRecordValue(parsed)) {
+      throw new Error('仪表盘预设必须是对象');
+    }
+
+    const format = typeof parsed.format === 'string' ? parsed.format : '';
+    if (format && format !== DASHBOARD_PRESET_FORMAT) {
+      throw new Error(`不支持的预设格式: ${format}`);
+    }
+
+    const rawModules = 'modules' in parsed ? parsed.modules : parsed;
+    const modules = normalizeDashboardPresetModules(rawModules);
+    const name = typeof parsed.name === 'string' && parsed.name.trim() ? parsed.name.trim() : '导入的仪表盘预设';
+    const description = typeof parsed.description === 'string' ? parsed.description.trim() : '';
+    return { name, description, modules };
+  };
+
+  const createDashboardPresetEditorTemplate = (): string => `{
+  // 预设名称和描述在上方输入框填写；这里配置各区域如何抓取表格。
+  // 每个区域保持现有渲染方式，只替换表名关键词和字段列关键词。
+  // 示例对比：重要对象表 → 恋爱对象表；装备表 → 装扮表；任务表 → 备忘录。
+  "global": {
+    // 全局数据区：当前地点、时间等
+    "tableKeywords": ["全局数据表", "全局数据", "全局"],
+    "columns": {
+      "detailLocation": { "keywords": ["当前详细地点", "详细地点", "具体位置", "当前位置"] },
+      "currentLocation": { "keywords": ["当前次要地区", "当前所在地点", "当前地点", "所在地点"] },
+      "currentTime": { "keywords": ["当前时间", "时间", "当前日期时间", "当前日期", "日期时间"] }
+    }
+  },
+  "player": {
+    // 主角区：属性、资源、当前位置
+    "tableKeywords": ["主角信息", "主角", "玩家", "角色信息", "user", "<user>"],
+    "columns": {
+      "name": { "keywords": ["姓名", "名称", "人物名称", "name"] },
+      "status": { "keywords": ["近况", "当前状态", "状态关键词", "状态关键字", "状态标签", "状态"] },
+      "position": { "keywords": ["具体位置", "位置", "所在地"] },
+      "money": { "keywords": ["金钱", "资金", "金币", "货币", "余额"] },
+      "resources": { "keywords": ["资源数据", "资源", "resources"] }
+    }
+  },
+  "location": {
+    // 地点区：保持地点列表和当前地点高亮
+    "tableKeywords": ["世界地图点", "地图点", "地图", "地点", "地点表", "地图表"],
+    "columns": {
+      "name": { "keywords": ["详细地点", "具体位置", "当前地点", "地区", "地点名", "名称"] },
+      "description": { "keywords": ["环境描述", "描述", "说明", "介绍"] }
+    }
+  },
+  "npc": {
+    // 角色区：示例把默认的“重要对象表”改成“恋爱对象表”，仍保持在场/离场分组和头像
+    "tableKeywords": ["恋爱对象表", "恋爱对象"],
+    "columns": {
+      "name": { "keywords": ["姓名", "名称"] },
+      "status": { "keywords": ["当前情绪", "对主角态度", "自身状态", "状态"] },
+      "position": { "keywords": ["具体位置", "位置", "所在地点", "所在"] },
+      "inScene": { "keywords": ["在场状态", "在场", "是否离场", "离场"] }
+    }
+  },
+  "relationshipGraph": {
+    // 人物关系图：sources 可配置多个来源，并按 mode 决定关系解析方式
+    // fixedTarget：当前行角色固定连到 target；适合“恋爱对象表.与主角关系”
+    // relationList：沿用“角色名:关系词;角色名:关系词”；适合“重要角色表.人际关系”
+    "sources": [
+      {
+        "mode": "fixedTarget",
+        "tableKeywords": ["恋爱对象表", "恋爱对象"],
+        "nameColumn": ["姓名", "名称"],
+        "relationColumn": ["与主角关系"],
+        "target": "player"
+      },
+      {
+        "mode": "relationList",
+        "tableKeywords": ["重要角色表", "重要人物表"],
+        "nameColumn": ["姓名", "名称"],
+        "relationColumn": ["人际关系"]
+      }
+    ]
+  },
+  "quest": {
+    // 任务区：示例把默认的“任务表”改成“备忘录”，仍保持进度条、状态排序等渲染
+    "tableKeywords": ["备忘录", "备忘表", "备忘"],
+    "columns": {
+      "name": { "keywords": ["备忘标题", "事项名称", "任务名", "名称"] },
+      "type": { "keywords": ["类型", "分类", "事项类型"] },
+      "progress": { "keywords": ["后续结果", "进度", "完成度", "进度/结果"] },
+      "status": { "keywords": ["当前状态", "状态"] },
+      "priority": { "keywords": ["重要程度", "重要性", "优先级", "紧急程度"] }
+    }
+  },
+  "bag": {
+    // 物品区：保持物品列表和物品栏入口
+    "tableKeywords": ["背包物品", "背包", "物品", "道具", "库存", "持有物品表"],
+    "columns": {
+      "name": { "keywords": ["物品名称", "名称", "物品名"] },
+      "type": { "keywords": ["类型", "分类", "物品类型"] },
+      "count": { "keywords": ["数量", "个数", "持有数"] }
+    }
+  },
+  "equip": {
+    // 装备区：示例把默认的“装备表”改成“装扮表”，并把“正在穿/已佩戴”识别为展示项
+    "tableKeywords": ["装扮表", "装扮"],
+    "columns": {
+      "name": { "keywords": ["装扮名称", "装备名称", "名称", "装备名"] },
+      "type": { "keywords": ["类型", "分类"] },
+      "part": { "keywords": ["适用场景", "部位", "装备部位", "位置"] },
+      "isEquipped": { "keywords": ["当前状态", "状态", "是否装备", "装备状态", "装备中"] }
+    },
+    "filters": {
+      "equipped": {
+        "includes": ["正在穿", "已佩戴", "已穿戴", "穿着中", "已装备"],
+        "excludes": ["收纳中", "收纳", "损坏", "遗失", "借出", "已更换", "纪念保存", "未穿戴", "未装备"]
+      }
+    }
+  }
+}`;
+
+  const DashboardPresetManager = (() => {
+    let _cache: DashboardPreset[] | null = null;
+
+    const getBuiltinPreset = (): DashboardPreset => createBuiltinDashboardPreset();
+    const getStoredPresets = (): DashboardPreset[] => Store.get(STORAGE_KEY_DASHBOARD_PRESETS, []);
+    const saveStoredPresets = (presets: DashboardPreset[]) => {
+      Store.set(STORAGE_KEY_DASHBOARD_PRESETS, presets);
+      _cache = null;
+      dashboardRuntimeConfigCache = null;
+    };
+
+    return {
+      getAllPresets(): DashboardPreset[] {
+        if (_cache) return _cache;
+        _cache = [getBuiltinPreset(), ...getStoredPresets()];
+        return _cache;
+      },
+
+      getPresetById(id: string): DashboardPreset | null {
+        return this.getAllPresets().find(preset => preset.id === id) || null;
+      },
+
+      getActivePresetId(): string {
+        const stored = Store.get(STORAGE_KEY_ACTIVE_DASHBOARD_PRESET, DASHBOARD_DEFAULT_PRESET_ID);
+        if (typeof stored !== 'string' || !this.getPresetById(stored)) {
+          Store.set(STORAGE_KEY_ACTIVE_DASHBOARD_PRESET, DASHBOARD_DEFAULT_PRESET_ID);
+          return DASHBOARD_DEFAULT_PRESET_ID;
+        }
+        return stored;
+      },
+
+      getActivePreset(): DashboardPreset {
+        return this.getPresetById(this.getActivePresetId()) || getBuiltinPreset();
+      },
+
+      setActivePresetId(id: string): boolean {
+        const preset = this.getPresetById(id);
+        if (!preset) return false;
+        Store.set(STORAGE_KEY_ACTIVE_DASHBOARD_PRESET, id);
+        dashboardRuntimeConfigCache = null;
+        return true;
+      },
+
+      createPreset(preset: { name: string; description?: string; modules: DashboardPresetModules }): DashboardPreset {
+        const stored = getStoredPresets();
+        const newPreset: DashboardPreset = {
+          format: DASHBOARD_PRESET_FORMAT,
+          version: PRESET_FORMAT_VERSION,
+          id: `dashboard_${Date.now()}`,
+          name: preset.name,
+          description: preset.description || '',
+          builtin: false,
+          modules: cloneDashboardPresetModules(preset.modules),
+          createdAt: new Date().toISOString(),
+        };
+        stored.push(newPreset);
+        saveStoredPresets(stored);
+        return newPreset;
+      },
+
+      updatePreset(id: string, updates: { name: string; description?: string; modules: DashboardPresetModules }): boolean {
+        const stored = getStoredPresets();
+        const index = stored.findIndex(preset => preset.id === id);
+        if (index < 0) return false;
+        stored[index] = {
+          ...stored[index],
+          name: updates.name,
+          description: updates.description || '',
+          modules: cloneDashboardPresetModules(updates.modules),
+          version: PRESET_FORMAT_VERSION,
+          updatedAt: new Date().toISOString(),
+        };
+        saveStoredPresets(stored);
+        return true;
+      },
+
+      deletePreset(id: string): boolean {
+        if (id === DASHBOARD_DEFAULT_PRESET_ID) return false;
+        const stored = getStoredPresets();
+        const filtered = stored.filter(preset => preset.id !== id);
+        if (filtered.length === stored.length) return false;
+        saveStoredPresets(filtered);
+        if (this.getActivePresetId() === id) {
+          this.setActivePresetId(DASHBOARD_DEFAULT_PRESET_ID);
+        }
+        return true;
+      },
+
+      exportPreset(id: string): string | null {
+        const preset = this.getPresetById(id);
+        if (!preset) return null;
+        const exported = {
+          format: DASHBOARD_PRESET_FORMAT,
+          version: PRESET_FORMAT_VERSION,
+          name: preset.name,
+          description: preset.description || '',
+          modules: cloneDashboardPresetModules(preset.modules),
+        };
+        return JSON.stringify(exported, null, 2);
+      },
+
+      importPreset(jsonText: string): DashboardPreset | null {
+        try {
+          const parsed = parseDashboardPresetJson(jsonText);
+          return this.createPreset({
+            name: parsed.name,
+            description: parsed.description,
+            modules: parsed.modules,
+          });
+        } catch (error) {
+          console.error('[DICE]DashboardPresetManager 导入失败:', error);
+          if (window.toastr) window.toastr.error('导入失败: ' + (error instanceof Error ? error.message : String(error)));
+          return null;
+        }
+      },
+    };
+  })();
+
+  const getActiveDashboardRelationshipGraphSources = (): DashboardRelationshipGraphSourceConfig[] => {
+    const graphConfig = DashboardPresetManager.getActivePreset().modules[DASHBOARD_RELATIONSHIP_GRAPH_MODULE_KEY];
+    return graphConfig?.sources || [];
+  };
+
+  const getDashboardRuntimeConfig = (): DashboardConfigMap => {
+    if (dashboardRuntimeConfigCache) return dashboardRuntimeConfigCache;
+
+    const runtimeConfig = cloneDashboardConfig(DASHBOARD_TABLE_CONFIG);
+    const activePreset = DashboardPresetManager.getActivePreset();
+
+    Object.entries(activePreset.modules || {}).forEach(([moduleKey, moduleOverride]) => {
+      const moduleConfig = runtimeConfig[moduleKey];
+      if (!moduleConfig) return;
+
+      if (moduleOverride.tableKeywords && moduleOverride.tableKeywords.length > 0) {
+        moduleConfig.tableKeywords = [...moduleOverride.tableKeywords];
+      }
+
+      Object.entries(moduleOverride.columns || {}).forEach(([columnKey, columnOverride]) => {
+        const columnConfig = moduleConfig.columns[columnKey];
+        if (columnConfig && columnOverride.keywords.length > 0) {
+          columnConfig.keywords = [...columnOverride.keywords];
+          return;
+        }
+
+        const allowedAdditionalColumns = DASHBOARD_PRESET_ADDITIONAL_COLUMNS[moduleKey] || [];
+        if (allowedAdditionalColumns.includes(columnKey) && columnOverride.keywords.length > 0) {
+          moduleConfig.columns[columnKey] = {
+            keywords: [...columnOverride.keywords],
+            fallbackIndex: null,
+          };
+        }
+      });
+
+      Object.entries(moduleOverride.filters || {}).forEach(([filterKey, filterOverride]) => {
+        const allowedFilterKeys = DASHBOARD_PRESET_FILTER_KEYS[moduleKey] || [];
+        const filterConfig = moduleConfig.filters?.[filterKey];
+        if (!allowedFilterKeys.includes(filterKey) || !filterConfig) return;
+
+        const mergedFilter: DashboardFilterConfig = { ...filterConfig, includes: [...filterConfig.includes] };
+        if (filterConfig.excludes) {
+          mergedFilter.excludes = [...filterConfig.excludes];
+        }
+        if (filterOverride.column && moduleConfig.columns[filterOverride.column]) {
+          mergedFilter.column = filterOverride.column;
+        }
+        if (filterOverride.excludeColumn && moduleConfig.columns[filterOverride.excludeColumn]) {
+          mergedFilter.excludeColumn = filterOverride.excludeColumn;
+        }
+        if (Array.isArray(filterOverride.includes)) {
+          mergedFilter.includes = [...filterOverride.includes];
+        }
+        if (Array.isArray(filterOverride.excludes)) {
+          mergedFilter.excludes = [...filterOverride.excludes];
+        }
+        moduleConfig.filters = {
+          ...(moduleConfig.filters || {}),
+          [filterKey]: mergedFilter,
+        };
+      });
+    });
+
+    dashboardRuntimeConfigCache = runtimeConfig;
+    return runtimeConfig;
+  };
+
+  const getDashboardModuleConfig = (moduleKey: string): DashboardModuleConfig | null =>
+    getDashboardRuntimeConfig()[moduleKey] || null;
+
   // 仪表盘数据解析器
   const DashboardDataParser = {
     // 根据配置查找表
     findTable(allTables, moduleKey) {
-      const config = DASHBOARD_TABLE_CONFIG[moduleKey];
+      const config = getDashboardModuleConfig(moduleKey);
       if (!config) {
         console.info(`[DICE]仪表盘查找表格: 模块"${moduleKey}"配置不存在`);
         return null;
@@ -13514,7 +14298,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     // 获取模块的所有列索引映射
     getColumnMap(headers, moduleKey) {
-      const config = DASHBOARD_TABLE_CONFIG[moduleKey];
+      const config = getDashboardModuleConfig(moduleKey);
       if (!config) return {};
 
       const map = {};
@@ -13551,7 +14335,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     // 应用过滤器（容错：当目标列不存在时返回全部数据）
     applyFilter(parsedRows, filterKey, moduleKey) {
-      const config = DASHBOARD_TABLE_CONFIG[moduleKey];
+      const config = getDashboardModuleConfig(moduleKey);
       if (!config || !config.filters || !config.filters[filterKey]) return parsedRows;
 
       const filter = config.filters[filterKey];
@@ -13567,8 +14351,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const value = String(row[filter.column] || '').toLowerCase();
         const matchInclude = filter.includes.some(inc => value.includes(inc.toLowerCase()));
 
-        if (filter.excludeColumn && filter.excludes) {
-          const excludeValue = String(row[filter.excludeColumn] || '').toLowerCase();
+        if (filter.excludes && filter.excludes.length > 0) {
+          const excludeColumn = filter.excludeColumn || filter.column;
+          const excludeValue = String(row[excludeColumn] || '').toLowerCase();
           const matchExclude = filter.excludes.some(exc => excludeValue.includes(exc.toLowerCase()));
           return matchInclude && !matchExclude;
         }
@@ -15456,18 +16241,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       return { success: false };
     }
 
-    // 直接清空基础属性列
-    targetSheet.content[targetRowIndex][baseColIndex] = '';
+    const nextRow = [...targetSheet.content[targetRowIndex]];
+    nextRow[baseColIndex] = '';
 
     // 如果存在特有属性列，也清空
     if (specialColIndex >= 0) {
-      targetSheet.content[targetRowIndex][specialColIndex] = '';
+      nextRow[specialColIndex] = '';
     }
 
-    cachedRawData = rawData;
-
-    // 保存
-    await saveDataOnly(rawData, [sheetKey]);
+    await saveRowInstantly(sheetKey, targetRowIndex - 1, nextRow);
 
     return {
       success: true,
@@ -15675,8 +16457,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     const newBaseAttrString = baseResultParts.join(';');
 
-    // 写入基础属性数据
-    targetSheet.content[targetRowIndex][baseColIndex] = newBaseAttrString;
+    const nextRow = [...targetSheet.content[targetRowIndex]];
+    nextRow[baseColIndex] = newBaseAttrString;
 
     // ========== 处理特有属性列（如果存在且有特有属性需要写入） ==========
     let newSpecialAttrString = '';
@@ -15724,14 +16506,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
       newSpecialAttrString = specialResultParts.join(';');
 
-      // 写入特有属性数据
-      targetSheet.content[targetRowIndex][specialColIndex] = newSpecialAttrString;
+      nextRow[specialColIndex] = newSpecialAttrString;
     }
 
-    cachedRawData = rawData;
-
-    // 保存（不更新快照，保留审核面板状态）
-    await saveDataOnly(rawData, [sheetKey]);
+    // 保存（不更新完整快照，保留审核面板状态）
+    await saveRowInstantly(sheetKey, targetRowIndex - 1, nextRow);
 
     // 返回写入的属性供UI更新
     const writtenAttrs: Array<{ name: string; value: number }> = [];
@@ -15973,11 +16752,18 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     const newAttrString = resultParts.join(';');
 
-    // 写入数据
-    targetSheet.content[targetRowIndex][targetColIndex] = newAttrString;
-    if (!options?.skipSave) {
-      cachedRawData = rawData;
-      await saveDataOnly(rawData, [sheetKey!]);
+    const nextRow = [...targetSheet.content[targetRowIndex]];
+    nextRow[targetColIndex] = newAttrString;
+    if (options?.skipSave || options?.dataOverride) {
+      targetSheet.content[targetRowIndex] = nextRow;
+    } else {
+      try {
+        await saveRowInstantly(sheetKey!, targetRowIndex - 1, nextRow);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[DICE] updateSingleAttribute: 保存 ${charName}.${targetAttrName} 失败: ${message}`);
+        return { success: false, oldValue, newValue: oldValue, error: message, resolvedAttrName: targetAttrName };
+      }
     }
 
     console.info(`[DICE] updateSingleAttribute: 成功修改 ${charName}.${targetAttrName}`);
@@ -17804,7 +18590,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           setHistoryEffectStateByRun(run, { effectEventSeq: seq });
 
           if (hasFailure && window.toastr) {
-            window.toastr.warning('效果执行存在失败，已回滚本次全部效果', '效果执行失败');
+            const firstError = results.find(result => !result.success && result.error)?.error || '请检查表格结构和字段约束';
+            window.toastr.warning(`效果执行失败，已回滚本次全部效果：${firstError}`, '效果执行失败', {
+              timeOut: 9000,
+            });
           }
 
           console.info(
@@ -22912,7 +23701,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const globalHeaders = globalResult?.data?.headers || [];
     const globalRows = globalResult?.data?.rows || [];
     const globalRow = globalRows[0] || [];
-    const globalConfig = DASHBOARD_TABLE_CONFIG.global;
+    const globalConfig = globalResult?.config || getDashboardModuleConfig('global') || DASHBOARD_TABLE_CONFIG.global;
     const detailIdx = DashboardDataParser.findColumnIndex(globalHeaders, 'detailLocation', globalConfig);
     const regionIdx = DashboardDataParser.findColumnIndex(globalHeaders, 'currentLocation', globalConfig);
     const detailLocation = detailIdx >= 0 ? String(globalRow[detailIdx] || '').trim() : '';
@@ -22931,10 +23720,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const locations = new Map();
     const locationHeaders = locationResult.data.headers || [];
     const locationRows = locationResult.data.rows || [];
-    const locationNameIdx = findColumnIndex(locationHeaders, ['详细地点', '具体位置', '地点名', '地点', '名称'], 1);
+    const locationConfig = locationResult.config || getDashboardModuleConfig('location') || DASHBOARD_TABLE_CONFIG.location;
+    const locationNameIdx = DashboardDataParser.findColumnIndex(locationHeaders, 'name', locationConfig);
     const locationRegionIdx = findColumnIndex(locationHeaders, ['次要地区', '次要区域', '区域', '地区'], null);
     const locationTypeIdx = findColumnIndex(locationHeaders, ['地点类型', '地点类别', '类型'], null);
-    const locationDescIdx = findColumnIndex(locationHeaders, ['环境描述', '描述', '说明', '介绍', '氛围描述'], null);
+    const locationDescIdx = DashboardDataParser.findColumnIndex(locationHeaders, 'description', locationConfig);
     const locationImportanceIdx = findColumnIndex(locationHeaders, ['重要度', '重要性'], null);
     const locationExploreIdx = findColumnIndex(locationHeaders, ['探索状态', '探索进度', '状态'], null);
 
@@ -23034,7 +23824,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     let playerLocation = '';
 
     if (playerResult?.data) {
-      const playerConfig = DASHBOARD_TABLE_CONFIG.player;
+      const playerConfig = playerResult.config || getDashboardModuleConfig('player') || DASHBOARD_TABLE_CONFIG.player;
       const playerHeaders = playerResult.data.headers || [];
       const playerRows = playerResult.data.rows || [];
       const playerRow = playerRows[0] || [];
@@ -23062,7 +23852,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     }
 
     if (npcResult?.data) {
-      const npcConfig = DASHBOARD_TABLE_CONFIG.npc;
+      const npcConfig = npcResult.config || getDashboardModuleConfig('npc') || DASHBOARD_TABLE_CONFIG.npc;
       const npcHeaders = npcResult.data.headers || [];
       const npcRows = npcResult.data.rows || [];
       const npcNameIdx = DashboardDataParser.findColumnIndex(npcHeaders, 'name', npcConfig);
@@ -23575,6 +24365,87 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     relation: string;
   }
 
+  const findRelationGraphColumnIndex = (headers: RelationGraphCell[], keywords: string[]): number => {
+    for (let i = 0; i < headers.length; i++) {
+      const header = String(headers[i] || '').toLowerCase();
+      if (keywords.some(keyword => header.includes(keyword.toLowerCase()))) {
+        return i;
+      }
+    }
+    return -1;
+  };
+
+  const findRelationshipGraphSourceTable = (
+    allTables: Record<string, RelationGraphTableInput>,
+    tableKeywords: string[],
+  ): { tableName: string; table: RelationGraphTableInput } | null => {
+    for (const keyword of tableKeywords) {
+      for (const tableName in allTables) {
+        if (tableName.includes(keyword)) {
+          return { tableName, table: allTables[tableName] };
+        }
+      }
+    }
+    return null;
+  };
+
+  const buildRelationshipGraphTableFromPreset = (
+    allTables: Record<string, RelationGraphTableInput>,
+    sources: DashboardRelationshipGraphSourceConfig[],
+  ): RelationGraphTableInput | null => {
+    const rows: RelationGraphRow[] = [];
+    const headers: RelationGraphCell[] = ['row_id', '姓名', '人际关系', '在场状态'];
+    const usedSources: string[] = [];
+
+    sources.forEach((source, sourceIndex) => {
+      const tableResult = findRelationshipGraphSourceTable(allTables, source.tableKeywords);
+      if (!tableResult) {
+        console.info(
+          `[DICE]人物关系图预设: 来源${sourceIndex + 1}未找到表格 (关键词: ${source.tableKeywords.join(', ')})`,
+        );
+        return;
+      }
+
+      const sourceHeaders = (tableResult.table.headers || []).map(header => String(header || ''));
+      const nameIdx = findRelationGraphColumnIndex(sourceHeaders, source.nameColumn);
+      const relationIdx = findRelationGraphColumnIndex(sourceHeaders, source.relationColumn);
+      if (nameIdx < 0 || relationIdx < 0) {
+        console.warn(
+          `[DICE]人物关系图预设: 表格"${tableResult.tableName}"缺少名称列或关系列 (名称关键词: ${source.nameColumn.join(', ')}; 关系关键词: ${source.relationColumn.join(', ')})`,
+        );
+        return;
+      }
+
+      const inSceneIdx = sourceHeaders.findIndex(header => header.includes('在场'));
+      const sourceRows = tableResult.table.rows || [];
+      sourceRows.forEach((row, rowIndex) => {
+        const name = String(row[nameIdx] || '').trim();
+        const relationValue = String(row[relationIdx] || '').trim();
+        if (!name || !relationValue) return;
+
+        const relationText =
+          source.mode === 'fixedTarget'
+            ? `${source.target && source.target !== 'player' ? source.target : USER_NODE_KEY}:${relationValue}`
+            : relationValue;
+
+        rows.push([row[0] ?? rowIndex + 1, name, relationText, inSceneIdx >= 0 ? row[inSceneIdx] : '']);
+      });
+      usedSources.push(`${tableResult.tableName}.${sourceHeaders[relationIdx] || '关系列'}`);
+    });
+
+    if (rows.length === 0) {
+      console.warn('[DICE]人物关系图预设: 未从配置来源中解析到关系数据');
+      return null;
+    }
+
+    console.info(`[DICE]人物关系图预设: 已合并来源 ${usedSources.join('、')}，共${rows.length}行`);
+    return {
+      headers,
+      rows,
+      key: '',
+    };
+  };
+
   interface RelationGraphLayoutPosition {
     x: number;
     y: number;
@@ -23609,47 +24480,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const nodes = new Map<string, RelationGraphNode>();
     const edges: RelationGraphEdge[] = [];
 
-    // 统一解析用户占位符为{{user}}主键（仅用于渲染，不自动管理别名）
-    const resolveUserPlaceholder = (name: string): string => {
-      if (!name) return name;
-      const playerName = getPlayerName();
-      const personaName = getPersonaName();
-
-      // 明确的用户占位符变体
-      const diceCfg = getDiceConfig();
-      const explicitUserVariants = ['<user>', '{{user}}'];
-      if (diceCfg.autoMergeProtagonist !== false) {
-        explicitUserVariants.push('主角');
-      }
-      const isExplicitUserVariant = explicitUserVariants.some(
-        v => name === v || name.toLowerCase() === v.toLowerCase(),
-      );
-
-      // 如果当前persona名匹配，也视为用户占位符
-      const isPersonaName = personaName && name === personaName;
-
-      // 检查是否是主角表名称（模糊匹配：表名包含"主角"）
-      // 仅在 autoMergeProtagonist 开启时才将主角名映射为 {{user}}
-      const isPlayerName = (() => {
-        if (!playerName) return false;
-        if (diceCfg.autoMergeProtagonist === false) return false;
-        // 精确匹配
-        if (name === playerName) return true;
-        // 或者通过别名系统检查
-        const primaryName = AvatarManager.getPrimaryName(name);
-        return primaryName === playerName;
-      })();
-
-      // 统一映射到{{user}}主键（仅用于渲染）
-      if (isExplicitUserVariant || isPersonaName || isPlayerName) {
-        return '{{user}}';
-      }
-
-      // 其他情况使用别名系统解析
-      return AvatarManager.getPrimaryName(name);
-    };
-
-    const resolveName = (name: RelationGraphCell): string => resolveUserPlaceholder(getDisplayName(String(name || '')));
+    const resolveName = (name: RelationGraphCell): string => resolveUserGraphName(String(name || ''));
 
     const rawData = cachedRawData || getTableData();
     // 重建别名注册表
@@ -25014,7 +25845,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
               if (rawData) {
                 for (const key in rawData) {
                   const table = rawData[key];
-                  if (!table?.content || !table.name?.includes('NPC')) continue;
+                  if (!table?.content || !isCharacterTable(String(table.name || ''))) continue;
                   const headers = table.content[0] || [];
                   const nameIdx = headers.findIndex(
                     h => h && (h.includes('姓名') || h.includes('名称') || h.includes('名字')),
@@ -25101,7 +25932,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           if (rawData) {
             for (const key in rawData) {
               const table = rawData[key];
-              if (!table?.content || !table.name?.includes('NPC')) continue;
+              if (!table?.content || !isCharacterTable(String(table.name || ''))) continue;
               const headers = table.content[0] || [];
               const nameIdx = headers.findIndex(
                 h => h && (h.includes('姓名') || h.includes('名称') || h.includes('名字')),
@@ -25903,43 +26734,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const expandedItems = new Set<string>(); // 跟踪展开的角色
       let isInitialLoad = true; // 首次加载标志，用于控制自动展开行为
 
-      // 统一解析用户占位符为{{user}}主键（用于头像管理界面）
-      const resolveUserPlaceholderForAvatar = name => {
-        if (!name) return name;
-        const playerName = getPlayerName();
-        const personaName = getPersonaName();
-
-        // 明确的用户占位符变体
-        const diceCfg = getDiceConfig();
-        const explicitUserVariants = ['<user>', '{{user}}'];
-        if (diceCfg.autoMergeProtagonist !== false) {
-          explicitUserVariants.push('主角');
-        }
-        const isExplicitUserVariant = explicitUserVariants.some(
-          v => name === v || name.toLowerCase() === v.toLowerCase(),
-        );
-
-        // 如果当前persona名匹配，也视为用户占位符
-        const isPersonaName = personaName && name === personaName;
-
-        // 检查是否是主角表名称（模糊匹配：表名包含"主角"）
-        const isPlayerName = (() => {
-          if (!playerName) return false;
-          // 精确匹配
-          if (name === playerName) return true;
-          // 或者通过别名系统检查
-          const primaryName = AvatarManager.getPrimaryName(name);
-          return primaryName === playerName;
-        })();
-
-        // 统一映射到{{user}}主键
-        if (isExplicitUserVariant || isPersonaName || isPlayerName) {
-          return '{{user}}';
-        }
-
-        // 其他情况使用别名系统解析
-        return AvatarManager.getPrimaryName(name);
-      };
+      // 与关系图共用 user/主角/别名归一化逻辑
+      const resolveUserPlaceholderForAvatar = (name: string): string => resolveUserGraphName(name);
 
       // 异步构建列表
       const buildList = async () => {
@@ -27679,19 +28475,26 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           closeDialog();
           return;
         }
+        const nextRow = [...currentRow];
         let hasChanges = false;
         dialog.find('textarea').each(function () {
           const colIdx = parseInt($(this).data('col'));
           const newVal = $(this).val();
-          if (String(currentRow[colIdx]) !== String(newVal)) {
+          if (String(nextRow[colIdx]) !== String(newVal)) {
             hasChanges = true;
-            currentRow[colIdx] = newVal;
+            nextRow[colIdx] = newVal;
           }
         });
         if (hasChanges) {
           try {
             // 使用 saveRowInstantly 执行即时保存 + 单行快照更新
-            await saveRowInstantly(tableKey, rowIndex, [...currentRow]);
+            await saveRowInstantly(tableKey, rowIndex, nextRow, {
+              tableName,
+              headers,
+              currentRow,
+              sourceData: rawData,
+              sheet: rawData?.[tableKey],
+            });
             renderInterface();
             options?.onSaved?.();
           } catch (e) {
@@ -28633,13 +29436,133 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return `row:${JSON.stringify(row)}`;
   };
 
-  const buildRowDataForCrud = (headers, row, changedColumns?: Set<number>) => {
+  const buildCrudColumnAliasMap = sheet => {
+    const ddl = String(sheet?.sourceData?.ddl || '');
+    const aliases = {};
+    if (!ddl) return aliases;
+
+    ddl.split(/\r?\n/).forEach(line => {
+      const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\b.*?--\s*(.+?)\s*$/);
+      if (!match) return;
+      const columnName = match[1];
+      const comment = match[2]
+        .replace(/[，,].*$/, '')
+        .replace(/[（(].*$/, '')
+        .trim();
+      if (comment) aliases[comment] = columnName;
+    });
+
+    return aliases;
+  };
+
+  const parseSqlQuotedValues = (value: string): string[] => {
+    const values: string[] = [];
+    const regex = /'((?:''|[^'])*)'/g;
+    let match: RegExpExecArray | null = null;
+    while ((match = regex.exec(String(value || ''))) !== null) {
+      values.push(String(match[1] || '').replace(/''/g, "'"));
+    }
+    return values;
+  };
+
+  const buildCrudEnumConstraintMap = (sheet): Record<string, string[]> => {
+    const ddl = String(sheet?.sourceData?.ddl || '');
+    const constraints: Record<string, string[]> = {};
+    if (!ddl) return constraints;
+
+    const regex = /CHECK\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s+IN\s*\(([^)]*)\)\s*\)/gi;
+    let match: RegExpExecArray | null = null;
+    while ((match = regex.exec(ddl)) !== null) {
+      const columnName = String(match[1] || '').trim();
+      const values = parseSqlQuotedValues(match[2] || '');
+      if (columnName && values.length > 0) constraints[columnName] = values;
+    }
+
+    return constraints;
+  };
+
+  const assertCrudEnumConstraints = (
+    tableName: string,
+    headers,
+    row,
+    sheet,
+    rowIndex: number,
+    changedColumns?: Set<number>,
+    columnAliasMap = buildCrudColumnAliasMap(sheet),
+  ): void => {
+    if (!Array.isArray(row)) return;
+    if (!Array.isArray(headers)) return;
+    const constraints = buildCrudEnumConstraintMap(sheet);
+    if (Object.keys(constraints).length === 0) return;
+
+    headers.forEach((header, index) => {
+      if (index === 0) return;
+      if (changedColumns && !changedColumns.has(index)) return;
+      const headerName = String(header || '').trim();
+      if (!headerName) return;
+
+      const columnName = String(columnAliasMap[headerName] || headerName).trim();
+      const allowedValues = constraints[columnName];
+      if (!allowedValues || allowedValues.length === 0) return;
+
+      const value = String(row[index] ?? '').trim();
+      if (allowedValues.includes(value)) return;
+
+      throw new Error(
+        `表 "${tableName}" 第 ${rowIndex + 1} 行的「${headerName}」不能写入「${value || '空值'}」：数据库结构只允许 ${allowedValues.join('、')}。请调整表格结构/枚举，或把要写入的内容改为允许值。`,
+      );
+    });
+  };
+
+  const buildCrudRequiredTextHeaderSet = sheet => {
+    const ddl = String(sheet?.sourceData?.ddl || '');
+    const headers = new Set<string>();
+    if (!ddl) return headers;
+
+    ddl.split(/\r?\n/).forEach(line => {
+      const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\b(.*?)--\s*(.+?)\s*$/);
+      if (!match) return;
+      const definition = match[2] || '';
+      if (!/\bTEXT\b/i.test(definition) || !/\bNOT\s+NULL\b/i.test(definition)) return;
+      const comment = match[3]
+        .replace(/[，,].*$/, '')
+        .replace(/[（(].*$/, '')
+        .trim();
+      if (comment) headers.add(comment);
+    });
+
+    return headers;
+  };
+
+  const normalizeCrudRequiredTextCells = (headers, rows, sheet): Map<number, Set<number>> => {
+    const normalizedColumns = new Map<number, Set<number>>();
+    const requiredTextHeaders = buildCrudRequiredTextHeaderSet(sheet);
+    if (requiredTextHeaders.size === 0) return normalizedColumns;
+
+    rows.forEach((row, rowIndex) => {
+      if (!Array.isArray(row)) return;
+      headers.forEach((header, index) => {
+        if (index === 0) return;
+        if (!requiredTextHeaders.has(String(header || ''))) return;
+        if (row[index] === null || row[index] === undefined) {
+          row[index] = '';
+          if (!normalizedColumns.has(rowIndex)) normalizedColumns.set(rowIndex, new Set<number>());
+          normalizedColumns.get(rowIndex)?.add(index);
+        }
+      });
+    });
+
+    return normalizedColumns;
+  };
+
+  const buildRowDataForCrud = (headers, row, changedColumns?: Set<number>, columnAliasMap = {}) => {
     const data = {};
     headers.forEach((header, index) => {
       if (index === 0) return;
       if (!header) return;
       if (changedColumns && !changedColumns.has(index)) return;
-      data[String(header)] = row?.[index] ?? '';
+      const headerName = String(header);
+      data[columnAliasMap[headerName] || headerName] = row?.[index] ?? '';
     });
     return data;
   };
@@ -28697,6 +29620,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const headers = getSheetHeaders(desiredSheet);
     const desiredRows = getSheetRows(desiredSheet);
     const oldRows = getSheetRows(latestSheet);
+    const columnAliasMap = buildCrudColumnAliasMap(desiredSheet);
+    const normalizedColumnsByRow = normalizeCrudRequiredTextCells(headers, desiredRows, desiredSheet);
 
     if (desiredRows.length > oldRows.length) {
       assertAppendOnlyRows(oldRows, desiredRows);
@@ -28717,9 +29642,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     if (desiredRows.length > workingRows.length) {
       for (let index = workingRows.length; index < desiredRows.length; index++) {
-        const rowData = buildRowDataForCrud(headers, desiredRows[index]);
+        assertCrudEnumConstraints(tableName, headers, desiredRows[index], desiredSheet, index, undefined, columnAliasMap);
+        const rowData = buildRowDataForCrud(headers, desiredRows[index], undefined, columnAliasMap);
         const result = await api.insertRow({ tableName, data: rowData, skipNotify: true });
-        if (result === false || result === -1) throw new Error(`向 "${tableName}" 追加新行失败`);
+        if (result === false || result === -1) {
+          throw new Error(`向 "${tableName}" 追加新行失败：数据库拒绝写入，请检查表结构、必填列和枚举约束。`);
+        }
         workingRows.push([...desiredRows[index]]);
       }
     }
@@ -28734,9 +29662,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         if (colIndex === 0) return;
         if (String(currentRow[colIndex] ?? '') !== String(desiredRow[colIndex] ?? '')) changedColumns.add(colIndex);
       });
+      normalizedColumnsByRow.get(rowIndex)?.forEach(colIndex => changedColumns.add(colIndex));
       if (changedColumns.size === 0) continue;
 
-      const rowData = buildRowDataForCrud(headers, desiredRow, changedColumns);
+      assertCrudEnumConstraints(tableName, headers, desiredRow, desiredSheet, rowIndex, changedColumns, columnAliasMap);
+      const rowData = buildRowDataForCrud(headers, desiredRow, changedColumns, columnAliasMap);
       const result = await api.updateRow({ tableName, rowIndex: rowIndex + 1, data: rowData, skipNotify: true });
       if (result === false) {
         const changedColumnNames = Array.from(changedColumns)
@@ -28897,34 +29827,211 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   const saveDataOnly = async (tableData, modifiedSheetKeys?: string[]) =>
     runInSaveQueue(() => performSaveDataOnly(tableData, modifiedSheetKeys));
 
+  const findRuntimeSheetEntryForMutation = (
+    rawData: unknown,
+    tableKey: string,
+  ): { key: string; sheet: DiffSheet } | null => {
+    const directEntry = findDiffSnapshotEntry(rawData, tableKey, getDiffSheetByKey(rawData, tableKey));
+    if (directEntry?.sheet) return directEntry;
+
+    const record = asDiffRecord(rawData);
+    if (!record) return null;
+    const normalizedTableKey = normalizeDiffText(tableKey);
+    if (!normalizedTableKey) return null;
+    const normalizedTableKeyLower = normalizedTableKey.toLowerCase();
+    const tableNameWithoutPrefix = normalizedTableKeyLower.replace(/^sheet_/, '');
+
+    const getSheetSqlTableName = (sheet: unknown): string => {
+      const sheetRecord = asDiffRecord(sheet);
+      const sourceData = asDiffRecord(sheetRecord?.sourceData);
+      const directName = normalizeDiffText(
+        sourceData?.tableName || sourceData?.sqlTableName || sourceData?.databaseTableName,
+      );
+      if (directName) return directName;
+      const ddl = String(sourceData?.ddl || '');
+      const match = ddl.match(/\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"[]?([A-Za-z_][A-Za-z0-9_]*)/i);
+      return normalizeDiffText(match?.[1]);
+    };
+
+    const matchesTargetKey = (candidate: unknown): boolean => {
+      const normalizedCandidate = normalizeDiffText(candidate).toLowerCase();
+      if (!normalizedCandidate) return false;
+      return (
+        normalizedCandidate === normalizedTableKeyLower ||
+        normalizedCandidate.replace(/^sheet_/, '') === tableNameWithoutPrefix
+      );
+    };
+
+    const matchedKey = Object.keys(record).find(key => {
+      const sheet = record[key];
+      if (!isDiffSheet(sheet)) return false;
+      const identity = getDiffSheetIdentity(sheet);
+      return (
+        matchesTargetKey(key) ||
+        matchesTargetKey(identity.uid) ||
+        matchesTargetKey(identity.name) ||
+        matchesTargetKey(getSheetSqlTableName(sheet))
+      );
+    });
+    const matchedSheet = matchedKey ? record[matchedKey] : null;
+    return matchedKey && isDiffSheet(matchedSheet) ? { key: matchedKey, sheet: matchedSheet } : null;
+  };
+
+  const resolveRuntimeMutationSource = (
+    tableKey: string,
+  ): { data: unknown; entry: { key: string; sheet: DiffSheet } } | null => {
+    const sources = [getTableData({ silent: true }), cachedRawData, loadSnapshot()];
+    for (const data of sources) {
+      const entry = findRuntimeSheetEntryForMutation(data, tableKey);
+      if (entry?.sheet) return { data, entry };
+    }
+    return null;
+  };
+
+  const updateRuntimeDataCacheAfterCrud = (api, fallbackData: unknown, tableKey: string) => {
+    const latestData = getTableData({ silent: true });
+    const refreshedEntry = findRuntimeSheetEntryForMutation(latestData, tableKey);
+    const fallbackEntry = findRuntimeSheetEntryForMutation(fallbackData, tableKey);
+    cachedRawData = !fallbackEntry?.sheet || refreshedEntry?.sheet ? latestData || fallbackData : fallbackData;
+    api._notifyTableUpdate?.();
+    return cachedRawData;
+  };
+
   // [新增] 即时保存单行数据并只更新该行快照
   // 用途：弹窗编辑后立即保存，同时保留其他行的AI变更高亮
   // 注意：不调用 saveDataToDatabase（它会更新完整快照），只更新指定行的快照
-  const saveRowInstantly = async (tableKey: string, rowIndex: number, newRowData: unknown[]): Promise<void> => {
+  type RuntimeRowSaveContext = {
+    tableName?: string;
+    headers?: unknown[];
+    currentRow?: unknown[];
+    sourceData?: unknown;
+    sheet?: DiffSheet;
+  };
+
+  const saveRowInstantly = async (
+    tableKey: string,
+    rowIndex: number,
+    newRowData: unknown[],
+    context?: RuntimeRowSaveContext,
+  ): Promise<void> => {
     try {
-      const rawData = cachedRawData || getTableData();
-      if (!rawData || !rawData[tableKey]) {
-        throw new Error(`表格 "${tableKey}" 不存在`);
-      }
-      if (!rawData[tableKey].content) {
-        throw new Error(`表格 "${tableKey}" 内容为空`);
-      }
+      await runInSaveQueue(async () => {
+        const api = assertRuntimeCrudApi();
+        const source = resolveRuntimeMutationSource(tableKey);
+        const sourceData = context?.sourceData || source?.data;
+        const entry = source?.entry;
+        const tableName = normalizeDiffText(context?.tableName) || normalizeDiffText(entry?.sheet?.name);
+        const sheetForMetadata = context?.sheet || entry?.sheet;
+        const headers = Array.isArray(context?.headers) ? context.headers : getSheetHeaders(entry?.sheet);
+        const currentRow = Array.isArray(context?.currentRow) ? context.currentRow : getDiffDataRow(entry?.sheet, rowIndex);
 
-      rawData[tableKey].content[rowIndex + 1] = newRowData;
+        if (!tableName) {
+          throw new Error(`表格 "${tableKey}" 不存在`);
+        }
+        if (!Array.isArray(headers) || headers.length === 0) {
+          throw new Error(`表格 "${tableName}" 表头为空`);
+        }
+        if (!currentRow) {
+          throw new Error(`表格 "${tableName}" 第 ${rowIndex + 1} 行不存在`);
+        }
 
-      await saveDataOnly(rawData, [tableKey]);
+        const nextRow = [...newRowData];
+        const normalizedColumnsByRow = normalizeCrudRequiredTextCells(headers, [nextRow], sheetForMetadata);
+        const changedColumns = new Set<number>();
+        headers.forEach((_, colIndex) => {
+          if (colIndex === 0) return;
+          if (String(currentRow[colIndex] ?? '') !== String(nextRow[colIndex] ?? '')) changedColumns.add(colIndex);
+        });
+        normalizedColumnsByRow.get(0)?.forEach(colIndex => changedColumns.add(colIndex));
+        if (changedColumns.size === 0) return;
 
-      const snapshot = loadSnapshot();
-      const snapshotEntry = snapshot ? findDiffSnapshotEntry(snapshot, tableKey, rawData[tableKey]) : null;
-      if (setDiffDataRow(snapshotEntry?.sheet, rowIndex, newRowData)) {
-        saveSnapshot(snapshot);
-      }
+        const columnAliasMap = buildCrudColumnAliasMap(sheetForMetadata);
+        assertCrudEnumConstraints(tableName, headers, nextRow, sheetForMetadata, rowIndex, changedColumns, columnAliasMap);
+        const rowData = buildRowDataForCrud(headers, nextRow, changedColumns, columnAliasMap);
+        const result = await api.updateRow({ tableName, rowIndex: rowIndex + 1, data: rowData, skipNotify: true });
+        if (result === false || result === -1) {
+          const changedColumnNames = Array.from(changedColumns)
+            .map(index => String(headers[index] || `#${index + 1}`))
+            .join('、');
+          throw new Error(`更新 "${tableName}" 第 ${rowIndex + 1} 行失败（列：${changedColumnNames}）`);
+        }
+
+        const fallbackData = sourceData ? cloneRuntimeDataValue(sourceData) : null;
+        if (fallbackData) {
+          const fallbackEntry =
+            findRuntimeSheetEntryForMutation(fallbackData, entry?.key || tableKey) ||
+            findRuntimeSheetEntryForMutation(fallbackData, tableKey);
+          if (fallbackEntry?.sheet?.content?.[rowIndex + 1]) {
+            fallbackEntry.sheet.content[rowIndex + 1] = [...nextRow];
+          }
+          updateRuntimeDataCacheAfterCrud(api, fallbackData, entry?.key || tableKey);
+        } else {
+          cachedRawData = getTableData({ silent: true }) || cachedRawData;
+          api._notifyTableUpdate?.();
+        }
+
+        const snapshot = loadSnapshot();
+        const snapshotEntry = snapshot ? findDiffSnapshotEntry(snapshot, tableKey, sheetForMetadata) : null;
+        if (setDiffDataRow(snapshotEntry?.sheet, rowIndex, nextRow)) {
+          saveSnapshot(snapshot);
+        }
+      });
     } catch (e) {
       const errorMsg = e instanceof Error ? e.message : String(e);
       console.error('[DICE]ACU saveRowInstantly error:', getRuntimeErrorLogPayload(e));
       toastr.error(`保存失败: ${errorMsg}`);
       throw e;
     }
+  };
+
+  const appendRowInstantly = async (tableKey: string, newRowData: unknown[]): Promise<void> => {
+    await runInSaveQueue(async () => {
+      const api = assertRuntimeCrudApi();
+      const source = resolveRuntimeMutationSource(tableKey);
+      const sourceData = source?.data;
+      const entry = source?.entry;
+      if (!entry?.sheet?.name || !Array.isArray(entry.sheet.content)) {
+        throw new Error(`表格 "${tableKey}" 不存在`);
+      }
+
+      const headers = getSheetHeaders(entry.sheet);
+      const tableName = entry.sheet.name;
+      const nextRow = [...newRowData];
+      normalizeCrudRequiredTextCells(headers, [nextRow], entry.sheet);
+      const columnAliasMap = buildCrudColumnAliasMap(entry.sheet);
+      assertCrudEnumConstraints(tableName, headers, nextRow, entry.sheet, getSheetRows(entry.sheet).length, undefined, columnAliasMap);
+      const rowData = buildRowDataForCrud(headers, nextRow, undefined, columnAliasMap);
+      const result = await api.insertRow({ tableName, data: rowData, skipNotify: true });
+      if (result === false || result === -1) {
+        throw new Error(`向 "${tableName}" 追加新行失败：数据库拒绝写入，请检查表结构、必填列和枚举约束。`);
+      }
+
+      const fallbackData = cloneRuntimeDataValue(sourceData);
+      const fallbackEntry = findRuntimeSheetEntryForMutation(fallbackData, entry.key) || findRuntimeSheetEntryForMutation(fallbackData, tableKey);
+      if (fallbackEntry?.sheet?.content) fallbackEntry.sheet.content.push([...nextRow]);
+      updateRuntimeDataCacheAfterCrud(api, fallbackData, entry.key || tableKey);
+    });
+  };
+
+  const deleteRowInstantly = async (tableKey: string, rowIndex: number): Promise<void> => {
+    await runInSaveQueue(async () => {
+      const api = assertRuntimeCrudApi();
+      const source = resolveRuntimeMutationSource(tableKey);
+      const sourceData = source?.data;
+      const entry = source?.entry;
+      if (!entry?.sheet?.name || !Array.isArray(entry.sheet.content)) {
+        throw new Error(`表格 "${tableKey}" 不存在`);
+      }
+
+      const tableName = entry.sheet.name;
+      const result = await api.deleteRow({ tableName, rowIndex: rowIndex + 1, skipNotify: true });
+      if (result === false || result === -1) throw new Error(`删除 "${tableName}" 第 ${rowIndex + 1} 行失败`);
+
+      const fallbackData = cloneRuntimeDataValue(sourceData);
+      const fallbackEntry = findRuntimeSheetEntryForMutation(fallbackData, entry.key) || findRuntimeSheetEntryForMutation(fallbackData, tableKey);
+      if (fallbackEntry?.sheet?.content?.[rowIndex + 1]) fallbackEntry.sheet.content.splice(rowIndex + 1, 1);
+      updateRuntimeDataCacheAfterCrud(api, fallbackData, entry.key || tableKey);
+    });
   };
 
   const processJsonData = json => {
@@ -29758,8 +30865,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const typeInfo = RULE_TYPE_INFO[ruleType] || { name: ruleType, icon: 'fa-question' };
     const isTableRule = typeInfo?.scope === 'table';
 
-    // 获取原始数据和快照
-    const rawData = cachedRawData || getTableData();
+    // 获取原始数据和快照。这里拿克隆数据，避免智能修复在保存前污染前端缓存。
+    const rawData = getTableData({ silent: true }) || cloneRuntimeDataValue(cachedRawData);
     const snapshot = loadSnapshot();
 
     // 如果错误对象中没有 rowTitle，尝试从原始数据中获取
@@ -30281,10 +31388,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const newRow = new Array(headers.length).fill('');
         newRow[targetColIdx] = currentInvalidValue;
 
-        // 添加到表末尾
-        refSheet.content.push(newRow);
-
-        await saveDataOnly(rawData, refSheetId ? [refSheetId] : undefined);
+        await appendRowInstantly(refSheetId || rule.config.refTable, newRow);
 
         // 关闭弹窗并重新渲染界面（会自动重新验证，所有相关错误会消失）
         closeDialog();
@@ -30323,7 +31427,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       try {
         const rawData = cachedRawData || getTableData();
         let updated = false;
-        let updatedSheetId = null;
 
         for (const sheetId in rawData) {
           if (rawData[sheetId]?.name === error.tableName) {
@@ -30335,9 +31438,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
               const rowIdx = error.rowIndex + 1;
 
               if (colIdx >= 0 && sheet.content && sheet.content[rowIdx]) {
-                sheet.content[rowIdx][colIdx] = newValue;
+                const nextRow = [...sheet.content[rowIdx]];
+                nextRow[colIdx] = newValue;
+                await saveRowInstantly(sheetId, error.rowIndex, nextRow);
                 updated = true;
-                updatedSheetId = sheetId;
                 break;
               }
             }
@@ -30345,7 +31449,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         }
 
         if (updated) {
-          await saveDataOnly(rawData, updatedSheetId ? [updatedSheetId] : undefined);
           closeDialog();
           renderInterface();
         } else {
@@ -31204,11 +32307,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
       try {
         let targetSheetId = null;
+        let targetRowCount = 0;
         for (const sheetId in rawData) {
           if (rawData[sheetId]?.name === tableName) {
-            // 保留表头(index 0)和前 startRow 行数据(index 1 到 startRow)
-            rawData[sheetId].content = rawData[sheetId].content.slice(0, startRow + 1);
             targetSheetId = sheetId;
+            targetRowCount = Math.max(0, (rawData[sheetId].content?.length || 1) - 1);
             break;
           }
         }
@@ -31217,7 +32320,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           return;
         }
 
-        await saveDataOnly(rawData, [targetSheetId]);
+        for (let rowIndex = targetRowCount - 1; rowIndex >= startRow; rowIndex--) {
+          await deleteRowInstantly(targetSheetId, rowIndex);
+        }
         closeDialog();
         renderInterface();
       } catch (e) {
@@ -33218,6 +34323,351 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     });
 
     // 点击遮罩关闭
+    setupOverlayClose(overlay, 'acu-edit-overlay', () => {
+      overlay.remove();
+      popModal();
+    });
+  };
+
+  // ========================================
+  // 自定义仪表盘预设管理
+  // ========================================
+  const showDashboardPresetManager = () => {
+    const { $ } = getCore();
+    $('.acu-edit-overlay').remove();
+    pushModal('showDashboardPresetManager', showDashboardPresetManager);
+
+    const config = getConfig();
+    const presets = DashboardPresetManager.getAllPresets();
+    const activeId = DashboardPresetManager.getActivePresetId();
+
+    const presetsHtml = presets
+      .map(preset => {
+        const isActive = preset.id === activeId;
+        const isBuiltin = preset.builtin === true;
+        const hasRelationshipGraph = Boolean(preset.modules[DASHBOARD_RELATIONSHIP_GRAPH_MODULE_KEY]?.sources?.length);
+        const moduleNames = [
+          ...DASHBOARD_PRESET_MODULE_KEYS.filter(moduleKey => Boolean(preset.modules[moduleKey])),
+          ...(hasRelationshipGraph ? ['relationshipGraph'] : []),
+        ];
+        const moduleSummary = moduleNames.join('、') || '无';
+        const keywordSummary =
+          Object.values(preset.modules)
+            .flatMap(moduleConfig => [
+              ...(moduleConfig.tableKeywords || []),
+              ...(moduleConfig.sources || []).flatMap(source => source.tableKeywords),
+            ])
+            .slice(0, 5)
+            .join('、') || '无';
+
+        return `
+          <div class="acu-preset-item" data-id="${escapeHtml(preset.id)}">
+            <div class="acu-preset-info">
+              <div class="acu-preset-name">${escapeHtml(preset.name)}${isBuiltin ? `<span style="font-size: 10px; color: var(--acu-text-sub); margin-left: 6px;">(内置)</span>` : ''}</div>
+              ${preset.description ? `<div class="acu-preset-desc">${escapeHtml(preset.description)}</div>` : ''}
+              <div class="acu-preset-stats" style="font-size: 11px; color: var(--acu-text-sub);">
+                区域: ${escapeHtml(moduleSummary)} | 关键词: ${escapeHtml(keywordSummary)}
+              </div>
+            </div>
+            <div class="acu-preset-actions" style="display: flex; align-items: center; gap: 8px;">
+              <label class="acu-toggle" style="margin: 0;">
+                <input type="checkbox" class="acu-dashboard-preset-toggle" data-id="${escapeHtml(preset.id)}" ${isActive ? 'checked' : ''}>
+                <span class="acu-toggle-slider"></span>
+              </label>
+              ${
+                isBuiltin
+                  ? `<button class="acu-preset-btn acu-dashboard-preset-copy" data-id="${escapeHtml(preset.id)}" title="复制为自定义仪表盘预设"><i class="fa-solid fa-copy"></i></button>`
+                  : `<button class="acu-preset-btn acu-dashboard-preset-edit" data-id="${escapeHtml(preset.id)}" title="编辑"><i class="fa-solid fa-pen"></i></button>`
+              }
+              <button class="acu-preset-btn acu-dashboard-preset-export" data-id="${escapeHtml(preset.id)}" title="导出"><i class="fa-solid fa-download"></i></button>
+              ${!isBuiltin ? `<button class="acu-preset-btn acu-dashboard-preset-delete" data-id="${escapeHtml(preset.id)}" title="删除" style="color: var(--acu-error-text);"><i class="fa-solid fa-trash"></i></button>` : ''}
+            </div>
+          </div>
+        `;
+      })
+      .join('');
+
+    const overlay = $(`
+      <div class="acu-edit-overlay">
+        <div class="acu-edit-dialog acu-theme-${config.theme}" style="width: 640px; max-width: 92vw; max-height: 80vh;">
+          <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px solid var(--acu-border);">
+            <div style="font-size: 16px; font-weight: bold; color: var(--acu-text-main);">
+              <i class="fa-solid fa-chart-line"></i> 自定义仪表盘管理
+            </div>
+            <button class="acu-close-btn"><i class="fa-solid fa-times"></i></button>
+          </div>
+
+          <div style="flex: 1; overflow-y: auto; padding: 12px 0;">
+            <div id="acu-dashboard-presets-list">
+              ${presetsHtml}
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--acu-border);">
+            <button id="acu-dashboard-preset-new" style="flex: 1; padding: 10px; background: var(--acu-accent); border: none; border-radius: 6px; color: var(--acu-btn-active-text); cursor: pointer; font-size: 13px;">
+              <i class="fa-solid fa-plus"></i> 新建预设
+            </button>
+            <button id="acu-dashboard-preset-import" style="flex: 1; padding: 10px; background: var(--acu-btn-bg); border: 1px solid var(--acu-text-sub); border-radius: 6px; color: var(--acu-text-main); cursor: pointer; font-size: 13px;">
+              <i class="fa-solid fa-file-import"></i> 导入
+            </button>
+            <button id="acu-dashboard-preset-back" style="padding: 10px 16px; background: var(--acu-btn-bg); border: 1px solid var(--acu-text-sub); border-radius: 6px; color: var(--acu-text-main); cursor: pointer; font-size: 13px;">
+              <i class="fa-solid fa-arrow-left"></i> 返回
+            </button>
+          </div>
+        </div>
+      </div>
+    `);
+
+    $('body').append(overlay);
+
+    overlay.find('.acu-close-btn, #acu-dashboard-preset-back').on('click', () => {
+      overlay.remove();
+      popModal();
+    });
+
+    overlay.on('change', '.acu-dashboard-preset-toggle', function () {
+      const $toggle = $(this);
+      const id = String($toggle.data('id') || '');
+      const isChecked = $toggle.is(':checked');
+
+      if (isChecked) {
+        DashboardPresetManager.setActivePresetId(id);
+        overlay.find('.acu-dashboard-preset-toggle').each(function () {
+          if (String($(this).data('id') || '') !== id) {
+            $(this).prop('checked', false);
+          }
+        });
+        if (window.toastr) window.toastr.success('仪表盘预设已启用');
+        return;
+      }
+
+      DashboardPresetManager.setActivePresetId(DASHBOARD_DEFAULT_PRESET_ID);
+      overlay.find('.acu-dashboard-preset-toggle').each(function () {
+        const toggleId = String($(this).data('id') || '');
+        $(this).prop('checked', toggleId === DASHBOARD_DEFAULT_PRESET_ID);
+      });
+      if (window.toastr) window.toastr.info('已切回默认仪表盘预设');
+    });
+
+    overlay.on('click', '.acu-dashboard-preset-edit', function () {
+      const id = String($(this).data('id') || '');
+      overlay.remove();
+      showDashboardPresetEditor(id);
+    });
+
+    overlay.on('click', '.acu-dashboard-preset-export', function () {
+      const id = String($(this).data('id') || '');
+      const preset = presets.find(item => item.id === id);
+      const json = DashboardPresetManager.exportPreset(id);
+      if (!json) {
+        if (window.toastr) window.toastr.error('导出失败');
+        return;
+      }
+
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${preset?.name || '仪表盘预设'}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      if (window.toastr) window.toastr.success('已导出仪表盘预设');
+    });
+
+    overlay.on('click', '.acu-dashboard-preset-copy', function () {
+      const id = String($(this).data('id') || '');
+      const preset = presets.find(item => item.id === id);
+      if (!preset) return;
+
+      const copy = DashboardPresetManager.createPreset({
+        name: `${preset.name} (副本)`,
+        description: preset.description || '',
+        modules: preset.modules,
+      });
+      if (window.toastr) window.toastr.success(`已创建副本：${copy.name}`);
+      overlay.remove();
+      showDashboardPresetManager();
+    });
+
+    overlay.on('click', '.acu-dashboard-preset-delete', function () {
+      const id = String($(this).data('id') || '');
+      const preset = presets.find(item => item.id === id);
+      if (!preset || preset.builtin) return;
+
+      if (confirm(`确定要删除仪表盘预设「${preset.name}」吗？`)) {
+        const success = DashboardPresetManager.deletePreset(id);
+        if (success) {
+          overlay.remove();
+          showDashboardPresetManager();
+        } else if (window.toastr) {
+          window.toastr.error('删除失败');
+        }
+      }
+    });
+
+    overlay.find('#acu-dashboard-preset-new').on('click', () => {
+      overlay.remove();
+      showDashboardPresetEditor();
+    });
+
+    overlay.find('#acu-dashboard-preset-import').on('click', () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.json,.jsonc,application/json';
+      input.onchange = () => {
+        const file = input.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = e => {
+          const jsonText = String(e.target?.result || '').trim();
+          if (!jsonText) {
+            if (window.toastr) window.toastr.error('文件内容为空');
+            return;
+          }
+
+          const imported = DashboardPresetManager.importPreset(jsonText);
+          if (imported) {
+            if (window.toastr) window.toastr.success(`导入成功：${imported.name}`);
+            overlay.remove();
+            showDashboardPresetManager();
+          }
+        };
+        reader.onerror = () => {
+          if (window.toastr) window.toastr.error('文件读取失败');
+        };
+        reader.readAsText(file);
+      };
+      input.click();
+    });
+
+    setupOverlayClose(overlay, 'acu-edit-overlay', () => {
+      overlay.remove();
+      popModal();
+    });
+  };
+
+  const showDashboardPresetEditor = (presetId?: string) => {
+    const { $ } = getCore();
+    $('.acu-edit-overlay').remove();
+    pushModal('showDashboardPresetEditor', () => showDashboardPresetEditor(presetId));
+
+    const config = getConfig();
+    const isEdit = Boolean(presetId);
+    const existingPreset = presetId ? DashboardPresetManager.getPresetById(presetId) : null;
+
+    if (existingPreset?.builtin) {
+      if (window.toastr) window.toastr.warning('默认仪表盘预设不可编辑，请导出或复制后修改');
+      popModal();
+      return;
+    }
+
+    const presetName = existingPreset?.name || '新仪表盘预设';
+    const presetDescription = existingPreset?.description || '';
+    const editorJson = existingPreset
+      ? JSON.stringify(cloneDashboardPresetModules(existingPreset.modules), null, 2)
+      : createDashboardPresetEditorTemplate();
+
+    const overlay = $(`
+      <div class="acu-edit-overlay">
+        <div class="acu-edit-dialog acu-theme-${config.theme}" style="width: 760px; max-width: 95vw; max-height: 86vh;">
+          <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px solid var(--acu-border);">
+            <div style="font-size: 16px; font-weight: bold; color: var(--acu-text-main);">
+              <i class="fa-solid fa-chart-line"></i> ${isEdit ? '编辑' : '新建'}仪表盘预设
+            </div>
+            <button class="acu-close-btn"><i class="fa-solid fa-times"></i></button>
+          </div>
+
+          <div style="flex: 1; overflow-y: auto; padding: 12px 0;">
+            <div style="margin-bottom: 16px;">
+              <label style="display: block; font-size: 12px; color: var(--acu-text-sub); margin-bottom: 4px;">预设名称</label>
+              <input id="dashboard-preset-name" type="text" value="${escapeHtml(presetName)}" class="acu-preset-editor-input" style="width: 100%; padding: 8px; border: 1px solid var(--acu-border) !important; border-radius: 6px; background: var(--acu-input-bg) !important; color: var(--acu-text-main) !important; box-sizing: border-box;" />
+            </div>
+
+            <div style="margin-bottom: 16px;">
+              <label style="display: block; font-size: 12px; color: var(--acu-text-sub); margin-bottom: 4px;">描述</label>
+              <input id="dashboard-preset-desc" type="text" value="${escapeHtml(presetDescription)}" placeholder="可选" class="acu-preset-editor-input" style="width: 100%; padding: 8px; border: 1px solid var(--acu-border) !important; border-radius: 6px; background: var(--acu-input-bg) !important; color: var(--acu-text-main) !important; box-sizing: border-box;" />
+            </div>
+
+            <div style="margin-bottom: 16px;">
+              <label style="display: block; font-size: 12px; color: var(--acu-text-sub); margin-bottom: 8px;">
+                JSONC配置 <span style="font-size: 10px; color: var(--acu-text-sub);">(可写 // 或 /* */ 注释；保存后会转为标准 JSON)</span>
+              </label>
+              <textarea id="dashboard-preset-json" class="acu-preset-editor-textarea" style="width: 100%; height: 360px; padding: 10px; border: 1px solid var(--acu-border) !important; border-radius: 6px; background: var(--acu-input-bg) !important; color: var(--acu-text-main) !important; font-family: 'Consolas', 'Monaco', monospace; font-size: 12px; resize: vertical; box-sizing: border-box;"></textarea>
+            </div>
+
+            <div style="font-size: 11px; color: var(--acu-text-sub); padding: 8px; background: var(--acu-table-head); border-radius: 6px; line-height: 1.6;">
+              <strong>配置格式说明：</strong><br/>
+              • 区域名固定为 global、player、location、npc、quest、bag、equip，可选 relationshipGraph<br/>
+              • tableKeywords 匹配表名；columns 内的 keywords 匹配表头列名<br/>
+              • relationshipGraph.sources 支持 fixedTarget 和 relationList 两种关系解析模式<br/>
+              • 区域渲染方式保持固定，例如 quest 仍会显示进度条
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--acu-border);">
+            <button id="dashboard-preset-save" style="flex: 1; padding: 10px; background: var(--acu-accent); border: none; border-radius: 6px; color: var(--acu-btn-active-text); cursor: pointer; font-size: 13px; font-weight: bold;">
+              <i class="fa-solid fa-check"></i> 保存
+            </button>
+            <button id="dashboard-preset-cancel" style="padding: 10px 16px; background: var(--acu-btn-bg); border: 1px solid var(--acu-text-sub); border-radius: 6px; color: var(--acu-text-main); cursor: pointer; font-size: 13px;">
+              <i class="fa-solid fa-times"></i> 取消
+            </button>
+          </div>
+        </div>
+      </div>
+    `);
+
+    $('body').append(overlay);
+
+    const $jsonTextarea = overlay.find('#dashboard-preset-json');
+    $jsonTextarea.val(editorJson);
+
+    overlay.find('.acu-close-btn, #dashboard-preset-cancel').on('click', () => {
+      overlay.remove();
+      popModal();
+    });
+
+    overlay.find('#dashboard-preset-save').on('click', () => {
+      try {
+        const name = String(overlay.find('#dashboard-preset-name').val() || '').trim();
+        const description = String(overlay.find('#dashboard-preset-desc').val() || '').trim();
+        const jsonText = String($jsonTextarea.val() || '').trim();
+
+        if (!name) {
+          if (window.toastr) window.toastr.warning('请输入预设名称');
+          return;
+        }
+
+        const parsed = parseDashboardPresetJson(jsonText);
+        if (isEdit && presetId) {
+          const success = DashboardPresetManager.updatePreset(presetId, {
+            name,
+            description,
+            modules: parsed.modules,
+          });
+          if (!success) {
+            if (window.toastr) window.toastr.error('保存失败');
+            return;
+          }
+          if (window.toastr) window.toastr.success('仪表盘预设已更新');
+        } else {
+          DashboardPresetManager.createPreset({
+            name,
+            description,
+            modules: parsed.modules,
+          });
+          if (window.toastr) window.toastr.success('仪表盘预设已创建');
+        }
+
+        overlay.remove();
+        popModal();
+      } catch (error) {
+        if (window.toastr) window.toastr.error('JSONC 格式错误: ' + (error instanceof Error ? error.message : String(error)));
+      }
+    });
+
     setupOverlayClose(overlay, 'acu-edit-overlay', () => {
       overlay.remove();
       popModal();
@@ -35506,20 +36956,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const targetHeader: string[] = table.content[0].slice(1).map((h: any) => String(h || ''));
       const newRow = FavoritesManager.mapRowToTable(fav, targetHeader);
 
-      // 插入新行
-      table.content.push(newRow);
-
-      // 更新缓存并写入数据库（复用 saveDataOnly 统一保存路径）
-      const rawData = cachedRawData || getTableData();
-      if (!rawData || !rawData[uid]?.content) {
-        toastr.error('无法获取目标表格数据');
-        return;
-      }
-      rawData[uid].content = table.content;
-      cachedRawData = rawData;
-
       try {
-        await saveDataOnly(rawData, [uid]);
+        await appendRowInstantly(uid, newRow);
         console.log('[DICE]FavoritesManager 发送成功，已写入数据库');
       } catch (err) {
         console.error('[DICE]FavoritesManager 写入数据库失败:', err);
@@ -36084,6 +37522,14 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                     <i class="fa-solid fa-cog"></i> 管理
                                 </button>
                             </div>
+                            <div class="acu-setting-row" id="settings-row-dashboard-preset">
+                                <div class="acu-setting-info">
+                                    <span class="acu-setting-label"><i class="fa-solid fa-chart-line"></i> 自定义仪表盘</span>
+                                </div>
+                                <button id="cfg-dashboard-preset-manage" class="acu-setting-action-btn" style="width: 90px; padding: 6px 12px; font-size: 12px; margin-bottom: 0;">
+                                    <i class="fa-solid fa-cog"></i> 管理
+                                </button>
+                            </div>
                             <div class="acu-setting-row" id="settings-row-blacklist">
                                 <div class="acu-setting-info">
                                     <span class="acu-setting-label"><i class="fa-solid fa-filter"></i> 变量过滤黑名单</span>
@@ -36199,6 +37645,14 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       dialog.remove();
       isSettingsOpen = false;
       showActionPresetManager();
+    });
+
+    // 管理仪表盘预设按钮
+    dialog.find('#cfg-dashboard-preset-manage').on('click', function (e) {
+      e.stopPropagation();
+      dialog.remove();
+      isSettingsOpen = false;
+      showDashboardPresetManager();
     });
 
     // 管理检定设置按钮
@@ -38794,10 +40248,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             if (rawData[sheetId]?.name === tableName && snapshot[sheetId]) {
               const headers = rawData[sheetId].content?.[0] || [];
               const colIdx = headers.indexOf(columnName);
-              if (colIdx >= 0 && snapshot[sheetId].content?.[rowIndex + 1]) {
+              if (colIdx >= 0 && rawData[sheetId].content?.[rowIndex + 1] && snapshot[sheetId].content?.[rowIndex + 1]) {
                 const snapshotValue = snapshot[sheetId].content[rowIndex + 1][colIdx];
-                rawData[sheetId].content[rowIndex + 1][colIdx] = snapshotValue;
-                await saveDataOnly(rawData, [sheetId]);
+                const nextRow = [...rawData[sheetId].content[rowIndex + 1]];
+                nextRow[colIdx] = snapshotValue;
+                await saveRowInstantly(sheetId, rowIndex, nextRow);
                 renderInterface();
                 return;
               }
@@ -39012,20 +40467,20 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
         if (changeType === 'cell_modified') {
           // 拒绝单元格修改：恢复为快照中的旧值
-          setDiffDataCell(rawEntry.sheet, rowIndex, colIndex, oldValue);
+          const currentRow = getDiffDataRow(rawEntry.sheet, rowIndex);
+          if (!currentRow) return;
+          const nextRow = [...currentRow];
+          nextRow[colIndex] = oldValue;
+          await saveRowInstantly(rawEntry.key || tableKey, rowIndex, nextRow);
         } else if (changeType === 'row_modified') {
           // 拒绝整行修改：从快照恢复整行
           const snapshotRow = getDiffDataRow(snapshotEntry?.sheet, rowIndex);
-          if (snapshotRow) {
-            setDiffDataRow(rawEntry.sheet, rowIndex, snapshotRow);
-          }
+          if (!snapshotRow) return;
+          await saveRowInstantly(rawEntry.key || tableKey, rowIndex, [...snapshotRow]);
         } else if (changeType === 'row_added') {
           // 拒绝新增行：从数据中删除该行
-          removeDiffDataRow(rawEntry.sheet, rowIndex);
+          await deleteRowInstantly(rawEntry.key || tableKey, rowIndex);
         }
-
-        // [修复] 使用轻量级保存，只保存数据，不更新快照
-        await saveDataOnly(rawData, [rawEntry.key || tableKey]);
 
         // 移除该条目并刷新
         $item.fadeOut(200, function () {
@@ -39057,8 +40512,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             if (window.toastr) window.toastr.warning('找不到对应表格，无法快捷恢复该行');
             return;
           }
-          rawEntry.sheet.content.push([...restoredRow]);
-          await saveDataOnly(rawData, [rawEntry.key || tableKey]);
+          await appendRowInstantly(rawEntry.key || tableKey, [...restoredRow]);
         } else if (changeType === 'table_deleted') {
           if (window.toastr) window.toastr.warning('整表级变更仅标注，不支持快捷恢复');
           return;
@@ -39168,7 +40622,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
         // 将快照数据恢复为当前数据
         const restoredData = JSON.parse(JSON.stringify(snapshot));
-        cachedRawData = restoredData;
         await saveDataToDatabase(restoredData, false, false);
       });
 
@@ -39406,20 +40859,27 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           return;
         }
 
+        const nextRow = [...currentRow];
         let hasChanges = false;
         dialog.find('textarea').each(function () {
           const colIdx = parseInt($(this).data('col'));
           const newVal = $(this).val();
-          if (String(currentRow[colIdx]) !== String(newVal)) {
+          if (String(nextRow[colIdx]) !== String(newVal)) {
             hasChanges = true;
-            currentRow[colIdx] = newVal;
+            nextRow[colIdx] = newVal;
           }
         });
 
         if (hasChanges) {
           // 1. 保存到数据库（不更新快照）
           try {
-            await saveDataOnly(rawData, [tableKey]);
+            await saveRowInstantly(tableKey, rowIndex, nextRow, {
+              tableName,
+              headers,
+              currentRow,
+              sourceData: rawData,
+              sheet: rawData?.[tableKey],
+            });
           } catch (e) {
             console.error('[DICE]ACU 保存失败:', e);
             let errorMessage = e.message || '保存出错，请检查数据格式和大小';
@@ -39444,16 +40904,17 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           // 2. 只更新快照中这一行（关键！）
           const snapshot = loadSnapshot();
           const snapshotEntry = snapshot ? findDiffSnapshotEntry(snapshot, tableKey, rawData[tableKey]) : null;
-          if (setDiffDataRow(snapshotEntry?.sheet, rowIndex, normalizeDiffRow(currentRow))) {
+          if (setDiffDataRow(snapshotEntry?.sheet, rowIndex, normalizeDiffRow(nextRow))) {
             saveSnapshot(snapshot);
           }
 
           // 3. 重新计算 diffMap 并刷新变更面板
-          currentDiffMap = generateDiffMap(rawData);
+          const latestRawData = cachedRawData || getTableData() || rawData;
+          currentDiffMap = generateDiffMap(latestRawData);
 
           // 4. 刷新变更面板
           const $panel = $('#acu-data-area');
-          $panel.html(renderChangesPanel(rawData));
+          $panel.html(renderChangesPanel(latestRawData));
           bindChangesEvents();
         }
       }
@@ -39538,10 +40999,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       if (rawData && rawData[tableKey] && rawData[tableKey].content) {
         const currentRow = rawData[tableKey].content[rowIndex + 1];
         if (currentRow && String(currentRow[colIndex]) !== String(newVal)) {
-          currentRow[colIndex] = newVal;
-
-          // 保存到数据库
-          await saveDataOnly(rawData, [tableKey]);
+          const nextRow = [...currentRow];
+          nextRow[colIndex] = newVal;
+          await saveRowInstantly(tableKey, rowIndex, nextRow, {
+            tableName,
+            headers: rawData[tableKey].content[0] || [],
+            currentRow,
+            sourceData: rawData,
+            sheet: rawData[tableKey],
+          });
 
           // 只更新快照中这一个单元格
           const snapshot = loadSnapshot();
@@ -39551,7 +41017,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           }
 
           // 刷新
-          currentDiffMap = generateDiffMap(rawData);
+          currentDiffMap = generateDiffMap(cachedRawData || getTableData() || rawData);
           refreshChangesPanel();
         }
       }
@@ -39639,28 +41105,35 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       }
 
       const currentRow = rawData[tableKey].content[rowIndex + 1];
+      const nextRow = [...currentRow];
       let hasChanges = false;
 
       dialog.find('textarea').each(function () {
         const colIdx = parseInt($(this).data('col'));
         const newVal = $(this).val();
-        if (String(currentRow[colIdx]) !== String(newVal)) {
+        if (String(nextRow[colIdx]) !== String(newVal)) {
           hasChanges = true;
-          currentRow[colIdx] = newVal;
+          nextRow[colIdx] = newVal;
         }
       });
 
       if (hasChanges) {
-        await saveDataOnly(rawData, [tableKey]);
+        await saveRowInstantly(tableKey, rowIndex, nextRow, {
+          tableName,
+          headers,
+          currentRow,
+          sourceData: rawData,
+          sheet: rawData[tableKey],
+        });
 
         // 更新快照中这一行
         const snapshot = loadSnapshot();
         const snapshotEntry = snapshot ? findDiffSnapshotEntry(snapshot, tableKey, rawData[tableKey]) : null;
-        if (setDiffDataRow(snapshotEntry?.sheet, rowIndex, normalizeDiffRow(currentRow))) {
+        if (setDiffDataRow(snapshotEntry?.sheet, rowIndex, normalizeDiffRow(nextRow))) {
           saveSnapshot(snapshot);
         }
 
-        currentDiffMap = generateDiffMap(rawData);
+        currentDiffMap = generateDiffMap(cachedRawData || getTableData() || rawData);
         refreshChangesPanel();
       }
       closeDialog();
@@ -42417,6 +43890,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     if (state) saveStoredGachaStateSnapshot(state);
   };
 
+  const showGachaSaveError = (error: unknown, actionText: string) => {
+    const message = getRuntimeErrorMessage(error);
+    const detail = message || '未知错误';
+    const toast = window.toastr || window.parent?.toastr;
+    if (toast) {
+      toast.error(`${actionText}失败：${detail}`, '骰子商店', { timeOut: 9000 });
+    }
+  };
+
   const getGachaRarityRank = (rarity: GachaRarity): number => {
     const index = GACHA_RARITY_ORDER.indexOf(rarity);
     return index >= 0 ? index : 0;
@@ -43231,62 +44713,66 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   const performGachaDraw = async (drawCount: number) => {
     const safeDrawCount = drawCount >= 10 ? 10 : 1;
     const drawCost = safeDrawCount >= 10 ? GACHA_DRAW_COST_TEN : GACHA_DRAW_COST_SINGLE;
-    await runInSaveQueue(async () => {
-      const rawData = getTableData({ silent: true }) || cachedRawData;
-      if (!rawData) return;
-      await ensureGachaCatalogLoaded(rawData);
+    try {
+      await runInSaveQueue(async () => {
+        const rawData = getTableData({ silent: true }) || cachedRawData;
+        if (!rawData) return;
+        await ensureGachaCatalogLoaded(rawData);
 
-      const state = touchGachaActivity(getGachaState(rawData, true));
-      if (!state) return;
-      state.activePoolTag = getGachaActivePoolTag(state);
-      const availableTargets = getAvailableGachaRewardTargets(rawData);
-      const poolTargets = new Set(
-        getGachaPoolDefinitions(state.activePoolTag, rawData).map(item => item.rewardTarget),
-      ) as Set<GachaRewardTarget>;
-      if (poolTargets.size > 0 && Array.from(poolTargets).every(target => !availableTargets.has(target))) {
-        const label = Array.from(poolTargets).map(getGachaRewardTargetTableLabel).join('或');
-        if (window.toastr) window.toastr.warning(`未找到${label}，暂时无法发放骰子商店奖励`);
-        return;
-      }
-      if (state.wallet.fortune < drawCost) {
-        if (window.toastr) window.toastr.warning(`${FORTUNE_CURRENCY_NAME}不足，无法抽取`);
-        return;
-      }
+        const state = touchGachaActivity(getGachaState(rawData, true));
+        if (!state) return;
+        state.activePoolTag = getGachaActivePoolTag(state);
+        const availableTargets = getAvailableGachaRewardTargets(rawData);
+        const poolTargets = new Set(
+          getGachaPoolDefinitions(state.activePoolTag, rawData).map(item => item.rewardTarget),
+        ) as Set<GachaRewardTarget>;
+        if (poolTargets.size > 0 && Array.from(poolTargets).every(target => !availableTargets.has(target))) {
+          const label = Array.from(poolTargets).map(getGachaRewardTargetTableLabel).join('或');
+          if (window.toastr) window.toastr.warning(`未找到${label}，暂时无法发放骰子商店奖励`);
+          return;
+        }
+        if (state.wallet.fortune < drawCost) {
+          if (window.toastr) window.toastr.warning(`${FORTUNE_CURRENCY_NAME}不足，无法抽取`);
+          return;
+        }
 
-      state.wallet.fortune -= drawCost;
-      const modifiedSheetKeys = new Set<string>();
-      const outcomes: GachaDrawOutcome[] = [];
-      for (let index = 0; index < safeDrawCount; index++) {
-        const result = drawSingleGachaOutcome(rawData, state, availableTargets);
-        if (!result) continue;
-        if (result.modifiedSheetKey) modifiedSheetKeys.add(result.modifiedSheetKey);
-        outcomes.push(result.outcome);
-      }
+        state.wallet.fortune -= drawCost;
+        const modifiedSheetKeys = new Set<string>();
+        const outcomes: GachaDrawOutcome[] = [];
+        for (let index = 0; index < safeDrawCount; index++) {
+          const result = drawSingleGachaOutcome(rawData, state, availableTargets);
+          if (!result) continue;
+          if (result.modifiedSheetKey) modifiedSheetKeys.add(result.modifiedSheetKey);
+          outcomes.push(result.outcome);
+        }
 
-      if (outcomes.length === 0) {
-        state.wallet.fortune += drawCost;
-        if (window.toastr) window.toastr.warning('当前卡池没有可发放的奖励');
-        return;
-      }
+        if (outcomes.length === 0) {
+          state.wallet.fortune += drawCost;
+          if (window.toastr) window.toastr.warning('当前卡池没有可发放的奖励');
+          return;
+        }
 
-      await persistRawDataWithGacha(rawData, Array.from(modifiedSheetKeys), state);
-      refreshGachaVisualization();
-      refreshInventoryVisualization();
-      const summary = outcomes
-        .slice(0, 5)
-        .map(outcome =>
-          outcome.duplicateConverted
-            ? `${outcome.item.name}→${outcome.shardGain}${getGachaShardLabel(outcome.item.quality)}`
-            : outcome.item.name,
-        )
-        .join('、');
-      if (window.toastr) {
-        window.toastr.success(
-          `${safeDrawCount >= 10 ? '十连' : '单抽'}完成：${summary}${outcomes.length > 5 ? '…' : ''}`,
-          '骰子商店',
-        );
-      }
-    });
+        await persistRawDataWithGacha(rawData, Array.from(modifiedSheetKeys), state);
+        refreshGachaVisualization();
+        refreshInventoryVisualization();
+        const summary = outcomes
+          .slice(0, 5)
+          .map(outcome =>
+            outcome.duplicateConverted
+              ? `${outcome.item.name}→${outcome.shardGain}${getGachaShardLabel(outcome.item.quality)}`
+              : outcome.item.name,
+          )
+          .join('、');
+        if (window.toastr) {
+          window.toastr.success(
+            `${safeDrawCount >= 10 ? '十连' : '单抽'}完成：${summary}${outcomes.length > 5 ? '…' : ''}`,
+            '骰子商店',
+          );
+        }
+      });
+    } catch (error) {
+      showGachaSaveError(error, safeDrawCount >= 10 ? '十连抽取保存' : '单抽保存');
+    }
   };
 
   const refreshGachaPoolSelectionUi = (poolTag: GachaPoolTag) => {
@@ -44499,66 +45985,70 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   };
 
   const dismantleInventoryItem = async (rowIndex: number) => {
-    await runInSaveQueue(async () => {
-      const context = getInventoryDetailContext(rowIndex, { preferLatest: true });
-      if (!context) {
-        if (window.toastr) window.toastr.warning('未找到可拆解的物品');
-        return;
-      }
-
-      const rarity = String(context.item.quality || '').trim();
-      if (!isGachaRarity(rarity)) {
-        if (window.toastr) window.toastr.warning('当前物品品质不支持拆解');
-        return;
-      }
-
-      const quantityAvailable = Math.max(1, Number.parseInt(String(context.item.quantity || 1), 10) || 1);
-      const definition = findGachaDefinitionByInventoryItem(context.item, context.rawData);
-      const dismantleUnitSize = definition ? getGachaItemGrantQuantity(definition) : 1;
-      const maxDismantleUnits = Math.floor(quantityAvailable / dismantleUnitSize);
-      if (maxDismantleUnits <= 0) {
-        if (window.toastr) window.toastr.warning(`至少需要 ${dismantleUnitSize} 个${context.item.name}才能拆解为碎片`);
-        return;
-      }
-
-      let dismantleUnits = 1;
-      if (maxDismantleUnits > 1) {
-        const unitLabel = dismantleUnitSize > 1 ? `组（每组 ${dismantleUnitSize} 个）` : '个';
-        const input = window.prompt(
-          `请输入要拆解的${unitLabel}数量（1-${maxDismantleUnits}）`,
-          String(maxDismantleUnits),
-        );
-        if (input === null) return;
-        dismantleUnits = Number.parseInt(String(input || '').trim(), 10);
-        if (!Number.isFinite(dismantleUnits) || dismantleUnits <= 0 || dismantleUnits > maxDismantleUnits) {
-          if (window.toastr) window.toastr.warning('拆解数量不合法');
+    try {
+      await runInSaveQueue(async () => {
+        const context = getInventoryDetailContext(rowIndex, { preferLatest: true });
+        if (!context) {
+          if (window.toastr) window.toastr.warning('未找到可拆解的物品');
           return;
         }
-      }
-      const dismantleQuantity = dismantleUnits * dismantleUnitSize;
 
-      const state = touchGachaActivity(getGachaState(context.rawData, true));
-      if (!state) return;
-      const shardGain = addGachaShards(state, rarity, GACHA_SHARD_VALUES[rarity] * dismantleUnits);
-      const nextQuantity = quantityAvailable - dismantleQuantity;
+        const rarity = String(context.item.quality || '').trim();
+        if (!isGachaRarity(rarity)) {
+          if (window.toastr) window.toastr.warning('当前物品品质不支持拆解');
+          return;
+        }
 
-      if (nextQuantity <= 0) {
-        context.rawData[context.item.tableKey].content.splice(context.item.rowIndex + 1, 1);
-      } else if (context.colMap.quantity >= 0) {
-        context.row[context.colMap.quantity] = String(nextQuantity);
-      }
+        const quantityAvailable = Math.max(1, Number.parseInt(String(context.item.quantity || 1), 10) || 1);
+        const definition = findGachaDefinitionByInventoryItem(context.item, context.rawData);
+        const dismantleUnitSize = definition ? getGachaItemGrantQuantity(definition) : 1;
+        const maxDismantleUnits = Math.floor(quantityAvailable / dismantleUnitSize);
+        if (maxDismantleUnits <= 0) {
+          if (window.toastr) window.toastr.warning(`至少需要 ${dismantleUnitSize} 个${context.item.name}才能拆解为碎片`);
+          return;
+        }
 
-      await persistRawDataWithGacha(context.rawData, [context.item.tableKey], state);
-      $('.acu-inventory-detail-overlay').remove();
-      refreshGachaVisualization();
-      refreshInventoryVisualization();
-      if (window.toastr) {
-        window.toastr.success(
-          `已拆解 ${context.item.name}${dismantleQuantity > 1 ? ` ×${dismantleQuantity}` : ''}，获得 ${shardGain}${getGachaShardLabel(rarity)}`,
-          '骰子商店',
-        );
-      }
-    });
+        let dismantleUnits = 1;
+        if (maxDismantleUnits > 1) {
+          const unitLabel = dismantleUnitSize > 1 ? `组（每组 ${dismantleUnitSize} 个）` : '个';
+          const input = window.prompt(
+            `请输入要拆解的${unitLabel}数量（1-${maxDismantleUnits}）`,
+            String(maxDismantleUnits),
+          );
+          if (input === null) return;
+          dismantleUnits = Number.parseInt(String(input || '').trim(), 10);
+          if (!Number.isFinite(dismantleUnits) || dismantleUnits <= 0 || dismantleUnits > maxDismantleUnits) {
+            if (window.toastr) window.toastr.warning('拆解数量不合法');
+            return;
+          }
+        }
+        const dismantleQuantity = dismantleUnits * dismantleUnitSize;
+
+        const state = touchGachaActivity(getGachaState(context.rawData, true));
+        if (!state) return;
+        const shardGain = addGachaShards(state, rarity, GACHA_SHARD_VALUES[rarity] * dismantleUnits);
+        const nextQuantity = quantityAvailable - dismantleQuantity;
+
+        if (nextQuantity <= 0) {
+          context.rawData[context.item.tableKey].content.splice(context.item.rowIndex + 1, 1);
+        } else if (context.colMap.quantity >= 0) {
+          context.row[context.colMap.quantity] = String(nextQuantity);
+        }
+
+        await persistRawDataWithGacha(context.rawData, [context.item.tableKey], state);
+        $('.acu-inventory-detail-overlay').remove();
+        refreshGachaVisualization();
+        refreshInventoryVisualization();
+        if (window.toastr) {
+          window.toastr.success(
+            `已拆解 ${context.item.name}${dismantleQuantity > 1 ? ` ×${dismantleQuantity}` : ''}，获得 ${shardGain}${getGachaShardLabel(rarity)}`,
+            '骰子商店',
+          );
+        }
+      });
+    } catch (error) {
+      showGachaSaveError(error, '拆解保存');
+    }
   };
 
   const normalizeGachaMessageId = (messageId?: unknown): string => {
@@ -44797,7 +46287,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const globalResult = DashboardDataParser.findTable(tables, 'global');
     const headers = globalResult?.data?.headers || [];
     const row = globalResult?.data?.rows?.[0] || [];
-    const config = globalResult?.config || DASHBOARD_TABLE_CONFIG.global;
+    const config = globalResult?.config || getDashboardModuleConfig('global') || DASHBOARD_TABLE_CONFIG.global;
     const detailIdx = DashboardDataParser.findColumnIndex(headers, 'detailLocation', config);
     const timeIdx = DashboardDataParser.findColumnIndex(headers, 'currentTime', config);
     return {
@@ -44848,7 +46338,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
   const getInventoryColumnMap = inventoryResult => {
     const headers = inventoryResult?.data?.headers || [];
-    const config = inventoryResult?.config || DASHBOARD_TABLE_CONFIG.bag;
+    const config = inventoryResult?.config || getDashboardModuleConfig('bag') || DASHBOARD_TABLE_CONFIG.bag;
     const findExtra = (keywords, fallbackIndex) => {
       for (let i = 0; i < headers.length; i++) {
         const header = String(headers[i] || '').toLowerCase();
@@ -44860,7 +46350,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       name: DashboardDataParser.findColumnIndex(headers, 'name', config),
       type: DashboardDataParser.findColumnIndex(headers, 'type', config),
       quantity: DashboardDataParser.findColumnIndex(headers, 'count', config),
-      quality: findExtra(['品质', '稀有度', '品级'], 4),
+      quality: findExtra(['品质', '稀有度', '品级'], -1),
       description: findExtra(['描述', '说明', '用途', '效果'], 5),
     };
   };
@@ -44920,7 +46410,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
   const getEquipmentColumnMap = equipmentResult => {
     const headers = equipmentResult?.data?.headers || [];
-    const config = equipmentResult?.config || DASHBOARD_TABLE_CONFIG.equip;
+    const config = equipmentResult?.config || getDashboardModuleConfig('equip') || DASHBOARD_TABLE_CONFIG.equip;
     const findExtra = (keywords, fallbackIndex) => {
       for (let i = 0; i < headers.length; i++) {
         const header = String(headers[i] || '').toLowerCase();
@@ -44934,7 +46424,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       part: DashboardDataParser.findColumnIndex(headers, 'part', config),
       status: DashboardDataParser.findColumnIndex(headers, 'isEquipped', config),
       quantity: findExtra(['数量', '件数', '持有数'], -1),
-      quality: findExtra(['品质', '稀有度', '品级'], 5),
+      quality: findExtra(['品质', '稀有度', '品级'], -1),
       description: findExtra(['描述', '说明', '效果', '备注'], 6),
     };
   };
@@ -45183,45 +46673,49 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   };
 
   const exchangeGachaShardItem = async (itemId: string) => {
-    await runInSaveQueue(async () => {
-      const rawData = getTableData({ silent: true }) || cachedRawData;
-      if (!rawData) return;
-      await ensureGachaCatalogLoaded(rawData);
-      const item = getAllGachaItemDefinitions(rawData).find(definition => definition.id === itemId);
-      if (!item) return;
-      if (!isGachaItemEnabled(item)) {
-        if (window.toastr) window.toastr.warning('这个物品已禁用，暂时无法兑换');
-        return;
-      }
-      if (!hasGachaRewardTable(rawData, item.rewardTarget)) {
-        if (window.toastr) window.toastr.warning(`未找到${getGachaRewardTargetTableLabel(item.rewardTarget)}，暂时无法兑换`);
-        return;
-      }
-      const state = touchGachaActivity(getGachaState(rawData, true));
-      if (!state) return;
-      const ownedBlocked = isGachaItemOwned(rawData, item) && (item.unique || !item.stackable);
-      if (ownedBlocked) {
-        if (window.toastr) window.toastr.warning('这个物品已经拥有，不能重复兑换');
-        return;
-      }
-      const balance = Math.max(0, Math.floor(Number(state.wallet.shards[item.quality] || 0)));
-      if (balance < GACHA_SHARD_EXCHANGE_COST) {
-        if (window.toastr) window.toastr.warning(`${getGachaShardLabel(item.quality)}不足`);
-        return;
-      }
-      state.wallet.shards[item.quality] = balance - GACHA_SHARD_EXCHANGE_COST;
-      const result = grantGachaReward(rawData, state, item, 1);
-      if (!result || result.outcome.duplicateConverted) {
-        state.wallet.shards[item.quality] = balance;
-        if (window.toastr) window.toastr.warning('兑换失败，碎片已退回');
-        return;
-      }
-      await persistRawDataWithGacha(rawData, result.modifiedSheetKey ? [result.modifiedSheetKey] : undefined, state);
-      refreshGachaVisualization();
-      refreshGachaShardShop();
-      refreshInventoryVisualization();
-      if (window.toastr) window.toastr.success(`已兑换 ${item.name}`, '碎片商城');
-    });
+    try {
+      await runInSaveQueue(async () => {
+        const rawData = getTableData({ silent: true }) || cachedRawData;
+        if (!rawData) return;
+        await ensureGachaCatalogLoaded(rawData);
+        const item = getAllGachaItemDefinitions(rawData).find(definition => definition.id === itemId);
+        if (!item) return;
+        if (!isGachaItemEnabled(item)) {
+          if (window.toastr) window.toastr.warning('这个物品已禁用，暂时无法兑换');
+          return;
+        }
+        if (!hasGachaRewardTable(rawData, item.rewardTarget)) {
+          if (window.toastr) window.toastr.warning(`未找到${getGachaRewardTargetTableLabel(item.rewardTarget)}，暂时无法兑换`);
+          return;
+        }
+        const state = touchGachaActivity(getGachaState(rawData, true));
+        if (!state) return;
+        const ownedBlocked = isGachaItemOwned(rawData, item) && (item.unique || !item.stackable);
+        if (ownedBlocked) {
+          if (window.toastr) window.toastr.warning('这个物品已经拥有，不能重复兑换');
+          return;
+        }
+        const balance = Math.max(0, Math.floor(Number(state.wallet.shards[item.quality] || 0)));
+        if (balance < GACHA_SHARD_EXCHANGE_COST) {
+          if (window.toastr) window.toastr.warning(`${getGachaShardLabel(item.quality)}不足`);
+          return;
+        }
+        state.wallet.shards[item.quality] = balance - GACHA_SHARD_EXCHANGE_COST;
+        const result = grantGachaReward(rawData, state, item, 1);
+        if (!result || result.outcome.duplicateConverted) {
+          state.wallet.shards[item.quality] = balance;
+          if (window.toastr) window.toastr.warning('兑换失败，碎片已退回');
+          return;
+        }
+        await persistRawDataWithGacha(rawData, result.modifiedSheetKey ? [result.modifiedSheetKey] : undefined, state);
+        refreshGachaVisualization();
+        refreshGachaShardShop();
+        refreshInventoryVisualization();
+        if (window.toastr) window.toastr.success(`已兑换 ${item.name}`, '碎片商城');
+      });
+    } catch (error) {
+      showGachaSaveError(error, '碎片兑换保存');
+    }
   };
 
   const showGachaShardExchangeConfirm = (itemId: string) => {
@@ -45308,7 +46802,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const sheet = rawData[sheetId];
       if (!sheet?.name || !isNpcTableName(sheet.name) || !Array.isArray(sheet.content)) continue;
       const headers = sheet.content[0] || [];
-      const npcConfig = DASHBOARD_TABLE_CONFIG.npc;
+      const npcConfig = getDashboardModuleConfig('npc') || DASHBOARD_TABLE_CONFIG.npc;
       const nameIdx = DashboardDataParser.findColumnIndex(headers, 'name', npcConfig);
       const inSceneIdx = DashboardDataParser.findColumnIndex(headers, 'inScene', npcConfig);
       sheet.content.slice(1).forEach((row, rowIndex) => {
@@ -45591,7 +47085,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
   const getInventoryDetailContext = (rowIndex: number, options?: { preferLatest?: boolean }) => {
     const rawData = options?.preferLatest
-      ? getTableData({ silent: true }) || cachedRawData
+      ? getTableData({ silent: true }) || cloneRuntimeDataValue(cachedRawData)
       : cachedRawData || getTableData();
     const parsed = parseInventoryItems(rawData);
     const item = parsed.items.find(candidate => candidate.rowIndex === rowIndex) || null;
@@ -45704,8 +47198,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       return;
     }
 
-    context.row[colIdx] = nextValue;
-    await saveRowInstantly(context.item.tableKey, context.item.rowIndex, [...context.row]);
+    const nextRow = [...context.row];
+    nextRow[colIdx] = nextValue;
+    await saveRowInstantly(context.item.tableKey, context.item.rowIndex, nextRow, {
+      tableName: context.item.tableName,
+      headers: context.headers,
+      currentRow: context.row,
+      sourceData: context.rawData,
+      sheet: context.rawData?.[context.item.tableKey],
+    });
     reopenInventoryItemDetail(rowIndex);
   };
 
@@ -47548,7 +49049,17 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     // [新增] 仪表盘-人物关系图按钮
     $wrapper.on('click', '.acu-dash-relation-graph-btn', function (e) {
       e.stopPropagation();
-      const allTables = processJsonData(cachedRawData || getTableData());
+      const allTables = processJsonData(cachedRawData || getTableData()) as Record<string, RelationGraphTableInput>;
+      const graphSources = getActiveDashboardRelationshipGraphSources();
+      if (graphSources.length > 0) {
+        const graphTable = buildRelationshipGraphTableFromPreset(allTables, graphSources);
+        if (graphTable) {
+          showRelationshipGraph(graphTable);
+        } else if (window.toastr) {
+          window.toastr.warning('自定义人物关系图未解析到关系数据');
+        }
+        return;
+      }
       const npcResult = DashboardDataParser.findTable(allTables, 'npc');
       if (npcResult && npcResult.data) {
         showRelationshipGraph(npcResult.data);
@@ -48164,7 +49675,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             }
           } else {
             // 非NPC表（如主角信息），通过DashboardDataParser查找NPC表
-            const allTables = processJsonData(rawData);
+            const allTables = processJsonData(rawData) as Record<string, RelationGraphTableInput>;
+            const graphSources = getActiveDashboardRelationshipGraphSources();
+            if (graphSources.length > 0) {
+              const graphTable = buildRelationshipGraphTableFromPreset(allTables, graphSources);
+              if (graphTable) {
+                showRelationshipGraph(graphTable);
+                return;
+              }
+            }
             const npcResult = DashboardDataParser.findTable(allTables, 'npc');
             if (npcResult && npcResult.data) {
               showRelationshipGraph(npcResult.data);
@@ -49935,7 +51454,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     });
 
     // 撤销功能
-    menu.find('#act-undo').click(() => {
+    menu.find('#act-undo').click(async () => {
       const snapshot = loadSnapshot();
       let originalValue = null;
       const currentSheet = getDiffSheetByKey(cachedRawData || getTableData(), tableKey);
@@ -49946,9 +51465,28 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       }
 
       if (originalValue !== null) {
-        if (!cachedRawData) cachedRawData = getTableData();
-        if (cachedRawData && cachedRawData[tableKey]?.content[rowIdx + 1]) {
-          cachedRawData[tableKey].content[rowIdx + 1][colIdx] = originalValue;
+        const rawData = cachedRawData || getTableData();
+        const currentEntry = findRuntimeSheetEntryForMutation(rawData, tableKey);
+        const currentRow = getDiffDataRow(currentEntry?.sheet, rowIdx);
+        if (!currentRow) {
+          if (window.toastr) window.toastr.warning('无法找到当前行，撤销失败');
+          closeAll();
+          return;
+        }
+        const nextRow = [...currentRow];
+        nextRow[colIdx] = originalValue;
+        try {
+          await saveRowInstantly(tableKey, rowIdx, nextRow, {
+            tableName,
+            headers: getSheetHeaders(currentEntry?.sheet),
+            currentRow,
+            sourceData: rawData,
+            sheet: currentEntry?.sheet,
+          });
+        } catch (e) {
+          console.error('[DICE]ACU 撤销保存失败:', e);
+          closeAll();
+          return;
         }
 
         const $cell = $(cell);
@@ -50020,16 +51558,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       }
 
       // --- 数据操作 ---
-      if (!cachedRawData) cachedRawData = getTableData() || loadSnapshot();
-      if (cachedRawData && cachedRawData[tableKey]?.content) {
-        cachedRawData[tableKey].content.splice(rowIdx + 1, 1);
-
-        try {
-          // 保存到数据库
-          await saveDataOnly(cachedRawData, [tableKey]);
+      try {
+          await deleteRowInstantly(tableKey, rowIdx);
+          const latestRawData = cachedRawData || getTableData();
 
           // [Bug 3 修复] 立即同步更新diffMap，避免闪烁
-          currentDiffMap = generateDiffMap(cachedRawData);
+          currentDiffMap = generateDiffMap(latestRawData);
 
           // 刷新界面
           renderInterface();
@@ -50050,20 +51584,19 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
               $newContent.scrollLeft(savedScrollLeft);
             }
           }, 60);
-        } catch (e) {
-          console.error('[DICE]ACU 删除保存失败:', e);
-          toastr.error('删除保存失败: ' + (e instanceof Error ? e.message : String(e)));
-          renderInterface();
+      } catch (e) {
+        console.error('[DICE]ACU 删除保存失败:', e);
+        toastr.error('删除保存失败: ' + (e instanceof Error ? e.message : String(e)));
+        renderInterface();
 
-          // [修复] 即使失败也恢复滚动位置
-          setTimeout(() => {
-            const $newContent = $('.acu-panel-content');
-            if ($newContent.length && (savedScrollTop > 0 || savedScrollLeft > 0)) {
-              $newContent.scrollTop(savedScrollTop);
-              $newContent.scrollLeft(savedScrollLeft);
-            }
-          }, 60);
-        }
+        // [修复] 即使失败也恢复滚动位置
+        setTimeout(() => {
+          const $newContent = $('.acu-panel-content');
+          if ($newContent.length && (savedScrollTop > 0 || savedScrollLeft > 0)) {
+            $newContent.scrollTop(savedScrollTop);
+            $newContent.scrollLeft(savedScrollLeft);
+          }
+        }, 60);
       }
     });
 
@@ -50071,20 +51604,18 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     menu.find('#act-insert').click(async () => {
       closeAll();
       // 1. 获取最新数据 (优先用缓存，没有则重新获取)
-      if (!cachedRawData) cachedRawData = getTableData();
-      if (!cachedRawData) cachedRawData = loadSnapshot();
+      const sourceData = getTableData({ silent: true }) || cachedRawData || loadSnapshot();
+      const entry = findRuntimeSheetEntryForMutation(sourceData, tableKey);
 
-      if (cachedRawData && cachedRawData[tableKey]?.content) {
-        const sheet = cachedRawData[tableKey];
+      if (entry?.sheet?.content) {
+        const sheet = entry.sheet;
         // 2. 构造空行 (长度等于表头)
         const colCount = sheet.content[0] ? sheet.content[0].length : 2;
         const newRow = new Array(colCount).fill('');
         // 智能填充序号 (简单的自增逻辑)
         if (colCount > 0) newRow[0] = String(sheet.content.length);
 
-        sheet.content.push(newRow);
-
-        await saveDataOnly(cachedRawData, [tableKey]);
+        await appendRowInstantly(entry.key || tableKey, newRow);
 
         // 【核心修复】保存后立即重绘界面，否则新行不会显示！
         renderInterface();
@@ -50116,13 +51647,30 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     menu.find('#act-edit').click(() => {
       closeAll();
       showEditDialog(content, async newVal => {
-        // 1. 写入内存数据
-        if (!cachedRawData) cachedRawData = getTableData() || loadSnapshot();
+        const rawData = cachedRawData || getTableData() || loadSnapshot();
+        const entry = findRuntimeSheetEntryForMutation(rawData, tableKey);
+        const currentRow = getDiffDataRow(entry?.sheet, rowIdx);
 
-        if (cachedRawData && cachedRawData[tableKey]?.content[rowIdx + 1]) {
-          cachedRawData[tableKey].content[rowIdx + 1][colIdx] = newVal;
-        } else {
+        if (!currentRow) {
           alert('数据结构异常，无法写入缓存，请刷新页面');
+          return;
+        }
+
+        const nextRow = [...currentRow];
+        nextRow[colIdx] = newVal;
+
+        // 使用 saveRowInstantly 执行即时保存 + 单行快照更新
+        try {
+          await saveRowInstantly(tableKey, rowIdx, nextRow, {
+            tableName,
+            headers: getSheetHeaders(entry?.sheet),
+            currentRow,
+            sourceData: rawData,
+            sheet: entry?.sheet,
+          });
+        } catch (e) {
+          console.error('[DICE]ACU 单元格保存失败:', e);
+          toastr.error('保存失败: ' + (e instanceof Error ? e.message : String(e)));
           return;
         }
 
@@ -50148,14 +51696,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         $displayTarget.removeClass('acu-highlight-manual acu-highlight-diff');
         if ($cell.hasClass('acu-editable-title')) $cell.removeClass('acu-highlight-manual acu-highlight-diff');
 
-        // 使用 saveRowInstantly 执行即时保存 + 单行快照更新
-        try {
-          const currentRow = cachedRawData[tableKey].content[rowIdx + 1];
-          await saveRowInstantly(tableKey, rowIdx, [...currentRow]);
-        } catch (e) {
-          console.error('[DICE]ACU 单元格保存失败:', e);
-          toastr.error('保存失败: ' + (e instanceof Error ? e.message : String(e)));
-        }
+        currentDiffMap = generateDiffMap(cachedRawData || getTableData());
       });
     });
   };

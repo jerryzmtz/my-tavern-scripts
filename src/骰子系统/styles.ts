@@ -5250,14 +5250,21 @@ export const MAIN_STYLES = `
             }
             /* 简化布局：仅有 info + actions 两列的面板 */
             #acu-presets-list .acu-preset-item,
-            #acu-action-presets-list .acu-preset-item {
+            #acu-action-presets-list .acu-preset-item,
+            #acu-dashboard-presets-list .acu-preset-item {
                 display: flex;
                 gap: 12px;
             }
             #acu-presets-list .acu-preset-info,
-            #acu-action-presets-list .acu-preset-info {
+            #acu-action-presets-list .acu-preset-info,
+            #acu-dashboard-presets-list .acu-preset-info {
                 flex: 1;
                 min-width: 0;
+            }
+            #acu-dashboard-presets-list .acu-preset-stats {
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
             }
             .acu-preset-item.acu-preset-hidden {
                 opacity: 0.6;
