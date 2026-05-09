@@ -1987,7 +1987,7 @@ import {
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.7.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v5.51'; // 脚本版本号
+  const SCRIPT_VERSION = 'v5.52'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -6601,20 +6601,7 @@ import {
    * 用于决定是否对该表格的名称列应用 getDisplayName
    */
   const isCharacterTable = (tableName: string): boolean => {
-    const keywords = [
-      '主角',
-      '角色',
-      '人物',
-      '对象',
-      'NPC',
-      '伙伴',
-      '队友',
-      '宠物',
-      '弟子',
-      '成员',
-      'player',
-      'character',
-    ];
+    const keywords = ['主角', '角色', '人物', '对象', 'NPC', '伙伴', '队友', '宠物', '弟子', '成员', 'player', 'character'];
     return keywords.some(kw => tableName.toLowerCase().includes(kw.toLowerCase()));
   };
 
@@ -6882,9 +6869,7 @@ import {
     return escapeHtml(icon);
   };
 
-  const renderGachaItemIconContent = (
-    item: Pick<GachaItemDefinition, 'name' | 'type' | 'icon' | 'iconUrl' | 'localIconKey'>,
-  ): string => {
+  const renderGachaItemIconContent = (item: Pick<GachaItemDefinition, 'name' | 'type' | 'icon' | 'iconUrl' | 'localIconKey'>): string => {
     const fallback = renderThemeIconContent(item.icon || getElementEmoji(item.name, item.type));
     if (item.localIconKey) {
       return `<span class="acu-gacha-image-icon acu-gacha-local-icon" data-gacha-local-icon-key="${escapeHtml(item.localIconKey)}">${fallback}</span>`;
@@ -13613,9 +13598,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       cloned[moduleKey] = {
         tableKeywords: [...moduleConfig.tableKeywords],
         columns,
-        ...(moduleConfig.filters
-          ? { filters: JSON.parse(JSON.stringify(moduleConfig.filters)) as Record<string, DashboardFilterConfig> }
-          : {}),
+        ...(moduleConfig.filters ? { filters: JSON.parse(JSON.stringify(moduleConfig.filters)) as Record<string, DashboardFilterConfig> } : {}),
       };
     });
     return cloned;
@@ -13777,9 +13760,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return filters;
   };
 
-  const normalizeDashboardRelationshipGraphConfig = (
-    rawModule: Record<string, unknown>,
-  ): DashboardPresetModuleConfig => {
+  const normalizeDashboardRelationshipGraphConfig = (rawModule: Record<string, unknown>): DashboardPresetModuleConfig => {
     if (!Array.isArray(rawModule.sources)) {
       throw new Error('模块 relationshipGraph.sources 必须是数组');
     }
@@ -13956,9 +13937,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return modules;
   };
 
-  const parseDashboardPresetJson = (
-    jsonText: string,
-  ): { name: string; description: string; modules: DashboardPresetModules } => {
+  const parseDashboardPresetJson = (jsonText: string): { name: string; description: string; modules: DashboardPresetModules } => {
     const parsed = JSON.parse(stripJsonComments(jsonText)) as unknown;
     if (!isRecordValue(parsed)) {
       throw new Error('仪表盘预设必须是对象');
@@ -14136,10 +14115,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         return newPreset;
       },
 
-      updatePreset(
-        id: string,
-        updates: { name: string; description?: string; modules: DashboardPresetModules },
-      ): boolean {
+      updatePreset(id: string, updates: { name: string; description?: string; modules: DashboardPresetModules }): boolean {
         const stored = getStoredPresets();
         const index = stored.findIndex(preset => preset.id === id);
         if (index < 0) return false;
@@ -14190,8 +14166,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           });
         } catch (error) {
           console.error('[DICE]DashboardPresetManager 导入失败:', error);
-          if (window.toastr)
-            window.toastr.error('导入失败: ' + (error instanceof Error ? error.message : String(error)));
+          if (window.toastr) window.toastr.error('导入失败: ' + (error instanceof Error ? error.message : String(error)));
           return null;
         }
       },
@@ -18615,8 +18590,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           setHistoryEffectStateByRun(run, { effectEventSeq: seq });
 
           if (hasFailure && window.toastr) {
-            const firstError =
-              results.find(result => !result.success && result.error)?.error || '请检查表格结构和字段约束';
+            const firstError = results.find(result => !result.success && result.error)?.error || '请检查表格结构和字段约束';
             window.toastr.warning(`效果执行失败，已回滚本次全部效果：${firstError}`, '效果执行失败', {
               timeOut: 9000,
             });
@@ -23746,8 +23720,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const locations = new Map();
     const locationHeaders = locationResult.data.headers || [];
     const locationRows = locationResult.data.rows || [];
-    const locationConfig =
-      locationResult.config || getDashboardModuleConfig('location') || DASHBOARD_TABLE_CONFIG.location;
+    const locationConfig = locationResult.config || getDashboardModuleConfig('location') || DASHBOARD_TABLE_CONFIG.location;
     const locationNameIdx = DashboardDataParser.findColumnIndex(locationHeaders, 'name', locationConfig);
     const locationRegionIdx = findColumnIndex(locationHeaders, ['次要地区', '次要区域', '区域', '地区'], null);
     const locationTypeIdx = findColumnIndex(locationHeaders, ['地点类型', '地点类别', '类型'], null);
@@ -24366,6 +24339,19 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     key?: string;
   }
 
+  interface RelationshipGraphSourceTableMatch {
+    tableName: string;
+    table: RelationGraphTableInput;
+  }
+
+  interface RelationshipGraphBuildOptions {
+    tableName?: string;
+  }
+
+  interface RelationshipGraphRenderOptions {
+    includePlayerRelations?: boolean;
+  }
+
   interface RelationGraphNode {
     name: string;
     isPlayer: boolean;
@@ -24402,62 +24388,76 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return -1;
   };
 
-  const findRelationshipGraphSourceTable = (
+  const findRelationshipGraphSourceTables = (
     allTables: Record<string, RelationGraphTableInput>,
     tableKeywords: string[],
-  ): { tableName: string; table: RelationGraphTableInput } | null => {
+  ): RelationshipGraphSourceTableMatch[] => {
+    const matches: RelationshipGraphSourceTableMatch[] = [];
+    const matchedTableNames = new Set<string>();
+
     for (const keyword of tableKeywords) {
       for (const tableName in allTables) {
-        if (tableName.includes(keyword)) {
-          return { tableName, table: allTables[tableName] };
+        if (tableName.includes(keyword) && !matchedTableNames.has(tableName)) {
+          matchedTableNames.add(tableName);
+          matches.push({ tableName, table: allTables[tableName] });
         }
       }
     }
-    return null;
+    return matches;
   };
 
   const buildRelationshipGraphTableFromPreset = (
     allTables: Record<string, RelationGraphTableInput>,
     sources: DashboardRelationshipGraphSourceConfig[],
+    options: RelationshipGraphBuildOptions = {},
   ): RelationGraphTableInput | null => {
     const rows: RelationGraphRow[] = [];
     const headers: RelationGraphCell[] = ['row_id', '姓名', '人际关系', '在场状态'];
     const usedSources: string[] = [];
+    const matchedTableKeys = new Set<string>();
+    const targetTableName = String(options.tableName || '').trim();
 
     sources.forEach((source, sourceIndex) => {
-      const tableResult = findRelationshipGraphSourceTable(allTables, source.tableKeywords);
-      if (!tableResult) {
+      const sourceTableResults = findRelationshipGraphSourceTables(allTables, source.tableKeywords);
+      if (sourceTableResults.length === 0) {
         console.info(
           `[DICE]人物关系图预设: 来源${sourceIndex + 1}未找到表格 (关键词: ${source.tableKeywords.join(', ')})`,
         );
         return;
       }
 
-      const sourceHeaders = (tableResult.table.headers || []).map(header => String(header || ''));
-      const nameIdx = findRelationGraphColumnIndex(sourceHeaders, source.nameColumn);
-      const relationIdx = findRelationGraphColumnIndex(sourceHeaders, source.relationColumn);
-      if (nameIdx < 0 || relationIdx < 0) {
-        console.warn(
-          `[DICE]人物关系图预设: 表格"${tableResult.tableName}"缺少名称列或关系列 (名称关键词: ${source.nameColumn.join(', ')}; 关系关键词: ${source.relationColumn.join(', ')})`,
-        );
-        return;
-      }
+      const tableResults = targetTableName
+        ? sourceTableResults.filter(tableResult => tableResult.tableName === targetTableName)
+        : sourceTableResults;
 
-      const inSceneIdx = sourceHeaders.findIndex(header => header.includes('在场'));
-      const sourceRows = tableResult.table.rows || [];
-      sourceRows.forEach((row, rowIndex) => {
-        const name = String(row[nameIdx] || '').trim();
-        const relationValue = String(row[relationIdx] || '').trim();
-        if (!name || !relationValue) return;
+      tableResults.forEach(tableResult => {
+        const sourceHeaders = (tableResult.table.headers || []).map(header => String(header || ''));
+        const nameIdx = findRelationGraphColumnIndex(sourceHeaders, source.nameColumn);
+        const relationIdx = findRelationGraphColumnIndex(sourceHeaders, source.relationColumn);
+        if (nameIdx < 0 || relationIdx < 0) {
+          console.warn(
+            `[DICE]人物关系图预设: 表格"${tableResult.tableName}"缺少名称列或关系列 (名称关键词: ${source.nameColumn.join(', ')}; 关系关键词: ${source.relationColumn.join(', ')})`,
+          );
+          return;
+        }
 
-        const relationText =
-          source.mode === 'fixedTarget'
-            ? `${source.target && source.target !== 'player' ? source.target : USER_NODE_KEY}:${relationValue}`
-            : relationValue;
+        const inSceneIdx = sourceHeaders.findIndex(header => header.includes('在场'));
+        const sourceRows = tableResult.table.rows || [];
+        sourceRows.forEach((row, rowIndex) => {
+          const name = String(row[nameIdx] || '').trim();
+          const relationValue = String(row[relationIdx] || '').trim();
+          if (!name || !relationValue) return;
 
-        rows.push([row[0] ?? rowIndex + 1, name, relationText, inSceneIdx >= 0 ? row[inSceneIdx] : '']);
+          const relationText =
+            source.mode === 'fixedTarget'
+              ? `${source.target && source.target !== 'player' ? source.target : USER_NODE_KEY}:${relationValue}`
+              : relationValue;
+
+          rows.push([row[0] ?? rowIndex + 1, name, relationText, inSceneIdx >= 0 ? row[inSceneIdx] : '']);
+        });
+        if (tableResult.table.key) matchedTableKeys.add(tableResult.table.key);
+        usedSources.push(`${tableResult.tableName}.${sourceHeaders[relationIdx] || '关系列'}`);
       });
-      usedSources.push(`${tableResult.tableName}.${sourceHeaders[relationIdx] || '关系列'}`);
     });
 
     if (rows.length === 0) {
@@ -24469,7 +24469,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return {
       headers,
       rows,
-      key: '',
+      key: matchedTableKeys.size === 1 ? Array.from(matchedTableKeys)[0] : '',
     };
   };
 
@@ -24482,7 +24482,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   type RelationGraphLayoutLoadResult = 'none' | 'partial' | 'full';
 
   // 人物关系图可视化
-  const showRelationshipGraph = (npcTable: RelationGraphTableInput) => {
+  const showRelationshipGraph = (npcTable: RelationGraphTableInput, options: RelationshipGraphRenderOptions = {}) => {
     console.info('[DICE]开始抓取人物关系表数据...');
     const { $ } = getCore();
     $('.acu-relation-graph-overlay').remove();
@@ -24850,7 +24850,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     });
 
     // [新增] 同时抓取主角信息表的人际关系数据
-    if (rawData) {
+    if (options.includePlayerRelations !== false && rawData) {
       for (const key in rawData) {
         const sheet = rawData[key];
         if (sheet?.name === '主角信息' && sheet.content?.[1]) {
@@ -28783,6 +28783,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     name?: unknown;
     uid?: unknown;
     content?: unknown[];
+    sourceData?: Record<string, unknown>;
   };
 
   type DiffRow = unknown[];
@@ -28808,10 +28809,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return Boolean(record && Array.isArray(record.content));
   };
 
-  const normalizeDiffText = (value: unknown): string =>
-    String(value ?? '')
-      .trim()
-      .replace(/\s+/g, ' ');
+  const normalizeDiffText = (value: unknown): string => String(value ?? '').trim().replace(/\s+/g, ' ');
 
   const normalizeDiffHeader = (value: unknown): string => normalizeDiffText(value).toLowerCase();
 
@@ -28975,12 +28973,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return { byKey, rows, usedIndices: new Set<number>() };
   };
 
-  const takeDiffRowMatch = (
-    matcher: DiffRowMatcher,
-    headers: DiffRow,
-    row: DiffRow,
-    rowIndex: number,
-  ): DiffRowMatch | null => {
+  const takeDiffRowMatch = (matcher: DiffRowMatcher, headers: DiffRow, row: DiffRow, rowIndex: number): DiffRowMatch | null => {
     for (const key of getDiffRowIdentityKeys(headers, row)) {
       const queue = matcher.byKey.get(key);
       while (queue?.length) {
@@ -29264,6 +29257,14 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return null;
   };
 
+  const readRuntimeTableDataReference = (api: unknown): unknown => {
+    const record = api as Record<string, unknown> | null | undefined;
+    if (typeof record?.exportTableAsJson === 'function') {
+      return (record.exportTableAsJson as () => unknown).call(api);
+    }
+    return readRuntimeTableData(api);
+  };
+
   const hasRuntimeTableReadApi = (api: unknown): boolean => {
     const record = api as Record<string, unknown> | null | undefined;
     return typeof record?.getCurrentData === 'function' || typeof record?.exportTableAsJson === 'function';
@@ -29449,10 +29450,46 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return Array.from(new Set(keys.map(key => String(key || '').trim()).filter(key => key.startsWith('sheet_'))));
   };
 
-  const assertRuntimeCrudApi = () => {
-    const api = getCore().getDB();
-    const requiredMethods = ['updateCell', 'updateRow', 'insertRow', 'deleteRow'];
-    const missing = requiredMethods.filter(method => typeof api?.[method] !== 'function');
+  type RuntimeCrudRowData = Record<string, unknown>;
+
+  type RuntimeCrudCellUpdatePayload = {
+    tableName: string;
+    rowIndex: number;
+    colIdentifier: string | number;
+    value: unknown;
+    skipNotify?: boolean;
+    skipChatSave?: boolean;
+  };
+
+  type RuntimeCrudInsertRowPayload = {
+    tableName: string;
+    data: RuntimeCrudRowData;
+    skipNotify?: boolean;
+    skipChatSave?: boolean;
+  };
+
+  type RuntimeCrudDeleteRowPayload = {
+    tableName: string;
+    rowIndex: number;
+    skipNotify?: boolean;
+    skipChatSave?: boolean;
+  };
+
+  type RuntimeCrudWriteApi = {
+    updateCell: (payload: RuntimeCrudCellUpdatePayload) => Promise<unknown> | unknown;
+    insertRow: (payload: RuntimeCrudInsertRowPayload) => Promise<unknown> | unknown;
+    deleteRow: (payload: RuntimeCrudDeleteRowPayload) => Promise<unknown> | unknown;
+    getCurrentData?: () => unknown;
+    exportTableAsJson?: () => unknown;
+    refreshDataAndWorldbook?: () => Promise<unknown> | unknown;
+    _notifyTableUpdate?: () => void;
+  };
+
+  const assertRuntimeCrudApi = (): RuntimeCrudWriteApi => {
+    const api = getCore().getDB() as RuntimeCrudWriteApi | null | undefined;
+    const apiRecord = api as Record<string, unknown> | null | undefined;
+    const requiredMethods = ['updateCell', 'insertRow', 'deleteRow'] as const;
+    const missing = requiredMethods.filter(method => typeof apiRecord?.[method] !== 'function');
     if (!hasRuntimeTableReadApi(api)) missing.push('getCurrentData/exportTableAsJson');
     if (missing.length > 0) {
       throw new Error(`数据库本体版本过低，缺少新版表格 CRUD API：${missing.join(', ')}。请升级数据库本体后再保存。`);
@@ -29463,8 +29500,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   const getSheetRows = sheet => (Array.isArray(sheet?.content) ? sheet.content.slice(1) : []);
   const getSheetHeaders = sheet => (Array.isArray(sheet?.content?.[0]) ? sheet.content[0] : []);
   const sameRow = (left, right): boolean => JSON.stringify(left || []) === JSON.stringify(right || []);
-  const sameHeaders = (left, right): boolean =>
-    JSON.stringify(getSheetHeaders(left)) === JSON.stringify(getSheetHeaders(right));
+  const sameHeaders = (left, right): boolean => JSON.stringify(getSheetHeaders(left)) === JSON.stringify(getSheetHeaders(right));
   const getStableRowKeyForCrud = row => {
     if (!Array.isArray(row)) return '';
     const primary = String(row[1] ?? '').trim();
@@ -29472,12 +29508,28 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return `row:${JSON.stringify(row)}`;
   };
 
-  const buildCrudColumnAliasMap = sheet => {
-    const ddl = String(sheet?.sourceData?.ddl || '');
-    const aliases = {};
+  const getCrudSheetDdl = (sheet: unknown): string => {
+    const sheetRecord = asDiffRecord(sheet);
+    const sourceRecord = asDiffRecord(sheetRecord?.sourceData);
+    return String(sourceRecord?.ddl || '');
+  };
+
+  const getCrudSqlTableName = (sheet: unknown): string => {
+    const ddl = getCrudSheetDdl(sheet);
+    const match = ddl.match(/\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"[]?([A-Za-z_][A-Za-z0-9_]*)/i);
+    return normalizeDiffText(match?.[1]);
+  };
+
+  const getCrudTableIdentifier = (sheet: unknown, fallbackName: string): string =>
+    getCrudSqlTableName(sheet) || normalizeDiffText(fallbackName);
+
+  const buildCrudColumnAliasMap = (sheet: unknown): Record<string, string> => {
+    const ddl = getCrudSheetDdl(sheet);
+    const aliases: Record<string, string> = {};
     if (!ddl) return aliases;
 
     ddl.split(/\r?\n/).forEach(line => {
+      if (/^\s*CREATE\s+TABLE\b/i.test(line)) return;
       const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\b.*?--\s*(.+?)\s*$/);
       if (!match) return;
       const columnName = match[1];
@@ -29501,8 +29553,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return values;
   };
 
-  const buildCrudEnumConstraintMap = (sheet): Record<string, string[]> => {
-    const ddl = String(sheet?.sourceData?.ddl || '');
+  const buildCrudEnumConstraintMap = (sheet: unknown): Record<string, string[]> => {
+    const ddl = getCrudSheetDdl(sheet);
     const constraints: Record<string, string[]> = {};
     if (!ddl) return constraints;
 
@@ -29550,57 +29602,435 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     });
   };
 
-  const buildCrudRequiredTextHeaderSet = sheet => {
-    const ddl = String(sheet?.sourceData?.ddl || '');
+  const buildCrudRequiredHeaderSet = (sheet: unknown): Set<string> => {
+    const ddl = getCrudSheetDdl(sheet);
     const headers = new Set<string>();
     if (!ddl) return headers;
 
     ddl.split(/\r?\n/).forEach(line => {
-      const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\b(.*?)--\s*(.+?)\s*$/);
+      const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\b(.*?)(?:--\s*(.+?)\s*)?$/);
       if (!match) return;
-      const definition = match[2] || '';
-      if (!/\bTEXT\b/i.test(definition) || !/\bNOT\s+NULL\b/i.test(definition)) return;
-      const comment = match[3]
+      const columnName = String(match[1] || '').trim();
+      const definition = String(match[2] || '');
+      if (!/\bNOT\s+NULL\b/i.test(definition)) return;
+      if (/\bPRIMARY\s+KEY\b/i.test(definition)) return;
+      const comment = String(match[3] || '')
         .replace(/[，,].*$/, '')
         .replace(/[（(].*$/, '')
         .trim();
+      if (columnName) headers.add(columnName);
       if (comment) headers.add(comment);
     });
 
     return headers;
   };
 
-  const normalizeCrudRequiredTextCells = (headers, rows, sheet): Map<number, Set<number>> => {
-    const normalizedColumns = new Map<number, Set<number>>();
-    const requiredTextHeaders = buildCrudRequiredTextHeaderSet(sheet);
-    if (requiredTextHeaders.size === 0) return normalizedColumns;
-
-    rows.forEach((row, rowIndex) => {
-      if (!Array.isArray(row)) return;
-      headers.forEach((header, index) => {
-        if (index === 0) return;
-        if (!requiredTextHeaders.has(String(header || ''))) return;
-        if (row[index] === null || row[index] === undefined) {
-          row[index] = '';
-          if (!normalizedColumns.has(rowIndex)) normalizedColumns.set(rowIndex, new Set<number>());
-          normalizedColumns.get(rowIndex)?.add(index);
-        }
-      });
-    });
-
-    return normalizedColumns;
-  };
-
-  const buildRowDataForCrud = (headers, row, changedColumns?: Set<number>, columnAliasMap = {}) => {
-    const data = {};
+  const buildRowDataForCrud = (headers, row, changedColumns?: Set<number>) => {
+    const data: RuntimeCrudRowData = {};
     headers.forEach((header, index) => {
       if (index === 0) return;
       if (!header) return;
       if (changedColumns && !changedColumns.has(index)) return;
       const headerName = String(header);
-      data[columnAliasMap[headerName] || headerName] = row?.[index] ?? '';
+      data[headerName] = row?.[index] ?? '';
     });
     return data;
+  };
+
+  const getCrudChangedColumns = (headers, currentRow, nextRow): Set<number> => {
+    const changedColumns = new Set<number>();
+    if (!Array.isArray(headers)) return changedColumns;
+    headers.forEach((header, colIndex) => {
+      if (colIndex === 0) return;
+      if (!header) return;
+      if (String(currentRow?.[colIndex] ?? '') !== String(nextRow?.[colIndex] ?? '')) {
+        changedColumns.add(colIndex);
+      }
+    });
+    return changedColumns;
+  };
+
+  const isCrudRowIdMissing = (value: unknown): boolean => value === null || value === undefined || String(value).trim() === '';
+
+  const shouldInferCrudRowIdFromVisibleIndex = (input: CrudExistingRowPatchInput): boolean => {
+    const firstHeader = normalizeDiffHeader(input.headers[0]);
+    if (firstHeader === 'row_id' || firstHeader === '行号') return true;
+    return /\brow_id\s+INTEGER\s+PRIMARY\s+KEY\b/i.test(getCrudSheetDdl(input.sheet));
+  };
+
+  const inferCrudRowIdForUpdateCell = (input: CrudExistingRowPatchInput): { rowId: unknown; source: string } | null => {
+    const candidates: Array<{ rowId: unknown; source: string }> = [
+      { rowId: input.currentRow?.[0], source: 'currentRow[0]' },
+      { rowId: input.nextRow?.[0], source: 'nextRow[0]' },
+    ];
+    for (const candidate of candidates) {
+      if (!isCrudRowIdMissing(candidate.rowId)) return candidate;
+    }
+    if (shouldInferCrudRowIdFromVisibleIndex(input)) {
+      return { rowId: input.rowIndex + 1, source: 'rowIndex+1' };
+    }
+    return null;
+  };
+
+  type CrudRowIdPatch = {
+    row: DiffRow;
+    originalValue: unknown;
+  };
+
+  type CrudRowIdPreparation = {
+    patchedRows: CrudRowIdPatch[];
+    rowId: unknown;
+    source: string;
+  } | null;
+
+  const patchCrudSheetCellInRecord = (
+    record: unknown,
+    sheetKey: string,
+    desiredSheet: unknown,
+    rowIndex: number,
+    colIndex: number,
+    value: unknown,
+  ): string | null => {
+    const entry = findDiffSnapshotEntry(record, sheetKey, desiredSheet);
+    const row = getDiffDataRow(entry?.sheet, rowIndex);
+    if (!entry || !row) return null;
+    row[colIndex] = value;
+    return entry.key;
+  };
+
+  const patchCrudSheetInRecord = (record: unknown, sheetKey: string, desiredSheet: unknown): string | null => {
+    const recordObj = asDiffRecord(record);
+    if (!recordObj || !isDiffSheet(desiredSheet)) return null;
+    const entry = findDiffSnapshotEntry(recordObj, sheetKey, desiredSheet);
+    if (!entry) return null;
+    recordObj[entry.key] = cloneRuntimeDataValue(desiredSheet);
+    return entry.key;
+  };
+
+  const patchCrudSheetCellInMessage = (
+    msg: DbChatMessage,
+    sheetKey: string,
+    desiredSheet: unknown,
+    rowIndex: number,
+    colIndex: number,
+    value: unknown,
+  ): string[] => {
+    const patchedKeys: string[] = [];
+    const rememberPatchedKey = (key: string | null): void => {
+      if (key && !patchedKeys.includes(key)) patchedKeys.push(key);
+    };
+
+    const isolatedData = parseIsolatedData(msg.TavernDB_ACU_IsolatedData);
+    const isolationKey = resolveIsolationKey(msg, isolatedData);
+    if (isolatedData && isolationKey !== null) {
+      const tagData = asDiffRecord(isolatedData[isolationKey]);
+      const independentData = asDiffRecord(tagData?.independentData);
+      rememberPatchedKey(patchCrudSheetCellInRecord(independentData, sheetKey, desiredSheet, rowIndex, colIndex, value));
+      if (patchedKeys.length > 0) msg.TavernDB_ACU_IsolatedData = isolatedData;
+    }
+
+    rememberPatchedKey(
+      patchCrudSheetCellInRecord(msg.TavernDB_ACU_IndependentData, sheetKey, desiredSheet, rowIndex, colIndex, value),
+    );
+    rememberPatchedKey(
+      patchCrudSheetCellInRecord(msg.TavernDB_ACU_Data, sheetKey, desiredSheet, rowIndex, colIndex, value),
+    );
+    rememberPatchedKey(
+      patchCrudSheetCellInRecord(msg.TavernDB_ACU_SummaryData, sheetKey, desiredSheet, rowIndex, colIndex, value),
+    );
+
+    return patchedKeys;
+  };
+
+  const patchCrudSheetInMessage = (msg: DbChatMessage, sheetKey: string, desiredSheet: unknown): string[] => {
+    const patchedKeys: string[] = [];
+    const rememberPatchedKey = (key: string | null): void => {
+      if (key && !patchedKeys.includes(key)) patchedKeys.push(key);
+    };
+
+    const isolatedData = parseIsolatedData(msg.TavernDB_ACU_IsolatedData);
+    const isolationKey = resolveIsolationKey(msg, isolatedData);
+    if (isolatedData && isolationKey !== null) {
+      const tagData = asDiffRecord(isolatedData[isolationKey]);
+      const independentData = asDiffRecord(tagData?.independentData);
+      rememberPatchedKey(patchCrudSheetInRecord(independentData, sheetKey, desiredSheet));
+      if (patchedKeys.length > 0) msg.TavernDB_ACU_IsolatedData = isolatedData;
+    }
+
+    rememberPatchedKey(patchCrudSheetInRecord(msg.TavernDB_ACU_IndependentData, sheetKey, desiredSheet));
+    rememberPatchedKey(patchCrudSheetInRecord(msg.TavernDB_ACU_Data, sheetKey, desiredSheet));
+    rememberPatchedKey(patchCrudSheetInRecord(msg.TavernDB_ACU_SummaryData, sheetKey, desiredSheet));
+
+    return patchedKeys;
+  };
+
+  const patchLatestChatSheetCellWithoutTracking = async (
+    sheetKey: string,
+    desiredSheet: unknown,
+    rowIndex: number,
+    colIndex: number,
+    value: unknown,
+  ): Promise<{ messageIndex: number; patchedKeys: string[] } | null> => {
+    const chat = getDbChatMessages();
+    if (!chat) return null;
+    for (let index = chat.length - 1; index >= 0; index--) {
+      const msg = chat[index];
+      if (!msg || msg.is_user) continue;
+      const patchedKeys = patchCrudSheetCellInMessage(msg, sheetKey, desiredSheet, rowIndex, colIndex, value);
+      if (patchedKeys.length === 0) continue;
+      await triggerSlash('savechat');
+      return { messageIndex: index, patchedKeys };
+    }
+    return null;
+  };
+
+  const patchLatestChatSheetWithoutTracking = async (
+    sheetKey: string,
+    desiredSheet: unknown,
+  ): Promise<{ messageIndex: number; patchedKeys: string[] } | null> => {
+    const chat = getDbChatMessages();
+    if (!chat) return null;
+    for (let index = chat.length - 1; index >= 0; index--) {
+      const msg = chat[index];
+      if (!msg || msg.is_user) continue;
+      const patchedKeys = patchCrudSheetInMessage(msg, sheetKey, desiredSheet);
+      if (patchedKeys.length === 0) continue;
+      await triggerSlash('savechat');
+      return { messageIndex: index, patchedKeys };
+    }
+    return null;
+  };
+
+  const saveSheetsViaJsonFloorWithoutTracking = async (tableData, modifiedSheetKeys?: string[]) => {
+    const api = assertRuntimeCrudApi();
+    const { dataToSave, sheetKeysToSave } = sanitizeRuntimeTableData(tableData, modifiedSheetKeys, false);
+    if (sheetKeysToSave.length === 0) {
+      console.info('[DICE]ACU JSON 楼层保存跳过：没有有效修改表');
+      return dataToSave;
+    }
+
+    const liveData = readRuntimeTableDataReference(api);
+    for (const sheetKey of sheetKeysToSave) {
+      const desiredSheet = dataToSave[sheetKey];
+      if (!isDiffSheet(desiredSheet)) continue;
+      const persisted = await patchLatestChatSheetWithoutTracking(sheetKey, desiredSheet);
+      if (!persisted) {
+        throw new Error(`保存 "${desiredSheet.name || sheetKey}" 的正则转换结果失败：找不到该表的历史数据楼层`);
+      }
+      patchCrudSheetInRecord(liveData, sheetKey, desiredSheet);
+      console.info('[DICE]ACU 正则转换已按表回写 JSON 楼层（不写入更新追踪）:', {
+        tableName: desiredSheet.name || sheetKey,
+        sheetKey,
+        messageIndex: persisted.messageIndex,
+      });
+    }
+
+    if (typeof api.refreshDataAndWorldbook === 'function') {
+      await api.refreshDataAndWorldbook();
+    } else {
+      api._notifyTableUpdate?.();
+    }
+    const refreshedData = getTableData({ silent: true }) || dataToSave;
+    cachedRawData = refreshedData;
+    return refreshedData;
+  };
+
+  const applyJsonCellFallbackForCrud = async (
+    input: CrudExistingRowPatchInput,
+    colIndex: number,
+  ): Promise<boolean> => {
+    const liveData = readRuntimeTableDataReference(input.api);
+    const liveEntry =
+      findDiffSnapshotEntry(liveData, input.sheetKey || input.tableName, input.sheet) ||
+      findDiffSnapshotEntry(liveData, input.crudTableName, input.sheet);
+    const sheetKey = liveEntry?.key || input.sheetKey || '';
+    if (!sheetKey) return false;
+
+    const value = input.nextRow[colIndex] ?? '';
+    patchCrudSheetCellInRecord(liveData, sheetKey, input.sheet, input.rowIndex, colIndex, value);
+    const persisted = await patchLatestChatSheetCellWithoutTracking(sheetKey, input.sheet, input.rowIndex, colIndex, value);
+    if (!persisted) return false;
+
+    input.api._notifyTableUpdate?.();
+    console.warn('[DICE]ACU updateCell failed; saved cell via JSON-floor fallback without importTableAsJson:', {
+      tableName: input.tableName,
+      sheetKey,
+      rowIndex: input.rowIndex + 1,
+      column: String(input.headers[colIndex] || `#${colIndex + 1}`),
+      messageIndex: persisted.messageIndex,
+      patchedKeys: persisted.patchedKeys,
+    });
+    return true;
+  };
+
+  const patchCrudRowIdIfMissing = (
+    row: DiffRow | null | undefined,
+    rowId: unknown,
+    patchedRows: CrudRowIdPatch[],
+    seenRows: Set<DiffRow>,
+  ): void => {
+    if (!Array.isArray(row) || seenRows.has(row) || !isCrudRowIdMissing(row[0])) return;
+    seenRows.add(row);
+    patchedRows.push({ row, originalValue: row[0] });
+    row[0] = rowId;
+  };
+
+  const prepareCrudRowIdForUpdateCell = (input: CrudExistingRowPatchInput, colIndex: number): CrudRowIdPreparation => {
+    const liveData = readRuntimeTableDataReference(input.api);
+    const liveEntry =
+      findDiffSnapshotEntry(liveData, input.tableName, input.sheet) ||
+      findDiffSnapshotEntry(liveData, input.crudTableName, input.sheet);
+    const liveRow = getDiffDataRow(liveEntry?.sheet, input.rowIndex);
+    const liveRowId = liveRow?.[0];
+    const headerName = String(input.headers[colIndex] || '').trim();
+
+    if (!isCrudRowIdMissing(liveRowId)) return null;
+
+    const inferred = inferCrudRowIdForUpdateCell(input);
+    console.log('[DICE]ACU updateCell row_id check:', {
+      tableName: input.tableName,
+      crudTableName: input.crudTableName,
+      rowIndex: input.rowIndex + 1,
+      column: headerName || `#${colIndex + 1}`,
+      liveSheetKey: liveEntry?.key || '',
+      liveRowId,
+      currentRowId: input.currentRow?.[0],
+      nextRowId: input.nextRow?.[0],
+      inferredRowId: inferred?.rowId,
+      inferredSource: inferred?.source || '',
+      firstCellHeader: input.headers[0],
+      primaryCell: liveRow?.[1] ?? input.nextRow?.[1] ?? input.currentRow?.[1],
+    });
+
+    if (!liveRow || !inferred || isCrudRowIdMissing(inferred.rowId)) return null;
+
+    const patchedRows: CrudRowIdPatch[] = [];
+    const seenRows = new Set<DiffRow>();
+    patchCrudRowIdIfMissing(liveRow, inferred.rowId, patchedRows, seenRows);
+    patchCrudRowIdIfMissing(input.currentRow, inferred.rowId, patchedRows, seenRows);
+    patchCrudRowIdIfMissing(input.nextRow, inferred.rowId, patchedRows, seenRows);
+
+    if (patchedRows.length > 0) {
+      console.log('[DICE]ACU updateCell row_id repaired before API call:', {
+        tableName: input.tableName,
+        rowIndex: input.rowIndex + 1,
+        rowId: inferred.rowId,
+        source: inferred.source,
+        patchedRowCount: patchedRows.length,
+      });
+      return {
+        patchedRows,
+        rowId: inferred.rowId,
+        source: inferred.source,
+      };
+    }
+
+    return null;
+  };
+
+  const restoreCrudRowIdPreparation = (preparation: CrudRowIdPreparation): void => {
+    preparation?.patchedRows.forEach(patch => {
+      patch.row[0] = patch.originalValue;
+    });
+  };
+
+  const assertCrudInsertRequiredCells = (
+    tableName: string,
+    headers,
+    row,
+    sheet,
+    rowIndex: number,
+  ): void => {
+    if (!Array.isArray(headers) || !Array.isArray(row)) return;
+    const requiredHeaders = buildCrudRequiredHeaderSet(sheet);
+    if (requiredHeaders.size === 0) return;
+
+    const missingColumns: string[] = [];
+    headers.forEach((header, index) => {
+      if (index === 0) return;
+      const headerName = String(header || '').trim();
+      if (!headerName || !requiredHeaders.has(headerName)) return;
+      if (String(row[index] ?? '').trim() === '') missingColumns.push(headerName);
+    });
+
+    if (missingColumns.length > 0) {
+      throw new Error(
+        `向 "${tableName}" 追加第 ${rowIndex + 1} 行前发现必填列为空：${missingColumns.join('、')}。请先补全这些字段，或调整数据库结构。`,
+      );
+    }
+  };
+
+  type CrudExistingRowPatchInput = {
+    api: RuntimeCrudWriteApi;
+    sheetKey?: string;
+    tableName: string;
+    crudTableName: string;
+    headers: unknown[];
+    currentRow: unknown[];
+    nextRow: unknown[];
+    sheet: unknown;
+    rowIndex: number;
+    changedColumns?: Set<number>;
+    columnAliasMap?: Record<string, string>;
+  };
+
+  const applyExistingRowCellPatchesViaCrud = async (input: CrudExistingRowPatchInput): Promise<Set<number>> => {
+    const changedColumns = input.changedColumns || getCrudChangedColumns(input.headers, input.currentRow, input.nextRow);
+    const writableColumns = new Set<number>(
+      Array.from(changedColumns).filter(index => index > 0 && Boolean(input.headers[index])),
+    );
+    if (writableColumns.size === 0) return writableColumns;
+
+    const columnAliasMap = input.columnAliasMap || buildCrudColumnAliasMap(input.sheet);
+    assertCrudEnumConstraints(
+      input.tableName,
+      input.headers,
+      input.nextRow,
+      input.sheet,
+      input.rowIndex,
+      writableColumns,
+      columnAliasMap,
+    );
+
+    for (const colIndex of Array.from(writableColumns).sort((left, right) => left - right)) {
+      const headerName = String(input.headers[colIndex] || '').trim();
+      const rowIdPreparation = prepareCrudRowIdForUpdateCell(input, colIndex);
+      let result: unknown;
+      try {
+        result = await input.api.updateCell({
+          tableName: input.crudTableName,
+          rowIndex: input.rowIndex + 1,
+          colIdentifier: headerName,
+          value: input.nextRow[colIndex] ?? '',
+          skipNotify: true,
+        });
+      } catch (error) {
+        restoreCrudRowIdPreparation(rowIdPreparation);
+        throw error;
+      }
+      if (result === false || result === -1) {
+        restoreCrudRowIdPreparation(rowIdPreparation);
+        if (rowIdPreparation && (await applyJsonCellFallbackForCrud(input, colIndex))) {
+          continue;
+        }
+        console.warn('[DICE]ACU updateCell failed after row_id preparation:', {
+          tableName: input.tableName,
+          crudTableName: input.crudTableName,
+          rowIndex: input.rowIndex + 1,
+          column: headerName || `#${colIndex + 1}`,
+          preparedRowId: rowIdPreparation?.rowId,
+          preparedRowIdSource: rowIdPreparation?.source || '',
+        });
+        const rowIdDetail = rowIdPreparation
+          ? `；已按 ${rowIdPreparation.source} 补齐 row_id=${String(rowIdPreparation.rowId)} 后数据库仍拒绝更新，通常表示该行没有成功载入 SQLite（例如同一行其它 NOT NULL/CHECK 字段仍不满足）`
+          : '';
+        throw new Error(
+          `更新 "${input.tableName}" 第 ${input.rowIndex + 1} 行失败（列：${headerName || `#${colIndex + 1}`}）${rowIdDetail}`,
+        );
+      }
+    }
+
+    return writableColumns;
   };
 
   const findDeletionIndicesForCrud = (oldRows, desiredRows): number[] | null => {
@@ -29653,11 +30083,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     }
 
     const tableName = desiredSheet.name;
+    const crudTableName = getCrudTableIdentifier(desiredSheet, tableName);
     const headers = getSheetHeaders(desiredSheet);
     const desiredRows = getSheetRows(desiredSheet);
     const oldRows = getSheetRows(latestSheet);
     const columnAliasMap = buildCrudColumnAliasMap(desiredSheet);
-    const normalizedColumnsByRow = normalizeCrudRequiredTextCells(headers, desiredRows, desiredSheet);
 
     if (desiredRows.length > oldRows.length) {
       assertAppendOnlyRows(oldRows, desiredRows);
@@ -29670,7 +30100,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         throw new Error(`表 "${tableName}" 的行删除无法安全定位，已取消快捷保存。`);
       }
       for (const rowIndex of deleteIndices.sort((left, right) => right - left)) {
-        const result = await api.deleteRow({ tableName, rowIndex: rowIndex + 1, skipNotify: true });
+        const result = await api.deleteRow({ tableName: crudTableName, rowIndex: rowIndex + 1, skipNotify: true });
         if (result === false) throw new Error(`删除 "${tableName}" 第 ${rowIndex + 1} 行失败`);
         workingRows.splice(rowIndex, 1);
       }
@@ -29678,17 +30108,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     if (desiredRows.length > workingRows.length) {
       for (let index = workingRows.length; index < desiredRows.length; index++) {
-        assertCrudEnumConstraints(
-          tableName,
-          headers,
-          desiredRows[index],
-          desiredSheet,
-          index,
-          undefined,
-          columnAliasMap,
-        );
-        const rowData = buildRowDataForCrud(headers, desiredRows[index], undefined, columnAliasMap);
-        const result = await api.insertRow({ tableName, data: rowData, skipNotify: true });
+        assertCrudInsertRequiredCells(tableName, headers, desiredRows[index], desiredSheet, index);
+        assertCrudEnumConstraints(tableName, headers, desiredRows[index], desiredSheet, index, undefined, columnAliasMap);
+        const rowData = buildRowDataForCrud(headers, desiredRows[index], undefined);
+        const result = await api.insertRow({ tableName: crudTableName, data: rowData, skipNotify: true });
         if (result === false || result === -1) {
           throw new Error(`向 "${tableName}" 追加新行失败：数据库拒绝写入，请检查表结构、必填列和枚举约束。`);
         }
@@ -29701,23 +30124,20 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const currentRow = workingRows[rowIndex] || [];
       if (sameRow(currentRow, desiredRow)) continue;
 
-      const changedColumns = new Set<number>();
-      headers.forEach((_, colIndex) => {
-        if (colIndex === 0) return;
-        if (String(currentRow[colIndex] ?? '') !== String(desiredRow[colIndex] ?? '')) changedColumns.add(colIndex);
+      const changedColumns = getCrudChangedColumns(headers, currentRow, desiredRow);
+      await applyExistingRowCellPatchesViaCrud({
+        api,
+        sheetKey,
+        tableName,
+        crudTableName,
+        headers,
+        currentRow,
+        nextRow: desiredRow,
+        sheet: desiredSheet,
+        rowIndex,
+        changedColumns,
+        columnAliasMap,
       });
-      normalizedColumnsByRow.get(rowIndex)?.forEach(colIndex => changedColumns.add(colIndex));
-      if (changedColumns.size === 0) continue;
-
-      assertCrudEnumConstraints(tableName, headers, desiredRow, desiredSheet, rowIndex, changedColumns, columnAliasMap);
-      const rowData = buildRowDataForCrud(headers, desiredRow, changedColumns, columnAliasMap);
-      const result = await api.updateRow({ tableName, rowIndex: rowIndex + 1, data: rowData, skipNotify: true });
-      if (result === false) {
-        const changedColumnNames = Array.from(changedColumns)
-          .map(index => String(headers[index] || `#${index + 1}`))
-          .join('、');
-        throw new Error(`更新 "${tableName}" 第 ${rowIndex + 1} 行失败（列：${changedColumnNames}）`);
-      }
       workingRows[rowIndex] = [...desiredRow];
     }
   };
@@ -29757,11 +30177,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return { dataToSave, sheetKeysToSave };
   };
 
-  const applyRuntimeDataViaCrud = async (
-    tableData,
-    modifiedSheetKeys?: string[],
-    options?: { commitDeletes?: boolean },
-  ) => {
+  const applyRuntimeDataViaCrud = async (tableData, modifiedSheetKeys?: string[], options?: { commitDeletes?: boolean }) => {
     const api = assertRuntimeCrudApi();
     const isPartialSave = Array.isArray(modifiedSheetKeys);
     const { dataToSave, sheetKeysToSave } = sanitizeRuntimeTableData(
@@ -29850,11 +30266,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     try {
       return await applyRuntimeDataViaCrud(tableData, modifiedSheetKeys);
     } catch (e) {
-      console.error(
-        '[DICE]ACU saveDataOnly error:',
-        getRuntimeErrorLogPayload(e),
-        modifiedSheetKeys ? { modifiedSheetKeys } : undefined,
-      );
+      console.error('[DICE]ACU saveDataOnly error:', getRuntimeErrorLogPayload(e), modifiedSheetKeys ? { modifiedSheetKeys } : undefined);
       throw e;
     }
   };
@@ -29975,9 +30387,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const tableName = normalizeDiffText(context?.tableName) || normalizeDiffText(entry?.sheet?.name);
         const sheetForMetadata = context?.sheet || entry?.sheet;
         const headers = Array.isArray(context?.headers) ? context.headers : getSheetHeaders(entry?.sheet);
-        const currentRow = Array.isArray(context?.currentRow)
-          ? context.currentRow
-          : getDiffDataRow(entry?.sheet, rowIndex);
+        const currentRow = Array.isArray(context?.currentRow) ? context.currentRow : getDiffDataRow(entry?.sheet, rowIndex);
 
         if (!tableName) {
           throw new Error(`表格 "${tableKey}" 不存在`);
@@ -29989,34 +30399,24 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           throw new Error(`表格 "${tableName}" 第 ${rowIndex + 1} 行不存在`);
         }
 
+        const crudTableName = getCrudTableIdentifier(sheetForMetadata, tableName);
         const nextRow = [...newRowData];
-        const normalizedColumnsByRow = normalizeCrudRequiredTextCells(headers, [nextRow], sheetForMetadata);
-        const changedColumns = new Set<number>();
-        headers.forEach((_, colIndex) => {
-          if (colIndex === 0) return;
-          if (String(currentRow[colIndex] ?? '') !== String(nextRow[colIndex] ?? '')) changedColumns.add(colIndex);
-        });
-        normalizedColumnsByRow.get(0)?.forEach(colIndex => changedColumns.add(colIndex));
-        if (changedColumns.size === 0) return;
-
         const columnAliasMap = buildCrudColumnAliasMap(sheetForMetadata);
-        assertCrudEnumConstraints(
+        const changedColumns = getCrudChangedColumns(headers, currentRow, nextRow);
+        const appliedColumns = await applyExistingRowCellPatchesViaCrud({
+          api,
+          sheetKey: tableKey,
           tableName,
+          crudTableName,
           headers,
+          currentRow,
           nextRow,
-          sheetForMetadata,
+          sheet: sheetForMetadata,
           rowIndex,
           changedColumns,
           columnAliasMap,
-        );
-        const rowData = buildRowDataForCrud(headers, nextRow, changedColumns, columnAliasMap);
-        const result = await api.updateRow({ tableName, rowIndex: rowIndex + 1, data: rowData, skipNotify: true });
-        if (result === false || result === -1) {
-          const changedColumnNames = Array.from(changedColumns)
-            .map(index => String(headers[index] || `#${index + 1}`))
-            .join('、');
-          throw new Error(`更新 "${tableName}" 第 ${rowIndex + 1} 行失败（列：${changedColumnNames}）`);
-        }
+        });
+        if (appliedColumns.size === 0) return;
 
         const fallbackData = sourceData ? cloneRuntimeDataValue(sourceData) : null;
         if (fallbackData) {
@@ -30058,28 +30458,19 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
       const headers = getSheetHeaders(entry.sheet);
       const tableName = entry.sheet.name;
+      const crudTableName = getCrudTableIdentifier(entry.sheet, tableName);
       const nextRow = [...newRowData];
-      normalizeCrudRequiredTextCells(headers, [nextRow], entry.sheet);
       const columnAliasMap = buildCrudColumnAliasMap(entry.sheet);
-      assertCrudEnumConstraints(
-        tableName,
-        headers,
-        nextRow,
-        entry.sheet,
-        getSheetRows(entry.sheet).length,
-        undefined,
-        columnAliasMap,
-      );
-      const rowData = buildRowDataForCrud(headers, nextRow, undefined, columnAliasMap);
-      const result = await api.insertRow({ tableName, data: rowData, skipNotify: true });
+      assertCrudInsertRequiredCells(tableName, headers, nextRow, entry.sheet, getSheetRows(entry.sheet).length);
+      assertCrudEnumConstraints(tableName, headers, nextRow, entry.sheet, getSheetRows(entry.sheet).length, undefined, columnAliasMap);
+      const rowData = buildRowDataForCrud(headers, nextRow, undefined);
+      const result = await api.insertRow({ tableName: crudTableName, data: rowData, skipNotify: true });
       if (result === false || result === -1) {
         throw new Error(`向 "${tableName}" 追加新行失败：数据库拒绝写入，请检查表结构、必填列和枚举约束。`);
       }
 
       const fallbackData = cloneRuntimeDataValue(sourceData);
-      const fallbackEntry =
-        findRuntimeSheetEntryForMutation(fallbackData, entry.key) ||
-        findRuntimeSheetEntryForMutation(fallbackData, tableKey);
+      const fallbackEntry = findRuntimeSheetEntryForMutation(fallbackData, entry.key) || findRuntimeSheetEntryForMutation(fallbackData, tableKey);
       if (fallbackEntry?.sheet?.content) fallbackEntry.sheet.content.push([...nextRow]);
       updateRuntimeDataCacheAfterCrud(api, fallbackData, entry.key || tableKey);
     });
@@ -30096,13 +30487,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       }
 
       const tableName = entry.sheet.name;
-      const result = await api.deleteRow({ tableName, rowIndex: rowIndex + 1, skipNotify: true });
+      const crudTableName = getCrudTableIdentifier(entry.sheet, tableName);
+      const result = await api.deleteRow({ tableName: crudTableName, rowIndex: rowIndex + 1, skipNotify: true });
       if (result === false || result === -1) throw new Error(`删除 "${tableName}" 第 ${rowIndex + 1} 行失败`);
 
       const fallbackData = cloneRuntimeDataValue(sourceData);
-      const fallbackEntry =
-        findRuntimeSheetEntryForMutation(fallbackData, entry.key) ||
-        findRuntimeSheetEntryForMutation(fallbackData, tableKey);
+      const fallbackEntry = findRuntimeSheetEntryForMutation(fallbackData, entry.key) || findRuntimeSheetEntryForMutation(fallbackData, tableKey);
       if (fallbackEntry?.sheet?.content?.[rowIndex + 1]) fallbackEntry.sheet.content.splice(rowIndex + 1, 1);
       updateRuntimeDataCacheAfterCrud(api, fallbackData, entry.key || tableKey);
     });
@@ -34738,8 +35128,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         overlay.remove();
         popModal();
       } catch (error) {
-        if (window.toastr)
-          window.toastr.error('JSONC 格式错误: ' + (error instanceof Error ? error.message : String(error)));
+        if (window.toastr) window.toastr.error('JSONC 格式错误: ' + (error instanceof Error ? error.message : String(error)));
       }
     });
 
@@ -38636,13 +39025,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   let viewportInputMutationDocument: Document | null = null;
   let viewportInputTargetsRaf: number | null = null;
 
-  const VIEWPORT_BOTTOM_ANCHOR_SELECTORS = [
-    '#send_form',
-    '#form_sheld',
-    '#send_textarea',
-    '#chat_input',
-    '#send_but',
-  ] as const;
+  const VIEWPORT_BOTTOM_ANCHOR_SELECTORS = ['#send_form', '#form_sheld', '#send_textarea', '#chat_input', '#send_but'] as const;
   const VIEWPORT_BOTTOM_REFRESH_EVENTS = [
     'input',
     'change',
@@ -38696,9 +39079,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const rect = el.getBoundingClientRect();
         const isComposerElement = VIEWPORT_COMPOSER_ELEMENT_IDS.has(el.id) || el.tagName.toLowerCase() === 'textarea';
         const minTopRatio = isComposerElement ? 0.2 : 0.45;
-        const maxHeight = isComposerElement
-          ? Math.max(520, viewportHeight * 0.75)
-          : Math.max(220, viewportHeight * 0.4);
+        const maxHeight = isComposerElement ? Math.max(520, viewportHeight * 0.75) : Math.max(220, viewportHeight * 0.4);
         if (rect.width <= 0 || rect.height <= 0) return false;
         if (viewportHeight <= 0) return rect.bottom > 0;
         if (rect.top < viewportTop || rect.bottom > viewportBottom + 80) return false;
@@ -39063,13 +39444,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             if (transformResult.totalApplied > 0) {
               console.info(`[DICE]自动替换完成，共影响 ${transformResult.totalApplied} 处数据`);
 
-              saveDataOnly(rawData, transformResult.modifiedSheetKeys)
-                .catch(err => {
-                  console.warn('[DICE]自动转换后保存数据失败:', err);
-                })
-                .finally(() => {
-                  isAutoTransforming = false;
-                });
+              saveSheetsViaJsonFloorWithoutTracking(rawData, transformResult.modifiedSheetKeys).catch(err => {
+                console.warn('[DICE]自动转换后保存数据失败:', err);
+              }).finally(() => {
+                isAutoTransforming = false;
+              });
             }
             if (transformResult.errors.length > 0) {
               console.warn(`[DICE]自动转换遇到 ${transformResult.errors.length} 个错误:`, transformResult.errors);
@@ -39997,7 +40376,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const isValidationMode = Store.get(STORAGE_KEY_VALIDATION_MODE, false);
     const hasStructuralChanges = changes.some(
       change =>
-        change.type === 'table_deleted' || change.type === 'table_added' || change.type === 'table_structure_changed',
+        change.type === 'table_deleted' ||
+        change.type === 'table_added' ||
+        change.type === 'table_structure_changed',
     );
 
     // 根据模式渲染不同的标题和按钮
@@ -40243,7 +40624,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   const bindChangesEvents = () => {
     const { $ } = getCore();
 
-    const resolveChangesPanelJumpTarget = ($item: JQuery): { tableName: string; rowIndex: number } | null => {
+    const resolveChangesPanelJumpTarget = (
+      $item: JQuery,
+    ): { tableName: string; rowIndex: number } | null => {
       const tableNameFromItem = String($item.data('table') || '').trim();
       const tableKey = String($item.data('table-key') || '').trim();
       const rawRowIndex = $item.data('row') ?? $item.data('row-index');
@@ -40329,11 +40712,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             if (rawData[sheetId]?.name === tableName && snapshot[sheetId]) {
               const headers = rawData[sheetId].content?.[0] || [];
               const colIdx = headers.indexOf(columnName);
-              if (
-                colIdx >= 0 &&
-                rawData[sheetId].content?.[rowIndex + 1] &&
-                snapshot[sheetId].content?.[rowIndex + 1]
-              ) {
+              if (colIdx >= 0 && rawData[sheetId].content?.[rowIndex + 1] && snapshot[sheetId].content?.[rowIndex + 1]) {
                 const snapshotValue = snapshot[sheetId].content[rowIndex + 1][colIdx];
                 const nextRow = [...rawData[sheetId].content[rowIndex + 1]];
                 nextRow[colIdx] = snapshotValue;
@@ -40544,11 +40923,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         if (!snapshot || !rawData) return;
 
         const snapshotEntry = findDiffSnapshotEntry(snapshot, tableKey, getDiffSheetByKey(rawData, tableKey));
-        const rawEntry = findDiffSnapshotEntry(
-          rawData,
-          tableKey,
-          snapshotEntry?.sheet || getDiffSheetByKey(rawData, tableKey),
-        );
+        const rawEntry = findDiffSnapshotEntry(rawData, tableKey, snapshotEntry?.sheet || getDiffSheetByKey(rawData, tableKey));
         if (!rawEntry?.sheet) {
           if (window.toastr) window.toastr.warning('找不到当前表格，无法快捷拒绝该变更');
           return;
@@ -41018,9 +41393,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     // 获取快照中的旧值
     const snapshot = loadSnapshot();
     const currentRawData = cachedRawData || getTableData();
-    const snapshotEntry = snapshot
-      ? findDiffSnapshotEntry(snapshot, tableKey, getDiffSheetByKey(currentRawData, tableKey))
-      : null;
+    const snapshotEntry = snapshot ? findDiffSnapshotEntry(snapshot, tableKey, getDiffSheetByKey(currentRawData, tableKey)) : null;
     const oldRow = getDiffDataRow(snapshotEntry?.sheet, rowIndex);
     const oldValue = String(oldRow?.[colIndex] ?? '');
     const hasOldValue = oldValue !== '' && String(oldValue) !== String(value);
@@ -41124,9 +41497,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     // 获取快照中的旧行
     const snapshot = loadSnapshot();
     const currentRawData = cachedRawData || getTableData();
-    const snapshotEntry = snapshot
-      ? findDiffSnapshotEntry(snapshot, tableKey, getDiffSheetByKey(currentRawData, tableKey))
-      : null;
+    const snapshotEntry = snapshot ? findDiffSnapshotEntry(snapshot, tableKey, getDiffSheetByKey(currentRawData, tableKey)) : null;
     const oldRow = getDiffDataRow(snapshotEntry?.sheet, rowIndex) || [];
 
     // 构建字段对比列表
@@ -42310,9 +42681,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   };
 
   const getVisibleGachaPoolConfigDefinitions = (rawData = getRuntimeGachaRawData()): GachaPoolDefinition[] =>
-    getAllGachaPoolConfigDefinitions(rawData).filter(
-      pool => pool.id === GACHA_ALL_POOL_TAG || pool.visibleInTabs !== false,
-    );
+    getAllGachaPoolConfigDefinitions(rawData).filter(pool => pool.id === GACHA_ALL_POOL_TAG || pool.visibleInTabs !== false);
 
   const getGachaAllExpandablePoolTags = (rawData = getRuntimeGachaRawData()): GachaPoolTag[] => {
     return getAllGachaPoolConfigDefinitions(rawData)
@@ -42338,8 +42707,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       ...updates,
       id,
       builtin: existing.builtin,
-      visibleInTabs: id === GACHA_ALL_POOL_TAG ? true : (updates.visibleInTabs ?? existing.visibleInTabs),
-      includeInAll: id === GACHA_ALL_POOL_TAG ? false : (updates.includeInAll ?? existing.includeInAll),
+      visibleInTabs: id === GACHA_ALL_POOL_TAG ? true : updates.visibleInTabs ?? existing.visibleInTabs,
+      includeInAll: id === GACHA_ALL_POOL_TAG ? false : updates.includeInAll ?? existing.includeInAll,
       name: updates.name !== undefined ? normalizeGachaPoolName(updates.name, id) : existing.name,
     };
     saveGachaPoolSettings(pools);
@@ -43213,10 +43582,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         if (!rawPool || typeof rawPool !== 'object') return null;
         const record = rawPool as Record<string, unknown>;
         const rawId = normalizeGachaPoolId(record.id || record.tag || record.name);
-        const rawName = normalizeGachaPoolName(
-          record.name || record.label || rawId,
-          rawId || GACHA_CUSTOM_ONLY_POOL_TAG,
-        );
+        const rawName = normalizeGachaPoolName(record.name || record.label || rawId, rawId || GACHA_CUSTOM_ONLY_POOL_TAG);
         const shouldUseNameAsCustomId =
           rawId &&
           rawId !== GACHA_ALL_POOL_TAG &&
@@ -43290,7 +43656,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         builtin: existing?.builtin === true,
         visibleInTabs: pool.visibleInTabs !== false,
         includeInAll: pool.includeInAll === true,
-        order: Number.isFinite(Number(pool.order)) ? Number(pool.order) : (existing?.order ?? 999),
+        order: Number.isFinite(Number(pool.order)) ? Number(pool.order) : existing?.order ?? 999,
       });
     });
     saveGachaPoolSettings(Array.from(byId.values()));
@@ -43668,8 +44034,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const customIds = new Set(getCustomGachaItemDefinitions(rawData).map(item => item.id));
       return allItems.filter(item => customIds.has(item.id));
     }
-    const activeTags =
-      normalizedPoolId === GACHA_ALL_POOL_TAG ? getGachaAllExpandablePoolTags(rawData) : [normalizedPoolId];
+    const activeTags = normalizedPoolId === GACHA_ALL_POOL_TAG ? getGachaAllExpandablePoolTags(rawData) : [normalizedPoolId];
     return allItems.filter(item => item.poolTags.some(tag => activeTags.includes(tag)));
   };
 
@@ -43700,9 +44065,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const isPoolExport = Boolean(normalizedPoolId);
     const json = exportGachaCatalogJson(rawData, normalizedPoolId);
     const hasExportableItems = getGachaCatalogItemsForExport(rawData, normalizedPoolId).length > 0;
-    const blob = new Blob([json], {
-      type: hasExportableItems || isPoolExport ? 'application/json' : 'application/jsonc',
-    });
+    const blob = new Blob([json], { type: hasExportableItems || isPoolExport ? 'application/json' : 'application/jsonc' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -44668,10 +45031,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const totalShards = getTotalGachaShards(state);
     const poolDefinitions = getVisibleGachaPoolConfigDefinitions(rawData);
 
-    const poolButtonsHtml = poolDefinitions
-      .map(pool => {
-        const isActive = activePoolTag === pool.id;
-        return `
+    const poolButtonsHtml = poolDefinitions.map(pool => {
+      const isActive = activePoolTag === pool.id;
+      return `
         <button
           class="acu-gacha-pool-tab acu-gacha-pool-btn ${isActive ? 'active' : ''}"
           type="button"
@@ -44684,8 +45046,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           <span>${escapeHtml(pool.name)}</span>
         </button>
       `;
-      })
-      .join('');
+    }).join('');
 
     return `
       <div class="acu-gacha-shell acu-theme-${config.theme} ${horizontalScrollbarClass}">
@@ -45265,7 +45626,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       .map(pool => {
         const isAllPool = pool.id === GACHA_ALL_POOL_TAG;
         const poolItems = isAllPool ? allPoolItems : itemDefinitions.filter(item => item.poolTags.includes(pool.id));
-        const countText = isAllPool ? `${poolItems.length} 个候选` : `${counts.get(pool.id) || 0} 个物品`;
+        const countText = isAllPool
+          ? `${poolItems.length} 个候选`
+          : `${counts.get(pool.id) || 0} 个物品`;
         const visible = isAllPool || pool.visibleInTabs !== false;
         const includeInAll = pool.includeInAll === true;
         const canDeletePool = canDeleteGachaPoolDefinition(pool);
@@ -45388,9 +45751,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const getCurrentSettingsItemFiltersActive = () =>
       Boolean(
         settingsItemFilters.search ||
-        settingsItemFilters.source !== 'all' ||
-        settingsItemFilters.status !== 'all' ||
-        settingsItemFilters.sort !== 'default',
+          settingsItemFilters.source !== 'all' ||
+          settingsItemFilters.status !== 'all' ||
+          settingsItemFilters.sort !== 'default',
       );
     const toSettingsSourceFilter = (value: unknown): GachaSettingsItemSourceFilter => {
       const text = String(value || '');
@@ -45439,9 +45802,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         $menu.find('.acu-gacha-settings-filter-menu-label').text(getGachaSettingsFilterLabel(field, value));
         $menu.find('.acu-gacha-settings-filter-option').each(function () {
           const active = String($(this).data('filter-value') || '') === value;
-          $(this)
-            .toggleClass('active', active)
-            .attr('aria-checked', active ? 'true' : 'false');
+          $(this).toggleClass('active', active).attr('aria-checked', active ? 'true' : 'false');
         });
       };
       syncMenu('source', settingsItemFilters.source, DEFAULT_GACHA_SETTINGS_ITEM_FILTERS.source);
@@ -45470,8 +45831,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const items = $section.find('.acu-gacha-settings-item').toArray() as HTMLElement[];
       let visibleCount = 0;
       items.forEach(item => {
-        const searchMatched =
-          !settingsItemFilters.search || String(item.dataset.search || '').includes(settingsItemFilters.search);
+        const searchMatched = !settingsItemFilters.search || String(item.dataset.search || '').includes(settingsItemFilters.search);
         const sourceMatched =
           settingsItemFilters.source === 'all' || String(item.dataset.source || '') === settingsItemFilters.source;
         const statusMatched =
@@ -45742,8 +46102,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         ? $(this).closest('.acu-gacha-settings-items-section')
         : overlay.find('.acu-gacha-settings-items-section').first();
       const selectedPoolId = normalizeGachaPoolId($itemSection.data('pool-id'));
-      const initialPoolId =
-        selectedPoolId && selectedPoolId !== GACHA_ALL_POOL_TAG ? selectedPoolId : GACHA_CUSTOM_ONLY_POOL_TAG;
+      const initialPoolId = selectedPoolId && selectedPoolId !== GACHA_ALL_POOL_TAG ? selectedPoolId : GACHA_CUSTOM_ONLY_POOL_TAG;
       void showGachaItemEditorDialog(null, initialPoolId);
     });
 
@@ -45875,12 +46234,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       })
       .join('');
     const rarityOptionsHtml = GACHA_RARITY_ORDER.map(
-      rarity =>
-        `<option value="${escapeHtml(rarity)}" ${item.quality === rarity ? 'selected' : ''}>${escapeHtml(rarity)}</option>`,
+      rarity => `<option value="${escapeHtml(rarity)}" ${item.quality === rarity ? 'selected' : ''}>${escapeHtml(rarity)}</option>`,
     ).join('');
     const targetOptionsHtml = GACHA_REWARD_TARGETS.map(
-      target =>
-        `<option value="${escapeHtml(target)}" ${item.rewardTarget === target ? 'selected' : ''}>${target === 'equipment' ? '装备' : '物品'}</option>`,
+      target => `<option value="${escapeHtml(target)}" ${item.rewardTarget === target ? 'selected' : ''}>${target === 'equipment' ? '装备' : '物品'}</option>`,
     ).join('');
 
     $('.acu-gacha-item-editor-overlay').remove();
@@ -45961,7 +46318,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         type: String(overlay.find('.acu-gacha-item-type').val() || item.type || '').trim(),
         icon: icon || undefined,
         iconUrl: previewObjectUrl || iconUrl || undefined,
-        localIconKey: previewObjectUrl || iconUrl || shouldClearLocalIcon ? undefined : item.localIconKey,
+        localIconKey: (previewObjectUrl || iconUrl || shouldClearLocalIcon) ? undefined : item.localIconKey,
       };
       const $preview = overlay.find('.acu-gacha-icon-editor-preview');
       $preview.html(renderGachaItemIconContent(previewItem));
@@ -46031,9 +46388,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         ensureGachaPoolsForTags(poolTags);
         const existingIds = new Set(getAllGachaItemDefinitions(rawData).map(candidate => candidate.id));
         if (existingItem) existingIds.delete(existingItem.id);
-        const id =
-          existingItem?.id ||
-          createUniqueGachaItemId(buildStableGachaCustomItemId({ name, quality, type }), existingIds);
+        const id = existingItem?.id || createUniqueGachaItemId(buildStableGachaCustomItemId({ name, quality, type }), existingIds);
         let localIconKey = existingItem?.localIconKey;
         const shouldClearLocalIcon = overlay.find('.acu-gacha-item-clear-local-icon').prop('checked') === true;
         const fileInput = overlay.find('.acu-gacha-item-icon-file')[0] as HTMLInputElement | undefined;
@@ -46113,8 +46468,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const dismantleUnitSize = definition ? getGachaItemGrantQuantity(definition) : 1;
         const maxDismantleUnits = Math.floor(quantityAvailable / dismantleUnitSize);
         if (maxDismantleUnits <= 0) {
-          if (window.toastr)
-            window.toastr.warning(`至少需要 ${dismantleUnitSize} 个${context.item.name}才能拆解为碎片`);
+          if (window.toastr) window.toastr.warning(`至少需要 ${dismantleUnitSize} 个${context.item.name}才能拆解为碎片`);
           return;
         }
 
@@ -46795,8 +47149,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           return;
         }
         if (!hasGachaRewardTable(rawData, item.rewardTarget)) {
-          if (window.toastr)
-            window.toastr.warning(`未找到${getGachaRewardTargetTableLabel(item.rewardTarget)}，暂时无法兑换`);
+          if (window.toastr) window.toastr.warning(`未找到${getGachaRewardTargetTableLabel(item.rewardTarget)}，暂时无法兑换`);
           return;
         }
         const state = touchGachaActivity(getGachaState(rawData, true));
@@ -49165,7 +49518,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       if (graphSources.length > 0) {
         const graphTable = buildRelationshipGraphTableFromPreset(allTables, graphSources);
         if (graphTable) {
-          showRelationshipGraph(graphTable);
+          showRelationshipGraph(graphTable, { includePlayerRelations: false });
         } else if (window.toastr) {
           window.toastr.warning('自定义人物关系图未解析到关系数据');
         }
@@ -49767,37 +50120,34 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       .on('click', function (e) {
         e.preventDefault();
         e.stopPropagation();
-        const tableName = $(this).data('table');
+        const tableName = String($(this).data('table') || '');
         const rawData = cachedRawData || getTableData();
         if (rawData) {
-          // NPC表（重要人物表/重要角色表）直接使用该表数据
-          if (isNpcTableName(tableName)) {
-            for (const key in rawData) {
-              const sheet = rawData[key];
-              if (sheet?.name === tableName) {
-                const tableData = {
-                  headers: sheet.content?.[0] || [],
-                  rows: sheet.content?.slice(1) || [],
-                  key: key,
-                };
-                showRelationshipGraph(tableData);
-                return;
-              }
+          const allTables = processJsonData(rawData) as Record<string, RelationGraphTableInput>;
+          const graphSources = getActiveDashboardRelationshipGraphSources();
+          if (graphSources.length > 0) {
+            const graphTable = buildRelationshipGraphTableFromPreset(allTables, graphSources, { tableName });
+            if (graphTable) {
+              showRelationshipGraph(graphTable, { includePlayerRelations: false });
+              return;
             }
-          } else {
-            // 非NPC表（如主角信息），通过DashboardDataParser查找NPC表
-            const allTables = processJsonData(rawData) as Record<string, RelationGraphTableInput>;
-            const graphSources = getActiveDashboardRelationshipGraphSources();
-            if (graphSources.length > 0) {
-              const graphTable = buildRelationshipGraphTableFromPreset(allTables, graphSources);
-              if (graphTable) {
-                showRelationshipGraph(graphTable);
-                return;
-              }
-            }
-            const npcResult = DashboardDataParser.findTable(allTables, 'npc');
-            if (npcResult && npcResult.data) {
-              showRelationshipGraph(npcResult.data);
+          }
+
+          const currentTable = allTables[tableName];
+          if (currentTable) {
+            showRelationshipGraph(currentTable, graphSources.length > 0 ? { includePlayerRelations: false } : {});
+            return;
+          }
+
+          for (const key in rawData) {
+            const sheet = rawData[key];
+            if (sheet?.name === tableName) {
+              const tableData = {
+                headers: sheet.content?.[0] || [],
+                rows: sheet.content?.slice(1) || [],
+                key: key,
+              };
+              showRelationshipGraph(tableData, graphSources.length > 0 ? { includePlayerRelations: false } : {});
               return;
             }
           }
@@ -51670,31 +52020,31 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
       // --- 数据操作 ---
       try {
-        await deleteRowInstantly(tableKey, rowIdx);
-        const latestRawData = cachedRawData || getTableData();
+          await deleteRowInstantly(tableKey, rowIdx);
+          const latestRawData = cachedRawData || getTableData();
 
-        // [Bug 3 修复] 立即同步更新diffMap，避免闪烁
-        currentDiffMap = generateDiffMap(latestRawData);
+          // [Bug 3 修复] 立即同步更新diffMap，避免闪烁
+          currentDiffMap = generateDiffMap(latestRawData);
 
-        // 刷新界面
-        renderInterface();
+          // 刷新界面
+          renderInterface();
 
-        // [修复] 如果地图overlay存在，刷新地图数据（重建viewModel）
-        if (isFromMap) {
-          const refreshMapData = $mapOverlay.data('refreshMapData');
-          if (typeof refreshMapData === 'function') {
-            await refreshMapData();
+          // [修复] 如果地图overlay存在，刷新地图数据（重建viewModel）
+          if (isFromMap) {
+            const refreshMapData = $mapOverlay.data('refreshMapData');
+            if (typeof refreshMapData === 'function') {
+              await refreshMapData();
+            }
           }
-        }
 
-        // [修复] 恢复滚动位置（在renderInterface防抖完成后）
-        setTimeout(() => {
-          const $newContent = $('.acu-panel-content');
-          if ($newContent.length && (savedScrollTop > 0 || savedScrollLeft > 0)) {
-            $newContent.scrollTop(savedScrollTop);
-            $newContent.scrollLeft(savedScrollLeft);
-          }
-        }, 60);
+          // [修复] 恢复滚动位置（在renderInterface防抖完成后）
+          setTimeout(() => {
+            const $newContent = $('.acu-panel-content');
+            if ($newContent.length && (savedScrollTop > 0 || savedScrollLeft > 0)) {
+              $newContent.scrollTop(savedScrollTop);
+              $newContent.scrollLeft(savedScrollLeft);
+            }
+          }, 60);
       } catch (e) {
         console.error('[DICE]ACU 删除保存失败:', e);
         toastr.error('删除保存失败: ' + (e instanceof Error ? e.message : String(e)));
@@ -52205,7 +52555,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     // 3. 轮询等待数据库 API 就绪
     const loop = () => {
       const api = getCore().getDB();
-      if (api?.updateCell && api?.updateRow && api?.insertRow && api?.deleteRow && hasRuntimeTableReadApi(api)) {
+      if (api?.updateCell && api?.insertRow && api?.deleteRow && hasRuntimeTableReadApi(api)) {
         isInitialized = true;
         console.log('[DICE]骰子系统初始化成功');
         console.info('[DICE]数据库 API 已就绪');
