@@ -2069,7 +2069,7 @@ import {
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.7.0'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v5.61'; // 脚本版本号
+  const SCRIPT_VERSION = 'v5.62'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -6707,6 +6707,20 @@ import {
   };
 
   const CHARACTER_NAME_COLUMN_KEYS = ['姓名', '名称', '名字', '角色名', '人物名', '人物名称', 'name', 'Name'];
+  const ATTRIBUTE_TABLE_NAME_COLUMN_KEYS = [
+    '姓名',
+    '名称',
+    '名字',
+    '角色名',
+    '人物名',
+    '人物名称',
+    '对象',
+    '检定对象',
+    '对象名',
+    '对象名称',
+    'name',
+    'Name',
+  ];
 
   const findNameColumnIndex = (headers: unknown[], fallbackIndex = 1): number => {
     const index = headers.findIndex(header => {
@@ -6720,6 +6734,22 @@ import {
     if (index >= 0) return index;
     if (headers.length > fallbackIndex) return fallbackIndex;
     return headers.length > 0 ? 0 : fallbackIndex;
+  };
+
+  const findExplicitAttributeTableNameColumnIndex = (headers: unknown[]): number => {
+    return headers.findIndex(header => {
+      const text = String(header || '').trim();
+      if (!text) return false;
+      const lowerText = text.toLowerCase();
+      return ATTRIBUTE_TABLE_NAME_COLUMN_KEYS.some(keyword => {
+        const keywordText = String(keyword);
+        const lowerKeyword = keywordText.toLowerCase();
+        if (keywordText === '名称') return text === '名称';
+        if (keywordText === '对象' || keywordText === '检定对象') return text === keywordText;
+        if (lowerKeyword === 'name') return lowerText === 'name';
+        return text.includes(keywordText) || lowerText.includes(lowerKeyword);
+      });
+    });
   };
 
   const getRowDisplayName = (row: unknown[], headers: unknown[], fallbackIndex = 1): string => {
@@ -7017,6 +7047,7 @@ import {
       tableName.includes('人物') ||
       tableName.includes('NPC') ||
       tableName.includes('角色') ||
+      tableName.includes('对象') ||
       normalized.includes('character')
     );
   };
@@ -7082,6 +7113,8 @@ import {
       if (!sheet?.name || !Array.isArray(sheet.content)) continue;
       const sheetName = sheet.name;
       const headers = (sheet.content[0] || []) as DiceTableCell[];
+      const explicitNameIdx = findExplicitAttributeTableNameColumnIndex(headers);
+      const canScanAttributeTable = findAttributeColumnIndices(headers).length > 0 && explicitNameIdx >= 0;
 
       if (isPlayerTableName(sheetName) && sheet.content[1]) {
         const playerRow = sheet.content[1];
@@ -7098,8 +7131,8 @@ import {
         }
       }
 
-      if (!wantsUser && !isPlayerTableName(sheetName) && isNpcLikeTableName(sheetName)) {
-        const nameIdx = findNameColumnIndex(headers);
+      if (!wantsUser && !isPlayerTableName(sheetName) && (isNpcLikeTableName(sheetName) || canScanAttributeTable)) {
+        const nameIdx = explicitNameIdx >= 0 ? explicitNameIdx : findNameColumnIndex(headers);
         for (let rowIndex = 1; rowIndex < sheet.content.length; rowIndex++) {
           const row = sheet.content[rowIndex];
           if (!row) continue;
