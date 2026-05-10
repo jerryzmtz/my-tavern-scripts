@@ -2069,7 +2069,7 @@ import {
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.8.3'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v5.66'; // 脚本版本号
+  const SCRIPT_VERSION = 'v5.67'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -46220,6 +46220,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
   const buildGachaCatalogTemplateJsonc = (): string => `{
   // 骰子商店自定义物品与卡池导入模板。
+  // 注意：抽到或兑换的奖励最终会写入当前数据库本体的物品表/装备表，并受对应表 DDL 约束。
+  // 建议让 name、type、quality、description、rewardTarget 等字段满足当前 DDL 的 NOT NULL、CHECK、LENGTH 等检验。
+  // 如果世界观需要更长名称/描述、新类型、新品质，或额外必填列，请先到数据库本体修改对应表 DDL 并重新校验 DDL。
   // 使用方法：
   // 1. 复制下面被 /* ... */ 注释包住的示例物品。
   // 2. 删除包住某个物品的 /* 和 */，再按你的设定修改字段。
@@ -46254,16 +46257,16 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       // id：物品唯一标识。建议只用英文、数字、下划线。留空或删除 id 时会按名称/品质/类型自动生成。
       "id": "custom_lucky_coin",
 
-      // name：物品显示名称，必填。
+      // name：物品显示名称，必填。默认模板中物品表名称 ≤10 字、装备表建议 ≤12 字；若你的 DDL 更严格/更宽松，以当前数据库本体为准。
       "name": "幸运硬币",
 
-      // type：写入对应表格的类型，可按你的数据库习惯填写，比如 道具、消耗品、材料、任务物品、装备。
+      // type：写入对应表格的类型。默认模板已放松为 TEXT NOT NULL，可按世界观填写；若你的 DDL 仍有 CHECK 枚举，请填写允许值或先修改 DDL。
       "type": "道具",
 
-      // quality：必填，只能是 普通、优秀、稀有、史诗、传说、神话。
+      // quality：必填。默认 DDL 只允许 普通、优秀、稀有、史诗、传说、神话；想新增品质请同步修改物品表/装备表 DDL。
       "quality": "稀有",
 
-      // description：物品描述，会写入对应表格，也会在商店详情中展示。
+      // description：物品描述，会写入对应表格，也会在商店详情中展示。默认模板中物品描述 ≤60 字、装备描述 ≤40 字。
       "description": "一枚总能落在正面的硬币。使用后可让下一次普通检定获得轻微好运。",
 
       // poolTags：出现在哪些卡池。可填写内置卡池或自定义卡池 id；写 全部 会自动展开为当前加入“全部”的卡池。
@@ -46290,10 +46293,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       // unique：是否唯一。true 通常配合 stackable:false 使用，碎片商城也会阻止重复兑换。
       "unique": true,
 
-      // grantQuantity：抽到时发放数量，必须是正整数。
+      // grantQuantity：抽到时发放数量，必须是正整数。写入物品表时会增加 quantity；装备表默认无数量列，重复装备通常转为碎片。
       "grantQuantity": 1,
 
-      // rewardTarget：inventory 写入物品表；equipment 写入装备表。
+      // rewardTarget：inventory 写入物品表；equipment 写入装备表。目标表必须存在，且对应行数据要能通过该表 DDL 检验。
       "rewardTarget": "inventory"
     }
     */
