@@ -4,6 +4,8 @@ import { MAIN_STYLES } from './styles';
 import { setDatabaseToastMute } from './database-toast-mute';
 import { createTutorialModule, type TutorialModule, type TutorialScope } from './tutorial';
 import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './types';
+import advancedPresetAgentPromptTemplate from './docs/advanced-preset-agent-prompt.md?raw';
+import attributePresetAgentPromptTemplate from './docs/attribute-preset-agent-prompt.md?raw';
 import {
   BUILTIN_GACHA_POOL_DEFINITIONS,
   GACHA_CATALOG_EXPORT_KIND,
@@ -2069,7 +2071,7 @@ import {
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.8.3'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v5.68'; // 脚本版本号
+  const SCRIPT_VERSION = 'v5.71'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -10746,6 +10748,7 @@ import {
     // 属性值来源（第二行）
     attribute: FieldConfig & {
       key?: string; // 属性名
+      computeModifier?: string; // 从属性值派生调整值，如 floor(($attr - 10) / 2)
     };
 
     // DC来源
@@ -12103,10 +12106,906 @@ $opponent $oppAttrName：$oppCheckValueText$oppModText，$formula=$oppRoll，总
   // ========================================
 
   const STORAGE_KEY_ACTIVE_ADVANCED_PRESET = 'acu_active_advanced_preset';
+  const ADVANCED_PRESET_EXPORT_FORMAT = 'acu_advanced_preset_v1';
+  const ADVANCED_PRESET_AGENT_FORMAT = 'acu_advanced_preset_agent_v1';
+
+  interface AdvancedPresetAgentTestCase {
+    name?: string;
+    context?: Record<string, unknown>;
+    expectedOutcomeId?: string;
+    expectedOutcomeName?: string;
+  }
+
+  interface AdvancedPresetAgentDocument {
+    format: typeof ADVANCED_PRESET_AGENT_FORMAT;
+    preset: Record<string, unknown>;
+    tests?: AdvancedPresetAgentTestCase[];
+    notes?: string | string[];
+  }
+
+  interface AdvancedPresetValidationIssue {
+    path: string;
+    message: string;
+  }
+
+  interface AdvancedPresetParseResult {
+    preset: AdvancedDicePreset;
+    tests: AdvancedPresetAgentTestCase[];
+    notes: string[];
+    sourceFormat: string;
+    importedVersion: string;
+    needsUpdate: boolean;
+    warnings: AdvancedPresetValidationIssue[];
+  }
+
+  const isAdvancedPresetRecord = (value: unknown): value is Record<string, unknown> =>
+    Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+  const hasAdvancedPresetFieldConfig = (value: unknown): value is Record<string, unknown> =>
+    isAdvancedPresetRecord(value) && Object.keys(value).length > 0;
+
+  const stripAdvancedPresetJsonLikeSyntax = (jsonText: string): string => {
+    const withoutComments = stripJsonComments(jsonText);
+    let result = '';
+    let inString = false;
+    let quote = '';
+    let escaped = false;
+
+    for (let i = 0; i < withoutComments.length; i++) {
+      const char = withoutComments[i];
+
+      if (inString) {
+        result += char;
+        if (escaped) {
+          escaped = false;
+        } else if (char === '\\') {
+          escaped = true;
+        } else if (char === quote) {
+          inString = false;
+          quote = '';
+        }
+        continue;
+      }
+
+      if (char === '"' || char === "'") {
+        inString = true;
+        quote = char;
+        result += char;
+        continue;
+      }
+
+      if (char === ',') {
+        let nextIndex = i + 1;
+        while (nextIndex < withoutComments.length && /\s/.test(withoutComments[nextIndex])) {
+          nextIndex++;
+        }
+        if (withoutComments[nextIndex] === '}' || withoutComments[nextIndex] === ']') {
+          continue;
+        }
+      }
+
+      result += char;
+    }
+
+    return result;
+  };
+
+  const parseAdvancedPresetJsonCandidate = (candidate: string): unknown =>
+    JSON.parse(stripAdvancedPresetJsonLikeSyntax(candidate));
+
+  const extractAdvancedPresetJsonCandidates = (sourceText: string): string[] => {
+    const candidates: string[] = [];
+    const text = sourceText.trim();
+    const fencePattern = /```(?:jsonc?|JSONC?|javascript|ts|typescript)?\s*([\s\S]*?)```/g;
+    let match: RegExpExecArray | null = fencePattern.exec(text);
+    while (match) {
+      if (match[1]?.trim()) candidates.push(match[1].trim());
+      match = fencePattern.exec(text);
+    }
+
+    candidates.push(text);
+
+    const firstBrace = text.indexOf('{');
+    const lastBrace = text.lastIndexOf('}');
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      const sliced = text.slice(firstBrace, lastBrace + 1).trim();
+      if (sliced && !candidates.includes(sliced)) candidates.push(sliced);
+    }
+
+    return candidates;
+  };
+
+  const parseAdvancedPresetSourceText = (sourceText: string): unknown => {
+    const errors: string[] = [];
+    for (const candidate of extractAdvancedPresetJsonCandidates(sourceText)) {
+      try {
+        return parseAdvancedPresetJsonCandidate(candidate);
+      } catch (error) {
+        errors.push(error instanceof Error ? error.message : String(error));
+      }
+    }
+    throw new Error(`无法解析 JSON/JSONC：${errors[0] || '未找到有效对象'}`);
+  };
+
+  const normalizeAdvancedPresetNotes = (rawNotes: unknown): string[] => {
+    if (typeof rawNotes === 'string' && rawNotes.trim()) return [rawNotes.trim()];
+    if (!Array.isArray(rawNotes)) return [];
+    return rawNotes.map(item => (typeof item === 'string' ? item.trim() : '')).filter(Boolean);
+  };
+
+  const normalizeAdvancedPresetAgentTests = (rawTests: unknown): AdvancedPresetAgentTestCase[] => {
+    if (rawTests === undefined) return [];
+    if (!Array.isArray(rawTests)) {
+      throw new Error('tests 必须是数组');
+    }
+
+    return rawTests.map((rawTest, index) => {
+      if (!isAdvancedPresetRecord(rawTest)) {
+        throw new Error(`tests[${index}] 必须是对象`);
+      }
+
+      const context = rawTest.context;
+      const expectedOutcomeId = rawTest.expectedOutcomeId;
+      const expectedOutcomeName = rawTest.expectedOutcomeName;
+      const normalizedExpectedOutcomeId = typeof expectedOutcomeId === 'string' ? expectedOutcomeId.trim() : '';
+      const normalizedExpectedOutcomeName = typeof expectedOutcomeName === 'string' ? expectedOutcomeName.trim() : '';
+      if (context !== undefined && !isAdvancedPresetRecord(context)) {
+        throw new Error(`tests[${index}].context 必须是对象`);
+      }
+      if (expectedOutcomeId !== undefined && typeof expectedOutcomeId !== 'string') {
+        throw new Error(`tests[${index}].expectedOutcomeId 必须是字符串`);
+      }
+      if (expectedOutcomeName !== undefined && typeof expectedOutcomeName !== 'string') {
+        throw new Error(`tests[${index}].expectedOutcomeName 必须是字符串`);
+      }
+      if (!normalizedExpectedOutcomeId && !normalizedExpectedOutcomeName) {
+        throw new Error(`tests[${index}] 至少需要 expectedOutcomeId 或 expectedOutcomeName`);
+      }
+
+      return {
+        ...(typeof rawTest.name === 'string' && rawTest.name.trim() ? { name: rawTest.name.trim() } : {}),
+        ...(isAdvancedPresetRecord(context) ? { context } : {}),
+        ...(normalizedExpectedOutcomeId ? { expectedOutcomeId: normalizedExpectedOutcomeId } : {}),
+        ...(normalizedExpectedOutcomeName ? { expectedOutcomeName: normalizedExpectedOutcomeName } : {}),
+      };
+    });
+  };
+
+  const unwrapAdvancedPresetDocument = (
+    parsed: unknown,
+  ): {
+    presetData: Record<string, unknown>;
+    tests: AdvancedPresetAgentTestCase[];
+    notes: string[];
+    sourceFormat: string;
+  } => {
+    if (!isAdvancedPresetRecord(parsed)) {
+      throw new Error('预设 JSON 必须是对象');
+    }
+
+    const format = typeof parsed.format === 'string' ? parsed.format : '';
+    if (format === ADVANCED_PRESET_AGENT_FORMAT) {
+      const document = parsed as unknown as AdvancedPresetAgentDocument;
+      if (!isAdvancedPresetRecord(document.preset)) {
+        throw new Error('AI 预设文档缺少 preset 对象');
+      }
+      return {
+        presetData: document.preset,
+        tests: normalizeAdvancedPresetAgentTests(document.tests),
+        notes: normalizeAdvancedPresetNotes(document.notes),
+        sourceFormat: ADVANCED_PRESET_AGENT_FORMAT,
+      };
+    }
+
+    if (format && format !== ADVANCED_PRESET_EXPORT_FORMAT && parsed.kind !== 'advanced') {
+      throw new Error(`不支持的预设格式: ${format}`);
+    }
+
+    return {
+      presetData: parsed,
+      tests: normalizeAdvancedPresetAgentTests(parsed.tests),
+      notes: normalizeAdvancedPresetNotes(parsed.notes),
+      sourceFormat: format || 'legacy_advanced_preset',
+    };
+  };
+
+  const cloneAdvancedPresetFieldWithDefaults = (
+    rawField: unknown,
+    fallback: Record<string, unknown>,
+  ): Record<string, unknown> => {
+    const field = isAdvancedPresetRecord(rawField) ? { ...rawField } : {};
+    Object.entries(fallback).forEach(([key, value]) => {
+      if (!(key in field)) field[key] = value;
+    });
+    return field;
+  };
+
+  const normalizeAdvancedPresetData = (
+    rawData: Record<string, unknown>,
+    options: { idOverride?: string; nameOverride?: string; descriptionOverride?: string } = {},
+  ): { preset: AdvancedDicePreset; importedVersion: string; needsUpdate: boolean } => {
+    const data: Record<string, unknown> = { ...rawData };
+    const importedVersion = typeof data.version === 'string' ? data.version : '0.0.0';
+    const needsUpdate = compareVersion(importedVersion, PRESET_FORMAT_VERSION) < 0;
+
+    const ui = data.ui;
+    if (isAdvancedPresetRecord(ui)) {
+      const attribute = isAdvancedPresetRecord(data.attribute) ? { ...data.attribute } : {};
+      const dc = isAdvancedPresetRecord(data.dc) ? { ...data.dc } : {};
+      if (typeof ui.attributeLabel === 'string' && !attribute.label) attribute.label = ui.attributeLabel;
+      if (typeof ui.dcLabel === 'string' && !dc.label) dc.label = ui.dcLabel;
+      data.attribute = attribute;
+      data.dc = dc;
+      delete data.ui;
+    }
+
+    delete data.format;
+    delete data.tests;
+    delete data.notes;
+    delete data.preset;
+
+    const name =
+      typeof options.nameOverride === 'string' && options.nameOverride.trim()
+        ? options.nameOverride.trim()
+        : typeof data.name === 'string'
+          ? data.name.trim()
+          : '';
+    const description =
+      typeof options.descriptionOverride === 'string'
+        ? options.descriptionOverride.trim()
+        : typeof data.description === 'string'
+          ? data.description.trim()
+          : '';
+    const id =
+      typeof options.idOverride === 'string' && options.idOverride.trim()
+        ? options.idOverride.trim()
+        : typeof data.id === 'string' && data.id.trim()
+          ? data.id.trim()
+          : `custom_${Date.now()}`;
+
+    data.attribute = cloneAdvancedPresetFieldWithDefaults(data.attribute, {
+      label: '属性值',
+      placeholder: '留空=50',
+      defaultValue: 50,
+    });
+    const hasDcConfig = hasAdvancedPresetFieldConfig(data.dc);
+    const hasModConfig = hasAdvancedPresetFieldConfig(data.mod);
+    data.dc = cloneAdvancedPresetFieldWithDefaults(
+      data.dc,
+      hasDcConfig
+        ? { defaultValue: 0 }
+        : {
+            hidden: true,
+            defaultValue: 0,
+          },
+    );
+    data.mod = cloneAdvancedPresetFieldWithDefaults(
+      data.mod,
+      hasModConfig
+        ? { defaultValue: 0 }
+        : {
+            hidden: true,
+            defaultValue: 0,
+          },
+    );
+
+    const preset = {
+      ...data,
+      id,
+      kind: 'advanced' as const,
+      name,
+      description,
+      builtin: false,
+      version: PRESET_FORMAT_VERSION,
+      attribute: data.attribute,
+      dc: data.dc,
+      mod: data.mod,
+      outcomes: Array.isArray(data.outcomes) ? data.outcomes : [],
+      diceExpression: typeof data.diceExpression === 'string' ? data.diceExpression.trim() : '',
+    } as AdvancedDicePreset;
+
+    return { preset, importedVersion, needsUpdate };
+  };
+
+  const pushAdvancedPresetIssue = (
+    issues: AdvancedPresetValidationIssue[],
+    path: string,
+    message: string,
+  ): void => {
+    issues.push({ path, message });
+  };
+
+  const validateAdvancedPresetFieldConfig = (
+    field: unknown,
+    path: string,
+    issues: AdvancedPresetValidationIssue[],
+    options: { allowKey?: boolean } = {},
+  ): void => {
+    if (!isAdvancedPresetRecord(field)) {
+      pushAdvancedPresetIssue(issues, path, '必须是对象');
+      return;
+    }
+    if (!('defaultValue' in field)) {
+      pushAdvancedPresetIssue(issues, `${path}.defaultValue`, '缺少默认值');
+    } else if (typeof field.defaultValue !== 'number' && typeof field.defaultValue !== 'string') {
+      pushAdvancedPresetIssue(issues, `${path}.defaultValue`, '必须是数字或字符串');
+    }
+    if ('label' in field && typeof field.label !== 'string') {
+      pushAdvancedPresetIssue(issues, `${path}.label`, '必须是字符串');
+    }
+    if ('placeholder' in field && typeof field.placeholder !== 'string') {
+      pushAdvancedPresetIssue(issues, `${path}.placeholder`, '必须是字符串');
+    }
+    if ('hidden' in field && typeof field.hidden !== 'boolean') {
+      pushAdvancedPresetIssue(issues, `${path}.hidden`, '必须是布尔值');
+    }
+    if (options.allowKey && 'key' in field && typeof field.key !== 'string') {
+      pushAdvancedPresetIssue(issues, `${path}.key`, '必须是字符串');
+    }
+    if (options.allowKey && 'computeModifier' in field) {
+      if (typeof field.computeModifier !== 'string') {
+        pushAdvancedPresetIssue(issues, `${path}.computeModifier`, '必须是字符串表达式');
+      } else {
+        const evalResult = evaluateCondition(field.computeModifier, { $attr: 10 });
+        if (!evalResult.success) {
+          pushAdvancedPresetIssue(issues, `${path}.computeModifier`, evalResult.error || '表达式无法解析');
+        }
+      }
+    }
+  };
+
+  const validateAdvancedPresetCustomFields = (
+    preset: AdvancedDicePreset,
+    issues: AdvancedPresetValidationIssue[],
+  ): void => {
+    if (preset.customFields === undefined) return;
+    if (!Array.isArray(preset.customFields)) {
+      pushAdvancedPresetIssue(issues, 'customFields', '必须是数组');
+      return;
+    }
+
+    const allowedTypes = new Set(['number', 'text', 'select', 'toggle']);
+    const ids = new Set<string>();
+    preset.customFields.forEach((field, index) => {
+      const path = `customFields[${index}]`;
+      if (!isAdvancedPresetRecord(field)) {
+        pushAdvancedPresetIssue(issues, path, '必须是对象');
+        return;
+      }
+      if (typeof field.id !== 'string' || !field.id.trim()) {
+        pushAdvancedPresetIssue(issues, `${path}.id`, '必须是非空字符串');
+      } else if (ids.has(field.id)) {
+        pushAdvancedPresetIssue(issues, `${path}.id`, `重复的自定义字段 ID: ${field.id}`);
+      } else {
+        ids.add(field.id);
+      }
+      if (typeof field.type !== 'string' || !allowedTypes.has(field.type)) {
+        pushAdvancedPresetIssue(issues, `${path}.type`, '必须是 number/text/select/toggle 之一');
+      }
+      if ('label' in field && typeof field.label !== 'string') {
+        pushAdvancedPresetIssue(issues, `${path}.label`, '必须是字符串');
+      }
+      if ('defaultValue' in field) {
+        const valueType = typeof field.defaultValue;
+        if (valueType !== 'number' && valueType !== 'string' && valueType !== 'boolean') {
+          pushAdvancedPresetIssue(issues, `${path}.defaultValue`, '必须是数字、字符串或布尔值');
+        }
+      }
+      if ('options' in field && !Array.isArray(field.options)) {
+        pushAdvancedPresetIssue(issues, `${path}.options`, '必须是数组');
+      }
+    });
+  };
+
+  const validateAdvancedPresetDicePatches = (
+    preset: AdvancedDicePreset,
+    issues: AdvancedPresetValidationIssue[],
+  ): void => {
+    if (preset.dicePatches === undefined) return;
+    if (!Array.isArray(preset.dicePatches)) {
+      pushAdvancedPresetIssue(issues, 'dicePatches', '必须是数组');
+      return;
+    }
+
+    const allowedOps = new Set(['append', 'prepend', 'replace']);
+    const context = buildAdvancedPresetEvaluationContext(preset);
+    preset.dicePatches.forEach((patch, index) => {
+      const path = `dicePatches[${index}]`;
+      if (!isAdvancedPresetRecord(patch)) {
+        pushAdvancedPresetIssue(issues, path, '必须是对象');
+        return;
+      }
+      if (typeof patch.op !== 'string' || !allowedOps.has(patch.op)) {
+        pushAdvancedPresetIssue(issues, `${path}.op`, '必须是 append/prepend/replace 之一');
+      }
+      if (typeof patch.template !== 'string' || !patch.template.trim()) {
+        pushAdvancedPresetIssue(issues, `${path}.template`, '必须是非空字符串');
+      }
+      if ('when' in patch) {
+        if (typeof patch.when !== 'string') {
+          pushAdvancedPresetIssue(issues, `${path}.when`, '必须是字符串');
+        } else {
+          const conditionResult = evaluateCondition(patch.when, context as Record<string, number>);
+          if (!conditionResult.success) {
+            pushAdvancedPresetIssue(issues, `${path}.when`, conditionResult.error || '条件表达式无法解析');
+          }
+        }
+      }
+    });
+  };
+
+  const validateAdvancedPresetContestRule = (
+    preset: AdvancedDicePreset,
+    issues: AdvancedPresetValidationIssue[],
+  ): void => {
+    if (preset.contestRule === undefined) return;
+    if (!isAdvancedPresetRecord(preset.contestRule)) {
+      pushAdvancedPresetIssue(issues, 'contestRule', '必须是对象');
+      return;
+    }
+
+    const contestRule = preset.contestRule;
+    const allowedModes = new Set(['rank', 'value', 'margin', 'custom']);
+    const allowedKeys = new Set([
+      'disabled',
+      'mode',
+      'tieBreakers',
+      'tieBreaker',
+      'customExpr',
+      'hideDc',
+      'hideMod',
+      'hideSkillMod',
+    ]);
+    Object.keys(contestRule).forEach(key => {
+      if (!allowedKeys.has(key)) {
+        pushAdvancedPresetIssue(issues, `contestRule.${key}`, '不是支持的对抗规则字段');
+      }
+    });
+    if ('disabled' in contestRule && typeof contestRule.disabled !== 'boolean') {
+      pushAdvancedPresetIssue(issues, 'contestRule.disabled', '必须是布尔值');
+    }
+    if ('mode' in contestRule && (typeof contestRule.mode !== 'string' || !allowedModes.has(contestRule.mode))) {
+      pushAdvancedPresetIssue(issues, 'contestRule.mode', '必须是 rank/value/margin/custom 之一');
+    }
+    if ('tieBreakers' in contestRule) {
+      if (!Array.isArray(contestRule.tieBreakers)) {
+        pushAdvancedPresetIssue(issues, 'contestRule.tieBreakers', '必须是字符串数组');
+      } else if (contestRule.tieBreakers.some(item => typeof item !== 'string')) {
+        pushAdvancedPresetIssue(issues, 'contestRule.tieBreakers', '只能包含字符串');
+      }
+    }
+    if ('tieBreaker' in contestRule && typeof contestRule.tieBreaker !== 'string') {
+      pushAdvancedPresetIssue(issues, 'contestRule.tieBreaker', '必须是字符串');
+    }
+    if ('customExpr' in contestRule) {
+      if (typeof contestRule.customExpr !== 'string') {
+        pushAdvancedPresetIssue(issues, 'contestRule.customExpr', '必须是字符串');
+      } else {
+        const conditionResult = evaluateCondition(contestRule.customExpr, {
+          $initValue: 12,
+          $oppValue: 10,
+          $initRank: 60,
+          $oppRank: 40,
+        });
+        if (!conditionResult.success) {
+          pushAdvancedPresetIssue(issues, 'contestRule.customExpr', conditionResult.error || '条件表达式无法解析');
+        }
+      }
+    }
+    (['hideDc', 'hideMod', 'hideSkillMod'] as const).forEach(key => {
+      if (key in contestRule && typeof contestRule[key] !== 'boolean') {
+        pushAdvancedPresetIssue(issues, `contestRule.${key}`, '必须是布尔值');
+      }
+    });
+  };
+
+  const coerceAdvancedPresetContextNumber = (value: unknown, fallback: number): number => {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'boolean') return value ? 1 : 0;
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return fallback;
+  };
+
+  const createAdvancedPresetRollResult = (total: number, tags: string[] = []): RollResult => ({
+    total,
+    rawDice: [total],
+    keptDice: [total],
+    formula: String(total),
+    breakdown: String(total),
+    tags,
+  });
+
+  const readAdvancedPresetContextTags = (value: unknown): string[] => {
+    if (!Array.isArray(value)) return [];
+    return value.map(item => (typeof item === 'string' ? item.trim() : '')).filter(Boolean);
+  };
+
+  const assignAdvancedPresetContextNumber = (
+    context: Record<string, string | number | boolean | RollResult>,
+    key: string,
+    value: unknown,
+  ): void => {
+    const numericValue = coerceAdvancedPresetContextNumber(value, Number.NaN);
+    if (!Number.isFinite(numericValue)) return;
+    context[key.startsWith('$') ? key : `$${key}`] = numericValue;
+  };
+
+  const buildAdvancedPresetEvaluationContext = (
+    preset: AdvancedDicePreset,
+    rawContext?: Record<string, unknown>,
+  ): Record<string, string | number | boolean | RollResult> => {
+    const rollRecord = rawContext && isAdvancedPresetRecord(rawContext.roll) ? rawContext.roll : {};
+    const rollTotal = coerceAdvancedPresetContextNumber(rawContext?.rollTotal ?? rollRecord.total, 50);
+    const rollTags = readAdvancedPresetContextTags(rawContext?.rollTags ?? rollRecord.tags);
+    const context: Record<string, string | number | boolean | RollResult> = {
+      $roll: createAdvancedPresetRollResult(rollTotal, rollTags),
+      $attr: coerceAdvancedPresetContextNumber(rawContext?.attr ?? rawContext?.attribute, 50),
+      $attrMod: 0,
+      $dc: coerceAdvancedPresetContextNumber(rawContext?.dc, 0),
+      $mod: coerceAdvancedPresetContextNumber(rawContext?.mod, 0),
+      $skillMod: coerceAdvancedPresetContextNumber(rawContext?.skillMod, 0),
+    };
+
+    if (preset.attribute?.computeModifier) {
+      const evalResult = evaluateCondition(preset.attribute.computeModifier, context as Record<string, number>);
+      if (evalResult.success) {
+        const rawValue = evalResult.value;
+        context.$attrMod = typeof rawValue === 'number' && Number.isFinite(rawValue) ? rawValue : rawValue ? 1 : 0;
+      }
+    }
+
+    if (Array.isArray(preset.customFields)) {
+      preset.customFields.forEach(field => {
+        context[`$${field.id}`] = coerceAdvancedPresetContextNumber(field.defaultValue, 0);
+      });
+    }
+
+    if (preset.outcomePolicy?.kind === 'minRank') {
+      const requiredRankVarId = preset.outcomePolicy.requiredRankVarId;
+      const varKey = requiredRankVarId.startsWith('$') ? requiredRankVarId : `$${requiredRankVarId}`;
+      context[varKey] = 1;
+    }
+
+    if (rawContext) {
+      const vars = isAdvancedPresetRecord(rawContext.vars) ? rawContext.vars : {};
+      Object.entries(vars).forEach(([key, value]) => assignAdvancedPresetContextNumber(context, key, value));
+      Object.entries(rawContext).forEach(([key, value]) => {
+        if (['roll', 'rollTotal', 'rollTags', 'vars', 'attr', 'attribute', 'dc', 'mod', 'skillMod'].includes(key)) {
+          return;
+        }
+        assignAdvancedPresetContextNumber(context, key, value);
+      });
+    }
+
+    if (Array.isArray(preset.derivedVars)) {
+      preset.derivedVars.forEach(spec => {
+        if (!spec || typeof spec.id !== 'string' || typeof spec.expr !== 'string') return;
+        const evalResult = evaluateCondition(spec.expr, context as Record<string, number>);
+        if (!evalResult.success) return;
+        const value = evalResult.value;
+        context[`$${spec.id}`] = typeof value === 'number' && Number.isFinite(value) ? value : value ? 1 : 0;
+      });
+    }
+
+    return context;
+  };
+
+  interface AdvancedPresetOutcomePolicyResult {
+    outcome: OutcomeLevel;
+    requiredOutcome?: OutcomeLevel;
+    isUnmet: boolean;
+  }
+
+  const readAdvancedPresetPolicyNumber = (
+    context: Record<string, string | number | boolean | RollResult>,
+    key: string,
+    fallback: number,
+  ): number => {
+    const rawValue = context[key];
+    if (typeof rawValue === 'number' && Number.isFinite(rawValue)) return rawValue;
+    if (typeof rawValue === 'boolean') return rawValue ? 1 : 0;
+    if (typeof rawValue === 'string') {
+      const parsed = Number(rawValue);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return fallback;
+  };
+
+  const applyAdvancedPresetOutcomePolicy = (
+    preset: AdvancedDicePreset,
+    matchedOutcome: OutcomeLevel,
+    context: Record<string, string | number | boolean | RollResult>,
+  ): AdvancedPresetOutcomePolicyResult => {
+    let outcome = matchedOutcome;
+    let requiredOutcome: OutcomeLevel | undefined;
+
+    if (preset.outcomePolicy?.kind === 'minRank') {
+      const requiredRankVarId = preset.outcomePolicy.requiredRankVarId;
+      const varKey = requiredRankVarId.startsWith('$') ? requiredRankVarId : `$${requiredRankVarId}`;
+      const requiredRank = readAdvancedPresetPolicyNumber(context, varKey, 0);
+      const actualRank = matchedOutcome.rank ?? 0;
+
+      if (requiredRank > 0) {
+        requiredOutcome = preset.outcomes.find(candidate => candidate.rank === requiredRank);
+      }
+
+      if (Number.isFinite(requiredRank) && actualRank >= 1 && actualRank < requiredRank) {
+        const fallbackOutcome = preset.outcomes.find(candidate => candidate.id === preset.outcomePolicy?.unmetOutcomeId);
+        if (fallbackOutcome) outcome = fallbackOutcome;
+      }
+    }
+
+    return {
+      outcome,
+      requiredOutcome,
+      isUnmet: outcome !== matchedOutcome,
+    };
+  };
+
+  const getAdvancedPresetDisplayOutcome = (policyResult: AdvancedPresetOutcomePolicyResult): OutcomeLevel =>
+    policyResult.isUnmet && policyResult.requiredOutcome ? policyResult.requiredOutcome : policyResult.outcome;
+
+  const validateAdvancedPresetOutcomes = (
+    preset: AdvancedDicePreset,
+    issues: AdvancedPresetValidationIssue[],
+  ): void => {
+    if (!Array.isArray(preset.outcomes) || preset.outcomes.length === 0) {
+      pushAdvancedPresetIssue(issues, 'outcomes', '至少需要一个判定结果');
+      return;
+    }
+
+    const ids = new Set<string>();
+    const smokeContext = buildAdvancedPresetEvaluationContext(preset);
+    preset.outcomes.forEach((outcome, index) => {
+      const path = `outcomes[${index}]`;
+      if (!isAdvancedPresetRecord(outcome)) {
+        pushAdvancedPresetIssue(issues, path, '必须是对象');
+        return;
+      }
+      if (typeof outcome.id !== 'string' || !outcome.id.trim()) {
+        pushAdvancedPresetIssue(issues, `${path}.id`, '必须是非空字符串');
+      } else if (ids.has(outcome.id)) {
+        pushAdvancedPresetIssue(issues, `${path}.id`, `重复的 outcome ID: ${outcome.id}`);
+      } else {
+        ids.add(outcome.id);
+      }
+      if (typeof outcome.name !== 'string' || !outcome.name.trim()) {
+        pushAdvancedPresetIssue(issues, `${path}.name`, '必须是非空字符串');
+      }
+      if (typeof outcome.condition !== 'string') {
+        pushAdvancedPresetIssue(issues, `${path}.condition`, '必须是字符串');
+      } else {
+        const conditionResult = evaluateCondition(outcome.condition, smokeContext as Record<string, number>);
+        if (!conditionResult.success) {
+          pushAdvancedPresetIssue(issues, `${path}.condition`, conditionResult.error || '条件表达式无法解析');
+        }
+      }
+      if ('displayExpr' in outcome) {
+        if (typeof outcome.displayExpr !== 'string') {
+          pushAdvancedPresetIssue(issues, `${path}.displayExpr`, '必须是字符串');
+        } else {
+          const displayExprResult = evaluateCondition(outcome.displayExpr, smokeContext as Record<string, number>);
+          if (!displayExprResult.success) {
+            pushAdvancedPresetIssue(issues, `${path}.displayExpr`, displayExprResult.error || '显示表达式无法解析');
+          }
+        }
+      }
+      if (typeof outcome.priority !== 'number' || !Number.isFinite(outcome.priority)) {
+        pushAdvancedPresetIssue(issues, `${path}.priority`, '必须是数字');
+      }
+      if ('rank' in outcome && typeof outcome.rank !== 'number') {
+        pushAdvancedPresetIssue(issues, `${path}.rank`, '必须是数字');
+      }
+      if ('contestRank' in outcome && typeof outcome.contestRank !== 'number') {
+        pushAdvancedPresetIssue(issues, `${path}.contestRank`, '必须是数字');
+      }
+    });
+  };
+
+  const isAdvancedPresetNumericLike = (value: unknown): boolean => {
+    if (typeof value === 'number') return Number.isFinite(value);
+    if (typeof value === 'string' && value.trim()) return Number.isFinite(Number(value));
+    return false;
+  };
+
+  const validateAdvancedPresetOutcomePolicy = (
+    preset: AdvancedDicePreset,
+    issues: AdvancedPresetValidationIssue[],
+  ): void => {
+    if (preset.outcomePolicy === undefined) return;
+    if (!isAdvancedPresetRecord(preset.outcomePolicy)) {
+      pushAdvancedPresetIssue(issues, 'outcomePolicy', '必须是对象');
+      return;
+    }
+
+    const policy = preset.outcomePolicy;
+    if (policy.kind !== 'minRank') {
+      pushAdvancedPresetIssue(issues, 'outcomePolicy.kind', '当前仅支持 minRank；conditional 是保留类型，不要生成');
+      return;
+    }
+
+    if (typeof policy.requiredRankVarId !== 'string' || !policy.requiredRankVarId.trim()) {
+      pushAdvancedPresetIssue(issues, 'outcomePolicy.requiredRankVarId', '必须是 customFields 里的字段 ID');
+    } else {
+      const fieldId = policy.requiredRankVarId.startsWith('$')
+        ? policy.requiredRankVarId.slice(1)
+        : policy.requiredRankVarId;
+      const fieldIndex = Array.isArray(preset.customFields)
+        ? preset.customFields.findIndex(candidate => candidate.id === fieldId)
+        : -1;
+      const field = fieldIndex >= 0 && Array.isArray(preset.customFields) ? preset.customFields[fieldIndex] : undefined;
+      const fieldPath = fieldIndex >= 0 ? `customFields[${fieldIndex}]` : `customFields.${fieldId}`;
+      if (!field) {
+        pushAdvancedPresetIssue(issues, 'outcomePolicy.requiredRankVarId', `找不到自定义字段: ${fieldId}`);
+      } else if (field.type !== 'number' && field.type !== 'select') {
+        pushAdvancedPresetIssue(issues, 'outcomePolicy.requiredRankVarId', '必须指向 number 字段或数值型 select 字段');
+      } else if (field.type === 'select') {
+        if (!Array.isArray(field.options) || field.options.length === 0) {
+          pushAdvancedPresetIssue(issues, `${fieldPath}.options`, 'minRank 使用的 select 必须提供数值选项');
+        } else if (field.options.some(option => !isAdvancedPresetNumericLike(option.value))) {
+          pushAdvancedPresetIssue(issues, `${fieldPath}.options`, 'minRank 使用的 select 选项 value 必须是数字');
+        }
+        if (!isAdvancedPresetNumericLike(field.defaultValue)) {
+          pushAdvancedPresetIssue(issues, `${fieldPath}.defaultValue`, 'minRank 使用的 select 默认值必须是数字');
+        }
+      }
+    }
+
+    if (typeof policy.unmetOutcomeId !== 'string' || !policy.unmetOutcomeId.trim()) {
+      pushAdvancedPresetIssue(issues, 'outcomePolicy.unmetOutcomeId', '必须是 outcomes 里的 outcome ID');
+    } else if (!preset.outcomes.some(outcome => outcome.id === policy.unmetOutcomeId)) {
+      pushAdvancedPresetIssue(issues, 'outcomePolicy.unmetOutcomeId', `找不到 outcome: ${policy.unmetOutcomeId}`);
+    }
+
+    if ('keepActualOutcome' in policy && typeof policy.keepActualOutcome !== 'boolean') {
+      pushAdvancedPresetIssue(issues, 'outcomePolicy.keepActualOutcome', '必须是布尔值');
+    }
+
+    if (!preset.outcomes.some(outcome => typeof outcome.rank === 'number')) {
+      pushAdvancedPresetIssue(issues, 'outcomes', '使用 minRank 时，参与成功等级比较的 outcomes 需要提供数字 rank');
+    }
+  };
+
+  const validateAdvancedPresetTemplates = (
+    preset: AdvancedDicePreset,
+    issues: AdvancedPresetValidationIssue[],
+    options: { requireMetaWrapper: boolean },
+  ): void => {
+    const validateTemplate = (value: unknown, path: string): void => {
+      if (value === undefined) return;
+      if (typeof value !== 'string') {
+        pushAdvancedPresetIssue(issues, path, '必须是字符串');
+        return;
+      }
+      if (!options.requireMetaWrapper) return;
+      if (!value.includes('<meta:检定结果>')) {
+        pushAdvancedPresetIssue(
+          issues,
+          path,
+          'AI 预设自定义输出模板必须包含 <meta:检定结果> 包裹；不需要自定义时请省略该字段',
+        );
+      }
+      if (!value.includes('</meta:检定结果>')) {
+        pushAdvancedPresetIssue(
+          issues,
+          path,
+          'AI 预设自定义输出模板必须包含 </meta:检定结果> 结束标签；不需要自定义时请省略该字段',
+        );
+      }
+    };
+
+    validateTemplate(preset.outputTemplate, 'outputTemplate');
+    validateTemplate(preset.contestOutputTemplate, 'contestOutputTemplate');
+  };
+
+  const validateAdvancedPresetAgentTests = (
+    preset: AdvancedDicePreset,
+    tests: AdvancedPresetAgentTestCase[],
+    issues: AdvancedPresetValidationIssue[],
+  ): void => {
+    tests.forEach((test, index) => {
+      const context = buildAdvancedPresetEvaluationContext(preset, test.context);
+      const baseOutcome = evaluateOutcomes(preset.outcomes, context as Record<string, number>);
+      const matchedOutcome = applyAdvancedPresetOutcomePolicy(preset, baseOutcome, context).outcome;
+      const expectedId = test.expectedOutcomeId?.trim();
+      const expectedName = test.expectedOutcomeName?.trim();
+      if (expectedId && matchedOutcome.id !== expectedId) {
+        pushAdvancedPresetIssue(
+          issues,
+          `tests[${index}]`,
+          `期望 outcome id 为 "${expectedId}"，实际为 "${matchedOutcome.id}"`,
+        );
+      }
+      if (expectedName && matchedOutcome.name !== expectedName) {
+        pushAdvancedPresetIssue(
+          issues,
+          `tests[${index}]`,
+          `期望 outcome name 为 "${expectedName}"，实际为 "${matchedOutcome.name}"`,
+        );
+      }
+    });
+  };
+
+  const throwAdvancedPresetValidationIssues = (issues: AdvancedPresetValidationIssue[]): void => {
+    if (issues.length === 0) return;
+    const summary = issues
+      .slice(0, 5)
+      .map(issue => `${issue.path}: ${issue.message}`)
+      .join('；');
+    const extra = issues.length > 5 ? `；另有 ${issues.length - 5} 个问题` : '';
+    throw new Error(`预设校验失败：${summary}${extra}`);
+  };
+
+  const validateAdvancedPreset = (
+    preset: AdvancedDicePreset,
+    tests: AdvancedPresetAgentTestCase[],
+    options: { requireMetaWrapper?: boolean } = {},
+  ): AdvancedPresetValidationIssue[] => {
+    const issues: AdvancedPresetValidationIssue[] = [];
+    if (preset.kind !== 'advanced') {
+      pushAdvancedPresetIssue(issues, 'kind', '必须是 "advanced"');
+    }
+    if (!preset.name || typeof preset.name !== 'string') {
+      pushAdvancedPresetIssue(issues, 'name', '必须是非空字符串');
+    }
+    if (!preset.diceExpression || typeof preset.diceExpression !== 'string') {
+      pushAdvancedPresetIssue(issues, 'diceExpression', '必须是非空字符串');
+    } else {
+      const rollResult = rollComplexDiceExpression(preset.diceExpression);
+      if (Number.isNaN(rollResult.total)) {
+        pushAdvancedPresetIssue(issues, 'diceExpression', '骰子表达式无法解析');
+      }
+    }
+    validateAdvancedPresetFieldConfig(preset.attribute, 'attribute', issues, { allowKey: true });
+    validateAdvancedPresetFieldConfig(preset.dc, 'dc', issues);
+    if (preset.mod !== undefined) validateAdvancedPresetFieldConfig(preset.mod, 'mod', issues);
+    if (preset.skillMod !== undefined) validateAdvancedPresetFieldConfig(preset.skillMod, 'skillMod', issues);
+    validateAdvancedPresetCustomFields(preset, issues);
+    validateAdvancedPresetDicePatches(preset, issues);
+    validateAdvancedPresetContestRule(preset, issues);
+    validateAdvancedPresetOutcomes(preset, issues);
+    validateAdvancedPresetOutcomePolicy(preset, issues);
+    validateAdvancedPresetTemplates(preset, issues, { requireMetaWrapper: Boolean(options.requireMetaWrapper) });
+    if (issues.length === 0 && tests.length > 0) {
+      validateAdvancedPresetAgentTests(preset, tests, issues);
+    }
+    throwAdvancedPresetValidationIssues(issues);
+    return issues;
+  };
+
+  const parseAdvancedPresetText = (
+    sourceText: string,
+    options: { idOverride?: string; nameOverride?: string; descriptionOverride?: string } = {},
+  ): AdvancedPresetParseResult => {
+    const parsed = parseAdvancedPresetSourceText(sourceText);
+    const document = unwrapAdvancedPresetDocument(parsed);
+    const normalized = normalizeAdvancedPresetData(document.presetData, options);
+    const warnings = validateAdvancedPreset(normalized.preset, document.tests, {
+      requireMetaWrapper: document.sourceFormat === ADVANCED_PRESET_AGENT_FORMAT,
+    });
+    return {
+      preset: normalized.preset,
+      tests: document.tests,
+      notes: document.notes,
+      sourceFormat: document.sourceFormat,
+      importedVersion: normalized.importedVersion,
+      needsUpdate: normalized.needsUpdate,
+      warnings,
+    };
+  };
+
+  const getAdvancedPresetErrorMessage = (error: unknown): string =>
+    error instanceof Error ? error.message : String(error || '未知错误');
+
+  const buildAdvancedPresetAgentPrompt = (): string => advancedPresetAgentPromptTemplate;
 
   // 高级骰子预设管理器
   const AdvancedDicePresetManager = (() => {
     let _cache = null;
+    let _lastImportError = '';
 
     const getBuiltinPresetVisibilityMap = (): Record<string, boolean> => {
       const stored = Store.get(STORAGE_KEY_BUILTIN_PRESET_VISIBILITY, {});
@@ -12277,9 +13176,10 @@ $opponent $oppAttrName：$oppCheckValueText$oppModText，$formula=$oppRoll，总
         const preset = this.getAllPresets().find(p => p.id === id);
         if (!preset) return null;
         const exported = {
+          ...preset,
+          format: ADVANCED_PRESET_EXPORT_FORMAT,
           kind: 'advanced',
           version: PRESET_FORMAT_VERSION,
-          ...preset,
         };
         delete exported.builtin; // 导出时移除内置标记
         return JSON.stringify(exported, null, 2);
@@ -12287,55 +13187,47 @@ $opponent $oppAttrName：$oppCheckValueText$oppModText，$formula=$oppRoll，总
 
       // 从 JSON 导入预设
       importPreset(jsonStr) {
+        const storedBefore = Store.get(STORAGE_KEY_ADVANCED_PRESETS, []);
+        const rollbackPresets = Array.isArray(storedBefore) ? [...storedBefore] : [];
         try {
-          const data = JSON.parse(stripJsonComments(jsonStr));
-
-          // 校验格式
-          if (data.kind !== 'advanced') {
-            throw new Error('不支持的预设格式');
-          }
-
-          // 基本校验
-          if (!data.name || !data.diceExpression) {
-            throw new Error('预设数据不完整: 缺少名称或骰子表达式');
-          }
-
-          // 校验判定条件：必须有 outcomes
-          if (!Array.isArray(data.outcomes) || data.outcomes.length === 0) {
-            throw new Error('预设数据不完整: 缺少 outcomes 判定条件');
-          }
-
-          const importedVersion = data.version || '0.0.0';
-          const needsUpdate = compareVersion(importedVersion, PRESET_FORMAT_VERSION) < 0;
-
-          // 数据迁移：合并旧版 UI 字段
-          if (data.ui) {
-            if (data.ui.attributeLabel && data.attribute) data.attribute.label = data.ui.attributeLabel;
-            if (data.ui.dcLabel && data.dc) data.dc.label = data.ui.dcLabel;
-            delete data.ui;
-          }
-
+          _lastImportError = '';
+          const parseResult = parseAdvancedPresetText(jsonStr);
           // 生成新ID避免冲突
           const imported = {
-            ...data,
+            ...parseResult.preset,
             id: 'imported_' + Date.now(),
-            kind: 'advanced',
+            kind: 'advanced' as const,
             builtin: false,
             version: PRESET_FORMAT_VERSION,
             createdAt: new Date().toISOString(),
           };
 
           const result = this.createPreset(imported);
-          if (result && needsUpdate) {
+          if (result && parseResult.needsUpdate) {
             console.warn(
-              `[DICE]AdvancedDicePresetManager 导入的预设 "${result.name}" 版本较旧 (${importedVersion})，已自动更新到 ${PRESET_FORMAT_VERSION}`,
+              `[DICE]AdvancedDicePresetManager 导入的预设 "${result.name}" 版本较旧 (${parseResult.importedVersion})，已自动更新到 ${PRESET_FORMAT_VERSION}`,
             );
+          }
+          if (parseResult.tests.length > 0 || parseResult.notes.length > 0) {
+            console.info('[DICE]AdvancedDicePresetManager 已校验 AI/Agent 预设文档', {
+              presetName: result?.name,
+              sourceFormat: parseResult.sourceFormat,
+              testCount: parseResult.tests.length,
+              notes: parseResult.notes,
+            });
           }
           return result;
         } catch (e) {
+          Store.set(STORAGE_KEY_ADVANCED_PRESETS, rollbackPresets);
+          _cache = null;
+          _lastImportError = getAdvancedPresetErrorMessage(e);
           console.error('[DICE]AdvancedDicePresetManager 导入失败:', e);
           return null;
         }
+      },
+
+      getLastImportError() {
+        return _lastImportError;
       },
 
       // 清除缓存
@@ -14057,11 +14949,25 @@ ${attributeScaleStr}`;
   const evaluateCondition = (formula, context = {}) => {
     if (!formula || typeof formula !== 'string') return { success: true, value: 0 };
 
-    const functionHandlers: Record<string, { minArgs: number; maxArgs: number; apply: (args: number[]) => number }> = {
-      abs: { minArgs: 1, maxArgs: 1, apply: args => Math.abs(args[0]) },
-      floor: { minArgs: 1, maxArgs: 1, apply: args => Math.floor(args[0]) },
-      min: { minArgs: 2, maxArgs: Number.POSITIVE_INFINITY, apply: args => Math.min(...args) },
-      max: { minArgs: 2, maxArgs: Number.POSITIVE_INFINITY, apply: args => Math.max(...args) },
+    type ConditionFunctionArg = number | string;
+    const toConditionNumber = (value: ConditionFunctionArg): number =>
+      typeof value === 'number' ? value : Number(value);
+    const functionHandlers: Record<
+      string,
+      { minArgs: number; maxArgs: number; apply: (args: ConditionFunctionArg[]) => number }
+    > = {
+      abs: { minArgs: 1, maxArgs: 1, apply: args => Math.abs(toConditionNumber(args[0])) },
+      floor: { minArgs: 1, maxArgs: 1, apply: args => Math.floor(toConditionNumber(args[0])) },
+      min: {
+        minArgs: 2,
+        maxArgs: Number.POSITIVE_INFINITY,
+        apply: args => Math.min(...args.map(toConditionNumber)),
+      },
+      max: {
+        minArgs: 2,
+        maxArgs: Number.POSITIVE_INFINITY,
+        apply: args => Math.max(...args.map(toConditionNumber)),
+      },
     };
 
     // 支持 $roll.hasTag("tag")
@@ -14070,7 +14976,7 @@ ${attributeScaleStr}`;
       functionHandlers['$roll.hastag'] = {
         minArgs: 1,
         maxArgs: 1,
-        apply: (args: any[]) => {
+        apply: args => {
           const tag = String(args[0]);
           return (roll.tags ?? []).includes(tag) ? 1 : 0;
         },
@@ -14324,12 +15230,15 @@ ${attributeScaleStr}`;
       return -1;
     }
 
-    function evaluateArgumentValue(argExpr: string): { success: boolean; value?: any; error?: string } {
+    function evaluateArgumentValue(argExpr: string): { success: boolean; value?: ConditionFunctionArg; error?: string } {
       const trimmed = argExpr.trim();
       if (!trimmed) return { success: false, error: '函数参数不能为空' };
 
       // 处理字符串字面量
-      if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || trimmed.startsWith("'")) {
+      if (
+        (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+        (trimmed.startsWith("'") && trimmed.endsWith("'"))
+      ) {
         return { success: true, value: trimmed.slice(1, -1) };
       }
 
@@ -14413,7 +15322,7 @@ ${attributeScaleStr}`;
             return { success: false, error: `函数 ${name} 参数数量不合法` };
           }
 
-          const values: number[] = [];
+          const values: ConditionFunctionArg[] = [];
           for (const arg of args) {
             if (!arg) return { success: false, error: `函数 ${name} 参数不能为空` };
             const valueResult = evaluateArgumentValue(arg);
@@ -14464,6 +15373,13 @@ ${attributeScaleStr}`;
     expr = resolved.expr;
 
     return evaluateExpression(expr);
+  };
+
+  const evaluateConditionNumber = (formula: string, context: Record<string, number>, fallback = 0): number => {
+    const result = evaluateCondition(formula, context);
+    if (!result.success) return fallback;
+    if (typeof result.value === 'number' && Number.isFinite(result.value)) return result.value;
+    return result.value ? 1 : 0;
   };
 
   /**
@@ -20095,8 +21011,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       saveDiceConfig({ customDiceExpr: customExpr });
     });
 
-    // 绑定快捷预设按钮点击事件
-    panel.find('.acu-dice-quick-preset-btn').click(function () {
+    // 绑定快捷预设按钮点击事件：预设管理器会动态刷新按钮，必须用委托绑定新按钮
+    panel.on('click', '#dice-normal-presets .acu-dice-quick-preset-btn', function () {
       const presetId = $(this).data('id') as string;
 
       // 保存到 last preset
@@ -21029,8 +21945,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         attrValue = resolveDefaultValue(preset.attribute?.defaultValue, {});
       }
 
-      // 2. 解析DC (hidden 时跳过, 用户输入优先, 留空用 defaultValue)
-      let dc = 0;
+      // 2. 解析DC：显示字段用户输入优先；隐藏字段仍可用 defaultValue 作为固定常量
+      let dc =
+        preset.dc?.mode === 'fixed' && preset.dc?.value !== undefined
+          ? preset.dc.value
+          : resolveDefaultValue(preset.dc?.defaultValue, { $attr: attrValue });
       if (!preset.dc?.hidden) {
         const dcInputVal = panel.find('#dice-target').val().trim();
         if (dcInputVal !== '') {
@@ -21042,8 +21961,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         }
       }
 
-      // 3. 解析修正值 (hidden 时跳过, 用户输入优先, 留空用 defaultValue)
-      let mod = 0;
+      // 3. 解析修正值：显示字段用户输入优先；隐藏字段仍可用 defaultValue 作为固定常量
+      let mod = resolveDefaultValue(preset.mod?.defaultValue, { $attr: attrValue });
       if (!preset.mod?.hidden) {
         const modStr = panel.find('#dice-modifier').val().trim();
         if (modStr !== '') {
@@ -21053,8 +21972,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         }
       }
 
-      // 3.3 解析技能加值 (hidden 时跳过或预设未定义时跳过)
-      let skillMod = 0;
+      // 3.3 解析技能加值：显示字段用户输入优先；隐藏字段仍可用 defaultValue 作为固定常量
+      let skillMod = preset.skillMod ? resolveDefaultValue(preset.skillMod?.defaultValue, { $attr: attrValue }) : 0;
       if (preset.skillMod && !preset.skillMod.hidden) {
         const skillModStr = panel.find('#dice-skill-mod').val().trim();
         if (skillModStr !== '') {
@@ -21067,14 +21986,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       // 3.5 计算属性调整值 (DND5e等规则使用)
       let attrMod = 0;
       if ('attribute' in preset && preset.attribute?.computeModifier) {
-        // 使用 computeModifier 公式计算调整值
-        const modFormula = preset.attribute.computeModifier;
-        // 特殊处理 DND5e 调整值公式: floor(($attr - 10) / 2)
-        if (modFormula.includes('floor') && modFormula.includes('$attr')) {
-          attrMod = Math.floor((attrValue - 10) / 2);
-        } else {
-          attrMod = resolveDefaultValue(modFormula, { $attr: attrValue });
-        }
+        attrMod = evaluateConditionNumber(preset.attribute.computeModifier, { $attr: attrValue }, 0);
       }
 
       // [新增] 收集自定义字段值
@@ -21181,6 +22093,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       // 4. 投骰
       const rollResult = rollComplexDiceExpression(diceExpression);
       const rollTotal = rollResult.total;
+      if (Number.isNaN(rollTotal)) {
+        console.warn('[DICE] 高级预设骰子语法错误:', diceExpression);
+        if (window.toastr) window.toastr.error(`骰子语法错误: ${diceExpression}`);
+        return;
+      }
 
       // [新增] 投骰后重新计算派生变量（支持依赖 $roll.total 的派生变量，如 chaos = 6 - $roll.total）
       const postRollDerivedValues: Record<string, number> = {};
@@ -21224,50 +22141,20 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       let matchedOutcome: OutcomeLevel | undefined;
       let conditionExpr = '';
       let displayExprResult = true; // displayExpr 的计算结果，用于判断"成立/不成立"
+      let displayExprValue: string | number = '';
       let branchReasonText = '';
 
       if ('outcomes' in preset && Array.isArray(preset.outcomes) && preset.outcomes.length > 0) {
         // 新系统: 使用 evaluateOutcomes
         matchedOutcome = evaluateOutcomes(preset.outcomes, context);
-        // [修复] 保存原始结果，用于后续判断是否触发了 unmet
-        const originalOutcome = matchedOutcome;
-        // [修复] 保存用户要求的等级对应的 outcome，用于显示条件
-        let requiredOutcome: OutcomeLevel | undefined;
-
-        // 检查 outcomePolicy
-        if (preset.outcomePolicy?.kind === 'minRank') {
-          const requiredRankVarId = preset.outcomePolicy.requiredRankVarId;
-          // [修复] customFields 的值存储在 context 中时带有 $ 前缀
-          // 例如 requiredRankVarId='requiredRank'，但 context 中的键是 '$requiredRank'
-          const varKey = requiredRankVarId.startsWith('$') ? requiredRankVarId : `$${requiredRankVarId}`;
-          const requiredRank = context[varKey] ?? 0;
-          // [修复] 使用 rank（成功等级：0-4）而不是 contestRank（对抗等级：20-100）
-          // rank: 0=失败, 1=成功, 2=困难成功, 3=极难成功, 4=大成功
-          // requiredRank: 0=无要求, 1=成功, 2=困难成功, 3=极难成功
-          const actualRank = matchedOutcome.rank ?? 0;
-
-          // [修复] 找到用户要求的等级对应的 outcome（用于显示条件）
-          if (requiredRank > 0) {
-            requiredOutcome = preset.outcomes.find(o => o.rank === requiredRank);
-          }
-
-          // [修复] 只在 rank 1-3（成功/困难成功/极难成功）区间应用最低成功等级判定
-          // 大成功(rank=4)、大失败(rank=-1)、普通失败(rank=0) 不受影响
-          if (actualRank >= 1 && actualRank < requiredRank) {
-            const unmetOutcomeId = preset.outcomePolicy.unmetOutcomeId;
-            const fallbackOutcome = preset.outcomes.find(o => o.id === unmetOutcomeId);
-            if (fallbackOutcome) {
-              matchedOutcome = fallbackOutcome;
-            }
-          }
-        }
+        const policyResult = applyAdvancedPresetOutcomePolicy(preset, matchedOutcome, context);
+        matchedOutcome = policyResult.outcome;
 
         outcomeText = matchedOutcome.name || '判定完成';
         // 使用 displayExpr（如果有）或 condition 作为显示表达式
         // [修复] 当触发 unmet 时，显示用户要求的等级的条件（如"极难成功"的条件）
         // 这样用户能看到"你需要达到这个条件才算成功"
-        const isUnmet = matchedOutcome !== originalOutcome;
-        const displaySourceOutcome = isUnmet && requiredOutcome ? requiredOutcome : matchedOutcome;
+        const displaySourceOutcome = getAdvancedPresetDisplayOutcome(policyResult);
         const displayExpr = displaySourceOutcome.displayExpr ?? displaySourceOutcome.condition;
 
         // [修改] 替换所有上下文变量 (包括自定义变量)
@@ -21305,6 +22192,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
         // 计算 displayExpr 的布尔值（用于判断"成立/不成立"）
         const displayExprEvalResult = evaluateCondition(displayExpr, context);
+        const rawDisplayExprValue = displayExprEvalResult.value;
+        displayExprValue =
+          typeof rawDisplayExprValue === 'number' && Number.isFinite(rawDisplayExprValue)
+            ? rawDisplayExprValue
+            : conditionExpr;
         displayExprResult =
           displayExprEvalResult.success &&
           (typeof displayExprEvalResult.value === 'number'
@@ -21494,6 +22386,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         attrName: `【${attrName}】`,
         attrValue: attrValue,
         attrMod: attrModStr,
+        displayValue: displayExprValue,
         skillMod: skillModStr,
         // [新增] 条件文本变量（零值时隐藏整个片段）
         skillModText: skillModText,
@@ -24200,10 +25093,16 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const oppFormula = applyDicePatches(formula, oppCustomValues, oppDerivedValues, oppValue, oppMod, oppTarget);
 
       // 投骰（使用各自的公式）
-      var initResult = rollDice(initFormula);
-      var oppResult = rollDice(oppFormula);
-      var initRollTotal = initResult.total;
-      var oppRollTotal = oppResult.total;
+      const initResult = rollComplexDiceExpression(initFormula);
+      const oppResult = rollComplexDiceExpression(oppFormula);
+      if (Number.isNaN(initResult.total) || Number.isNaN(oppResult.total)) {
+        const errorFormula = Number.isNaN(initResult.total) ? initFormula : oppFormula;
+        console.warn('[DICE] 对抗检定骰子语法错误:', errorFormula);
+        if (window.toastr) window.toastr.error(`骰子语法错误: ${errorFormula}`);
+        return;
+      }
+      const initRollTotal = initResult.total;
+      const oppRollTotal = oppResult.total;
 
       console.log('[DICE] 对抗检定公式 - 发起方:', initFormula, '对抗方:', oppFormula);
 
@@ -24212,14 +25111,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       let oppAttrMod = 0;
       if ('attribute' in preset && preset.attribute?.computeModifier) {
         const modFormula = preset.attribute.computeModifier;
-        if (modFormula === 'floor(($attr - 10) / 2)') {
-          // DND5e 特殊处理
-          initAttrMod = Math.floor((initValue - 10) / 2);
-          oppAttrMod = Math.floor((oppValue - 10) / 2);
-        } else {
-          initAttrMod = resolveDefaultValue(modFormula, { $attr: initValue });
-          oppAttrMod = resolveDefaultValue(modFormula, { $attr: oppValue });
-        }
+        initAttrMod = evaluateConditionNumber(modFormula, { $attr: initValue }, 0);
+        oppAttrMod = evaluateConditionNumber(modFormula, { $attr: oppValue }, 0);
       }
 
       const initContext = {
@@ -24243,8 +25136,18 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         ...oppDerivedValues,
       };
 
-      const initOutcome = evaluateOutcomes(preset.outcomes, initContext);
-      const oppOutcome = evaluateOutcomes(preset.outcomes, oppContext);
+      const initOutcomeResult = applyAdvancedPresetOutcomePolicy(
+        preset,
+        evaluateOutcomes(preset.outcomes, initContext),
+        initContext,
+      );
+      const oppOutcomeResult = applyAdvancedPresetOutcomePolicy(
+        preset,
+        evaluateOutcomes(preset.outcomes, oppContext),
+        oppContext,
+      );
+      const initOutcome = initOutcomeResult.outcome;
+      const oppOutcome = oppOutcomeResult.outcome;
       const winnerSide = resolveContest(
         preset,
         initOutcome,
@@ -24377,8 +25280,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       // 构建对抗检定结果文本 (使用模板系统)
       const template = preset.contestOutputTemplate || DEFAULT_CONTEST_OUTPUT_TEMPLATE;
       // 使用 displayExpr（如果有）或 condition 作为显示表达式
-      const initDisplayExpr = initOutcome.displayExpr ?? initOutcome.condition;
-      const oppDisplayExpr = oppOutcome.displayExpr ?? oppOutcome.condition;
+      const initDisplayOutcome = getAdvancedPresetDisplayOutcome(initOutcomeResult);
+      const oppDisplayOutcome = getAdvancedPresetDisplayOutcome(oppOutcomeResult);
+      const initDisplayExpr = initDisplayOutcome.displayExpr ?? initDisplayOutcome.condition;
+      const oppDisplayExpr = oppDisplayOutcome.displayExpr ?? oppDisplayOutcome.condition;
       // 先处理 $roll.hasTag() 方法调用
       let initConditionExpr = initDisplayExpr.replace(
         /\$roll\.hasTag\s*\(\s*['"]([^'"]+)['"]\s*\)/gi,
@@ -24469,6 +25374,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         oppAttrName: oppAttrName,
         initRoll: initRollTotal,
         oppRoll: oppRollTotal,
+        initDisplayValue: initTotal,
+        oppDisplayValue: oppTotal,
         initTarget: initTarget,
         oppTarget: oppTarget,
         initSuccessName: initOutcome.name,
@@ -29696,6 +30603,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     'diceHistory',
     'diceSettings',
     'advancedPresetManager',
+    'advancedPresetEditor',
+    'attributePresetEditor',
     'attributePresetManager',
     'map',
     'relationshipGraph',
@@ -34124,7 +35033,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
               <input type="checkbox" class="acu-preset-toggle" data-id="__default__" ${isDefaultActive ? 'checked' : ''}>
               <span class="acu-toggle-slider"></span>
             </label>
-            <button class="acu-preset-btn acu-preset-copy" data-id="__default__" title="复制为自定义预设"><i class="fa-solid fa-copy"></i></button>
+            <button class="acu-preset-btn acu-preset-copy" data-id="__default__" title="复制为属性规则"><i class="fa-solid fa-copy"></i></button>
             <button class="acu-preset-btn acu-preset-export" data-id="__default__" title="导出"><i class="fa-solid fa-download"></i></button>
           </div>
         </div>
@@ -34155,7 +35064,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             </label>
             ${
               isBuiltin
-                ? `<button class="acu-preset-btn acu-preset-copy" data-id="${preset.id}" title="复制为自定义预设"><i class="fa-solid fa-copy"></i></button>`
+                ? `<button class="acu-preset-btn acu-preset-copy" data-id="${preset.id}" title="复制为属性规则"><i class="fa-solid fa-copy"></i></button>`
                 : `<button class="acu-preset-btn acu-preset-edit" data-id="${preset.id}" title="编辑"><i class="fa-solid fa-pen"></i></button>`
             }
             <button class="acu-preset-btn acu-preset-export" data-id="${preset.id}" title="导出"><i class="fa-solid fa-download"></i></button>
@@ -34174,23 +35083,23 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         <div class="acu-edit-dialog acu-attribute-preset-manager-dialog acu-theme-${config.theme}" style="width: 600px; max-width: 92vw; max-height: 80vh;">
           <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px solid var(--acu-border);">
             <div style="font-size: 16px; font-weight: bold; color: var(--acu-text-main);">
-              <i class="fa-solid fa-dice-d20"></i> 自定义属性规则管理
+              <i class="fa-solid fa-dice-d20"></i> 属性规则管理
             </div>
             <div style="display:flex; align-items:center; gap:4px;">
-              ${getTutorialButtonHtml('attributePresetManager', '查看自定义属性规则教程', 'acu-help-btn')}
+              ${getTutorialButtonHtml('attributePresetManager', '查看属性规则教程', 'acu-help-btn')}
               <button class="acu-close-btn"><i class="fa-solid fa-times"></i></button>
             </div>
           </div>
 
           <div style="flex: 1; overflow-y: auto; padding: 12px 0;">
             <div id="acu-presets-list">
-              ${allPresetsHtml || `<div style="text-align: center; padding: 40px; color: var(--acu-text-sub);">暂无预设</div>`}
+              ${allPresetsHtml || `<div style="text-align: center; padding: 40px; color: var(--acu-text-sub);">暂无属性规则</div>`}
             </div>
           </div>
 
-          <div style="display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--acu-border);">
+          <div class="acu-dialog-footer" style="display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--acu-border);">
             <button id="acu-preset-new" style="flex: 1; padding: 10px; background: var(--acu-accent); border: none; border-radius: 6px; color: var(--acu-btn-active-text); cursor: pointer; font-size: 13px;">
-              <i class="fa-solid fa-plus"></i> 新建预设
+              <i class="fa-solid fa-plus"></i> 新建属性规则
             </button>
             <button id="acu-preset-import" style="flex: 1; padding: 10px; background: var(--acu-btn-bg); border: 1px solid var(--acu-text-sub); border-radius: 6px; color: var(--acu-text-main); cursor: pointer; font-size: 13px;">
               <i class="fa-solid fa-file-import"></i> 导入
@@ -34458,9 +35367,22 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const isEdit = !!presetId;
     const existingPreset = isEdit ? AttributePresetManager.getAllPresets().find(p => p.id === presetId) : null;
 
+    const buildAttributePresetAgentPrompt = (): string => attributePresetAgentPromptTemplate;
+    const buildAttributePresetAgentPromptFilename = (presetName: string): string => {
+      const safeName =
+        presetName
+          .trim()
+          .replace(/[\\/:*?"<>|]+/g, '_')
+          .replace(/\s+/g, '_')
+          .replace(/^_+|_+$/g, '')
+          .slice(0, 60) || 'attribute_preset';
+      const datePart = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      return `acu_attribute_preset_ai_prompt_${safeName}_${datePart}.md`;
+    };
+
     // 默认值
     const defaultData = {
-      name: existingPreset?.name || '新规则预设',
+      name: existingPreset?.name || '新属性规则',
       description: existingPreset?.description || '',
       baseAttributes: existingPreset?.baseAttributes || [
         { name: '力量', formula: '3d6', range: [3, 18] },
@@ -34476,17 +35398,20 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     const overlay = $(`
       <div class="acu-edit-overlay">
-        <div class="acu-edit-dialog acu-theme-${config.theme}" style="width: 650px; max-width: 95vw; max-height: 85vh;">
+        <div class="acu-edit-dialog acu-attribute-preset-editor-dialog acu-theme-${config.theme}" style="width: 650px; max-width: 95vw; max-height: 85vh;">
           <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px solid var(--acu-border);">
             <div style="font-size: 16px; font-weight: bold; color: var(--acu-text-main);">
-              <i class="fa-solid fa-pen"></i> ${isEdit ? '编辑' : '新建'}规则预设
+              <i class="fa-solid fa-pen"></i> ${isEdit ? '编辑' : '新建'}属性规则
             </div>
-            <button class="acu-close-btn"><i class="fa-solid fa-times"></i></button>
+            <div style="display:flex; align-items:center; gap:4px;">
+              ${getTutorialButtonHtml('attributePresetEditor', '查看新建属性规则教程', 'acu-help-btn')}
+              <button class="acu-close-btn"><i class="fa-solid fa-times"></i></button>
+            </div>
           </div>
 
           <div style="flex: 1; overflow-y: auto; padding: 12px 0;">
             <div style="margin-bottom: 16px;">
-              <label style="display: block; font-size: 12px; color: var(--acu-text-sub); margin-bottom: 4px;">预设名称</label>
+              <label style="display: block; font-size: 12px; color: var(--acu-text-sub); margin-bottom: 4px;">属性规则名称</label>
               <input id="preset-name" type="text" value="${escapeHtml(defaultData.name)}" class="acu-preset-editor-input" style="width: 100%; padding: 8px; border: 1px solid var(--acu-border) !important; border-radius: 6px; background: var(--acu-input-bg) !important; color: var(--acu-text-main) !important; box-sizing: border-box;" />
             </div>
 
@@ -34496,13 +35421,23 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             </div>
 
             <div style="margin-bottom: 16px;">
-              <label style="display: block; font-size: 12px; color: var(--acu-text-sub); margin-bottom: 8px;">
-                JSON配置 <span style="font-size: 10px; color: var(--acu-text-sub);">(支持直接编辑或导入)</span>
-              </label>
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
+                <label style="display: block; font-size: 12px; color: var(--acu-text-sub);">
+                  JSON配置 <span style="font-size: 10px; color: var(--acu-text-sub);">(支持直接编辑或导入)</span>
+                </label>
+                <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                  <button id="preset-download-ai-prompt" type="button" style="padding:6px 10px; background:var(--acu-btn-bg); border:1px solid var(--acu-border); border-radius:6px; color:var(--acu-text-main); cursor:pointer; font-size:12px;">
+                    <i class="fa-solid fa-file-arrow-down"></i> 下载 AI 提示词
+                  </button>
+                  <button id="preset-validate" type="button" style="padding:6px 10px; background:var(--acu-btn-bg); border:1px solid var(--acu-border); border-radius:6px; color:var(--acu-text-main); cursor:pointer; font-size:12px;">
+                    <i class="fa-solid fa-vial-circle-check"></i> 验证配置
+                  </button>
+                </div>
+              </div>
               <textarea id="preset-json" class="acu-preset-editor-textarea" style="width: 100%; height: 320px; padding: 10px; border: 1px solid var(--acu-border) !important; border-radius: 6px; background: var(--acu-input-bg) !important; color: var(--acu-text-main) !important; font-family: 'Consolas', 'Monaco', monospace !important; font-size: 12px; resize: vertical; box-sizing: border-box;"></textarea>
             </div>
 
-            <div style="font-size: 11px; color: var(--acu-text-sub); padding: 8px; background: var(--acu-table-head); border-radius: 6px; line-height: 1.6;">
+            <div id="attribute-preset-format-help" style="font-size: 11px; color: var(--acu-text-sub); padding: 8px; background: var(--acu-table-head); border-radius: 6px; line-height: 1.6;">
               <strong>配置格式说明：</strong><br/>
               • baseAttributes: 基本属性数组，每项包含 name、formula、range、modifier(可选)<br/>
               • specialAttributes: 特别属性数组，每项包含 name、formula、range(可选)<br/>
@@ -34524,6 +35459,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     `);
 
     $('body').append(overlay);
+    bindTutorialButtonsIn(overlay);
 
     const $jsonTextarea = overlay.find('#preset-json');
 
@@ -34544,6 +35480,48 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       popModal();
     });
 
+    overlay.find('#preset-download-ai-prompt').on('click', () => {
+      const promptText = buildAttributePresetAgentPrompt();
+      const presetName = String(overlay.find('#preset-name').val() || defaultData.name || 'attribute_preset');
+      const filename = buildAttributePresetAgentPromptFilename(presetName);
+      downloadAdvancedPresetAgentPrompt(promptText, filename);
+      if (window.toastr) window.toastr.success('已下载 AI 提示词');
+    });
+
+    overlay.find('#preset-validate').on('click', () => {
+      try {
+        const name = String(overlay.find('#preset-name').val() || '').trim();
+        const jsonStr = String($jsonTextarea.val() || '').trim();
+        if (!name) {
+          if (window.toastr) window.toastr.warning('请输入属性规则名称');
+          return;
+        }
+        if (!jsonStr) {
+          if (window.toastr) window.toastr.warning('请输入 JSON 配置');
+          return;
+        }
+
+        const jsonData = JSON.parse(jsonStr);
+        if (
+          !jsonData.baseAttributes ||
+          !Array.isArray(jsonData.baseAttributes) ||
+          jsonData.baseAttributes.length === 0
+        ) {
+          if (window.toastr) window.toastr.error('基本属性不能为空');
+          return;
+        }
+
+        const specialCount = Array.isArray(jsonData.specialAttributes) ? jsonData.specialAttributes.length : 0;
+        if (window.toastr) {
+          window.toastr.success(`配置有效：${name}，基础属性 ${jsonData.baseAttributes.length} 项，特殊属性 ${specialCount} 项`);
+        }
+      } catch (err) {
+        console.error('[DICE]ACU 属性预设验证失败:', err);
+        const message = err instanceof Error ? err.message : 'JSON格式错误';
+        if (window.toastr) window.toastr.error('验证失败：' + message);
+      }
+    });
+
     // 保存
     overlay.find('#preset-save').on('click', () => {
       try {
@@ -34552,7 +35530,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const jsonStr = $jsonTextarea.val().trim();
 
         if (!name) {
-          if (window.toastr) window.toastr.warning('请输入预设名称');
+          if (window.toastr) window.toastr.warning('请输入属性规则名称');
           return;
         }
 
@@ -34882,16 +35860,21 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       .filter(p => p.visible !== false)
       .sort((a, b) => (a.order || 0) - (b.order || 0));
 
-    let html = `<button class="acu-dice-quick-preset-btn" data-id="__custom__">自定义</button>`;
+    const activePresetId = Store.get(STORAGE_KEY_ACTIVE_ADVANCED_PRESET, null) as string | null;
+    const lastPresetId = localStorage.getItem(STORAGE_KEY_LAST_PRESET);
+    const activeButtonId = activePresetId || lastPresetId || '__custom__';
+
+    let html = `<button class="acu-dice-quick-preset-btn${activeButtonId === '__custom__' ? ' active' : ''}" data-id="__custom__">自定义</button>`;
     presets.forEach(p => {
-      html += `<button class="acu-dice-quick-preset-btn" data-id="${escapeHtml(p.id)}">${escapeHtml(p.name)}</button>`;
+      const activeClass = p.id === activeButtonId ? ' active' : '';
+      html += `<button class="acu-dice-quick-preset-btn${activeClass}" data-id="${escapeHtml(p.id)}">${escapeHtml(p.name)}</button>`;
     });
 
     // 替换预设按钮区域内容
-    $panel.find('.acu-dice-quick-presets').html(html);
+    $panel.find('#dice-normal-presets').html(html);
   };
 
-  const showPresetListDialog = (options: { fromDicePanel?: boolean } = {}) => {
+  const showPresetListDialog = (options: { fromDicePanel?: boolean } = {}, pushToStack = true) => {
     const { $ } = getCore();
     $('.acu-edit-overlay').remove();
 
@@ -34899,8 +35882,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const presets = AdvancedDicePresetManager.getAllPresets();
     const fromDicePanel = options.fromDicePanel === true;
 
-    // 将当前弹窗推入栈中
-    pushModal('showPresetListDialog', () => showPresetListDialog(options));
+    // 将当前弹窗推入栈中；内部刷新列表时复用当前栈项，避免关闭时需要多次返回
+    if (pushToStack) {
+      pushModal('showPresetListDialog', () => showPresetListDialog(options));
+    }
 
     const presetsHtml = presets
       .sort((a, b) => (a.order ?? 999) - (b.order ?? 999))
@@ -34974,7 +35959,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             </button>
           </div>
 
-          <input type="file" id="acu-advanced-preset-file-input" accept=".json" style="display: none;" />
+          <input type="file" id="acu-advanced-preset-file-input" accept=".json,.jsonc,application/json,application/jsonc" style="display: none;" />
         </div>
       </div>
     `);
@@ -35000,7 +35985,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       } else {
         AdvancedDicePresetManager.updatePreset(id, { visible: !isVisible });
       }
-      showPresetListDialog({ fromDicePanel });
+      showPresetListDialog({ fromDicePanel }, false);
       refreshDicePanelPresets();
     });
 
@@ -35023,7 +36008,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       };
       AdvancedDicePresetManager.createPreset(copied);
       overlay.remove();
-      showPresetListDialog({ fromDicePanel });
+      showPresetListDialog({ fromDicePanel }, false);
       refreshDicePanelPresets();
     });
 
@@ -35056,7 +36041,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         try {
           AdvancedDicePresetManager.deletePreset(id);
           overlay.remove();
-          showPresetListDialog({ fromDicePanel });
+          showPresetListDialog({ fromDicePanel }, false);
           refreshDicePanelPresets();
         } catch (err) {
           if (window.toastr) window.toastr.error('删除失败: ' + err.message);
@@ -35104,13 +36089,16 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           const result = AdvancedDicePresetManager.importPreset(jsonStr);
           if (result) {
             overlay.remove();
-            showPresetListDialog({ fromDicePanel });
+            showPresetListDialog({ fromDicePanel }, false);
             refreshDicePanelPresets();
           } else {
-            if (window.toastr) window.toastr.error('导入失败: 格式错误');
+            const importError = AdvancedDicePresetManager.getLastImportError();
+            if (window.toastr) window.toastr.error('导入失败: ' + (importError || '格式错误'));
           }
+          (e.target as HTMLInputElement).value = '';
         } catch (err) {
-          if (window.toastr) window.toastr.error('导入失败: ' + (err.message || '未知错误'));
+          (e.target as HTMLInputElement).value = '';
+          if (window.toastr) window.toastr.error('导入失败: ' + getAdvancedPresetErrorMessage(err));
         }
       };
       reader.readAsText(file);
@@ -35280,7 +36268,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   // checkSuggestionGuide 决定“检定建议表”里 <检定规则> 展示给 AI 的提示词；删除其中任意段时会自动生成缺失段。
   // checkSuggestionAliases 决定 DSL 参数名和值的中文别名，只处理 key=value 参数，不处理角色名或属性名别名。
   "kind": "advanced",
-  "name": "自定义 CoC7 检定",
+  "name": "自定义检定预设",
   "description": "1d100 小于等于属性值成功，支持最低成功等级与奖惩骰",
   "diceExpression": "1d100",
   "attribute": {
@@ -35349,7 +36337,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   "checkSuggestionGuide": {
     "rule": "使用 CoC7 的 1d100 检定：掷 1d100，结果小于等于属性值则成功。需要更高门槛时，可写 难度=困难 或 难度=极难。",
     "dsl": "普通检定：检定 <角色> <属性> [难度=普通|困难|极难] [奖惩=奖励1|惩罚1]\\n对抗检定：对抗 <发起者> <属性> vs <对手> <属性> [难度=普通|困难|极难] [奖惩=奖励1|惩罚1]\\n固定成功：必成\\n固定失败：必败\\n无需检定：无",
-    "examples": "1. 展示文本：<user>在昏暗走廊里寻找血迹。\\n   骰子命令：检定 <user> 侦查 难度=困难\\n2. 展示文本：<user>判断陌生人是否隐瞒了仪式真相。\\n   骰子命令：对抗 <user> 心理学 vs 陌生人 话术"
+    "examples": "1. 展示文本：<user>在昏暗走廊里寻找血迹。\\n   骰子命令：检定 <user> 侦查 难度=困难\\n2. 展示文本：<user>盯紧<角色>的眼睛，尝试判断她是否隐瞒了真相。\\n   骰子命令：对抗 <user> 心理学 vs <角色> 话术"
   },
   "checkSuggestionAliases": {
     "params": {
@@ -35378,7 +36366,31 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   }
 }`;
 
-  const showAdvancedPresetEditor = (presetId = null) => {
+  const buildAdvancedPresetAgentPromptFilename = (presetName: string): string => {
+    const safeName =
+      presetName
+        .trim()
+        .replace(/[\\/:*?"<>|]+/g, '_')
+        .replace(/\s+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .slice(0, 60) || 'preset';
+    const datePart = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    return `acu_advanced_preset_ai_prompt_${safeName}_${datePart}.md`;
+  };
+
+  const downloadAdvancedPresetAgentPrompt = (content: string, filename: string): void => {
+    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const showAdvancedPresetEditor = (presetId: string | null = null) => {
     const { $ } = getCore();
     $('.acu-edit-overlay').remove();
     pushModal('showAdvancedPresetEditor', () => showAdvancedPresetEditor(presetId));
@@ -35394,12 +36406,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     const overlay = $(`
       <div class="acu-edit-overlay">
-        <div class="acu-edit-dialog acu-theme-${config.theme}" style="width: 650px; max-width: 95vw; max-height: 85vh;">
+        <div class="acu-edit-dialog acu-advanced-preset-editor-dialog acu-theme-${config.theme}" style="width: 650px; max-width: 95vw; max-height: 85vh;">
           <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px solid var(--acu-border);">
             <div style="font-size: 16px; font-weight: bold; color: var(--acu-text-main);">
               <i class="fa-solid fa-pen"></i> ${isEdit ? '编辑' : '新建'}检定设置
             </div>
-            <button class="acu-close-btn"><i class="fa-solid fa-times"></i></button>
+            <div style="display:flex; align-items:center; gap:4px;">
+              ${getTutorialButtonHtml('advancedPresetEditor', '查看新建检定设置教程', 'acu-help-btn')}
+              <button class="acu-close-btn"><i class="fa-solid fa-times"></i></button>
+            </div>
           </div>
 
           <div style="flex: 1; overflow-y: auto; padding: 12px 0;">
@@ -35414,50 +36429,71 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             </div>
 
             <div style="margin-bottom: 16px;">
-              <label style="display: block; font-size: 12px; color: var(--acu-text-sub); margin-bottom: 8px;">
-                JSONC配置 <span style="font-size: 10px; color: var(--acu-text-sub);">(支持 // 与 /* */ 注释)</span>
-              </label>
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
+                <label style="display: block; font-size: 12px; color: var(--acu-text-sub);">
+                  JSONC配置 <span style="font-size: 10px; color: var(--acu-text-sub);">(支持 AI 回复、Markdown 代码块、// 与 /* */ 注释、尾随逗号)</span>
+                </label>
+                <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                  <button id="advanced-preset-download-ai-prompt" type="button" style="padding:6px 10px; background:var(--acu-btn-bg); border:1px solid var(--acu-border); border-radius:6px; color:var(--acu-text-main); cursor:pointer; font-size:12px;">
+                    <i class="fa-solid fa-file-arrow-down"></i> 下载 AI 提示词
+                  </button>
+                  <button id="advanced-preset-validate" type="button" style="padding:6px 10px; background:var(--acu-btn-bg); border:1px solid var(--acu-border); border-radius:6px; color:var(--acu-text-main); cursor:pointer; font-size:12px;">
+                    <i class="fa-solid fa-vial-circle-check"></i> 验证配置
+                  </button>
+                </div>
+              </div>
               <textarea id="advanced-preset-json" class="acu-preset-editor-textarea" style="width: 100%; height: 400px; padding: 10px; border: 1px solid var(--acu-border) !important; border-radius: 6px; background: var(--acu-input-bg) !important; color: var(--acu-text-main) !important; font-family: 'Consolas', 'Monaco', monospace !important; font-size: 12px; resize: vertical; box-sizing: border-box;"></textarea>
             </div>
 
-            <div style="font-size: 11px; color: var(--acu-text-sub); padding: 8px; background: var(--acu-table-head); border-radius: 6px; line-height: 1.6;">
-              <strong>配置格式说明：</strong><br/>
+            <div id="advanced-preset-format-help" style="font-size: 11px; color: var(--acu-text-sub); padding: 8px; background: var(--acu-table-head); border-radius: 6px; line-height: 1.6;">
+              <div id="advanced-preset-format-help-summary" style="padding: 2px 0 6px;">
+                <strong>配置格式速查：</strong><br/>
+                <span>这里只放常用要点；完整协议请优先参考下载的 AI 提示词。</span>
+              </div>
+              <br/>
               <strong>骰子表达式 (diceExpression)</strong><br/>
               • 基础: "1d20", "3d6", "4dF" (Fate骰)<br/>
+              • 复合加减: "1d20+3", "2d6+1d4-1"<br/>
+              • 重掷: "4d6r1" (持续重掷1), "4d6ro1" (只重掷一次), "4d6r&lt;=2"<br/>
               • 保留/舍弃: "4d6kh3" (保留最高3个), "2d20kl1" (保留最低1个)<br/>
               • 成功计数: "4d6=3" (统计=3的个数), "6d10>=7" (统计≥7的个数)<br/>
               • CoC奖惩骰: "1d100b1" (奖励骰), "1d100p2" (2个惩罚骰)<br/>
-              • 爆炸骰: "4d6!" (最大值爆炸), "4d6!!" (累加爆炸)<br/>
+              • 爆炸骰: "4d6!" (最大值爆炸), "4d6!!" (累加爆炸), "4d6!>=6"<br/>
+              • 修饰符顺序: b/p → r/ro → !/!! → kh/kl/dh/dl → 成功计数<br/>
               <br/>
-              <strong>$roll 对象属性</strong><br/>
+              <strong>表达式变量</strong><br/>
               • $roll.total: 骰子结果总和（或成功计数）<br/>
-              • $roll.hasTag('nat20'): 检查是否有自然20（仅d20）<br/>
-              • $roll.hasTag('nat1'): 检查是否有自然1（仅d20）<br/>
+              • $roll.hasTag('nat20') / $roll.hasTag('nat1'): 仅 d20 自动产生<br/>
+              • $attr, $attrMod, $dc, $mod, $skillMod: 内置输入字段值<br/>
+              • $字段ID: customFields 或 derivedVars 提供的变量<br/>
               <br/>
               <strong>输入字段配置</strong><br/>
-              • attribute: 属性值 { label, placeholder, defaultValue, hidden, key? }<br/>
-              • dc: 目标值 { label, placeholder, defaultValue, hidden }<br/>
-              • mod: 修正值 { label, placeholder, defaultValue, hidden }<br/>
+              • attribute: 主属性/技能值 { label, placeholder, defaultValue, hidden, key?, computeModifier? }<br/>
+              • dc / mod / skillMod: 目标值、临时修正、技能加值；不用时设 hidden=true 和 defaultValue=0<br/>
+              • customFields: 规则专属控件；新预设优先使用 number / text / select，选项型参数用 select<br/>
+              • derivedVars: 内部数字变量；长目标值公式先放这里，再在 condition/displayExpr 中引用<br/>
               <br/>
               <strong>判定结果 (outcomes)</strong><br/>
-              • 数组，每项: { id, name, condition, priority, rank?, contestRank? }<br/>
+              • 每项必填: { id, name, condition, priority }<br/>
+              • 常用可选: rank, contestRank, displayExpr, outputText, style, effects<br/>
               • condition: 表达式如 "$roll.total >= $dc", "$roll.total == 4"<br/>
-              • priority: 数字越小越优先匹配<br/>
+              • displayExpr: 投骰按钮里的短判定式，不要放纯目标值长公式<br/>
+              • priority: 数字越小越优先匹配；兜底分支常用 condition="true" 和较大 priority<br/>
               <br/>
               <strong>高级功能</strong><br/>
-              • customFields: 自定义字段 [{ id, type, label, defaultValue, options? }]<br/>
-              • derivedVars: 派生变量 [{ id, expr }] 如 { id: "mod", expr: "floor(($attr-10)/2)" }<br/>
               • dicePatches: 条件骰子 [{ when?, op, template }]<br/>
               • contestRule: 对抗规则 { disabled?, mode, tieBreakers }<br/>
+              • outcomePolicy: 命中 outcome 后的二次裁决，例如最低成功等级<br/>
               • checkSuggestionGuide: 检定建议表中给 AI 看的规则/命令/示例<br/>
               • checkSuggestionAliases: DSL 参数名和值的中文别名<br/>
               <br/>
               <strong>输出模板变量</strong><br/>
-              • $roll, $attr, $dc, $mod, $outcomeName, $formula, $initiator 等<br/>
+              • 常用: $initiator, $attrName, $formula, $roll, $conditionExpr, $judgeResult, $outcomeName, $outcomeText<br/>
+              • 默认会输出 &lt;meta:检定结果&gt;；自定义 outputTemplate 时也必须保留这个包裹<br/>
             </div>
           </div>
 
-          <div style="display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--acu-border);">
+          <div class="acu-dialog-footer" style="display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--acu-border);">
             <button id="advanced-preset-save" style="flex: 1; padding: 10px; background: var(--acu-accent); border: none; border-radius: 6px; color: var(--acu-btn-active-text); cursor: pointer; font-size: 13px; font-weight: bold;">
               <i class="fa-solid fa-check"></i> 保存
             </button>
@@ -35470,11 +36506,25 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     `);
 
     $('body').append(overlay);
+    bindTutorialButtonsIn(overlay);
 
     const $jsonTextarea = overlay.find('#advanced-preset-json');
 
     // 初始化 JSON / JSONC
     $jsonTextarea.val(defaultJsonText);
+
+    const getEditorPresetParseOptions = (
+      name: string,
+      description: string,
+    ): { idOverride?: string; nameOverride?: string; descriptionOverride?: string } => {
+      const initialName = String(defaultData.name || '').trim();
+      const initialDescription = String(defaultData.description || '').trim();
+      return {
+        idOverride: presetId || undefined,
+        nameOverride: isEdit || name !== initialName ? name : undefined,
+        descriptionOverride: isEdit || description !== initialDescription ? description : undefined,
+      };
+    };
 
     // 关闭
     overlay.find('.acu-close-btn, #advanced-preset-cancel').on('click', () => {
@@ -35482,57 +36532,64 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       popModal();
     });
 
+    overlay.find('#advanced-preset-download-ai-prompt').on('click', () => {
+      const promptText = buildAdvancedPresetAgentPrompt();
+      const presetName = String(overlay.find('#advanced-preset-name').val() || defaultData.name || 'preset');
+      const filename = buildAdvancedPresetAgentPromptFilename(presetName);
+      downloadAdvancedPresetAgentPrompt(promptText, filename);
+      if (window.toastr) window.toastr.success('已下载 AI 提示词');
+    });
+
+    overlay.find('#advanced-preset-validate').on('click', () => {
+      try {
+        const name = String(overlay.find('#advanced-preset-name').val() || '').trim();
+        const description = String(overlay.find('#advanced-preset-desc').val() || '').trim();
+        const jsonStr = String($jsonTextarea.val() || '').trim();
+        if (!jsonStr) {
+          if (window.toastr) window.toastr.warning('请输入 JSONC 配置');
+          return;
+        }
+        const result = parseAdvancedPresetText(jsonStr, getEditorPresetParseOptions(name, description));
+        const testText = result.tests.length > 0 ? `，测试 ${result.tests.length} 条` : '';
+        if (window.toastr) {
+          window.toastr.success(`配置有效：${result.preset.name}${testText}`);
+        }
+      } catch (err) {
+        console.error('[DICE]ACU 高级预设验证失败:', err);
+        if (window.toastr) window.toastr.error(getAdvancedPresetErrorMessage(err));
+      }
+    });
+
     // 保存
     overlay.find('#advanced-preset-save').on('click', () => {
       try {
-        const name = overlay.find('#advanced-preset-name').val().trim();
-        const description = overlay.find('#advanced-preset-desc').val().trim();
-        const jsonStr = $jsonTextarea.val().trim();
+        const name = String(overlay.find('#advanced-preset-name').val() || '').trim();
+        const description = String(overlay.find('#advanced-preset-desc').val() || '').trim();
+        const jsonStr = String($jsonTextarea.val() || '').trim();
 
-        if (!name) {
+        const parseResult = parseAdvancedPresetText(jsonStr, getEditorPresetParseOptions(name, description));
+        const finalName = parseResult.preset.name || name;
+        const finalDescription = parseResult.preset.description || description;
+
+        if (!finalName) {
           if (window.toastr) window.toastr.warning('请输入预设名称');
           return;
-        }
-
-        // 解析 JSONC
-        const jsonData = JSON.parse(stripJsonComments(jsonStr));
-
-        // 校验必需字段
-        if (
-          !jsonData.diceExpression ||
-          !jsonData.outcomes ||
-          !Array.isArray(jsonData.outcomes) ||
-          jsonData.outcomes.length === 0
-        ) {
-          if (window.toastr) window.toastr.error('骰子表达式和判定结果列表(outcomes)不能为空');
-          return;
-        }
-
-        // 验证每个 outcome 必填字段
-        for (const outcome of jsonData.outcomes) {
-          if (!outcome.id || !outcome.name || outcome.condition === undefined || outcome.priority === undefined) {
-            if (window.toastr)
-              window.toastr.error(
-                `判定结果 "${outcome.name || outcome.id || '未知'}" 缺少必填字段(id, name, condition, priority)`,
-              );
-            return;
-          }
         }
 
         // 构建预设
         const preset = {
           ...(isEdit && existingPreset ? existingPreset : {}),
-          ...(isEdit ? {} : { builtin: false }),
-          ...jsonData,
+          ...parseResult.preset,
           kind: 'advanced' as const,
           version: PRESET_FORMAT_VERSION,
           id: presetId || `custom_${Date.now()}`,
-          name,
-          description,
+          builtin: false,
+          name: finalName,
+          description: finalDescription,
         };
 
         // 保存
-        if (isEdit) {
+        if (isEdit && presetId) {
           AdvancedDicePresetManager.updatePreset(presetId, preset);
         } else {
           AdvancedDicePresetManager.createPreset(preset);
@@ -35543,13 +36600,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         refreshDicePanelPresets(); // 刷新检定面板预设按钮
       } catch (err) {
         console.error('[DICE]ACU 保存高级预设失败:', err);
-        const errMsg = err instanceof Error ? err.message : '';
-        if (errMsg.includes('JSON') || errMsg.includes('position') || errMsg.includes('token')) {
-          if (window.toastr)
-            window.toastr.error('JSON格式错误：请确保所有键名和字符串值都用双引号包裹，例如 "name": "值"');
-        } else {
-          if (window.toastr) window.toastr.error('保存失败：' + (errMsg || '未知错误'));
-        }
+        if (window.toastr) window.toastr.error('保存失败：' + getAdvancedPresetErrorMessage(err));
       }
     });
 
@@ -37617,6 +38668,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     outcome: OutcomeLevel;
     conditionExpr: string;
     judgeResultText: string;
+    displayValue: string | number;
     outputVars: Record<string, string | number | boolean>;
   }
 
@@ -37644,21 +38696,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   const evaluateCheckSuggestionOutcome = (
     preset: AdvancedDicePreset,
     context: Record<string, string | number | boolean | RollResult>,
-  ): OutcomeLevel => {
-    let matchedOutcome = evaluateOutcomes(preset.outcomes, context as Record<string, number>);
-    if (preset.outcomePolicy?.kind === 'minRank') {
-      const requiredRankVarId = preset.outcomePolicy.requiredRankVarId;
-      const varKey = requiredRankVarId.startsWith('$') ? requiredRankVarId : `$${requiredRankVarId}`;
-      const requiredRankValue = context[varKey];
-      const requiredRank =
-        typeof requiredRankValue === 'number' ? requiredRankValue : parseFloat(String(requiredRankValue || 0));
-      const actualRank = matchedOutcome.rank ?? 0;
-      if (Number.isFinite(requiredRank) && actualRank >= 1 && actualRank < requiredRank) {
-        const fallbackOutcome = preset.outcomes.find(outcome => outcome.id === preset.outcomePolicy?.unmetOutcomeId);
-        if (fallbackOutcome) matchedOutcome = fallbackOutcome;
-      }
-    }
-    return matchedOutcome;
+  ): AdvancedPresetOutcomePolicyResult => {
+    const matchedOutcome = evaluateOutcomes(preset.outcomes, context as Record<string, number>);
+    return applyAdvancedPresetOutcomePolicy(preset, matchedOutcome, context);
   };
 
   const buildCheckSuggestionPresetSide = (
@@ -37708,11 +38748,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     let attrMod = 0;
     if (preset.attribute?.computeModifier) {
-      const modFormula = preset.attribute.computeModifier;
-      attrMod =
-        modFormula === 'floor(($attr - 10) / 2)'
-          ? Math.floor((attrValue - 10) / 2)
-          : resolveCheckSuggestionDefaultValue(modFormula, { $attr: attrValue });
+      attrMod = evaluateConditionNumber(preset.attribute.computeModifier, { $attr: attrValue }, 0);
     }
 
     const customValues: Record<string, string | number | boolean> = {};
@@ -37816,10 +38852,17 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       ...baseContext,
       ...postRollDerivedValues,
     };
-    const outcome = evaluateCheckSuggestionOutcome(preset, context);
-    const displayExpr = outcome.displayExpr ?? outcome.condition;
+    const outcomeResult = evaluateCheckSuggestionOutcome(preset, context);
+    const outcome = outcomeResult.outcome;
+    const displayOutcome = getAdvancedPresetDisplayOutcome(outcomeResult);
+    const displayExpr = displayOutcome.displayExpr ?? displayOutcome.condition;
     const conditionExpr = replaceCheckSuggestionConditionVars(displayExpr, context, rollResult);
     const displayExprResult = evaluateCondition(displayExpr, context as Record<string, number>);
+    const rawDisplayExprValue = displayExprResult.value;
+    const displayValue =
+      typeof rawDisplayExprValue === 'number' && Number.isFinite(rawDisplayExprValue)
+        ? rawDisplayExprValue
+        : conditionExpr;
     const judgeResultText =
       displayExprResult.success &&
       (typeof displayExprResult.value === 'number' ? displayExprResult.value !== 0 : Boolean(displayExprResult.value))
@@ -37848,6 +38891,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       outcome,
       conditionExpr,
       judgeResultText,
+      displayValue,
       outputVars,
     };
   };
@@ -37988,6 +39032,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       attrName: `【${command.attributeName}】`,
       attrValue: side.attrValue,
       attrMod: attrModStr,
+      displayValue: side.displayValue,
       skillMod: skillModStr,
       skillModText,
       modText,
@@ -38002,13 +39047,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       conditionExpr: side.conditionExpr,
       judgeResult: side.judgeResultText,
       outcomeName: outcomeText,
-      outcomeText: formatOutputTemplate(String(outcomeTextRaw), {
-        ...side.outputVars,
-        ...effectVars,
-      } as Record<string, string | number | undefined>),
+      outcomeText: outcomeTextRaw,
       ...(side.outputVars as Record<string, string | number>),
       ...(effectVars as Record<string, string | number>),
     };
+    outputContext.outcomeText = formatOutputTemplate(String(outputContext.outcomeText || ''), outputContext);
     const template = preset.outputTemplate || DEFAULT_OUTPUT_TEMPLATE;
     const diceResultText = formatOutputTemplate(template, outputContext);
     smartInsertToTextarea(diceResultText, 'dice');
@@ -38118,6 +39161,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       oppAttrName: command.rightAttribute,
       initRoll: left.rollTotal,
       oppRoll: right.rollTotal,
+      initDisplayValue: left.displayValue,
+      oppDisplayValue: right.displayValue,
       initTarget: left.dc,
       oppTarget: right.dc,
       initSuccessName: left.outcome.name,
@@ -40240,7 +41285,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                         <div class="acu-settings-group-body">
                             <div class="acu-setting-row" id="settings-row-attr-preset">
                                 <div class="acu-setting-info">
-                                    <span class="acu-setting-label"><i class="fa-solid fa-dice-d20"></i> 自定义属性规则</span>
+                                    <span class="acu-setting-label"><i class="fa-solid fa-dice-d20"></i> 属性规则</span>
                                 </div>
                                 <button id="cfg-attr-preset-manage" class="acu-setting-action-btn" style="width: 90px; padding: 6px 12px; font-size: 12px; margin-bottom: 0;">
                                     <i class="fa-solid fa-cog"></i> 管理

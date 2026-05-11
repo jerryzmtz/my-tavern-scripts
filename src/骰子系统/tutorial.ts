@@ -14,6 +14,8 @@ export type TutorialScope =
   | 'diceHistory'
   | 'diceSettings'
   | 'advancedPresetManager'
+  | 'advancedPresetEditor'
+  | 'attributePresetEditor'
   | 'attributePresetManager'
   | 'map'
   | 'relationshipGraph'
@@ -804,6 +806,119 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
       selector: '#acu-advanced-preset-import',
       title: '导入预设',
       content: '写好的检定预设 JSON 可以从这里导入。导入后会出现在列表中，并可用于普通检定或对抗检定。',
+      placement: 'top',
+    },
+  ],
+  advancedPresetEditor: [
+    {
+      selector: ['.acu-advanced-preset-editor-dialog', '#advanced-preset-json'],
+      title: '新建检定设置',
+      content:
+        '这里用于创建或编辑高级检定预设。预设会定义骰子公式、输入字段、判定分支、对抗规则、输出模板，以及检定建议表的 AI 规则说明。如果你想自定义但不想手写 JSON，推荐先下载 AI 提示词，再把它和你的规则需求一起交给 AI/Agent。',
+      placement: 'left',
+    },
+    {
+      selector: '#advanced-preset-name',
+      title: '预设名称',
+      content: '名称会显示在普通检定面板的规则按钮上，建议简短清晰，例如“CoC7“DND”。',
+      placement: 'bottom',
+    },
+    {
+      selector: '#advanced-preset-desc',
+      title: '描述',
+      content:
+        '描述会显示在预设管理列表里。',
+      placement: 'bottom',
+    },
+    {
+      selector: '#advanced-preset-download-ai-prompt',
+      title: '下载 AI 提示词',
+      content:
+        '这个按钮会下载一份.md提示词。推荐把整份提示词作为上下文交给外部 AI Agent，再附上你的规则需求、希望出现的输入项、判定分支和几个测试例子，让 AI 生成可导入的预设 JSONC。',
+      placement: 'left',
+    },
+    {
+      selector: '#advanced-preset-validate',
+      title: '验证配置',
+      content:
+        '验证只检查当前编辑区内容，不会保存。它会解析 AI 回复、Markdown 代码块和 JSONC，并提示字段、表达式或测试用例中的问题。',
+      placement: 'left',
+    },
+    {
+      selector: '#advanced-preset-json',
+      title: 'JSONC 配置',
+      content:
+        '核心配置写在这里。可以粘贴裸预设，也可以粘贴 AI 包装格式；支持注释和尾随逗号。保存时会和导入功能共用同一套解析与校验管线。',
+      placement: 'top',
+    },
+    {
+      selector: '#advanced-preset-format-help-summary',
+      title: '格式速查',
+      content:
+        '这里列出常用骰子语法、$roll 变量、输入字段、outcomes、derivedVars、dicePatches 和输出模板变量。完整协议请优先参考下载的 AI 提示词。',
+      placement: 'top',
+    },
+    {
+      selector: '#advanced-preset-save',
+      title: '保存预设',
+      content:
+        '保存会先验证配置，通过后写入自定义预设列表。保存成功后，普通检定面板会刷新并显示这套规则。',
+      placement: 'top',
+    },
+  ],
+  attributePresetEditor: [
+    {
+      selector: ['.acu-attribute-preset-editor-dialog', '#preset-json'],
+      title: '新建属性规则',
+      content:
+        '这里用于创建或编辑自定义属性预设。属性预设负责描述世界观里有哪些属性、这些属性如何生成，以及它们在表格填写提示词中应如何被使用。',
+      placement: 'left',
+    },
+    {
+      selector: '#preset-name',
+      title: '属性规则名称',
+      content: '名称会显示在属性规则管理列表里，建议写清楚规则或世界观，例如“六维属性百分制”或“DND 属性规则”。',
+      placement: 'bottom',
+    },
+    {
+      selector: '#preset-desc',
+      title: '描述',
+      content: '描述用于说明这套属性体系的用途。它只帮助你在列表里辨认预设，不参与公式计算。',
+      placement: 'bottom',
+    },
+    {
+      selector: '#preset-download-ai-prompt',
+      title: '下载 AI 提示词',
+      content:
+        '这个按钮会下载一份.md提示词。推荐把整份提示词和你的规则需求一起交给外部 AI/Agent，让它生成可粘贴到下方编辑区的属性预设 JSON。',
+      placement: 'left',
+    },
+    {
+      selector: '#preset-validate',
+      title: '验证配置',
+      content:
+        '验证只检查当前编辑区内容，不会保存。它会确认 JSON 能被解析，并检查基础属性列表是否存在且不为空。',
+      placement: 'left',
+    },
+    {
+      selector: '#preset-json',
+      title: 'JSON 配置',
+      content:
+        '核心配置写在这里。baseAttributes 是基础属性，specialAttributes 是特殊或派生属性，quickSelect 决定点击属性快捷按钮时默认填入检定面板的哪个字段。',
+      placement: 'top',
+    },
+    {
+      selector: '#attribute-preset-format-help',
+      title: '格式速查',
+      content:
+        '这里列出属性预设最常用字段。完整协议请优先参考下载的 AI 提示词；写好后保存即可出现在自定义属性预设列表中。',
+      placement: 'top',
+    },
+    {
+      selector: '#preset-save',
+      title: '保存属性规则',
+      content:
+        '保存会解析当前 JSON，并写入自定义属性预设列表。之后在属性规则管理中启用它，表格属性生成和补全就会参考这套规则。',
       placement: 'top',
     },
   ],
@@ -1862,6 +1977,7 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
     const doc = getDoc();
     const targetOverlayRoot = getTargetOverlayRoot(target);
     const dialogObstacleSelectors = [
+      '.acu-edit-dialog > .acu-dialog-footer',
       '.acu-gacha-settings-dialog > .acu-gacha-settings-footer',
       '.acu-gacha-item-editor > .acu-gacha-settings-footer',
       '.acu-edit-dialog > .acu-gacha-settings-footer',
