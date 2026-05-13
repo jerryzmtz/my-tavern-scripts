@@ -2074,7 +2074,7 @@ import {
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.8.3'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v5.75'; // 脚本版本号
+  const SCRIPT_VERSION = 'v5.76'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -41304,7 +41304,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                 <span><b>${infoCount}</b> 提示</span>
               </div>
             </div>
-            <div class="acu-template-inspection-layout" style="display:grid;grid-template-columns:220px minmax(0,1fr);gap:12px;align-items:start;">
+            <div class="acu-template-inspection-layout ${groupedIssues.length === 0 ? 'acu-template-inspection-layout-empty' : ''}" style="display:grid;grid-template-columns:220px minmax(0,1fr);gap:12px;align-items:start;">
               <div class="acu-template-inspection-tabs" style="display:flex;flex-direction:column;gap:8px;max-height:54vh;overflow:auto;padding-right:2px;">
                 ${tabHtml}
               </div>

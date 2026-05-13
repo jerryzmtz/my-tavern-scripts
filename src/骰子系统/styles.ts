@@ -5866,6 +5866,9 @@ export const MAIN_STYLES = `
                     padding: 0 0 6px 0 !important;
                     -webkit-overflow-scrolling: touch;
                 }
+                .acu-template-inspection-layout-empty {
+                    min-height: min(360px, 42dvh) !important;
+                }
                 .acu-template-inspection-tab {
                     width: auto !important;
                     min-width: 136px !important;
@@ -5899,6 +5902,26 @@ export const MAIN_STYLES = `
                     min-width: 0 !important;
                     white-space: normal !important;
                 }
+            }
+            .acu-template-inspection-layout-empty {
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                min-height: min(360px, 42vh);
+            }
+            .acu-template-inspection-layout-empty .acu-template-inspection-tabs {
+                display: none !important;
+            }
+            .acu-template-inspection-layout-empty .acu-template-inspection-panels {
+                flex: 1;
+                max-height: none !important;
+                overflow: visible !important;
+                padding-right: 0 !important;
+            }
+            .acu-template-inspection-layout-empty .acu-empty-hint {
+                width: 100%;
+                min-height: min(360px, 42vh) !important;
+                padding: 0 20px !important;
             }
             .acu-change-field-count { font-size: 11px; color: var(--acu-text-sub); margin-left: 4px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
             /* 多字段整体编辑弹窗样式 */
