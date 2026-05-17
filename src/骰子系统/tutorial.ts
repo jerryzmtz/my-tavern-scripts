@@ -6,8 +6,7 @@ export type TutorialScope =
   | 'settingsPosition'
   | 'settingsOptions'
   | 'settingsTables'
-  | 'settingsValidation'
-  | 'settingsRegex'
+  | 'settingsDicePresets'
   | 'settingsAdvanced'
   | 'dice'
   | 'contestDice'
@@ -17,13 +16,17 @@ export type TutorialScope =
   | 'advancedPresetEditor'
   | 'actionPresetManager'
   | 'actionPresetEditor'
+  | 'globalInteractions'
   | 'dashboardPresetManager'
   | 'dashboardPresetEditor'
+  | 'renderPresetManager'
+  | 'renderPresetEditor'
   | 'attributePresetEditor'
   | 'attributePresetManager'
   | 'map'
   | 'relationshipGraph'
   | 'avatarManager'
+  | 'customIconManager'
   | 'table'
   | 'optionTable'
   | 'checkSuggestionTable'
@@ -38,7 +41,7 @@ export type TutorialScope =
   | 'gachaItemEditor';
 
 type TutorialPlacement = 'top' | 'right' | 'bottom' | 'left' | 'center';
-type TutorialAction = 'prev' | 'next' | 'skip' | 'never';
+type TutorialAction = 'prev' | 'next' | 'close';
 
 interface TutorialStep {
   selector?: string | readonly string[];
@@ -109,7 +112,7 @@ const STYLE_ID = 'acu-tutorial-style';
 const OVERLAY_CLASS = 'acu-tutorial-overlay';
 const DEFAULT_STATE: TutorialState = {
   version: 1,
-  revision: 7,
+  revision: 8,
   disabled: false,
   completedScopes: [],
 };
@@ -223,46 +226,27 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     },
     {
       selector: '.acu-settings-group[data-group="layout"] .acu-settings-group-title',
-      title: '布局设置',
+      title: '布局与浏览',
       content: '这里控制导航按钮布局、表格卡片列数、滚动条等界面排布方式。',
       placement: 'bottom',
     },
     {
       selector: '.acu-settings-group[data-group="position"] .acu-settings-group-title',
-      title: '位置设置',
-      content: '这里决定前端面板出现在酒馆页面中的位置，例如嵌入、悬浮或跟随视口。',
+      title: '面板与交互',
+      content: '这里决定导航盘位置、导航盘入口、收起样式，以及聊天里的选项面板行为。',
       placement: 'bottom',
     },
     {
-      selector: '.acu-settings-group[data-group="options"] .acu-settings-group-title',
-      title: '行动选项',
-      content: '这里控制行动选项面板是否显示，以及点击选项时是直接发送还是先写入输入框。',
-      placement: 'bottom',
-    },
-    {
-      selector: '.acu-settings-group[data-group="tables"] .acu-settings-group-title',
-      title: '表格与按钮',
-      content: '这里可以隐藏或显示前端的特定功能或某个表格，也可以调整它们的顺序。',
-      placement: 'bottom',
-    },
-    {
-      selector: '.acu-settings-group[data-group="validation"] .acu-settings-group-title',
-      title: '数据验证',
+      selector: '.acu-settings-group[data-group="dicePresets"] .acu-settings-group-title',
+      title: '骰子系统预设',
       content:
-        '这里管理字段规则、只读规则和智能修复。适合用来约束 AI 填表格式，减少错误数据进入表格。如果你使用SQL表格，则几乎不需要本功能。',
-      placement: 'bottom',
-    },
-    {
-      selector: '.acu-settings-group[data-group="regex"] .acu-settings-group-title',
-      title: '正则转换',
-      content:
-        '这里管理自动文本转换规则。适合统一表格字段格式，但建议先小范围测试再长期启用。如果你遇到问题，优先尝试关闭此处的所有正则。',
+        '这里统一管理检定、属性、交互规则、仪表盘、渲染、图标、数据验证和表格正则等预设。需要导入、导出或切换规则时优先从这里进入。',
       placement: 'bottom',
     },
     {
       selector: '.acu-settings-group[data-group="advanced"] .acu-settings-group-title',
       title: '高级设置',
-      content: '这里包含检定设置、调试、缓存清理等高级功能。不了解作用时，建议保持默认配置。',
+      content: '这里保留调试、缓存清理、备份还原和模板检验等维护功能。不了解作用时，建议保持默认配置。',
       placement: 'bottom',
     },
   ],
@@ -271,7 +255,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
       selector: '.acu-settings-group[data-group="appearance"] .acu-settings-group-title',
       title: '外观样式',
       content:
-        '外观样式负责界面的整体观感。这里适合先调主题和字体，再根据阅读习惯微调界面字号、选项字号、导航栏字号和变化高亮。',
+        '外观样式负责界面的整体观感。这里适合先调主题和字体，再根据阅读习惯微调界面字号、选项字号、导航栏字号和表格更新高亮。',
       placement: 'bottom',
     },
     {
@@ -289,42 +273,34 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '#settings-row-font-main',
       title: '界面字号',
-      content:
-        '界面字号主要影响表格卡片正文、面板内容、变量/收藏夹等主体阅读区域。',
+      content: '界面字号主要影响表格卡片正文、面板内容、变量/收藏夹等主体阅读区域。',
       placement: 'left',
     },
     {
       selector: '#settings-row-font-option',
       title: '选项字号',
-      content: '行动选项有独立字号。选项文本较长时可以调小一点，想要更容易点按时可以调大。',
+      content: '选项面板有独立字号。选项文本较长时可以调小一点，想要更容易点按时可以调大。',
       placement: 'left',
     },
     {
       selector: '#settings-row-font-nav',
       title: '导航栏字号',
-      content:
-        '导航栏字号专门控制底部或顶部导航栏里的按钮文字与右侧图标按钮大小，例如导航盘的按钮大小',
+      content: '导航栏字号专门控制底部或顶部导航栏里的按钮文字与右侧图标按钮大小，例如导航盘的按钮大小',
       placement: 'left',
     },
     {
       selector: '#settings-row-highlight-new',
-      title: '变化高亮',
-      content: '开启后，表格中新出现或被修改的内容会更醒目。适合追踪 AI 最近写入了哪些新信息。',
+      title: '高亮表格更新',
+      content: '启用后，表格中新出现或被修改的内容会更醒目。适合追踪 AI 最近写入了哪些新信息。',
       placement: 'left',
     },
   ],
   settingsLayout: [
     {
       selector: '.acu-settings-group[data-group="layout"] .acu-settings-group-title',
-      title: '布局设置',
-      content: '布局设置决定界面怎样排布。这里主要影响导航按钮、表格卡片和滚动方式，适合根据屏幕宽度来调整。',
+      title: '布局与浏览',
+      content: '布局与浏览决定界面怎样排布。这里主要影响导航按钮、表格卡片和滚动方式，适合根据屏幕宽度来调整。',
       placement: 'bottom',
-    },
-    {
-      selector: '#settings-row-card-width',
-      title: '卡片宽度',
-      content: '卡片宽度会影响表格卡片和仪表盘内容的横向空间。文字经常换行时，可以适当调宽。',
-      placement: 'left',
     },
     {
       selector: '#settings-row-layout-mode',
@@ -334,45 +310,54 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     },
     {
       selector: '#settings-row-reverse-all',
-      title: '倒序显示',
-      content: '开启后，所有表格卡片都会按倒序排列，也就是最新的卡片会放在最前面。适合优先查看最近新增的记录。',
+      title: '卡片顺序',
+      content: '默认按正序显示表格卡片。选择“倒序”后，最新的卡片会放在最前面，适合优先查看最近新增的记录。',
       placement: 'left',
     },
     {
-      selector: '#settings-row-horizontal-scrollbar',
-      title: '横向滚动条',
-      content: '开启时显示横向滚动条。',
+      selector: '#settings-row-desktop-nav-aligned',
+      title: 'PC导航布局',
+      content:
+        '“紧凑”会按按钮内容自然排列，适合放下更多入口；“对齐”会使用等宽网格，让按钮边缘更整齐。列宽会跟随导航栏字号自动调整。',
+      placement: 'left',
+    },
+    {
+      selector: '#settings-row-card-width',
+      title: '卡片宽度',
+      content: '卡片宽度会影响表格卡片和仪表盘内容的横向空间。文字经常换行时，可以适当调宽。',
+      placement: 'left',
+    },
+    {
+      selector: '#settings-row-per-page',
+      title: '每页卡片数',
+      content:
+        '这里控制单个表格分页时每页显示多少条记录。数值越大，一页能看到的卡片越多；数值越小，翻页更频繁但界面更轻、更容易浏览。',
       placement: 'left',
     },
     {
       selector: '#settings-row-grid-cols',
       title: '移动端导航栏列数',
-      content: '这里控制移动端导航栏的按钮列数。列数越多，同一行能放下的入口越多；列数越少，按钮会更宽、更容易点击。选择“自动”时会根据入口数量智能分配。',
+      content:
+        '这里控制移动端导航栏的按钮列数。列数越多，同一行能放下的入口越多；列数越少，按钮会更宽、更容易点击。选择“自动”时会根据入口数量智能分配。',
       placement: 'left',
     },
     {
-      selector: '#settings-row-desktop-nav-aligned',
-      title: 'PC导航栏按钮对齐',
-      content: '开启后，PC端导航栏会使用等宽网格，让按钮边缘更整齐。默认关闭以保留紧凑排列；开启后列宽会跟随导航栏字号自动调整，字号越小越容易排出更多列。',
-      placement: 'left',
-    },
-    {
-      selector: '#settings-row-per-page',
-      title: '每页显示条数',
-      content: '这里控制单个表格分页时每页显示多少条记录。数值越大，一页能看到的卡片越多；数值越小，翻页更频繁但界面更轻、更容易浏览。',
+      selector: '#settings-row-horizontal-scrollbar',
+      title: '横向滚动条',
+      content: '横向滚动布局下，可以选择是否显示底部滚动条。',
       placement: 'left',
     },
   ],
   settingsPosition: [
     {
       selector: '.acu-settings-group[data-group="position"] .acu-settings-group-title',
-      title: '位置与交互',
-      content: '这里控制骰子系统面板出现在哪里，以及是否允许拖动、记忆位置和折叠后对齐。',
+      title: '面板与交互',
+      content: '这里控制骰子系统面板出现在哪里、导航盘入口如何管理，以及聊天选项面板如何响应点击。',
       placement: 'bottom',
     },
     {
       selector: '#settings-row-panel-position',
-      title: '面板位置',
+      title: '导航盘位置',
       content:
         '悬浮底部会把前端面板放在聊天内容底部，向上滚动查看旧消息时它也会跟着离开视野。固定底部会贴在窗口底边，无论怎么滑动聊天都一直可见。跟随消息则会把面板渲染在最新消息附近。',
       placement: 'left',
@@ -386,27 +371,45 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '#settings-row-collapse-style',
       title: '收起样式',
-      content: '收起样式决定面板隐藏后长什么样。长条更醒目，胶囊和圆钮更省空间。',
+      content: '收起样式决定面板隐藏后长什么样。长条更醒目，胶囊更省空间，浮球可以拖到屏幕内任意位置。',
+      placement: 'left',
+    },
+    {
+      selector: '#settings-row-show-options',
+      title: '选项面板',
+      content: '这里控制聊天里的选项面板，会同时读取选项表和检定建议表。',
+      placement: 'left',
+    },
+    {
+      selector: '#row-auto-send',
+      title: '点击选项后',
+      content: '“直接发送”会立刻发送行动文本；“填入输入框”会先写入输入框，适合手动调整措辞。',
+      placement: 'left',
+    },
+    {
+      selector: '#settings-row-navigation-manager',
+      title: '导航盘管理',
+      content: '点击管理后可以隐藏或显示特定表格和特殊入口，也可以拖拽调整它们在导航盘里的顺序。',
       placement: 'left',
     },
   ],
   settingsOptions: [
     {
-      selector: '.acu-settings-group[data-group="options"] .acu-settings-group-title',
-      title: '行动选项',
-      content: '行动选项会把选项表内的内容渲染成按钮，附着在最新的AI消息中。',
-      placement: 'bottom',
+      selector: '#settings-row-show-options',
+      title: '选项面板',
+      content: '选项面板会把选项表和检定建议表里的内容渲染成聊天中的快捷按钮。',
+      placement: 'left',
     },
     {
       selector: '#settings-row-show-options',
-      title: '显示行动面板',
-      content: '关闭后界面不再显示行动选项按钮。如果完全不需要选项表的话，建议从表格模板中删除选项表。',
+      title: '选项面板状态',
+      content: '禁用后聊天里不再显示选项按钮，但导航盘里的选项表和检定建议表详情页仍然可以打开。',
       placement: 'left',
     },
     {
       selector: '#row-auto-send',
-      title: '点击后发送',
-      content: '开启后点击行动选项会直接发送；关闭时只写入输入框，适合想先手动修改措辞的玩法。',
+      title: '点击选项后',
+      content: '可以选择点击后直接发送，或先填入输入框再手动修改。',
       placement: 'left',
     },
   ],
@@ -415,13 +418,13 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
       selector: '#acu-data-area.visible .acu-option-table-row',
       title: '选项表',
       content:
-        '每一行都是一个可点击的行动。点击后是直接发送，还是先写入输入框，取决于设置页“行动选项”里的“点击选项直接发送”。',
+        '每一行都是一个可点击的行动。点击后是直接发送，还是先填入输入框，取决于设置页“面板与交互”里的“点击选项后”。',
       placement: 'right',
     },
     {
       selector: '#acu-data-area.visible .acu-header-actions',
       title: '搜索与排序',
-      content: '右上角可以搜索选项、切换倒序显示、调整面板高度，或关闭当前表格。',
+      content: '右上角可以播放本表教程、切换倒序显示、搜索选项、调整面板高度，或关闭当前表格。',
       placement: 'left',
     },
   ],
@@ -436,22 +439,22 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
       selector: '#acu-data-area.visible .acu-check-suggestion-btn',
       title: '点击执行',
       content:
-        '点击建议后，系统会按骰子命令执行检定。行动文本是直接发送，还是先写入输入框，取决于设置页“行动选项”里的“点击选项直接发送”。',
+        '点击建议后，系统会按骰子命令执行检定。行动文本是直接发送，还是先填入输入框，取决于设置页“面板与交互”里的“点击选项后”。',
       placement: 'right',
     },
     {
       selector: '#acu-data-area.visible .acu-header-actions',
       title: '搜索与工具',
-      content: '右上角可以搜索建议、切换倒序显示、调整面板高度，或关闭当前表格。',
+      content: '右上角可以播放本表教程、切换倒序显示、搜索建议、调整面板高度，或关闭当前表格。',
       placement: 'left',
     },
   ],
   settingsTables: [
     {
-      selector: '.acu-settings-group[data-group="tables"] .acu-settings-group-title',
-      title: '表格管理',
-      content: '表格管理决定哪些表格和特殊入口会显示在主界面。它不修改表格数据，只调整入口是否可见和顺序。',
-      placement: 'bottom',
+      selector: '#settings-row-navigation-manager',
+      title: '导航盘管理',
+      content: '导航盘管理决定哪些表格和特殊入口会显示在主界面。它不修改表格数据，只调整入口是否可见和顺序。',
+      placement: 'left',
     },
     {
       selector: '.acu-table-manager-hint',
@@ -466,60 +469,92 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
       placement: 'bottom',
     },
   ],
-  settingsValidation: [
+  settingsDicePresets: [
     {
-      selector: '.acu-settings-group[data-group="validation"] .acu-settings-group-title',
-      title: '数据验证规则',
+      selector: '.acu-settings-group[data-group="dicePresets"] .acu-settings-group-title',
+      title: '骰子系统预设',
       content:
-        '数据验证用于约束 AI 写入表格的内容，例如只读、范围、格式和枚举。它主要服务于自然语言填表；如果你已经使用 SQL 方式稳定填表，通常不需要此功能。',
+        '这里统一管理会成套切换、导入或导出的规则配置，包括检定、属性、交互、仪表盘、渲染、图标、数据验证和表格正则。',
       placement: 'bottom',
+    },
+    {
+      selector: '#settings-row-check-preset',
+      title: '检定预设',
+      content: '检定预设决定投骰公式、输入字段、判定分支、输出模板和可能触发的效果。',
+      placement: 'left',
+    },
+    {
+      selector: '#settings-row-attribute-preset',
+      title: '属性预设',
+      content: '属性预设决定世界观中有哪些属性、属性如何生成，以及表格填写提示词如何描述这些属性。',
+      placement: 'left',
+    },
+    {
+      selector: '#settings-row-action-preset',
+      title: '交互规则预设',
+      content: '交互规则预设决定不同表格默认生成哪些快捷交互选项。',
+      placement: 'left',
+    },
+    {
+      selector: '#settings-row-dashboard-preset',
+      title: '仪表盘预设',
+      content: '仪表盘预设决定各区域用哪些表名和列名关键词抓取数据。建议导出默认预设进行参考。',
+      placement: 'left',
+    },
+    {
+      selector: '#settings-row-render-preset',
+      title: '渲染预设',
+      content:
+        '渲染预设决定表格卡片、收藏夹、仪表盘预览和 MVU 数值面板如何显示字段，也控制快捷检定按钮和正文头像渲染的标签过滤。',
+      placement: 'left',
+    },
+    {
+      selector: '#settings-row-custom-table-name-icon-manager',
+      title: '图标预设',
+      content:
+        '图标预设用于给物品、地图标记、势力等非角色对象配置替换图标。配置后会自动应用，未配置或未命中时回退默认图标。角色头像请使用头像管理；全局数据表、选项表、检定建议表等系统表不会进入这里。',
+      placement: 'left',
     },
     {
       selector: '#settings-row-validation-preset',
-      title: '验证预设',
-      content: '预设是一整套验证规则。建议先使用内置预设理解结构，再导出 JSON 作为模板进行自定义。',
+      title: '数据验证预设',
+      content: '数据验证预设是一整套验证规则，用于约束 AI 写入表格的内容。点击管理后可以切换预设、编辑规则和导入导出。',
       placement: 'left',
     },
     {
-      selector: '#settings-row-validation-preset-actions',
-      title: '预设操作',
+      selector: [
+        '#validation-preset-manager-dialog #settings-row-validation-preset-actions',
+        '#settings-row-validation-preset',
+      ],
+      title: '数据验证预设操作',
       content:
-        '这里可以复制、新建、删除、导出和导入验证预设。遇到规则异常或误改默认预设时，点击旋转箭头可以恢复默认预设规则。',
+        '这里可以复制、新建、删除、导出和导入数据验证预设。遇到规则异常或误改默认预设时，点击旋转箭头可以恢复默认预设规则。',
       placement: 'left',
     },
     {
-      selector: '#validation-rules-list',
-      title: '规则列表',
+      selector: ['#validation-preset-manager-dialog #validation-rules-list', '#settings-row-validation-preset'],
+      title: '数据验证规则',
       content: '每条规则可以单独启用、编辑或删除。规则越严格，越能保证数据稳定，但也更需要和表格结构匹配。',
-      placement: 'bottom',
-    },
-  ],
-  settingsRegex: [
-    {
-      selector: '.acu-settings-group[data-group="regex"] .acu-settings-group-title',
-      title: '正则转换规则',
-      content:
-        '正则转换会在读取或处理表格时自动替换文本，适合清理多余词、统一格式或修正常见写法。如果你使用 SQL 填表，通常不需要它。',
       placement: 'bottom',
     },
     {
       selector: '#settings-row-regex-preset',
-      title: '正则预设',
-      content: '正则预设也是高级功能。建议先导出内置 JSON，参考字段结构后再创建自己的规则集。',
+      title: '表格正则预设',
+      content: '表格正则预设用于管理自动修改数据库表格内容的正则规则。点击管理后可以切换预设、维护规则或导入酒馆正则。',
       placement: 'left',
     },
     {
-      selector: '#settings-row-regex-preset-actions',
-      title: '预设操作',
+      selector: ['#regex-preset-manager-dialog #settings-row-regex-preset-actions', '#settings-row-regex-preset'],
+      title: '表格正则预设操作',
       content:
-        '这里可以复制、新建、删除、导出、导入和恢复默认正则预设。遇到文本被误改时，先点恢复默认；如果仍有问题，就把规则列表里的正则全部关掉再排查。',
+        '这里可以复制、新建、删除、导出、导入和恢复默认表格正则预设。遇到文本被误改时，先点恢复默认；如果仍有问题，就把规则列表里的表格正则全部关掉再排查。',
       placement: 'left',
     },
     {
-      selector: '#regex-rules-list',
-      title: '转换规则',
+      selector: ['#regex-preset-manager-dialog #regex-rules-list', '#settings-row-regex-preset'],
+      title: '表格正则规则',
       content:
-        '规则会按启用状态和优先级执行。新规则最好先小范围测试；一旦发现内容被错误替换，可以先关闭对应规则或全部规则。',
+        '表格正则规则会按启用状态和优先级执行。新规则最好先小范围测试；一旦发现内容被错误替换，可以先关闭对应规则或全部规则。',
       placement: 'bottom',
     },
   ],
@@ -527,38 +562,13 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '.acu-settings-group[data-group="advanced"] .acu-settings-group-title',
       title: '高级设置',
-      content: '高级设置集中放置检定、缓存、调试等功能。不了解作用时，建议保持默认值。',
+      content: '高级设置集中放置模板检验、调试、缓存和备份等维护功能。不了解作用时，建议保持默认值。',
       placement: 'bottom',
     },
     {
-      selector: '#settings-row-attr-preset',
-      title: '自定义属性规则',
-      content:
-        '自定义属性规则会影响表格填写提示：它规定世界观中有哪些属性名、数值范围和生成概率。建议先导出内置 JSON，再参考结构自定义。',
-      placement: 'left',
-    },
-    {
-      selector: '#settings-row-dice-preset',
-      title: '检定设置',
-      content: '检定设置会进入检定预设和自定义属性预设管理，与检定页面的设置相同',
-      placement: 'left',
-    },
-    {
-      selector: '#settings-row-action-preset',
-      title: '自定义交互规则',
-      content: '自定义交互规则决定物品、角色或表格条目可生成哪些快捷操作。它同样属于高级功能，建议参考内置结构再改。',
-      placement: 'left',
-    },
-    {
-      selector: '#settings-row-dashboard-preset',
-      title: '自定义仪表盘',
-      content: '自定义仪表盘决定各区域用哪些表名和列名关键词抓取数据。建议导出默认预设进行参考。根据需要修改后再导入为自定义预设。',
-      placement: 'left',
-    },
-    {
-      selector: '#settings-row-blacklist',
-      title: '变量过滤黑名单',
-      content: '这里可以管理不想在变量面板里显示的字段，适合隐藏噪音字段或很少查看的层级。',
+      selector: '#settings-row-template-inspection',
+      title: '检验表格模板',
+      content: '检验表格模板会读取当前聊天生效的数据库模板，检查骰子系统依赖的表、列和规则标记是否齐全。',
       placement: 'left',
     },
     {
@@ -568,15 +578,22 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
       placement: 'left',
     },
     {
+      selector: '#settings-row-config-backup',
+      title: '备份与还原',
+      content:
+        '备份与还原用于导出或导入骰子系统配置，适合迁移环境、试验复杂预设前留档，或在配置异常时恢复到之前的可用版本。当前数据库表格模板也会作为可选模块一起勾选；恢复时会导入到数据库模板列表，如果已有同名模板会覆盖同名模板。',
+      placement: 'left',
+    },
+    {
       selector: '#settings-row-clear-cache',
-      title: '维护功能',
+      title: '清空本地缓存',
       content: '遇到界面显示异常、旧配置残留或资源没有刷新时，可以尝试清空本地缓存，再重新打开界面。',
       placement: 'left',
     },
     {
       selector: '#settings-row-db-toast-mute',
-      title: '屏蔽数据库弹窗',
-      content: '开启后会尽量屏蔽数据库本体弹出的提示消息，适合不想被打扰时使用。',
+      title: '数据库弹窗',
+      content: '选择“禁用”后会尽量屏蔽数据库本体弹出的提示消息，适合不想被打扰时使用。',
       placement: 'left',
     },
   ],
@@ -742,7 +759,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
       selector: ['.acu-dice-settings-dialog', '#acu-open-preset-list'],
       title: '检定设置',
       content:
-        '这里集中管理检定系统的高级选项：检定预设、自定义属性预设、疯狂模式，以及检定结果在输入栏和聊天记录中的显示方式。',
+        '这里集中管理检定系统的高级选项：检定预设、属性预设、疯狂模式，以及检定结果在输入栏和聊天记录中的显示方式。',
       placement: 'left',
     },
     {
@@ -753,9 +770,9 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     },
     {
       selector: '#dice-settings-attr-preset-row',
-      title: '自定义属性预设',
+      title: '属性预设',
       content:
-        '自定义属性预设影响表格填写提示词：它规定世界观中有哪些属性名、数值范围、每个数值范围的概率等，用来帮助生成或补全属性表格。',
+        '属性预设影响表格填写提示词：它规定世界观中有哪些属性名、数值范围、每个数值范围的概率等，用来帮助生成或补全属性表格。',
       placement: 'bottom',
     },
     {
@@ -801,7 +818,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     },
     {
       selector: '#acu-advanced-preset-new',
-      title: '新建预设',
+      title: '新建检定预设',
       content:
         '这里可以从空白模板创建一套新的检定预设。它适合已经熟悉 JSON 字段后使用；初次自定义时，更建议先复制或导出内置预设作为参考。',
       placement: 'top',
@@ -816,7 +833,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
   advancedPresetEditor: [
     {
       selector: ['.acu-advanced-preset-editor-dialog', '#advanced-preset-json'],
-      title: '新建检定设置',
+      title: '新建检定预设',
       content:
         '这里用于创建或编辑高级检定预设。预设会定义骰子公式、输入字段、判定分支、对抗规则、输出模板，以及检定建议表的 AI 规则说明。如果你想自定义但不想手写 JSON，推荐先下载 AI 提示词，再把它和你的规则需求一起交给 AI/Agent。',
       placement: 'left',
@@ -830,8 +847,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '#advanced-preset-desc',
       title: '描述',
-      content:
-        '描述会显示在预设管理列表里。',
+      content: '描述会显示在预设管理列表里。',
       placement: 'bottom',
     },
     {
@@ -857,7 +873,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     },
     {
       selector: '#advanced-preset-format-help-summary',
-      title: '格式速查',
+      title: '配置格式',
       content:
         '这里列出常用骰子语法、$roll 变量、输入字段、outcomes、derivedVars、dicePatches 和输出模板变量。完整协议请优先参考下载的 AI 提示词。',
       placement: 'top',
@@ -865,8 +881,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '#advanced-preset-save',
       title: '保存预设',
-      content:
-        '保存会先验证配置，通过后写入自定义预设列表。保存成功后，普通检定面板会刷新并显示这套规则。',
+      content: '保存会先验证配置，通过后写入自定义预设列表。保存成功后，普通检定面板会刷新并显示这套规则。',
       placement: 'top',
     },
   ],
@@ -892,29 +907,94 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     },
     {
       selector: '#acu-action-preset-new',
-      title: '新建规则',
-      content: '这里会打开交互规则编辑器。初次自定义时可以先复制内置规则，再根据需要调整关键词和动作模板。',
+      title: '新建预设',
+      content: '这里会打开交互规则预设编辑器。初次自定义时可以先复制内置预设，再根据需要调整关键词和动作模板。',
       placement: 'top',
     },
     {
       selector: '#acu-action-preset-import',
-      title: '导入规则',
+      title: '导入预设',
       content: '这里可以导入之前导出的完整交互规则预设 JSON。',
       placement: 'top',
+    },
+  ],
+  globalInteractions: [
+    {
+      selector: [
+        '.acu-global-interaction-content',
+        '#acu-data-area.visible .acu-panel-content',
+        '#acu-data-area.visible',
+      ],
+      title: '交互总览',
+      content:
+        '这里按角色、地图、通用的固定顺序展示贴紧排列的圆形格。默认只显示头像、地点图标或首字入口，适合一屏浏览更多对象。',
+      placement: 'top',
+    },
+    {
+      selector: [
+        '.acu-global-interaction-search',
+        '#acu-data-area.visible .acu-panel-content',
+        '#acu-data-area.visible',
+      ],
+      title: '搜索与筛选',
+      content: '可以输入关键词筛选对象名称、表名和动作，快速找到想执行的交互。',
+      placement: 'bottom',
+    },
+    {
+      selector: [
+        '.acu-global-interaction-group',
+        '.acu-global-interaction-content',
+        '#acu-data-area.visible .acu-panel-content',
+      ],
+      title: '图鉴分组',
+      content: '角色区继续使用头像，地图区继续使用地图图标或地点 emoji，通用区使用紧凑图标或首字占位。',
+      placement: 'left',
+    },
+    {
+      selector: [
+        '.acu-global-interaction-row',
+        '.acu-global-interaction-action',
+        '.acu-global-interaction-content',
+        '#acu-data-area.visible .acu-panel-content',
+      ],
+      title: '展开交互',
+      content:
+        '点击圆形图标按钮会弹出菜单，顶部显示 full name，下面列出交互按钮；再次点击可收起，点击其他对象会切换菜单目标。',
+      placement: 'right',
+    },
+    {
+      selector: [
+        '.acu-global-interaction-rules-btn',
+        '#acu-data-area.visible .acu-panel-content',
+        '#acu-data-area.visible',
+      ],
+      title: '管理交互规则预设',
+      content: '右上角魔杖按钮会直接打开交互规则预设管理；关闭管理弹窗后会回到当前交互总览。',
+      placement: 'left',
+    },
+    {
+      selector: [
+        '#acu-data-area.visible .acu-empty-hint',
+        '#acu-data-area.visible .acu-panel-content',
+        '#acu-data-area.visible',
+      ],
+      title: '空状态提示',
+      content:
+        '如果暂时没有内容，请先检查表格里是否添加了“交互选项”列，或者是否配置了“交互规则预设”/ interaction rules。',
+      placement: 'center',
     },
   ],
   actionPresetEditor: [
     {
       selector: ['.acu-action-preset-editor-dialog', '#action-preset-json'],
-      title: '新建交互规则',
-      content:
-        '这里用于创建或编辑交互规则。',
+      title: '新建交互规则预设',
+      content: '这里用于创建或编辑交互规则预设。',
       placement: 'left',
     },
     {
       selector: '#action-preset-name',
-      title: '规则名称',
-      content: '名称会显示在交互规则管理列表里，建议写清楚适用范围，例如“默认交互规则”。',
+      title: '预设名称',
+      content: '名称会显示在交互规则预设管理列表里，建议写清楚适用范围，例如“默认交互规则”。',
       placement: 'bottom',
     },
     {
@@ -932,15 +1012,22 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     },
     {
       selector: '#action-preset-json',
-      title: 'JSON 配置',
+      title: 'JSONC 配置',
       content:
-        '这里必须填写标准 JSON 数组。table_keywords 是表名关键词，actions 里的 label 是按钮文字，template 是点击后发送的文本，{Name} 会替换为当前条目名称。',
+        '这里填写规则数组。可以写注释和尾随逗号，保存时会转为标准 JSON。',
+      placement: 'top',
+    },
+    {
+      selector: '#action-preset-format-help',
+      title: '配置格式',
+      content:
+        '每个规则组用 table_keywords 匹配表名，用 actions 定义快捷按钮。动作的 label 必填，template 和 icon 可选；{Name} 会替换为当前条目名称。',
       placement: 'top',
     },
     {
       selector: '#action-preset-save',
-      title: '保存规则',
-      content: '保存会先执行同一套 JSON 校验，通过后写入自定义交互规则列表。',
+      title: '保存预设',
+      content: '保存会先执行同一套 JSON 校验，通过后写入交互规则预设列表。',
       placement: 'top',
     },
   ],
@@ -1016,23 +1103,31 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
       placement: 'top',
     },
     {
+      selector: '#dashboard-preset-format-help',
+      title: '配置格式',
+      content:
+        '区域名固定，tableKeywords 匹配表名，columns.keywords 匹配表头列名；relationshipGraph.sources 用来配置关系图来源。',
+      placement: 'top',
+    },
+    {
       selector: '#dashboard-preset-save',
       title: '保存预设',
       content: '保存会先走同一套解析与校验，只有通过后才会写入自定义预设列表。',
       placement: 'top',
     },
-  ],  attributePresetEditor: [
+  ],
+  attributePresetEditor: [
     {
       selector: ['.acu-attribute-preset-editor-dialog', '#preset-json'],
-      title: '新建属性规则',
+      title: '新建属性预设',
       content:
-        '这里用于创建或编辑自定义属性预设。属性预设负责描述世界观里有哪些属性、这些属性如何生成，以及它们在表格填写提示词中应如何被使用。',
+        '这里用于创建或编辑属性预设。属性预设负责描述世界观里有哪些属性、这些属性如何生成，以及它们在表格填写提示词中应如何被使用。',
       placement: 'left',
     },
     {
       selector: '#preset-name',
-      title: '属性规则名称',
-      content: '名称会显示在属性规则管理列表里，建议写清楚规则或世界观，例如“六维属性百分制”或“DND 属性规则”。',
+      title: '属性预设名称',
+      content: '名称会显示在属性预设列表里，建议写清楚规则或世界观，例如“六维属性百分制”或“DND 属性预设”。',
       placement: 'bottom',
     },
     {
@@ -1051,8 +1146,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '#preset-validate',
       title: '验证配置',
-      content:
-        '验证只检查当前编辑区内容，不会保存。它会确认 JSON 能被解析，并检查基础属性列表是否存在且不为空。',
+      content: '验证只检查当前编辑区内容，不会保存。它会确认 JSON 能被解析，并检查基础属性列表是否存在且不为空。',
       placement: 'left',
     },
     {
@@ -1064,37 +1158,104 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     },
     {
       selector: '#attribute-preset-format-help',
-      title: '格式速查',
+      title: '配置格式',
       content:
-        '这里列出属性预设最常用字段。完整协议请优先参考下载的 AI 提示词；写好后保存即可出现在自定义属性预设列表中。',
+        '这里列出属性预设最常用字段。完整协议请优先参考下载的 AI 提示词；写好后保存即可出现在属性预设列表中。',
       placement: 'top',
     },
     {
       selector: '#preset-save',
-      title: '保存属性规则',
+      title: '保存属性预设',
+      content: '保存会解析当前 JSON，并写入属性预设列表。之后在属性预设中启用它，表格属性生成和补全就会参考这套预设。',
+      placement: 'top',
+    },
+  ],
+  renderPresetManager: [
+    {
+      selector: ['.acu-render-preset-manager-dialog', '#acu-render-presets-list'],
+      title: '渲染预设管理',
       content:
-        '保存会解析当前 JSON，并写入自定义属性预设列表。之后在属性规则管理中启用它，表格属性生成和补全就会参考这套规则。',
+        '渲染预设把列名显示、属性键值对、关系拆分、短标签、badge、快捷检定过滤和正文头像渲染标签过滤整理成一套可切换配置。',
+      placement: 'left',
+    },
+    {
+      selector: '#acu-render-presets-list .acu-preset-item:first-child',
+      title: '预设列表',
+      content:
+        '列表中包含内置默认预设和自定义预设。开关用于启用某一套规则，摘要会显示启用的渲染能力、列名别名、快捷检定排除数量和正文头像渲染标签过滤状态。',
+      placement: 'right',
+    },
+    {
+      selector: '.acu-render-preset-copy',
+      title: '复制默认规则',
+      content: '内置预设不能直接编辑。需要调整列名别名或快捷检定排除词时，请先复制成自定义预设。',
+      placement: 'left',
+    },
+    {
+      selector: ['#acu-render-preset-new', '#acu-render-preset-import'],
+      title: '新建与导入',
+      content: '新建会打开 JSONC 编辑器。导入可读取之前导出的渲染预设文件。',
+      placement: 'top',
+    },
+  ],
+  renderPresetEditor: [
+    {
+      selector: ['.acu-render-preset-editor-dialog', '#render-preset-json'],
+      title: '编辑渲染预设',
+      content:
+        '这里编辑的是显示规则，不会改动真实表头、数据库内容或 AcuDice API。保存后当前表格、收藏夹、预览和 MVU 数值面板会按新规则渲染。',
+      placement: 'left',
+    },
+    {
+      selector: '#render-preset-name',
+      title: '预设名称',
+      content: '名称会显示在渲染预设管理列表中，建议写清楚它适合的表格命名风格。',
+      placement: 'bottom',
+    },
+    {
+      selector: '#render-preset-download-ai-prompt',
+      title: '下载 AI 提示词',
+      content: '这个按钮会下载一份 .md 提示词。把它和你的表格样例、字段命名、显示偏好一起交给外部 AI Agent，可生成能粘贴到编辑区的渲染预设 JSONC。',
+      placement: 'left',
+    },
+    {
+      selector: '#render-preset-validate',
+      title: '验证配置',
+      content: '验证只检查当前编辑区内容，不会保存。它会解析 JSONC，并检查规则结构是否可用。',
+      placement: 'left',
+    },
+    {
+      selector: '#render-preset-format-help',
+      title: '配置格式',
+      content:
+        '这里说明渲染预设只影响显示，并列出列名显示、空值过滤、关系拆分、属性拆分、短标签、快捷检定过滤和正文头像渲染标签过滤这些主要配置。',
+      placement: 'top',
+    },
+    {
+      selector: '#render-preset-save',
+      title: '保存规则',
+      content: '保存后会写入自定义渲染预设。真实列名和表格数据不会被修改。',
       placement: 'top',
     },
   ],
   attributePresetManager: [
     {
       selector: ['.acu-attribute-preset-manager-dialog', '#acu-presets-list'],
-      title: '自定义属性规则管理',
+      title: '属性预设',
       content:
-        '自定义属性预设用于影响表格填写提示词，不直接决定检定成败。它会告诉系统世界观里有哪些属性名、属性范围和取值概率。',
+        '属性预设用于影响表格填写提示词，不直接决定检定成败。它会告诉系统世界观里有哪些属性名、属性范围和取值概率。',
       placement: 'left',
     },
     {
       selector: '#acu-presets-list .acu-preset-item:first-child',
       title: '属性预设列表',
-      content: '这里列出默认、内置和自定义属性预设。开启某个预设后，表格属性生成和补全会优先参考这套属性规则。',
+      content: '这里列出默认、内置和导入的属性预设。开启某个预设后，表格属性生成和补全会优先参考这套属性预设。',
       placement: 'right',
     },
     {
       selector: '#acu-presets-list .acu-preset-item:first-child .acu-toggle',
       title: '启用规则',
-      content: '每次只能启用一套属性预设。关闭当前预设会回到默认的六维属性百分制。',
+      content: '每次只能启用一套属性预设。关闭正在启用的预设会回到默认的六维属性百分制。',
       placement: 'left',
     },
     {
@@ -1108,14 +1269,14 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
       selector: '#acu-preset-import',
       title: '导入预设',
       content:
-        '将自定义属性预设 JSON 导入后，就可以在这里启用。它会影响属性表格填写提示词，但不会替代检定预设的成功失败规则。',
+        '将属性预设 JSON 导入后，就可以在这里启用。它会影响属性表格填写提示词，但不会替代检定预设的成功失败规则。',
       placement: 'top',
     },
     {
       selector: ['#acu-open-preset-list', '#acu-preset-back'],
       title: '两类预设的关系',
       content:
-        '简单区分：检定预设负责“怎么判定成功或失败”；自定义属性预设负责“世界观里有哪些属性，以及表格该如何填写这些属性”。两者可以配合使用，但职责不同。',
+        '简单区分：检定预设负责“怎么判定成功或失败”；属性预设负责“世界观里有哪些属性，以及表格该如何填写这些属性”。两者可以配合使用，但职责不同。',
       placement: 'top',
     },
   ],
@@ -1265,6 +1426,33 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
       placement: 'top',
     },
   ],
+  customIconManager: [
+    {
+      selector: '.acu-custom-icon-guide-top',
+      title: '图标预设管理',
+      content: '这个界面用于管理图标预设，给物品、地图标记、势力等非角色对象配置图标；角色头像和别名请使用头像管理。',
+      placement: 'bottom',
+    },
+    {
+      selector: '#acu-custom-icon-list .acu-avatar-item:first-child',
+      title: '映射条目',
+      content: '左侧列表显示当前可配置的对象。带有本地或 URL 标记的条目表示已经配置过图标预设映射。',
+      placement: 'right',
+    },
+    {
+      selector: '.acu-custom-icon-detail-form',
+      title: '编辑图标',
+      content:
+        '右侧显示当前条目的来源、URL 输入框和本地图片状态。保存时会优先使用刚上传的本地图片；没有本地图片时才保存 URL。',
+      placement: 'left',
+    },
+    {
+      selector: '.acu-custom-icon-detail-actions',
+      title: '保存与清理',
+      content: '右下角可以保存当前输入、上传本地图片、清空输入框或删除已有映射。本地上传的图片优先级高于 URL。',
+      placement: 'top',
+    },
+  ],
   table: [
     {
       selector: [
@@ -1286,7 +1474,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
       ],
       title: '互动功能',
       content:
-        '部分卡片底部会出现互动按钮。系统会根据表格名、列名或内容关键字匹配不同选项，例如地点表可能出现前往、探索、停留；没有匹配规则的表格则不会显示。互动选项可以在设置页的高级设置中修改。',
+        '部分卡片底部会出现互动按钮。系统会根据表格名、列名或内容关键字匹配不同选项，例如地点表可能出现前往、探索、停留；没有匹配规则的表格则不会显示。互动选项可以在设置页的骰子系统预设中修改。',
       placement: 'top',
     },
     {
@@ -1297,7 +1485,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
       ],
       title: '右上角工具',
       content:
-        '这里集中放置表格常用功能：播放本界面教程、切换排序或视图、调整面板高度、搜索和关闭。角色、地图、物品等表格还会出现对应的专用按钮。',
+        '这里集中放置表格常用功能：播放本界面教程、打开表格专用入口、切换排序或视图、搜索、调整面板高度和关闭。角色、地图、物品等表格会按需出现对应的专用按钮。',
       placement: 'left',
     },
   ],
@@ -1673,7 +1861,8 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '.acu-gacha-shard-item-card:first-child .acu-gacha-shard-buy-btn',
       title: '兑换按钮',
-      content: '左侧价格按钮会显示兑换需要的碎片数量。点击后会弹出确认框，确认后奖励会写入物品表或装备表并扣除对应碎片。',
+      content:
+        '左侧价格按钮会显示兑换需要的碎片数量。点击后会弹出确认框，确认后奖励会写入物品表或装备表并扣除对应碎片。',
       placement: 'bottom',
     },
   ],
@@ -1709,7 +1898,7 @@ const markCompleted = (state: TutorialState, scope: TutorialScope): TutorialStat
 };
 
 const isTutorialAction = (action: string | undefined): action is TutorialAction =>
-  action === 'prev' || action === 'next' || action === 'skip' || action === 'never';
+  action === 'prev' || action === 'next' || action === 'close';
 
 const getSelectors = (step: TutorialStep): readonly string[] => {
   if (!step.selector) return [];
@@ -1783,8 +1972,8 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
         border: 2px solid var(--acu-accent, #3b82f6);
         border-radius: 10px;
         box-shadow: 0 0 0 6px color-mix(in srgb, var(--acu-accent, #3b82f6) 24%, transparent);
-        transition: transform 0.18s ease, width 0.18s ease, height 0.18s ease, opacity 0.12s ease;
-        will-change: transform, width, height;
+        transition: transform 0.18s ease, opacity 0.12s ease;
+        will-change: transform, opacity;
         z-index: 2;
         pointer-events: none;
         contain: layout paint style;
@@ -1792,10 +1981,11 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
       .acu-tutorial-popover {
         position: fixed;
         width: min(320px, calc(100vw - 28px));
+        box-sizing: border-box;
         background: var(--acu-bg-panel, #fff);
         color: var(--acu-text-main, #222);
         border: 1px solid var(--acu-border, rgba(0, 0, 0, 0.18));
-        border-radius: 8px;
+        border-radius: 10px;
         box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
         overflow: hidden;
         z-index: 3;
@@ -1809,9 +1999,48 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
         border-bottom: 1px solid var(--acu-border, rgba(0, 0, 0, 0.14));
         font-weight: 700;
         font-size: 14px;
+        line-height: 1.35;
+        min-width: 0;
       }
       .acu-tutorial-head i {
         color: var(--acu-accent, #3b82f6);
+        flex: 0 0 auto;
+      }
+      .acu-tutorial-title {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+      .acu-tutorial-close {
+        width: 28px;
+        height: 28px;
+        border: 1px solid transparent;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--acu-text-sub, #666);
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 auto;
+        padding: 0;
+        touch-action: manipulation;
+        transition:
+          background-color 0.16s ease-out,
+          color 0.16s ease-out,
+          border-color 0.16s ease-out,
+          box-shadow 0.16s ease-out;
+      }
+      .acu-tutorial-close i {
+        color: inherit;
+      }
+      .acu-tutorial-close:hover,
+      .acu-tutorial-close:focus-visible {
+        background: var(--acu-btn-bg, rgba(0, 0, 0, 0.06));
+        border-color: var(--acu-border, rgba(0, 0, 0, 0.16));
+        color: var(--acu-text-main, #222);
+        outline: none;
+        box-shadow: var(--acu-focus-ring, 0 0 0 2px rgba(59, 130, 246, 0.22));
       }
       .acu-tutorial-body {
         padding: 13px 14px 12px;
@@ -1826,7 +2055,7 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
       }
       .acu-tutorial-actions {
         display: grid;
-        grid-template-columns: auto auto 1fr auto;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 8px;
         align-items: center;
         padding: 10px 12px;
@@ -1842,24 +2071,48 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
         color: var(--acu-text-main, #222);
         cursor: pointer;
         font-size: 12px;
+        line-height: 1.25;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        min-width: 0;
+        white-space: nowrap;
+        touch-action: manipulation;
+        transition:
+          background-color 0.16s ease-out,
+          color 0.16s ease-out,
+          border-color 0.16s ease-out,
+          box-shadow 0.16s ease-out;
       }
-      .acu-tutorial-btn:hover {
+      .acu-tutorial-btn:hover,
+      .acu-tutorial-btn:focus-visible {
         background: var(--acu-btn-hover, rgba(0, 0, 0, 0.1));
+        border-color: var(--acu-border, rgba(0, 0, 0, 0.22));
+        outline: none;
+        box-shadow: var(--acu-focus-ring, 0 0 0 2px rgba(59, 130, 246, 0.22));
       }
       .acu-tutorial-btn.primary {
         background: var(--acu-accent, #3b82f6);
         border-color: var(--acu-accent, #3b82f6);
-        color: var(--acu-button-text-on-accent, #fff);
+        color: var(--acu-btn-active-text, var(--acu-button-text-on-accent, #fff));
         font-weight: 700;
       }
-      .acu-tutorial-btn.ghost {
-        border-color: transparent;
-        background: transparent;
-        color: var(--acu-text-sub, #666);
+      .acu-tutorial-btn.primary:hover,
+      .acu-tutorial-btn.primary:focus-visible {
+        background: var(--acu-accent, #3b82f6);
+        border-color: var(--acu-accent, #3b82f6);
+        opacity: 0.92;
       }
       .acu-tutorial-btn:disabled {
         opacity: 0.45;
         cursor: not-allowed;
+        box-shadow: none;
+      }
+      .acu-tutorial-btn:disabled:hover {
+        background: var(--acu-btn-bg, rgba(0, 0, 0, 0.06));
+        border-color: var(--acu-border, rgba(0, 0, 0, 0.16));
+        color: var(--acu-text-main, #222);
       }
       @media (max-width: 640px) {
         .acu-tutorial-popover {
@@ -1885,11 +2138,8 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
           font-size: 13px;
         }
         .acu-tutorial-actions {
-          grid-template-columns: 1fr 1fr;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
           gap: 8px;
-        }
-        .acu-tutorial-btn.ghost {
-          grid-column: span 1;
         }
         .acu-tutorial-btn {
           min-height: 38px;
@@ -2123,7 +2373,7 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
   const getTargetOverlayRoot = (target?: HTMLElement | null): HTMLElement | null => {
     if (!target) return null;
     const root = target.closest(
-      '.acu-edit-overlay, .acu-inventory-detail-overlay, .acu-import-confirm-overlay, .mvu-edit-overlay',
+      '.acu-edit-overlay, .acu-avatar-manager-overlay, .acu-inventory-detail-overlay, .acu-import-confirm-overlay, .mvu-edit-overlay',
     );
     return root instanceof getWin().HTMLElement ? root : null;
   };
@@ -2222,7 +2472,8 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
     const safeRect = getTargetSafeRect(getCurrentPopoverRect(), target);
     const rect = target.getBoundingClientRect();
     const horizontalMargin = 4;
-    const hasHorizontalPresence = rect.right >= safeRect.left + horizontalMargin && rect.left <= safeRect.right - horizontalMargin;
+    const hasHorizontalPresence =
+      rect.right >= safeRect.left + horizontalMargin && rect.left <= safeRect.right - horizontalMargin;
     const hasVerticalPresence =
       rect.height > safeRect.height
         ? rect.bottom >= safeRect.top && rect.top <= safeRect.bottom
@@ -2494,17 +2745,22 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
     popover.innerHTML = `
       <div class="acu-tutorial-head">
         <i class="fa-solid fa-circle-question"></i>
-        <span>${escapeHtml(step.title)}</span>
+        <span id="acu-tutorial-title" class="acu-tutorial-title">${escapeHtml(step.title)}</span>
+        <button type="button" class="acu-tutorial-close" data-action="close" title="关闭教程" aria-label="关闭教程">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
       </div>
-      <div class="acu-tutorial-body">
+      <div id="acu-tutorial-body" class="acu-tutorial-body">
         <div>${escapeHtml(step.content)}</div>
         <div class="acu-tutorial-progress">${activeTutorial.index + 1} / ${activeTutorial.steps.length}</div>
       </div>
       <div class="acu-tutorial-actions">
-        <button class="acu-tutorial-btn" data-action="prev" ${isFirst ? 'disabled' : ''}>上一步</button>
-        <button class="acu-tutorial-btn ghost" data-action="skip">跳过</button>
-        <button class="acu-tutorial-btn ghost" data-action="never">不再显示</button>
-        <button class="acu-tutorial-btn primary" data-action="next">${nextText}</button>
+        <button type="button" class="acu-tutorial-btn" data-action="prev" ${isFirst ? 'disabled' : ''}>
+          <i class="fa-solid fa-arrow-left"></i><span>上一步</span>
+        </button>
+        <button type="button" class="acu-tutorial-btn primary" data-action="next">
+          <span>${nextText}</span><i class="fa-solid ${isLast ? 'fa-check' : 'fa-arrow-right'}"></i>
+        </button>
       </div>
     `;
     scheduleTargetIntoView();
@@ -2532,12 +2788,7 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
   const getActionTarget = (target: EventTarget | null): HTMLElement | null => {
     if (!target) return null;
     const win = getWin();
-    const element =
-      target instanceof win.Element
-        ? target
-        : target instanceof win.Node
-          ? target.parentElement
-          : null;
+    const element = target instanceof win.Element ? target : target instanceof win.Node ? target.parentElement : null;
     const actionTarget = element?.closest('[data-action]');
     return actionTarget instanceof win.HTMLElement ? actionTarget : null;
   };
@@ -2547,11 +2798,8 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
       goTo(-1);
     } else if (action === 'next') {
       goTo(1);
-    } else if (action === 'skip') {
+    } else if (action === 'close') {
       closeInternal(true);
-    } else if (action === 'never') {
-      saveState({ ...markCompleted(getState(), activeTutorial?.scope || 'core'), disabled: true });
-      closeInternal(false);
     }
   };
 
@@ -2595,6 +2843,10 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
     highlight.className = 'acu-tutorial-highlight';
     popover = doc.createElement('div');
     popover.className = 'acu-tutorial-popover';
+    popover.setAttribute('role', 'dialog');
+    popover.setAttribute('aria-modal', 'true');
+    popover.setAttribute('aria-labelledby', 'acu-tutorial-title');
+    popover.setAttribute('aria-describedby', 'acu-tutorial-body');
     popover.style.visibility = 'hidden';
     overlay.append(blocker, maskSvg, highlight, popover);
     doc.body.appendChild(overlay);

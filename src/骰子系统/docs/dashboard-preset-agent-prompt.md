@@ -10,6 +10,7 @@
 - `format` 必须写 `acu_dashboard_preset_v1`。
 - `modules` 只能包含普通模块 `global`、`player`、`location`、`npc`、`quest`、`bag`、`equip`，以及关系图模块 `relationshipGraph`。
 - 编辑器也接受仅含 `modules` 的裸对象，但为了便携性，最终输出请使用 `{ "format": "acu_dashboard_preset_v1", "name": string, "description": string, "modules": { ... } }` 包装对象。
+- 不要输出 `version`、`id`、`builtin`、`createdAt`、`updatedAt`、`rules`、`layout`、`render`、`display`、`tests`、`notes`。
 
 ## 这个预设能改变什么
 
@@ -28,6 +29,12 @@
 | `tableKeywords` | 字符串数组。表名包含任一关键词时会被对应模块抓取。 |
 | `columns` | 对象。每个字段配置一组列名关键词。 |
 | `filters` | 对象。当前只允许 `equip.equipped`。 |
+
+普通模块只能写 `tableKeywords`、`columns`、`filters`。不要写 `sources`、`title`、`icon`、`sort`、`limit`、`layout`、`visible` 或自定义模块属性。
+
+- `tableKeywords` 必须是非空字符串数组。
+- `columns` 的键必须来自下方允许列清单。
+- `filters` 只能写在 `equip` 模块里，且唯一允许的过滤器名是 `equipped`。
 
 `columns` 里的每一项只能写：
 
@@ -88,6 +95,8 @@
 
 `quest.priority` 是当前唯一允许的额外列。它可用于识别重要程度、紧急程度或优先级，但不会让预设添加新的任务布局。
 
+不要写 `quest.deadline`、`quest.reward`、`quest.owner`、`quest.active` 或任务过滤器；当前预设只允许加 `priority` 列关键词。
+
 ### bag
 
 物品区。用于背包、库存、储物袋、持有物品。
@@ -116,9 +125,23 @@
 | `excludeColumn` | 可选，必须引用 `equip.columns` 中存在的字段。 |
 | `excludes` | 可选，表示要排除的文本。 |
 
+过滤器正面例子：
+
+```jsonc
+"filters": {
+  "equipped": {
+    "column": "isEquipped",
+    "includes": ["已装备", "装备中"],
+    "excludes": ["未装备", "损坏"]
+  }
+}
+```
+
 ## relationshipGraph
 
 `relationshipGraph` 用来配置人物关系图的数据来源。它不属于普通模块，不写 `tableKeywords` 或 `columns`，只写 `sources`。
+
+`relationshipGraph` 只能写 `sources`。不要写 `tableKeywords`、`columns`、`filters`、`nodes`、`edges`、`layout`、`style` 或自定义图谱数据。
 
 每个来源包含：
 
@@ -134,6 +157,17 @@
 
 `relationList` 适合“关系列里列出多个对象”的表，例如 `张三:好友;李四:敌对`。这种模式通常不需要 `target`。
 
+关系图来源正面例子：
+
+```jsonc
+{
+  "mode": "relationList",
+  "tableKeywords": ["重要人物表", "人物关系表"],
+  "nameColumn": ["姓名", "名称"],
+  "relationColumn": ["人际关系", "关系网"]
+}
+```
+
 ## 编写建议
 
 - 优先保留默认模块名，不要发明新的模块。
@@ -142,6 +176,16 @@
 - 表名关键词宜短且稳定，例如“恋爱对象”“装扮表”“备忘录”。
 - 列名关键词应覆盖常见写法，例如“当前状态”“状态”“是否装备”。
 - 如果用户想改界面呈现，请在脑内转换成可支持的表格关键词或列关键词；最终 JSONC 里不要写不支持的键。
+- 不要输出 `skill`、`ability`、`custom`、`relationship` 等未列模块；即使世界观里有技能表，仪表盘预设目前也不能新增技能区。
+
+## 生成前检查
+
+- 顶层只有 `format`、`name`、`description`、`modules`。
+- `modules` 至少包含一个区域。
+- 普通模块名只来自 `global`、`player`、`location`、`npc`、`quest`、`bag`、`equip`。
+- 普通模块的 `columns` 只使用该模块允许列；所有 `keywords` 都是非空字符串数组。
+- `relationshipGraph.sources[].mode` 只能是 `fixedTarget` 或 `relationList`。
+- 没有任何布局、颜色、CSS、排序、分页或自定义卡片配置。
 
 ## 示例
 

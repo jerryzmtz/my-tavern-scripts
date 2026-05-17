@@ -394,7 +394,7 @@ if (preset) {
 const activeId = AcuDice.getActivePresetId();
 if (activeId) {
   const preset = AcuDice.getPresetSummary(activeId);
-  console.log('当前预设:', preset?.name);
+  console.log('激活预设:', preset?.name);
 }
 ```
 
