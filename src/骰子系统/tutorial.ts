@@ -8,6 +8,7 @@ export type TutorialScope =
   | 'settingsTables'
   | 'settingsDicePresets'
   | 'settingsAdvanced'
+  | 'configBackup'
   | 'dice'
   | 'contestDice'
   | 'diceHistory'
@@ -595,6 +596,69 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
       title: '数据库弹窗',
       content: '选择“禁用”后会尽量屏蔽数据库本体弹出的提示消息，适合不想被打扰时使用。',
       placement: 'left',
+    },
+  ],
+  configBackup: [
+    {
+      selector: '.acu-config-backup-dialog',
+      title: '备份与还原',
+      content:
+        '这里用于导出或恢复骰子系统配置。适合换设备、换聊天环境、尝试复杂预设前留档，或配置异常时回到之前可用的状态。',
+      placement: 'left',
+    },
+    {
+      selector: '.acu-config-backup-header-actions .acu-config-backup-tutorial-btn',
+      title: '重播教程',
+      content: '右上角问号可以随时重播本教程；关闭按钮只关闭当前弹窗，不会修改任何配置。',
+      placement: 'left',
+    },
+    {
+      selector: '.acu-config-backup-privacy-notice',
+      title: '先看风险提示',
+      content:
+        '备份文件可能包含角色别名、偏好、表格规则、头像或外链资源。公开分享前请先打开 JSON 检查；恢复外来备份前也要确认来源可信。',
+      placement: 'bottom',
+    },
+    {
+      selector: '.acu-config-backup-module-list',
+      title: '选择模块',
+      content:
+        '每一行是一类可迁移配置。只勾选你需要带走或恢复的模块；不确定时可以先保留默认勾选，再按模块说明缩小范围。',
+      placement: 'left',
+    },
+    {
+      selector: '.acu-config-backup-selection-actions',
+      title: '批量选择',
+      content: '全选、反选和清空选择只影响当前列表勾选状态，不会立刻导出或恢复。',
+      placement: 'left',
+    },
+    {
+      selector: '.acu-config-backup-summary-grid',
+      title: '备份摘要',
+      content:
+        '导入备份文件后，这里会显示导出时间、可恢复模块和项目数量。恢复前先核对版本和内容规模，避免拿错文件。',
+      placement: 'bottom',
+    },
+    {
+      selector: '.acu-config-backup-template-notice',
+      title: '数据库模板',
+      content:
+        '如果备份里包含数据库表格模板，恢复时会导入到数据库模板列表；已有同名模板会被覆盖，操作前请确认当前模板是否需要先另存。',
+      placement: 'bottom',
+    },
+    {
+      selector: '#acu-config-backup-pick-file',
+      title: '导入备份',
+      content:
+        '点击导入选择之前导出的 JSON 文件。文件读取成功后，弹窗会切换到恢复模式，你可以再次勾选要恢复的模块。',
+      placement: 'top',
+    },
+    {
+      selector: ['#acu-config-backup-export', '#acu-config-backup-apply'],
+      title: '确认操作',
+      content:
+        '导出会下载当前勾选模块的备份文件；恢复会合并或覆盖对应本地配置，并在确认弹窗中再次列出风险。请在确认前检查勾选项。',
+      placement: 'top',
     },
   ],
   dice: [
@@ -2373,7 +2437,7 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
   const getTargetOverlayRoot = (target?: HTMLElement | null): HTMLElement | null => {
     if (!target) return null;
     const root = target.closest(
-      '.acu-edit-overlay, .acu-avatar-manager-overlay, .acu-inventory-detail-overlay, .acu-import-confirm-overlay, .mvu-edit-overlay',
+      '.acu-edit-overlay, .acu-avatar-manager-overlay, .acu-inventory-detail-overlay, .acu-import-confirm-overlay, .acu-config-backup-overlay, .mvu-edit-overlay',
     );
     return root instanceof getWin().HTMLElement ? root : null;
   };
@@ -2386,6 +2450,7 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
       '.acu-gacha-settings-dialog > .acu-gacha-settings-footer',
       '.acu-gacha-item-editor > .acu-gacha-settings-footer',
       '.acu-edit-dialog > .acu-gacha-settings-footer',
+      '.acu-config-backup-dialog > .acu-config-backup-footer',
     ];
     const globalObstacleSelectors = [
       '.acu-wrapper.acu-mode-viewport #acu-nav-bar',

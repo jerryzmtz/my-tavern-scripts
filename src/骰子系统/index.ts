@@ -37030,6 +37030,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
               </div>
             </div>
             <div class="acu-config-backup-header-actions">
+              ${getTutorialButtonHtml('configBackup', '查看备份与还原教程', 'acu-config-backup-tutorial-btn')}
               <button type="button" class="acu-config-backup-close acu-close-btn" title="关闭" aria-label="关闭备份与还原"><i class="fa-solid fa-times"></i></button>
             </div>
           </div>
@@ -37049,6 +37050,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     const closeDialog = () => dialog.remove();
     $('body').append(dialog);
+    bindTutorialButtonsIn(dialog);
     setupOverlayClose(dialog, 'acu-config-backup-overlay', closeDialog);
     dialog.on('click', '.acu-config-backup-close', closeDialog);
     dialog.on('click', '#acu-config-backup-cancel', closeDialog);
@@ -37168,6 +37170,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     'settingsTables',
     'settingsDicePresets',
     'settingsAdvanced',
+    'configBackup',
     'dice',
     'contestDice',
     'diceHistory',
@@ -50409,10 +50412,24 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     wrapper.style.setProperty('width', `${FLOATING_COLLAPSE_SIZE}px`, 'important');
     wrapper.style.setProperty('max-width', `${FLOATING_COLLAPSE_SIZE}px`, 'important');
     wrapper.style.setProperty('height', `${FLOATING_COLLAPSE_SIZE}px`, 'important');
+    wrapper.style.setProperty('display', 'block', 'important');
+    wrapper.style.setProperty('visibility', 'visible', 'important');
+    wrapper.style.setProperty('opacity', '1', 'important');
     wrapper.style.setProperty('margin', '0', 'important');
     wrapper.style.setProperty('transform', 'none', 'important');
+    wrapper.style.setProperty('overflow', 'visible', 'important');
     wrapper.style.setProperty('pointer-events', 'none', 'important');
     wrapper.style.setProperty('z-index', '31030', 'important');
+
+    const expandTrigger = wrapper.querySelector<HTMLElement>('.acu-expand-trigger.acu-col-floating');
+    if (expandTrigger) {
+      expandTrigger.style.setProperty('display', 'flex', 'important');
+      expandTrigger.style.setProperty('visibility', 'visible', 'important');
+      expandTrigger.style.setProperty('opacity', '1', 'important');
+      expandTrigger.style.setProperty('pointer-events', 'auto', 'important');
+      expandTrigger.style.setProperty('width', `${FLOATING_COLLAPSE_SIZE}px`, 'important');
+      expandTrigger.style.setProperty('height', `${FLOATING_COLLAPSE_SIZE}px`, 'important');
+    }
 
     if (persist) {
       saveConfig({ floatingCollapsePosition: nextPosition });
@@ -51058,7 +51075,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         mutationLock = true;
         requestAnimationFrame(() => {
           const config = getConfig();
-          if (config.positionMode === 'embedded' || config.positionMode === 'viewport') {
+          if (config.positionMode === 'embedded' || config.positionMode === 'viewport' || isFloatingCollapseActive(config)) {
             mutationLock = false;
             return;
           }
@@ -51333,7 +51350,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const navMetrics = getNavigationFontMetrics(config.navFontSize);
     const floatingCollapsePosition = isFloatingCollapsed ? clampFloatingCollapsePosition(getFloatingCollapsePosition(config)) : null;
     const floatingCollapseStyle = floatingCollapsePosition
-      ? `; left:${floatingCollapsePosition.left}px; top:${floatingCollapsePosition.top}px; width:${FLOATING_COLLAPSE_SIZE}px; height:${FLOATING_COLLAPSE_SIZE}px; max-width:${FLOATING_COLLAPSE_SIZE}px`
+      ? `; position:fixed; left:${floatingCollapsePosition.left}px; top:${floatingCollapsePosition.top}px; right:auto; bottom:auto; width:${FLOATING_COLLAPSE_SIZE}px; height:${FLOATING_COLLAPSE_SIZE}px; max-width:${FLOATING_COLLAPSE_SIZE}px; display:block; visibility:visible; opacity:1; margin:0; transform:none; overflow:visible; pointer-events:none; z-index:31030`
       : '';
     let html = `<div class="acu-wrapper ${DICE_ROOT_CLASS} ${positionClass} ${collapsedStateClass} acu-theme-${config.theme} ${layoutClass} ${horizontalScrollbarClass} ${desktopNavClass}" style="--acu-card-width:${config.cardWidth}px; --acu-font-size:${config.fontSize}px; --acu-opt-font-size:${config.optionFontSize || 12}px; --acu-nav-button-size:${navMetrics.buttonSize}px; --acu-nav-font-size:${navMetrics.fontSize}px; --acu-nav-icon-size:${navMetrics.iconSize}px; --acu-nav-button-padding-x:${navMetrics.paddingX}px; --acu-grid-cols:${finalGridCols}${floatingCollapseStyle}">`;
 
@@ -51604,7 +51621,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     updateFloatingCollapseBounds();
     requestAnimationFrame(updateViewportWrapperBounds);
     requestAnimationFrame(updateFixedWrapperBounds);
-    requestAnimationFrame(updateFloatingCollapseBounds);
+    requestAnimationFrame(() => updateFloatingCollapseBounds());
     requestAnimationFrame(() => {
       ensurePanelNavigationVisible($(DICE_ROOT_SELECTOR).last());
     });
@@ -65977,7 +65994,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             mutationLock = true;
             requestAnimationFrame(() => {
               const config = getConfig();
-              if (config.positionMode === 'embedded' || config.positionMode === 'viewport') {
+              if (config.positionMode === 'embedded' || config.positionMode === 'viewport' || isFloatingCollapseActive(config)) {
                 mutationLock = false;
                 return;
               }

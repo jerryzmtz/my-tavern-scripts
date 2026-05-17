@@ -1666,7 +1666,7 @@ export const MAIN_STYLES = `
     .acu-wrapper.acu-dice-ui-root.acu-is-collapsed.acu-collapse-pill .acu-expand-trigger,
     .acu-wrapper.acu-dice-ui-root.acu-is-collapsed.acu-collapse-floating .acu-expand-trigger { pointer-events: auto !important; }
     .acu-wrapper.acu-dice-ui-root.acu-is-collapsed.acu-collapse-bar { pointer-events: auto !important; }
-    .acu-wrapper.acu-dice-ui-root.acu-is-collapsed.acu-collapse-floating { position: fixed !important; width: 48px !important; max-width: 48px !important; height: 48px !important; margin: 0 !important; z-index: 31030 !important; display: block !important; }
+    .acu-wrapper.acu-dice-ui-root.acu-is-collapsed.acu-collapse-floating { position: fixed !important; right: auto !important; bottom: auto !important; width: 48px !important; max-width: 48px !important; height: 48px !important; margin: 0 !important; z-index: 31030 !important; display: block !important; visibility: visible !important; opacity: 1 !important; overflow: visible !important; }
     .acu-wrapper.acu-dice-ui-root.acu-mode-viewport { position: fixed !important; left: 0 !important; right: auto !important; bottom: max(8px, env(safe-area-inset-bottom)); width: 100% !important; max-width: 100% !important; margin: 0 !important; transform: none !important; z-index: 1000 !important; display: flex; flex-direction: column-reverse !important; }
     .acu-wrapper.acu-dice-ui-root.acu-mode-viewport .acu-nav-container { position: relative !important; z-index: 31020 !important; }
     .acu-wrapper.acu-dice-ui-root.acu-mode-viewport .acu-data-display { position: absolute !important; bottom: calc(100% + 10px) !important; left: 0 !important; right: 0 !important; width: 100% !important; max-height: min(80vh, var(--acu-viewport-panel-max-height, calc(100dvh - 96px))) !important; }
@@ -2238,7 +2238,7 @@ export const MAIN_STYLES = `
             .acu-expand-trigger:hover { background: var(--acu-btn-hover); transform: translateY(-1px); }
             .acu-col-bar { width: 100%; justify-content: center; padding: 8px 10px; border-radius: 6px; }
             .acu-col-pill { width: auto !important; padding: 6px 16px; border-radius: 50px; }
-            .acu-col-floating { width: 48px !important; height: 48px !important; padding: 0; justify-content: center; border-radius: 50%; cursor: grab; touch-action: none; user-select: none; font-size: 16px; }
+            .acu-col-floating { width: 48px !important; height: 48px !important; padding: 0; justify-content: center; border-radius: 50%; cursor: grab; touch-action: none; user-select: none; font-size: 16px; display: flex !important; visibility: visible !important; opacity: 1 !important; }
             .acu-col-floating span { display: none; }
             .acu-col-floating:hover { transform: translateY(-1px) scale(1.02); }
             .acu-col-floating:focus, .acu-col-floating:focus-visible { outline: none; box-shadow: var(--acu-focus-ring), 0 2px 6px var(--acu-shadow) !important; }
@@ -15239,6 +15239,7 @@ export const MAIN_STYLES = `
         flex: 0 0 auto;
     }
 
+    .acu-config-backup-tutorial-btn,
     .acu-config-backup-close {
         width: 30px !important;
         height: 30px !important;
@@ -15257,9 +15258,19 @@ export const MAIN_STYLES = `
         font-size: 18px;
     }
 
-    .acu-config-backup-close:hover {
+    .acu-config-backup-tutorial-btn i,
+    .acu-config-backup-close i {
+        color: inherit !important;
+    }
+
+    .acu-config-backup-tutorial-btn:hover,
+    .acu-config-backup-tutorial-btn:focus-visible,
+    .acu-config-backup-close:hover,
+    .acu-config-backup-close:focus-visible {
         background: var(--acu-btn-hover, var(--acu-table-hover)) !important;
         color: var(--acu-accent) !important;
+        border-color: var(--acu-border, rgba(128,128,128,0.35)) !important;
+        outline: none;
     }
 
     .acu-config-backup-body {
