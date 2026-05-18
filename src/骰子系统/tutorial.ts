@@ -2306,6 +2306,17 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
 
   const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
 
+  const intersectRects = (a: TutorialRect, b: TutorialRect): TutorialRect | null => {
+    const left = Math.max(a.left, b.left);
+    const top = Math.max(a.top, b.top);
+    const right = Math.min(a.right, b.right);
+    const bottom = Math.min(a.bottom, b.bottom);
+    const width = right - left;
+    const height = bottom - top;
+    if (width <= 0 || height <= 0) return null;
+    return { left, top, right, bottom, width, height };
+  };
+
   const getViewportRect = (): TutorialViewport => {
     const win = getWin();
     const doc = getDoc();
@@ -2332,8 +2343,8 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
   };
 
   const getPopoverPosition = (
-    targetRect: DOMRect,
-    popoverRect: DOMRect,
+    targetRect: TutorialRect,
+    popoverRect: TutorialRect,
     placement: TutorialPlacement,
   ): { left: number; top: number } => {
     const gap = 14;
@@ -2388,7 +2399,7 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
     };
   };
 
-  const getMobilePopoverPosition = (targetRect: DOMRect, popoverRect: DOMRect): { left: number; top: number } => {
+  const getMobilePopoverPosition = (targetRect: TutorialRect, popoverRect: TutorialRect): { left: number; top: number } => {
     const gap = 12;
     const margin = 10;
     const viewport = getViewportRect();
@@ -2416,17 +2427,62 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
     return { left, top: clamp(top, minTop, maxTop) };
   };
 
-  const getRectFromElement = (element: HTMLElement): TutorialRect | null => {
-    if (!isVisibleElement(element)) return null;
-    const rect = element.getBoundingClientRect();
+  const rectToTutorialViewport = (rect: DOMRect): TutorialRect => {
+    const viewport = getViewportRect();
     return {
-      left: rect.left,
-      top: rect.top,
-      right: rect.right,
-      bottom: rect.bottom,
+      left: rect.left + viewport.left,
+      top: rect.top + viewport.top,
+      right: rect.right + viewport.left,
+      bottom: rect.bottom + viewport.top,
       width: rect.width,
       height: rect.height,
     };
+  };
+
+  const getRectFromElement = (element: HTMLElement): TutorialRect | null => {
+    if (!isVisibleElement(element)) return null;
+    return rectToTutorialViewport(element.getBoundingClientRect());
+  };
+
+  const getElementClipRect = (element: HTMLElement): TutorialRect => {
+    const doc = getDoc();
+    const win = getWin();
+    const viewport = getViewportRect();
+    let clipRect: TutorialRect = { ...viewport };
+    let current = element.parentElement;
+
+    while (current && current !== doc.body && current !== doc.documentElement) {
+      const style = win.getComputedStyle(current);
+      const clipsX = /(auto|scroll|hidden|clip|overlay)/.test(style.overflowX);
+      const clipsY = /(auto|scroll|hidden|clip|overlay)/.test(style.overflowY);
+      if (clipsX || clipsY) {
+        const ancestorRect = rectToTutorialViewport(current.getBoundingClientRect());
+        const nextClip = intersectRects(clipRect, ancestorRect);
+        if (!nextClip) return { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 };
+        clipRect = nextClip;
+      }
+      current = current.parentElement;
+    }
+
+    return clipRect;
+  };
+
+  const getVisibleRectFromElement = (element: HTMLElement): TutorialRect | null => {
+    const rect = getRectFromElement(element);
+    if (!rect) return null;
+    return intersectRects(rect, getElementClipRect(element));
+  };
+
+  const isRectPresentInSafeRect = (rect: TutorialRect, safeRect: TutorialRect): boolean => {
+    const hasHorizontalPresence =
+      rect.width > safeRect.width
+        ? rect.right >= safeRect.left && rect.left <= safeRect.right
+        : rect.left >= safeRect.left && rect.right <= safeRect.right;
+    const hasVerticalPresence =
+      rect.height > safeRect.height
+        ? rect.bottom >= safeRect.top && rect.top <= safeRect.bottom
+        : rect.top >= safeRect.top && rect.bottom <= safeRect.bottom;
+    return hasHorizontalPresence && hasVerticalPresence;
   };
 
   const isRelatedToTarget = (element: HTMLElement, target?: HTMLElement | null): boolean => {
@@ -2509,7 +2565,7 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
       bottom = Math.min(viewport.bottom - margin, getBottomObstacleTop(viewport, target) - gap);
     }
 
-    return {
+    const safeRect: TutorialRect = {
       left,
       top,
       right,
@@ -2517,47 +2573,35 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
       width: Math.max(0, right - left),
       height: Math.max(0, bottom - top),
     };
+    if (!target) return safeRect;
+
+    const clippedSafeRect = intersectRects(safeRect, getElementClipRect(target));
+    if (clippedSafeRect && clippedSafeRect.width >= 32 && clippedSafeRect.height >= 32) return clippedSafeRect;
+    return safeRect;
   };
 
   const getCurrentPopoverRect = (): TutorialRect | null => {
     if (!popover || popover.style.visibility === 'hidden') return null;
-    const rect = popover.getBoundingClientRect();
+    const rect = rectToTutorialViewport(popover.getBoundingClientRect());
     if (rect.width <= 0 || rect.height <= 0) return null;
-    return {
-      left: rect.left,
-      top: rect.top,
-      right: rect.right,
-      bottom: rect.bottom,
-      width: rect.width,
-      height: rect.height,
-    };
+    return rect;
   };
 
   const isTargetComfortablyVisible = (target: HTMLElement): boolean => {
     const safeRect = getTargetSafeRect(getCurrentPopoverRect(), target);
-    const rect = target.getBoundingClientRect();
+    const rect = getVisibleRectFromElement(target);
+    if (!rect) return false;
     const horizontalMargin = 4;
     const hasHorizontalPresence =
       rect.right >= safeRect.left + horizontalMargin && rect.left <= safeRect.right - horizontalMargin;
-    const hasVerticalPresence =
-      rect.height > safeRect.height
-        ? rect.bottom >= safeRect.top && rect.top <= safeRect.bottom
-        : rect.top >= safeRect.top && rect.bottom <= safeRect.bottom;
-    return hasHorizontalPresence && hasVerticalPresence;
+    return hasHorizontalPresence && isRectPresentInSafeRect(rect, safeRect);
   };
 
   const isTargetInsideViewport = (target: HTMLElement): boolean => {
     const safeRect = getTargetSafeRect(null, target);
-    const rect = target.getBoundingClientRect();
-    const hasHorizontalPresence =
-      rect.width > safeRect.width
-        ? rect.right >= safeRect.left && rect.left <= safeRect.right
-        : rect.left >= safeRect.left && rect.right <= safeRect.right;
-    const hasVerticalPresence =
-      rect.height > safeRect.height
-        ? rect.bottom >= safeRect.top && rect.top <= safeRect.bottom
-        : rect.top >= safeRect.top && rect.bottom <= safeRect.bottom;
-    return hasHorizontalPresence && hasVerticalPresence;
+    const rect = getVisibleRectFromElement(target);
+    if (!rect) return false;
+    return isRectPresentInSafeRect(rect, safeRect);
   };
 
   const getScrollParent = (element: HTMLElement): HTMLElement | null => {
@@ -2583,7 +2627,8 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
 
   const scrollTargetIntoSafeRect = (target: HTMLElement, avoidPopover: boolean): boolean => {
     const safeRect = getTargetSafeRect(avoidPopover ? getCurrentPopoverRect() : null, target);
-    const rect = target.getBoundingClientRect();
+    const rect = getRectFromElement(target);
+    if (!rect) return false;
     let deltaY = 0;
 
     if (rect.height > safeRect.height) {
@@ -2592,6 +2637,8 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
       } else if (rect.bottom < safeRect.bottom) {
         deltaY = rect.bottom - safeRect.bottom;
       }
+    } else if (rect.bottom < safeRect.top || rect.top > safeRect.bottom) {
+      deltaY = rect.top + rect.height / 2 - (safeRect.top + safeRect.height / 2);
     } else if (rect.top < safeRect.top) {
       deltaY = rect.top - safeRect.top;
     } else if (rect.bottom > safeRect.bottom) {
@@ -2650,16 +2697,22 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
       popover.style.removeProperty('--acu-tutorial-mobile-max-height');
     }
 
-    const targetRect =
-      currentTarget?.getBoundingClientRect() ||
-      new DOMRect(viewport.left + viewport.width / 2 - 1, viewport.top + viewport.height / 2 - 1, 2, 2);
+    const visibleTargetRect = currentTarget ? getVisibleRectFromElement(currentTarget) : null;
+    const targetRect = visibleTargetRect || {
+      left: viewport.left + viewport.width / 2 - 1,
+      top: viewport.top + viewport.height / 2 - 1,
+      right: viewport.left + viewport.width / 2 + 1,
+      bottom: viewport.top + viewport.height / 2 + 1,
+      width: 2,
+      height: 2,
+    };
     const padding = currentTarget ? (mobile ? 4 : 6) : 0;
     let highlightLeft = currentTarget ? Math.max(viewport.left + 8, targetRect.left - padding) : 0;
     let highlightTop = currentTarget ? Math.max(viewport.top + 8, targetRect.top - padding) : 0;
     let highlightRight = currentTarget ? targetRect.right + padding : 0;
     let highlightBottom = currentTarget ? targetRect.bottom + padding : 0;
 
-    const popoverRect = popover.getBoundingClientRect();
+    const popoverRect = rectToTutorialViewport(popover.getBoundingClientRect());
     const position = mobile
       ? currentTarget
         ? getMobilePopoverPosition(targetRect, popoverRect)
@@ -2683,7 +2736,7 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
 
     const highlightWidth = Math.max(0, highlightRight - highlightLeft);
     const highlightHeight = Math.max(0, highlightBottom - highlightTop);
-    const showHighlight = Boolean(currentTarget) && highlightWidth >= 2 && highlightHeight >= 2;
+    const showHighlight = Boolean(visibleTargetRect) && highlightWidth >= 2 && highlightHeight >= 2;
 
     highlight.style.transform = `translate3d(${Math.round(highlightLeft)}px, ${Math.round(highlightTop)}px, 0)`;
     highlight.style.width = `${Math.round(highlightWidth)}px`;

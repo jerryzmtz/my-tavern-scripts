@@ -2178,7 +2178,7 @@ import {
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.8.4'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v6.00'; // 脚本版本号
+  const SCRIPT_VERSION = 'v6.03'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -48484,7 +48484,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                 </div>`;
 
     const dialog = $(`
-        <div class="acu-edit-overlay">
+        <div class="acu-edit-overlay ${currentThemeClass}">
             <div class="acu-edit-dialog acu-settings-dialog ${currentThemeClass}">
                 <div class="acu-settings-header">
                     <div class="acu-settings-title">
@@ -49120,6 +49120,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         </div>
     `);
     $('body').append(dialog);
+    // 二级管理弹窗不能留在设置面板的滚动内容里，否则部分移动端浏览器会把 fixed 定位裁进父弹窗。
+    dialog.find('.acu-settings-manager-overlay').appendTo(dialog);
 
     // === 分组折叠交互（带动画） ===
     dialog.find('.acu-settings-group-title').on('click', function () {
@@ -49167,6 +49169,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     dialog.find('#cfg-theme').on('change', function () {
       const newTheme = $(this).val();
       saveConfig({ theme: newTheme });
+      dialog
+        .removeClass(THEMES.map(t => `acu-theme-${t.id}`).join(' '))
+        .addClass(`acu-theme-${newTheme}`);
       dialog
         .find('.acu-edit-dialog')
         .removeClass(THEMES.map(t => `acu-theme-${t.id}`).join(' '))
@@ -50310,6 +50315,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     'transitionend',
   ] as const;
   const VIEWPORT_COMPOSER_ELEMENT_IDS = new Set(['send_form', 'form_sheld', 'send_textarea', 'chat_input']);
+  // iPad 横屏可到 1366px；固定底部导航在这类视口下应跟随聊天容器，而不是输入框内部宽度。
+  const TABLET_FIXED_NAV_FULL_WIDTH_MAX = 1366;
+  const MOBILE_FIXED_NAV_CONTENT_WIDTH_MAX = 768;
   const FIXED_MODE_ANCHOR_PRIORITY = new Map([
     ['send_form', 0],
     ['form_sheld', 1],
@@ -50562,6 +50570,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     wrapper.style.setProperty('top', 'auto', 'important');
     wrapper.style.setProperty('margin', '0', 'important');
     wrapper.style.setProperty('box-sizing', 'border-box', 'important');
+    wrapper.style.setProperty('z-index', '31000', 'important');
 
     const navContainer = wrapper.querySelector<HTMLElement>('.acu-nav-container');
     if (navContainer) {
@@ -50598,8 +50607,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       wrapper.style.setProperty('max-width', `${Math.max(280, Math.round(viewportWidth))}px`, 'important');
       wrapper.style.setProperty('transform', 'none', 'important');
       wrapper.style.setProperty('bottom', `${bottomOffset}px`, 'important');
-      wrapper.style.setProperty('z-index', '31000', 'important');
-
       const navigationRect = navigationAnchor.getBoundingClientRect();
       const navigationHeight = Math.max(0, Math.ceil(navigationRect.height || navigationAnchor.offsetHeight || 0));
       if (viewportHeight > 0) {
@@ -50659,12 +50666,21 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     if (!wrapper) return;
 
     const chat = targetDocument.querySelector<HTMLElement>('#chat');
+    const currentWrapperHeight = Math.ceil(wrapper.getBoundingClientRect().height || wrapper.offsetHeight || 0);
+    const shouldKeepChatPinnedToBottom =
+      chat && chat.scrollHeight > chat.clientHeight
+        ? chat.scrollHeight - chat.scrollTop - chat.clientHeight <=
+          Math.max(48, chat.clientHeight * 0.08, currentWrapperHeight + 48)
+        : true;
+    let movedWrapperToChatEnd = false;
     if (chat && wrapper.ownerDocument === targetDocument && wrapper.parentElement !== chat) {
       chat.appendChild(wrapper);
+      movedWrapperToChatEnd = true;
     }
-
-    const anchorRect = getFixedModeAnchorRect();
-    if (!anchorRect || anchorRect.width <= 0) return;
+    if (chat && wrapper.parentElement === chat && chat.lastElementChild !== wrapper) {
+      chat.appendChild(wrapper);
+      movedWrapperToChatEnd = true;
+    }
 
     const visualViewport = targetWindow.visualViewport;
     const viewportLeft = visualViewport?.offsetLeft || 0;
@@ -50674,18 +50690,62 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       targetDocument.documentElement.clientWidth ||
       window.innerWidth ||
       0;
-    const viewportRight = viewportWidth > 0 ? viewportLeft + viewportWidth : anchorRect.right;
-    const visibleAnchorLeft = Math.max(viewportLeft, anchorRect.left);
-    const visibleAnchorRight = Math.min(viewportRight, anchorRect.right);
-    const rawAnchorWidth = Math.max(0, visibleAnchorRight - visibleAnchorLeft);
+    const layoutViewportWidth =
+      targetWindow.innerWidth || targetDocument.documentElement.clientWidth || window.innerWidth || viewportWidth;
 
     const parent = wrapper.parentElement;
     const parentRect = parent?.getBoundingClientRect();
     const parentWidth =
       parentRect && parentRect.width > 0
         ? parentRect.width
-        : viewportWidth || targetDocument.documentElement.clientWidth || anchorRect.width;
+        : viewportWidth || targetDocument.documentElement.clientWidth || layoutViewportWidth;
     if (parentWidth <= 0) return;
+    const parentClientWidth = parent && parent.clientWidth > 0 ? parent.clientWidth : parentWidth;
+
+    const applyFixedWrapperLayout = (width: number, marginLeft: number) => {
+      wrapper.style.setProperty('box-sizing', 'border-box');
+      wrapper.style.setProperty('width', `${width}px`);
+      wrapper.style.setProperty('max-width', `${width}px`);
+      wrapper.style.setProperty('margin-left', `${marginLeft}px`);
+      wrapper.style.setProperty('margin-top', 'auto');
+      wrapper.style.setProperty('margin-right', '0');
+      wrapper.style.removeProperty('left');
+      wrapper.style.removeProperty('right');
+      wrapper.style.removeProperty('bottom');
+      wrapper.style.removeProperty('transform');
+      wrapper.style.removeProperty('--acu-viewport-panel-max-height');
+      wrapper.style.removeProperty('--acu-viewport-nav-height');
+    };
+
+    const keepFixedWrapperVisibleAfterLayout = () => {
+      if (!chat || !shouldKeepChatPinnedToBottom) return;
+      const chatRect = chat.getBoundingClientRect();
+      const wrapperRect = wrapper.getBoundingClientRect();
+      if (!movedWrapperToChatEnd && wrapperRect.bottom <= chatRect.bottom + 1) return;
+      const pinToBottom = () => {
+        chat.scrollTop = chat.scrollHeight;
+      };
+      pinToBottom();
+      requestAnimationFrame(pinToBottom);
+    };
+
+    if (layoutViewportWidth > 0 && layoutViewportWidth <= TABLET_FIXED_NAV_FULL_WIDTH_MAX) {
+      const fixedWidth =
+        layoutViewportWidth <= MOBILE_FIXED_NAV_CONTENT_WIDTH_MAX
+          ? Math.min(parentWidth, parentClientWidth)
+          : parentWidth;
+      applyFixedWrapperLayout(Math.round(fixedWidth), 0);
+      keepFixedWrapperVisibleAfterLayout();
+      return;
+    }
+
+    const anchorRect = getFixedModeAnchorRect();
+    if (!anchorRect || anchorRect.width <= 0) return;
+
+    const viewportRight = viewportWidth > 0 ? viewportLeft + viewportWidth : anchorRect.right;
+    const visibleAnchorLeft = Math.max(viewportLeft, anchorRect.left);
+    const visibleAnchorRight = Math.min(viewportRight, anchorRect.right);
+    const rawAnchorWidth = Math.max(0, visibleAnchorRight - visibleAnchorLeft);
 
     const preferredWidth = Math.max(280, Math.round(rawAnchorWidth || anchorRect.width));
     const parentLeft = parentRect?.left ?? viewportLeft;
@@ -50694,17 +50754,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const width = Math.max(0, Math.min(preferredWidth, parentWidth - marginLeft));
     if (width <= 0) return;
 
-    wrapper.style.setProperty('box-sizing', 'border-box');
-    wrapper.style.setProperty('width', `${width}px`);
-    wrapper.style.setProperty('max-width', `${width}px`);
-    wrapper.style.setProperty('margin-left', `${marginLeft}px`);
-    wrapper.style.setProperty('margin-right', '0');
-    wrapper.style.removeProperty('left');
-    wrapper.style.removeProperty('right');
-    wrapper.style.removeProperty('bottom');
-    wrapper.style.removeProperty('transform');
-    wrapper.style.removeProperty('--acu-viewport-panel-max-height');
-    wrapper.style.removeProperty('--acu-viewport-nav-height');
+    applyFixedWrapperLayout(width, marginLeft);
+    keepFixedWrapperVisibleAfterLayout();
   };
 
   const scheduleFixedWrapperBoundsRefresh = () => {
@@ -51251,10 +51302,17 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     const config = getConfig();
     const isCollapsed = getCollapsedState();
+    const isDashboardActive = !isCollapsed && Store.get(STORAGE_KEY_DASHBOARD_ACTIVE, false);
+    const isChangesPanelActive = !isCollapsed && Store.get('acu_changes_panel_active', false);
+    const isGlobalInteractionsActive = !isCollapsed && Store.get(STORAGE_KEY_GLOBAL_INTERACTIONS_ACTIVE, false);
+    const isMvuActive = !isCollapsed && getActiveTabState() === MvuModule.MODULE_ID;
+    const shouldShowPanel =
+      !isCollapsed && Boolean(isDashboardActive || isChangesPanelActive || isGlobalInteractionsActive || isMvuActive || currentTabName);
 
     const layoutClass = config.layout === 'vertical' ? 'acu-layout-vertical' : '';
     const horizontalScrollbarClass = config.showHorizontalScrollbar === true ? 'acu-show-horizontal-scrollbar' : '';
     const desktopNavClass = config.desktopNavAligned === true ? 'acu-desktop-nav-aligned' : '';
+    const visiblePanelClass = shouldShowPanel ? 'acu-has-visible-panel' : '';
     // [补回这行] 定义导航盘位置样式 (悬浮/嵌入)
     const positionClass = `acu-mode-${config.positionMode || 'fixed'}`;
     const collapseStyle = normalizeCollapseStyle(config.collapseStyle);
@@ -51352,7 +51410,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const floatingCollapseStyle = floatingCollapsePosition
       ? `; position:fixed; left:${floatingCollapsePosition.left}px; top:${floatingCollapsePosition.top}px; right:auto; bottom:auto; width:${FLOATING_COLLAPSE_SIZE}px; height:${FLOATING_COLLAPSE_SIZE}px; max-width:${FLOATING_COLLAPSE_SIZE}px; display:block; visibility:visible; opacity:1; margin:0; transform:none; overflow:visible; pointer-events:none; z-index:31030`
       : '';
-    let html = `<div class="acu-wrapper ${DICE_ROOT_CLASS} ${positionClass} ${collapsedStateClass} acu-theme-${config.theme} ${layoutClass} ${horizontalScrollbarClass} ${desktopNavClass}" style="--acu-card-width:${config.cardWidth}px; --acu-font-size:${config.fontSize}px; --acu-opt-font-size:${config.optionFontSize || 12}px; --acu-nav-button-size:${navMetrics.buttonSize}px; --acu-nav-font-size:${navMetrics.fontSize}px; --acu-nav-icon-size:${navMetrics.iconSize}px; --acu-nav-button-padding-x:${navMetrics.paddingX}px; --acu-grid-cols:${finalGridCols}${floatingCollapseStyle}">`;
+    let html = `<div class="acu-wrapper ${DICE_ROOT_CLASS} ${positionClass} ${collapsedStateClass} ${visiblePanelClass} acu-theme-${config.theme} ${layoutClass} ${horizontalScrollbarClass} ${desktopNavClass}" style="--acu-card-width:${config.cardWidth}px; --acu-font-size:${config.fontSize}px; --acu-opt-font-size:${config.optionFontSize || 12}px; --acu-nav-button-size:${navMetrics.buttonSize}px; --acu-nav-font-size:${navMetrics.fontSize}px; --acu-nav-icon-size:${navMetrics.iconSize}px; --acu-nav-button-padding-x:${navMetrics.paddingX}px; --acu-grid-cols:${finalGridCols}${floatingCollapseStyle}">`;
 
     if (isCollapsed) {
       const colStyleClass = collapseStyle === 'floating' ? 'acu-col-floating' : `acu-col-${collapseStyle}`;
@@ -51369,13 +51427,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       // [修改] 读取保存的高度
       const activePanelHeightKey = getActivePanelHeightKey();
       const finalSavedHeight = getStoredPanelHeight(activePanelHeightKey);
-      // [修改] 支持仪表盘、变更面板和变量面板渲染
-      const isDashboardActive = Store.get(STORAGE_KEY_DASHBOARD_ACTIVE, false);
-      const isChangesPanelActive = Store.get('acu_changes_panel_active', false);
-      const isGlobalInteractionsActive = Store.get(STORAGE_KEY_GLOBAL_INTERACTIONS_ACTIVE, false);
-      const isMvuActive = getActiveTabState() === MvuModule.MODULE_ID;
-      const shouldShowPanel =
-        isDashboardActive || isChangesPanelActive || isGlobalInteractionsActive || isMvuActive || currentTabName;
 
       html += `
                 <div class="acu-data-display ${shouldShowPanel ? 'visible' : ''} ${finalSavedHeight ? 'acu-manual-mode' : ''}" id="acu-data-area" style="${finalSavedHeight ? 'height:' + finalSavedHeight + 'px;' : ''}">
@@ -62665,6 +62716,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     if (config.positionMode === 'viewport') {
       scheduleViewportBoundsRefresh();
+      return;
+    }
+    if (config.positionMode === 'fixed') {
+      // fixed 模式的根在聊天底部；后台重绘不能主动滚动宿主阅读位置。
+      scheduleFixedWrapperBoundsRefresh();
       return;
     }
 

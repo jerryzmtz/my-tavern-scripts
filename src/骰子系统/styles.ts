@@ -459,6 +459,7 @@ export const MAIN_STYLES = `
         bottom: 0;
         width: 100vw;
         height: 100vh;
+        height: 100dvh;
         background: rgba(0,0,0,0.6);
         z-index: 31010;
         display: flex;
@@ -478,6 +479,7 @@ export const MAIN_STYLES = `
         bottom: 0;
         width: 100vw;
         height: 100vh;
+        height: 100dvh;
         background: rgba(0,0,0,0.6);
         z-index: 31200 !important;
         display: flex;
@@ -2116,7 +2118,7 @@ export const MAIN_STYLES = `
                 color: var(--acu-accent);
             }
 
-            .acu-edit-overlay { position: fixed !important; top: 0; left: 0; right: 0; bottom: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.75) !important; z-index: 31200 !important; display: flex; justify-content: center !important; align-items: center !important; backdrop-filter: blur(2px); }
+            .acu-edit-overlay { position: fixed !important; top: 0; left: 0; right: 0; bottom: 0; width: 100vw; height: 100vh; height: 100dvh; background: rgba(0,0,0,0.75) !important; z-index: 31200 !important; display: flex; justify-content: center !important; align-items: center !important; backdrop-filter: blur(2px); }
             .acu-edit-dialog { background: var(--acu-bg-panel); width: 95%; max-width: 500px; max-height: 95vh; padding: 16px; border-radius: 12px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 15px 50px rgba(0,0,0,0.6); color: var(--acu-text-main); border: 1px solid var(--acu-border); overflow: hidden; flex-shrink: 0; }
             @media (min-width: 768px) { .acu-edit-dialog { max-width: 900px; width: 90%; } .acu-edit-dialog.acu-settings-dialog { max-width: 400px; width: 400px; } }
             .acu-edit-title { margin: 0; font-size: 16px; font-weight: bold; color: var(--acu-text-main); padding-bottom: 8px; border-bottom: 1px solid var(--acu-border); }
@@ -2279,6 +2281,20 @@ export const MAIN_STYLES = `
             }
             @media (max-width: 768px) {
                 .acu-wrapper.acu-dice-ui-root .acu-panel-content { -webkit-overflow-scrolling: touch !important; overscroll-behavior-y: auto; }
+                .acu-wrapper.acu-dice-ui-root.acu-mode-fixed.acu-has-visible-panel .acu-nav-container {
+                    max-height: clamp(152px, 28dvh, 196px);
+                    overflow-y: auto !important;
+                    overscroll-behavior-y: contain;
+                    -webkit-overflow-scrolling: touch;
+                    scrollbar-width: thin;
+                }
+                .acu-wrapper.acu-dice-ui-root.acu-mode-fixed.acu-has-visible-panel .acu-actions-group {
+                    position: sticky;
+                    bottom: 0;
+                    z-index: 1;
+                    background: var(--acu-bg-nav);
+                    box-shadow: 0 -6px 12px rgba(0,0,0,0.08);
+                }
                 .acu-wrapper.acu-dice-ui-root .acu-data-card,
                 .acu-preview-overlay .acu-data-card { box-shadow: none !important; border: 1px solid var(--acu-border); transform: translateZ(0); }
                 .acu-wrapper.acu-dice-ui-root .acu-data-card:hover,
@@ -7214,6 +7230,7 @@ export const MAIN_STYLES = `
                 width: 380px;
                 max-width: 380px;
                 max-height: 85vh;
+                max-height: min(85dvh, calc(100dvh - 32px));
                 padding: 0;
                 gap: 0;
             }
@@ -7222,13 +7239,16 @@ export const MAIN_STYLES = `
                     width: 92vw;
                     max-width: 92vw;
                     max-height: 85vh;
+                    max-height: calc(100dvh - 24px);
                 }
                 .acu-settings-body {
                     max-height: calc(85vh - 110px);
+                    max-height: calc(100dvh - 134px);
                     -webkit-overflow-scrolling: touch;
                 }
                 .acu-table-manager-list {
                     max-height: 40vh;
+                    max-height: 40dvh;
                     -webkit-overflow-scrolling: touch;
                 }
             }
@@ -7415,6 +7435,7 @@ export const MAIN_STYLES = `
                 bottom: 0;
                 width: 100vw;
                 height: 100vh;
+                height: 100dvh;
                 background: rgba(0, 0, 0, 0.6);
                 z-index: 31400;
                 display: flex;
@@ -9229,11 +9250,14 @@ export const MAIN_STYLES = `
             .acu-settings-manager-overlay {
                 position: fixed;
                 inset: 0;
+                height: 100vh;
+                height: 100dvh;
                 z-index: 10040;
                 display: flex;
                 align-items: center;
                 justify-content: center;
                 padding: 20px;
+                box-sizing: border-box;
             }
             .acu-settings-manager-overlay[hidden] {
                 display: none !important;
@@ -9248,6 +9272,7 @@ export const MAIN_STYLES = `
                 z-index: 1;
                 width: min(760px, calc(100vw - 32px));
                 max-height: min(780px, calc(100vh - 40px));
+                max-height: min(780px, calc(100dvh - 40px));
                 display: flex;
                 flex-direction: column;
                 overflow: hidden;
@@ -9287,6 +9312,7 @@ export const MAIN_STYLES = `
                 .acu-settings-manager-dialog {
                     width: calc(100vw - 20px);
                     max-height: calc(100vh - 20px);
+                    max-height: calc(100dvh - 20px);
                     border-radius: 10px;
                 }
                 .acu-settings-manager-body {
