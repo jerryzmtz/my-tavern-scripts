@@ -2,6 +2,7 @@
 import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP, RELATION_ICON_MAP } from './emoji-maps';
 import { MAIN_STYLES } from './styles';
 import { setDatabaseToastMute } from './database-toast-mute';
+import { showActionableErrorToast } from './actionable-error-toast';
 import { createTutorialModule, type TutorialModule, type TutorialScope } from './tutorial';
 import { createDialogueIndentRenderer, normalizeDialogueIndentStrategy } from './dialogue-indent-renderer';
 import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './types';
@@ -10,6 +11,19 @@ import dashboardPresetAgentPromptTemplate from './docs/dashboard-preset-agent-pr
 import attributePresetAgentPromptTemplate from './docs/attribute-preset-agent-prompt.md?raw';
 import actionPresetAgentPromptTemplate from './docs/action-preset-agent-prompt.md?raw';
 import renderPresetAgentPromptTemplate from './docs/render-preset-agent-prompt.md?raw';
+import gachaCatalogAgentPromptTemplate from './docs/gacha-catalog-agent-prompt.md?raw';
+import defaultTableTemplateRequirementRaw from './骰子表格SQL_v4.2.json?raw';
+import {
+  DEFAULT_TABLE_TEMPLATE_REQUIREMENT_PRESET_ID,
+  TABLE_TEMPLATE_REQUIREMENT_PRESET_FORMAT,
+  buildTableTemplateAppendRepairPlan,
+  cloneTemplateValue,
+  createBuiltinTableTemplateRequirementPreset,
+  exportTableTemplateRequirementPreset,
+  getTemplateInspectionSheets as getRequirementInspectionSheets,
+  inspectTableTemplateWithPreset,
+  normalizeTableTemplateRequirementPreset,
+} from './table-template-requirements';
 import {
   BUILTIN_GACHA_POOL_DEFINITIONS,
   GACHA_CATALOG_EXPORT_KIND,
@@ -37,6 +51,8 @@ import {
   type GachaPoolTag,
   type GachaRarity,
   type GachaRewardTarget,
+  type GachaRewardTargetColumnKey,
+  type GachaRewardTargetColumns,
 } from './gacha-items';
 
 (function () {
@@ -45,6 +61,8 @@ import {
   const SCRIPT_ID = 'acu_visualizer_ui_v19_6_ai_overlay';
   const DICE_ROOT_CLASS = 'acu-dice-ui-root';
   const DICE_ROOT_SELECTOR = `.acu-wrapper.${DICE_ROOT_CLASS}`;
+  const HOST_REGENERATE_HIDDEN_CLASS = 'acu-host-regenerate-hidden';
+  const HOST_REGENERATE_BUTTON_SELECTOR = '.swipeRightBlock, .swipe_right';
 
   // ========================================
   // 表主键配置 (用于行标识转换)
@@ -83,7 +101,7 @@ import {
   };
 
   const errorTableTemplateIssue = (message: string): void => {
-    showActionableErrorToast(withTableTemplateCheckHint(message));
+    showActionableErrorToast(message, { suggestion: 'tableTemplate' });
   };
 
   /**
@@ -1689,6 +1707,10 @@ import {
     _acuHumanInputTrackingBound?: boolean;
   };
 
+  const DICE_RESULT_PLACEHOLDER = '[投骰结果已隐藏]';
+  const createMetaCheckResultRegex = () => /<meta:检定结果>[\s\S]*?<\/meta:检定结果>/g;
+  const createDiceResultPlaceholderRegex = () => /\[投骰结果已隐藏\]/g;
+
   const notifyTextareaValueChanged = (textarea: HTMLTextAreaElement) => {
     const EventCtor = textarea.ownerDocument.defaultView?.Event || Event;
     textarea.dispatchEvent(new EventCtor('input', { bubbles: true }));
@@ -1698,6 +1720,126 @@ import {
   const setTextareaValueAndNotify = (textarea: HTMLTextAreaElement, value: string) => {
     textarea.value = value;
     notifyTextareaValueChanged(textarea);
+  };
+
+  const readTextareaVisibleValue = (textarea: HTMLTextAreaElement): string => {
+    const originalDescriptor = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+    if (originalDescriptor?.get) return String(originalDescriptor.get.call(textarea) ?? '');
+    return String((textarea as AcuDiceTextareaElement & { _value?: string })._value ?? '');
+  };
+
+  const extractMetaCheckResultBlocks = (text: unknown): string[] =>
+    Array.from(String(text ?? '').matchAll(createMetaCheckResultRegex()))
+      .map(match => match[0])
+      .filter(Boolean);
+
+  const readStoredTextareaDiceText = (textarea: AcuDiceTextareaElement): string => {
+    if (typeof textarea._acuOriginalTextareaText === 'string') return textarea._acuOriginalTextareaText;
+    try {
+      const { $ } = getCore();
+      const storedText = $(textarea).data('acu-original-textarea-text');
+      return typeof storedText === 'string' ? storedText : '';
+    } catch (_error) {
+      return '';
+    }
+  };
+
+  const readStoredLatestDiceText = (textarea: AcuDiceTextareaElement): string => {
+    if (typeof textarea._acuOriginalDiceText === 'string') return textarea._acuOriginalDiceText;
+    try {
+      const { $ } = getCore();
+      const storedText = $(textarea).data('acu-original-dice-text');
+      return typeof storedText === 'string' ? storedText : '';
+    } catch (_error) {
+      return '';
+    }
+  };
+
+  const composeTextareaTextWithHiddenDice = (
+    visibleText: unknown,
+    storedTextareaText: unknown,
+    storedLatestDiceText: unknown,
+  ): string => {
+    const visibleValue = String(visibleText ?? '');
+    if (!visibleValue.includes(DICE_RESULT_PLACEHOLDER)) return visibleValue;
+
+    const storedBlocks = extractMetaCheckResultBlocks(storedTextareaText);
+    const latestBlocks = extractMetaCheckResultBlocks(storedLatestDiceText);
+    const replacementBlocks = storedBlocks.length > 0 ? storedBlocks : latestBlocks;
+    const latestText = typeof storedLatestDiceText === 'string' ? storedLatestDiceText : '';
+    let replacementIndex = 0;
+
+    return visibleValue.replace(createDiceResultPlaceholderRegex(), () => {
+      const replacement =
+        replacementBlocks[replacementIndex] ||
+        replacementBlocks[replacementBlocks.length - 1] ||
+        latestText ||
+        '';
+      replacementIndex++;
+      return replacement;
+    });
+  };
+
+  const resolveTextareaTextWithHiddenDice = (
+    textarea: AcuDiceTextareaElement,
+    visibleText = readTextareaVisibleValue(textarea),
+  ): string =>
+    composeTextareaTextWithHiddenDice(visibleText, readStoredTextareaDiceText(textarea), readStoredLatestDiceText(textarea));
+
+  const clearTextareaDiceCache = (textarea: AcuDiceTextareaElement) => {
+    try {
+      const { $ } = getCore();
+      $(textarea).removeData('acu-original-dice-text');
+      $(textarea).removeData('acu-original-textarea-text');
+    } catch (_error) {
+      // ignore cache cleanup failures; DOM fields are cleared below
+    }
+    textarea._acuOriginalDiceText = null;
+    textarea._acuOriginalTextareaText = null;
+    textarea._acuHasDiceData = false;
+  };
+
+  const storeTextareaDiceCache = (textarea: AcuDiceTextareaElement, realText: string, latestDiceText?: string) => {
+    const metaBlocks = extractMetaCheckResultBlocks(realText);
+    const latestText = latestDiceText || metaBlocks[metaBlocks.length - 1] || '';
+    if (!realText || metaBlocks.length === 0) {
+      clearTextareaDiceCache(textarea);
+      return;
+    }
+
+    try {
+      const { $ } = getCore();
+      $(textarea).data('acu-original-textarea-text', realText);
+      $(textarea).data('acu-original-dice-text', latestText);
+    } catch (_error) {
+      // DOM fields below are the hot path for the value getter
+    }
+    textarea._acuOriginalTextareaText = realText;
+    textarea._acuOriginalDiceText = latestText;
+    textarea._acuHasDiceData = true;
+  };
+
+  const syncTextareaDiceCacheFromVisibleText = (
+    textarea: AcuDiceTextareaElement,
+    visibleText = readTextareaVisibleValue(textarea),
+  ): string => {
+    const visibleValue = String(visibleText ?? '');
+    if (!visibleValue.includes(DICE_RESULT_PLACEHOLDER)) {
+      const visibleMetaBlocks = extractMetaCheckResultBlocks(visibleValue);
+      if (visibleMetaBlocks.length > 0) {
+        storeTextareaDiceCache(textarea, visibleValue, visibleMetaBlocks[visibleMetaBlocks.length - 1]);
+      } else if (textarea._acuHasDiceData) {
+        clearTextareaDiceCache(textarea);
+      }
+      return visibleValue;
+    }
+
+    const realText = resolveTextareaTextWithHiddenDice(textarea, visibleValue);
+    const metaBlocks = extractMetaCheckResultBlocks(realText);
+    if (metaBlocks.length > 0) {
+      storeTextareaDiceCache(textarea, realText, metaBlocks[metaBlocks.length - 1]);
+    }
+    return realText;
   };
 
   const HUMAN_INPUT_TAG_BLOCK_PATTERNS = [
@@ -1792,12 +1934,14 @@ import {
 
     const updateSnapshot = (target: HTMLTextAreaElement) => {
       const acuTextarea = target as AcuDiceTextareaElement;
-      if (acuTextarea._acuOriginalActionText && !target.value.includes(acuTextarea._acuOriginalActionText)) {
+      const visibleValue = readTextareaVisibleValue(target);
+      const resolvedValue = syncTextareaDiceCacheFromVisibleText(acuTextarea, visibleValue);
+      if (acuTextarea._acuOriginalActionText && !resolvedValue.includes(acuTextarea._acuOriginalActionText)) {
         acuTextarea._acuOriginalActionText = null;
         const { $ } = getCore();
         $(target).removeData('acu-original-action-text');
       }
-      lastHumanInputSnapshot = stripSystemInjectedContent(target.value, acuTextarea._acuOriginalActionText);
+      lastHumanInputSnapshot = stripSystemInjectedContent(resolvedValue, acuTextarea._acuOriginalActionText);
       markHumanInputActivity();
     };
 
@@ -1844,16 +1988,17 @@ import {
     };
 
     const normalizedNewContent = normalizeTextareaContent(newContent);
-    const currentVal = normalizeTextareaContent($ta.val() || '');
+    const currentVisibleVal = readTextareaVisibleValue(textarea);
+    const currentVal = normalizeTextareaContent(syncTextareaDiceCacheFromVisibleText(textarea, currentVisibleVal));
 
     // 统一检定结果标签正则（匹配 <meta:检定结果>...</meta:检定结果>）
-    const metaCheckResultRegex = /<meta:检定结果>[\s\S]*?<\/meta:检定结果>/g;
+    const metaCheckResultRegex = createMetaCheckResultRegex();
 
     // 交互选项的识别正则（以<user>开头，匹配到句末标点）
     const actionRegex = /<user>(?:(?!<user>).)*?[。！？]/g;
 
     // 占位符识别正则
-    const placeholderRegex = /\[投骰结果已隐藏\]/g;
+    const placeholderRegex = createDiceResultPlaceholderRegex();
     const actionSlot = '\u0001ACU_ACTION_SLOT\u0001';
     const diceSlot = '\u0000ACU_DICE_SLOT\u0000';
     const joinInlineParts = (parts: string[]): string => normalizeTextareaContent(parts.filter(Boolean).join(' '));
@@ -1902,12 +2047,7 @@ import {
       }
       // [修复] 始终保存真实结果到 data 属性（即使不隐藏也要保存，以便后续处理）
       if (contentType === 'dice') {
-        $ta.data('acu-original-dice-text', normalizedNewContent);
-        $ta.data('acu-original-textarea-text', normalizedNewContent);
-        // [性能优化] 同时设置 DOM 属性作为缓存，避免 getter 中频繁调用 jQuery
-        textarea._acuOriginalDiceText = normalizedNewContent;
-        textarea._acuOriginalTextareaText = normalizedNewContent;
-        textarea._acuHasDiceData = true;
+        storeTextareaDiceCache(textarea, normalizedNewContent, normalizedNewContent);
       }
       return;
     }
@@ -1921,17 +2061,13 @@ import {
 
     // [修复] 0. 先检查是否有占位符（需要替换而不是添加）
     if (placeholderRegex.test(workingText)) {
-      // 如果有占位符，说明之前已经有骰子结果，需要替换
-      const originalTextareaText = $ta.data('acu-original-textarea-text');
-      const originalText = $ta.data('acu-original-dice-text') || '';
-      if (typeof originalTextareaText === 'string' && originalTextareaText.trim()) {
-        workingText = originalTextareaText;
-      } else if (originalText) {
+      const originalText = readStoredLatestDiceText(textarea);
+      if (originalText) {
         // 用原始文本替换占位符，以便后续处理
-        workingText = workingText.replace(placeholderRegex, originalText);
+        workingText = workingText.replace(createDiceResultPlaceholderRegex(), originalText);
       } else {
         // 如果没有保存的原始文本，直接移除占位符
-        workingText = workingText.replace(placeholderRegex, '').trim();
+        workingText = workingText.replace(createDiceResultPlaceholderRegex(), '').trim();
       }
     }
 
@@ -2020,15 +2156,11 @@ import {
     storeActionText(nextAction);
 
     if (contentType === 'dice' || existingDiceBlocks.length > 0) {
-      if (contentType === 'dice') {
-        $ta.data('acu-original-dice-text', normalizedNewContent);
-      }
-      $ta.data('acu-original-textarea-text', finalRealVal);
-      if (contentType === 'dice') {
-        textarea._acuOriginalDiceText = normalizedNewContent;
-      }
-      textarea._acuOriginalTextareaText = finalRealVal;
-      textarea._acuHasDiceData = true;
+      storeTextareaDiceCache(
+        textarea,
+        finalRealVal,
+        contentType === 'dice' ? normalizedNewContent : existingDiceBlocks[existingDiceBlocks.length - 1],
+      );
     }
   };
 
@@ -2041,32 +2173,15 @@ import {
     const $ta = $('#send_textarea');
     if (!$ta.length) return;
 
-    const currentVal = $ta.val() || '';
-    const originalTextareaText = $ta.data('acu-original-textarea-text');
-    const originalText = $ta.data('acu-original-dice-text');
+    const textarea = $ta[0] as AcuDiceTextareaElement;
+    const currentVisibleVal = readTextareaVisibleValue(textarea);
 
     // 如果有占位符且有保存的原始文本，替换为真实结果
-    if (currentVal.includes('[投骰结果已隐藏]') && typeof originalTextareaText === 'string') {
-      $ta.val(originalTextareaText);
-      // 发送后不需要再保存，因为消息已经发送
-      $ta.removeData('acu-original-dice-text');
-      $ta.removeData('acu-original-textarea-text');
-      // [性能优化] 同时清除 DOM 属性缓存
-      const textarea = $ta[0] as AcuDiceTextareaElement;
-      textarea._acuOriginalDiceText = null;
-      textarea._acuOriginalTextareaText = null;
-      textarea._acuHasDiceData = false;
-    } else if (currentVal.includes('[投骰结果已隐藏]') && originalText) {
-      const restoredVal = currentVal.replace(/\[投骰结果已隐藏\]/g, originalText);
+    if (currentVisibleVal.includes(DICE_RESULT_PLACEHOLDER)) {
+      const restoredVal = resolveTextareaTextWithHiddenDice(textarea, currentVisibleVal);
       $ta.val(restoredVal);
       // 发送后不需要再保存，因为消息已经发送
-      $ta.removeData('acu-original-dice-text');
-      $ta.removeData('acu-original-textarea-text');
-      // [性能优化] 同时清除 DOM 属性缓存
-      const textarea = $ta[0] as AcuDiceTextareaElement;
-      textarea._acuOriginalDiceText = null;
-      textarea._acuOriginalTextareaText = null;
-      textarea._acuHasDiceData = false;
+      clearTextareaDiceCache(textarea);
     }
   };
 
@@ -2105,14 +2220,9 @@ import {
           return val;
         }
 
-        // 检查是否有占位符需要替换
-        const originalTextareaText = acuTextarea._acuOriginalTextareaText;
-        if (val && typeof val === 'string' && val.includes('[投骰结果已隐藏]') && originalTextareaText) {
-          return originalTextareaText;
-        }
-        const originalText = acuTextarea._acuOriginalDiceText;
-        if (val && typeof val === 'string' && val.includes('[投骰结果已隐藏]') && originalText) {
-          return val.replace(/\[投骰结果已隐藏\]/g, originalText);
+        // 检查是否有占位符需要替换，并保留用户在占位符前后继续输入的内容
+        if (val && typeof val === 'string' && val.includes(DICE_RESULT_PLACEHOLDER)) {
+          return resolveTextareaTextWithHiddenDice(acuTextarea, val);
         }
         return val;
       },
@@ -2151,6 +2261,7 @@ import {
   const MAX_ACTION_BUTTONS = 6; // 活动栏最大按钮数
   const MIN_PANEL_HEIGHT = 200; // 面板最小高度
   const MAX_PANEL_HEIGHT = 1200; // 面板最大高度
+  const PANEL_VIEWPORT_TOP_GUTTER = 32; // 手动拉高面板时保留顶部工具栏安全距
 
   const STORAGE_KEY_DICE_CONFIG = 'acu_dice_config_v1';
   const STORAGE_KEY_CUSTOM_TABLE_NAME_ICONS = 'acu_custom_table_name_icons_v1';
@@ -2161,6 +2272,8 @@ import {
   const STORAGE_KEY_DASHBOARD_PRESETS = 'acu_dashboard_presets_v1';
   const STORAGE_KEY_ACTIVE_DASHBOARD_PRESET = 'acu_active_dashboard_preset_v1';
   const STORAGE_KEY_ADVANCED_PRESETS = 'acu_advanced_presets_v1';
+  const STORAGE_KEY_TABLE_TEMPLATE_REQUIREMENT_PRESETS = 'acu_table_template_requirement_presets_v1';
+  const STORAGE_KEY_ACTIVE_TABLE_TEMPLATE_REQUIREMENT_PRESET = 'acu_active_table_template_requirement_preset_v1';
   const STORAGE_KEY_BUILTIN_PRESET_VISIBILITY = 'acu_builtin_preset_visibility';
   const STORAGE_KEY_BUILTIN_PRESET_ORDER = 'acu_builtin_preset_order';
   const STORAGE_KEY_LAST_PRESET = 'acu_dice_last_preset';
@@ -2179,7 +2292,7 @@ import {
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.8.4'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v6.13'; // 脚本版本号
+  const SCRIPT_VERSION = 'v6.18'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -3867,7 +3980,10 @@ import {
           });
         } catch (error) {
           console.error('[DICE]RenderPresetManager 导入失败:', error);
-          if (window.toastr) showActionableErrorToast('导入失败: ' + getJsonLikeErrorMessage(error));
+          if (window.toastr)
+            showActionableErrorToast('渲染预设导入失败: ' + getJsonLikeErrorMessage(error), {
+              suggestion: 'importExport',
+            });
           return null;
         }
       },
@@ -8139,12 +8255,11 @@ import {
     },
     emitMessageRendered: messageId => {
       try {
-        if (
-          typeof eventSource !== 'undefined' &&
-          typeof event_types !== 'undefined' &&
-          event_types.CHARACTER_MESSAGE_RENDERED
-        ) {
-          void eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, Number(messageId));
+        const source = window.SillyTavern?.eventSource;
+        const events = window.SillyTavern?.eventTypes || window.tavern_events;
+        const eventName = events?.CHARACTER_MESSAGE_RENDERED;
+        if (source && eventName) {
+          void source.emit(eventName, Number(messageId));
         }
       } catch (error) {
         console.warn('[DICE]正文头像渲染通知前端块重新渲染失败:', error);
@@ -8496,34 +8611,35 @@ import {
   };
 
   const getGachaItemCustomTableNameIconContext = (
-    item: Pick<GachaItemDefinition, 'name' | 'rewardTarget'>,
+    item: Pick<GachaItemDefinition, 'name' | 'rewardTarget' | 'targetTable' | 'targetColumns'>,
     rawDataOverride?: unknown,
   ): CustomTableNameIconContext | null => {
     const target: GachaRewardTarget = item.rewardTarget === 'equipment' ? 'equipment' : 'inventory';
-    const parsed = getGachaRewardParseResult(rawDataOverride || cachedRawData || getTableData(), target);
+    let tableName = getGachaRewardTargetTableLabel(target);
+    try {
+      const parsed = getGachaRewardParseResult(
+        rawDataOverride || cachedRawData || getTableData(),
+        target,
+        getGachaRewardTargetOptions(item),
+      );
+      tableName = parsed.tableName || tableName;
+    } catch {
+      tableName = normalizeGachaTargetTable(item.targetTable) || tableName;
+    }
     return createCustomTableNameIconContext(
       target === 'equipment' ? 'equipment' : 'item',
-      parsed.tableName || getGachaRewardTargetTableLabel(target),
+      tableName,
       target === 'equipment' ? 'equipment' : 'item',
       item.name,
     );
   };
 
   const renderGachaItemIconContent = (
-    item: Pick<GachaItemDefinition, 'name' | 'type' | 'icon' | 'iconUrl' | 'localIconKey'>,
+    item: Pick<GachaItemDefinition, 'name' | 'type' | 'icon'>,
     customContext?: CustomTableNameIconContext | null,
   ): string => {
     const fallback = renderThemeIconContent(item.icon || getElementEmoji(item.name, item.type));
-    const fallbackContent = (() => {
-      if (item.localIconKey) {
-        return `<span class="acu-gacha-image-icon acu-gacha-local-icon" data-gacha-local-icon-key="${escapeHtml(item.localIconKey)}">${fallback}</span>`;
-      }
-      if (item.iconUrl && isRenderableImageUrlValid(item.iconUrl)) {
-        return `<span class="acu-gacha-image-icon acu-gacha-url-icon" data-gacha-icon-url="${escapeHtml(item.iconUrl)}">${fallback}</span>`;
-      }
-      return fallback;
-    })();
-    return renderCustomTableNameIconContent(fallbackContent, customContext);
+    return renderCustomTableNameIconContent(fallback, customContext);
   };
 
   const applyAsyncImageUrlToElement = (
@@ -8575,11 +8691,6 @@ import {
     image.src = normalizedUrl;
   };
 
-  const applyGachaIconUrlToElement = (element: HTMLElement, url: string) => {
-    if (!isRenderableImageUrlValid(url)) return;
-    applyAsyncImageUrlToElement(element, url, 'gachaResolvedIconUrl');
-  };
-
   const hydrateCustomTableNameIconsIn = (root: HTMLElement | JQuery<HTMLElement> | Document = document) => {
     const rootEl = root instanceof HTMLElement || root instanceof Document ? root : root[0];
     if (!rootEl) return;
@@ -8616,24 +8727,6 @@ import {
             CustomTableNameIconImageDB.markLocalKeyFailed(localKey);
           });
       });
-  };
-
-  const hydrateGachaLocalIconsIn = (root: HTMLElement | JQuery<HTMLElement> | Document = document) => {
-    const rootEl = root instanceof HTMLElement || root instanceof Document ? root : root[0];
-    if (!rootEl) return;
-    rootEl.querySelectorAll<HTMLElement>('.acu-gacha-url-icon[data-gacha-icon-url]').forEach(element => {
-      const url = String(element.dataset.gachaIconUrl || '').trim();
-      if (!isRenderableImageUrlValid(url)) return;
-      applyGachaIconUrlToElement(element, url);
-    });
-    rootEl.querySelectorAll<HTMLElement>('.acu-gacha-local-icon[data-gacha-local-icon-key]').forEach(element => {
-      const key = String(element.dataset.gachaLocalIconKey || '').trim();
-      if (!key) return;
-      void GachaItemIconDB.get(key).then(url => {
-        if (!url || !element.isConnected) return;
-        applyGachaIconUrlToElement(element, url);
-      });
-    });
   };
 
   // ========================================
@@ -11123,7 +11216,10 @@ import {
             }
           } catch (e) {
             console.warn('[DICE]MvuModule 切换数值模式失败', e);
-            if (window.toastr) showActionableErrorToast('切换模式失败');
+            if (window.toastr)
+              showActionableErrorToast('切换 MVU 数值模式失败，偏好可能没有写入 localStorage。', {
+                developerHint: true,
+              });
           }
         });
 
@@ -11231,7 +11327,10 @@ import {
                 $value.css('background', 'var(--acu-success-bg)');
                 setTimeout(() => $value.css('background', ''), 1500);
               } else {
-                if (toastr) showActionableErrorToast('保存失败');
+                if (toastr)
+                  showActionableErrorToast(`保存变量「${path}」失败。`, {
+                    suggestion: '请刷新变量面板确认当前角色数据仍可写入；如果仍失败，请打开 Debug 控制台查看 MVU 写入日志。',
+                  });
               }
             }
           });
@@ -11735,7 +11834,9 @@ import {
             const toastr = window.parent?.toastr || window.toastr;
             const actualData = this.getData();
             if (toastr && !actualData) {
-              showActionableErrorToast('获取变量数据时出错');
+              showActionableErrorToast('获取变量数据时出错，变量面板无法读取当前 MVU 数据。', {
+                suggestion: '请点击右上角刷新，或关闭变量面板后重新打开；如果仍为空，请检查角色卡变量框架是否已加载。',
+              });
             }
           });
       },
@@ -11790,31 +11891,26 @@ import {
       try {
         const $ta = $('#send_textarea');
         if ($ta.length) {
-          let textareaVal = $ta.val() || '';
+          const textarea = $ta[0] as AcuDiceTextareaElement;
+          const visibleTextareaVal = readTextareaVisibleValue(textarea);
+          let textareaVal = syncTextareaDiceCacheFromVisibleText(textarea, visibleTextareaVal);
           let modifiedText = textareaVal;
 
           if (hideInput) {
             // 隐藏模式：替换为占位符
             if (metaCheckResultRegex.test(modifiedText)) {
-              modifiedText = modifiedText.replace(metaCheckResultRegex, '[投骰结果已隐藏]');
+              storeTextareaDiceCache(textarea, modifiedText);
+              modifiedText = modifiedText.replace(createMetaCheckResultRegex(), DICE_RESULT_PLACEHOLDER);
             }
           } else {
             // 显示模式：如果有保存的原始文本，恢复它
-            const originalTextareaText = $ta.data('acu-original-textarea-text');
-            const originalText = $ta.data('acu-original-dice-text');
-            if (typeof originalTextareaText === 'string' && textareaVal.includes('[投骰结果已隐藏]')) {
-              modifiedText = originalTextareaText;
-              $ta.removeData('acu-original-dice-text');
-              $ta.removeData('acu-original-textarea-text');
-            } else if (originalText && textareaVal.includes('[投骰结果已隐藏]')) {
-              // 替换占位符为原始文本
-              modifiedText = textareaVal.replace(/\[投骰结果已隐藏\]/g, originalText);
-              $ta.removeData('acu-original-dice-text');
-              $ta.removeData('acu-original-textarea-text');
+            if (visibleTextareaVal.includes(DICE_RESULT_PLACEHOLDER)) {
+              modifiedText = textareaVal;
+              clearTextareaDiceCache(textarea);
             }
           }
 
-          if (modifiedText !== textareaVal) {
+          if (modifiedText !== visibleTextareaVal) {
             setTextareaValueAndNotify($ta[0] as HTMLTextAreaElement, modifiedText);
           }
         }
@@ -14713,6 +14809,272 @@ $opponent $oppAttrName：$oppCheckValueText$oppModText，$formula=$oppRoll，总
   const buildActionPresetAgentPrompt = (): string => actionPresetAgentPromptTemplate;
 
   const buildRenderPresetAgentPrompt = (): string => renderPresetAgentPromptTemplate;
+
+  const buildGachaCatalogAgentPrompt = (): string => gachaCatalogAgentPromptTemplate;
+
+  const BUILTIN_TABLE_TEMPLATE_REQUIREMENT_PRESETS = [
+    createBuiltinTableTemplateRequirementPreset(defaultTableTemplateRequirementRaw),
+  ];
+
+  const getTableTemplateRequirementPresetStats = (preset): { sheetCount: number; headerCount: number } => {
+    const sheets = getRequirementInspectionSheets(preset?.template || {});
+    return {
+      sheetCount: sheets.length,
+      headerCount: sheets.reduce((total, sheet) => total + Math.max(0, sheet.headers.length - 1), 0),
+    };
+  };
+
+  const parseTableTemplateRequirementPresetJson = (jsonText: string) => {
+    const parsed = parseJsoncRecord(jsonText, '模板检验预设');
+    if (parsed.template || parsed.preset) return parsed;
+    if (Object.keys(parsed).some(key => key.startsWith('sheet_'))) {
+      return {
+        name: String(parsed.name || '导入的表格模板要求'),
+        description: '从表格模板文件导入生成。',
+        template: parsed,
+      };
+    }
+    return parsed;
+  };
+
+  const buildNewTableTemplateRequirementPresetJsoncTemplate = (): string => {
+    return `{
+  // name：预设名称，必填。
+  "name": "新的模板检验预设",
+  "description": "用于检查当前聊天模板是否满足指定表格结构要求。",
+
+  // requirementLevels：可选。把要求分成 error / warning / info。
+  // - error：缺失后核心功能会失败，例如检定找不到角色名或属性列。
+  // - warning：功能会降级或体验明显变差，例如地点层级或所在地点缺失。
+  // - info：建议保留，用于提示词、排序、注入配置等辅助能力。
+  "requirementLevels": {
+    "defaults": {
+      "sheet": "warning",
+      "header": "warning",
+      "ddl": "warning",
+      "sourceData": {
+        "note": "info"
+      },
+      "mate": "info"
+    },
+    "sheets": {
+      "sheet_protagonist": {
+        "sheet": "error",
+        "headers": {
+          "姓名": "error",
+          "基础属性": "error",
+          "特有属性": "warning"
+        }
+      },
+      "sheet_important_npc": {
+        "sheet": "error",
+        "headers": {
+          "姓名": "error",
+          "基础属性": "error",
+          "特有属性": "error"
+        }
+      },
+      "sheet_inventory": {
+        "sheet": "error",
+        "header": "error"
+      },
+      "sheet_equipment": {
+        "sheet": "error",
+        "header": "error"
+      },
+      "sheet_world_map": {
+        "sheet": "warning",
+        "header": "warning"
+      },
+      "sheet_map_elements": {
+        "sheet": "warning",
+        "header": "warning"
+      }
+    }
+  },
+
+  // template：只放你想校验的表和业务列；不要把整份表格模板塞进来。
+  // row_id、普通展示表、纯提示用列不必写，除非你的预设真的要检查它们。
+  "template": {
+    "sheet_protagonist": {
+      "name": "主角信息",
+      "content": [["姓名", "基础属性", "特有属性"]],
+      "sourceData": {
+        "note": "主角信息需要姓名和属性列，属性建议写成 力量:55; 敏捷:40"
+      }
+    },
+    "sheet_important_npc": {
+      "name": "重要角色表",
+      "content": [["姓名", "基础属性", "特有属性", "所在地点", "在场状态"]]
+    },
+    "sheet_world_map": {
+      "name": "世界地图点",
+      "content": [["详细地点", "次要地区", "主要地区"]]
+    },
+    "sheet_map_elements": {
+      "name": "地图元素表",
+      "content": [["元素名称", "所在地点"]]
+    },
+    "sheet_inventory": {
+      "name": "物品表",
+      "content": [["物品名称", "类型", "数量", "品质", "描述"]]
+    },
+    "sheet_equipment": {
+      "name": "装备表",
+      "content": [["装备名称", "类型", "品质", "状态", "描述"]]
+    }
+  }
+}`;
+  };
+
+  const TableTemplateRequirementPresetManager = (() => {
+    let _cache = null;
+
+    const getStoredPresets = () => {
+      const stored = Store.get(STORAGE_KEY_TABLE_TEMPLATE_REQUIREMENT_PRESETS, []);
+      return Array.isArray(stored) ? stored : [];
+    };
+
+    const getBuiltinPresets = () => BUILTIN_TABLE_TEMPLATE_REQUIREMENT_PRESETS.map(preset => cloneTemplateValue(preset));
+
+    const getCustomPresets = () =>
+      getStoredPresets()
+        .map((preset, index) =>
+          normalizeTableTemplateRequirementPreset(preset, `custom_table_template_requirement_${Date.now()}_${index}`),
+        )
+        .filter(Boolean)
+        .map((preset, index) => ({
+          ...preset,
+          builtin: false,
+          order: Number.isFinite(Number(preset.order)) ? Number(preset.order) : 1000 + index,
+        }));
+
+    const saveCustomPresets = presets => {
+      Store.set(
+        STORAGE_KEY_TABLE_TEMPLATE_REQUIREMENT_PRESETS,
+        presets.map(preset => ({
+          ...preset,
+          builtin: false,
+        })),
+      );
+      _cache = null;
+    };
+
+    const getUniqueId = (prefix = 'custom_table_template_requirement') => {
+      const existing = new Set([...getBuiltinPresets(), ...getCustomPresets()].map(preset => preset.id));
+      let id = `${prefix}_${Date.now()}`;
+      let index = 2;
+      while (existing.has(id)) {
+        id = `${prefix}_${Date.now()}_${index}`;
+        index += 1;
+      }
+      return id;
+    };
+
+    const sortPresets = presets =>
+      presets.sort((left, right) => {
+        const orderDiff = Number(left.order || 999) - Number(right.order || 999);
+        if (orderDiff !== 0) return orderDiff;
+        return String(left.name || '').localeCompare(String(right.name || ''));
+      });
+
+    return {
+      getAllPresets() {
+        if (_cache) return _cache;
+        _cache = sortPresets([...getBuiltinPresets(), ...getCustomPresets()]);
+        return _cache;
+      },
+
+      getPresetById(id) {
+        return this.getAllPresets().find(preset => preset.id === id) || null;
+      },
+
+      getActivePresetId() {
+        const storedId = Store.get(
+          STORAGE_KEY_ACTIVE_TABLE_TEMPLATE_REQUIREMENT_PRESET,
+          DEFAULT_TABLE_TEMPLATE_REQUIREMENT_PRESET_ID,
+        );
+        return this.getPresetById(storedId) ? storedId : DEFAULT_TABLE_TEMPLATE_REQUIREMENT_PRESET_ID;
+      },
+
+      getActivePreset() {
+        return this.getPresetById(this.getActivePresetId()) || BUILTIN_TABLE_TEMPLATE_REQUIREMENT_PRESETS[0];
+      },
+
+      setActivePresetId(id) {
+        const preset = this.getPresetById(id);
+        if (!preset) return false;
+        Store.set(STORAGE_KEY_ACTIVE_TABLE_TEMPLATE_REQUIREMENT_PRESET, preset.id);
+        _cache = null;
+        return true;
+      },
+
+      createPreset(input) {
+        const normalized = normalizeTableTemplateRequirementPreset(input, getUniqueId());
+        if (!normalized) return null;
+        const customPresets = getCustomPresets();
+        const preset = {
+          ...normalized,
+          id: getUniqueId(),
+          builtin: false,
+          order: customPresets.length > 0 ? Math.max(...customPresets.map(item => Number(item.order || 1000))) + 1 : 1000,
+          createdAt: new Date().toISOString(),
+        };
+        saveCustomPresets([...customPresets, preset]);
+        return preset;
+      },
+
+      updatePreset(id, input) {
+        if (BUILTIN_TABLE_TEMPLATE_REQUIREMENT_PRESETS.some(preset => preset.id === id)) {
+          throw new Error('内置模板检验预设不能直接修改，请先复制为自定义预设。');
+        }
+        const customPresets = getCustomPresets();
+        const index = customPresets.findIndex(preset => preset.id === id);
+        if (index < 0) return false;
+        const normalized = normalizeTableTemplateRequirementPreset(input, id);
+        if (!normalized) return false;
+        customPresets[index] = {
+          ...customPresets[index],
+          ...normalized,
+          id,
+          builtin: false,
+          updatedAt: new Date().toISOString(),
+        };
+        saveCustomPresets(customPresets);
+        return true;
+      },
+
+      deletePreset(id) {
+        if (BUILTIN_TABLE_TEMPLATE_REQUIREMENT_PRESETS.some(preset => preset.id === id)) {
+          throw new Error('内置模板检验预设不能删除。');
+        }
+        const customPresets = getCustomPresets();
+        const nextPresets = customPresets.filter(preset => preset.id !== id);
+        if (nextPresets.length === customPresets.length) return false;
+        saveCustomPresets(nextPresets);
+        if (Store.get(STORAGE_KEY_ACTIVE_TABLE_TEMPLATE_REQUIREMENT_PRESET) === id) {
+          Store.set(STORAGE_KEY_ACTIVE_TABLE_TEMPLATE_REQUIREMENT_PRESET, DEFAULT_TABLE_TEMPLATE_REQUIREMENT_PRESET_ID);
+        }
+        return true;
+      },
+
+      exportPreset(id) {
+        const preset = this.getPresetById(id);
+        return preset ? exportTableTemplateRequirementPreset(preset) : null;
+      },
+
+      importPreset(jsonText) {
+        const parsed = parseTableTemplateRequirementPresetJson(jsonText);
+        const normalized = normalizeTableTemplateRequirementPreset(parsed, getUniqueId('imported_table_template_requirement'));
+        if (!normalized) return null;
+        return this.createPreset({
+          ...normalized,
+          id: getUniqueId('imported_table_template_requirement'),
+          builtin: false,
+        });
+      },
+    };
+  })();
 
   // 高级骰子预设管理器
   const AdvancedDicePresetManager = (() => {
@@ -17877,7 +18239,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           .then(text => resolve({ file, text }))
           .catch(error => {
             console.error('[DICE]读取文件失败:', error);
-            if (window.toastr) showActionableErrorToast('文件读取失败');
+            if (window.toastr)
+              showActionableErrorToast('文件读取失败，浏览器没有成功读取所选文件。', { suggestion: 'importExport' });
             resolve(null);
           })
           .finally(cleanup);
@@ -17910,7 +18273,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const message = options.errorMessage
         ? options.errorMessage(error)
         : `JSONC 格式错误: ${getJsonLikeErrorMessage(error)}`;
-      if (window.toastr) showActionableErrorToast(message);
+      if (window.toastr) showActionableErrorToast(message, { suggestion: 'importExport' });
       return null;
     }
   };
@@ -18224,7 +18587,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         } catch (error) {
           console.error('[DICE]DashboardPresetManager 导入失败:', error);
           if (window.toastr)
-            showActionableErrorToast('导入失败: ' + (error instanceof Error ? error.message : String(error)));
+            showActionableErrorToast('仪表盘预设导入失败: ' + (error instanceof Error ? error.message : String(error)), {
+              suggestion: 'importExport',
+            });
           return null;
         }
       },
@@ -21590,7 +21955,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       }
       const removed = CustomTableNameIconStoreManager.delete(candidate.context);
       CustomTableNameIconStoreManager.invalidate();
-      if (window.toastr) window.toastr[removed ? 'success' : 'error'](removed ? successMessage : '删除失败');
+      if (removed) window.toastr?.success(successMessage);
+      else showActionableErrorToast('删除图标映射失败，当前条目可能已被刷新或存储状态异常。', { developerHint: true });
       await refreshManager();
       scheduleRenderedIconConsumersRefresh();
       return removed;
@@ -21633,7 +21999,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const localIconKey = getCustomTableNameIconManagerLocalKey(candidate.context);
         const savedImage = await CustomTableNameIconImageDB.save(localIconKey, pendingLocalFile);
         if (!savedImage) {
-          if (window.toastr) showActionableErrorToast('本地图标保存失败');
+          showActionableErrorToast('本地图标保存失败，图片没有写入本地浏览器存储。', { suggestion: 'image' });
           return;
         }
 
@@ -21650,7 +22016,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         CustomTableNameIconStoreManager.invalidate();
         pendingLocalFile = null;
         scheduleRenderedIconConsumersRefresh();
-        if (window.toastr) window.toastr[saved ? 'success' : 'error'](saved ? '本地图标已保存' : '保存失败');
+        if (saved) window.toastr?.success('本地图标已保存');
+        else showActionableErrorToast('保存本地图标映射失败，图标文件已读取但映射配置没有写入。', { developerHint: true });
         await refreshManager();
         return;
       }
@@ -21685,7 +22052,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       CustomTableNameIconStoreManager.invalidate();
       CustomTableNameIconImageDB.clearUrlFailure(imageUrl);
       scheduleRenderedIconConsumersRefresh();
-      if (window.toastr) window.toastr[saved ? 'success' : 'error'](saved ? '图标 URL 已保存' : '保存失败');
+      if (saved) window.toastr?.success('图标 URL 已保存');
+      else showActionableErrorToast('保存图标 URL 映射失败，配置没有写入本地存储。', { developerHint: true });
       await refreshManager();
     });
 
@@ -21719,7 +22087,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       CustomTableNameIconImageDB.clearUrlFailure(imageUrl);
       pendingLocalFile = null;
       scheduleRenderedIconConsumersRefresh();
-      if (window.toastr) window.toastr[saved ? 'success' : 'error'](saved ? '图标 URL 已保存' : '保存失败');
+      if (saved) window.toastr?.success('图标 URL 已保存');
+      else showActionableErrorToast('保存图标 URL 映射失败，配置没有写入本地存储。', { developerHint: true });
       await refreshManager();
     });
 
@@ -21755,7 +22124,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const localIconKey = getCustomTableNameIconManagerLocalKey(candidate.context);
       const savedImage = await CustomTableNameIconImageDB.save(localIconKey, pendingLocalFile);
       if (!savedImage) {
-        if (window.toastr) showActionableErrorToast('本地图片保存失败');
+        showActionableErrorToast('本地图片保存失败，图片没有写入本地浏览器存储。', { suggestion: 'image' });
         return;
       }
 
@@ -21774,7 +22143,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       CustomTableNameIconStoreManager.invalidate();
       pendingLocalFile = null;
       scheduleRenderedIconConsumersRefresh();
-      if (window.toastr) window.toastr[saved ? 'success' : 'error'](saved ? '本地图标已保存' : '保存失败');
+      if (saved) window.toastr?.success('本地图标已保存');
+      else showActionableErrorToast('保存本地图标映射失败，图标文件已读取但映射配置没有写入。', { developerHint: true });
       await refreshManager();
     });
 
@@ -21873,7 +22243,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         } catch (error) {
           console.error('[DICE][CUSTOM_ICON]导入图标包失败:', error);
           if (window.toastr) {
-            showActionableErrorToast(`图标包导入失败: ${error instanceof Error ? error.message : String(error)}`);
+            showActionableErrorToast(`图标包导入失败: ${error instanceof Error ? error.message : String(error)}`, {
+              suggestion: '请确认图标包是从本功能导出的 JSON 文件；如果文件无误仍失败，请打开控制台复制 [DICE][CUSTOM_ICON] 日志联系开发者。',
+            });
           }
         }
       };
@@ -22308,15 +22680,17 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   };
 
   const getPanelDisplayMaxHeight = ($panel?: JQuery<HTMLElement>): number => {
-    const viewport = window.visualViewport;
-    const viewportTop = viewport?.offsetTop ?? 0;
-    const viewportHeight = viewport?.height || window.innerHeight || document.documentElement.clientHeight || 600;
-    const viewportMaxHeight = Math.max(120, Math.floor(viewportHeight - 32));
     const panelEl = $panel?.[0];
+    const panelDocument = panelEl?.ownerDocument || getTavernHostDocument();
+    const panelWindow = panelDocument.defaultView || getTavernHostWindow();
+    const viewport = panelWindow.visualViewport;
+    const viewportTop = viewport?.offsetTop ?? 0;
+    const viewportHeight = viewport?.height || panelWindow.innerHeight || panelDocument.documentElement.clientHeight || 600;
+    const viewportMaxHeight = Math.max(120, Math.floor(viewportHeight - PANEL_VIEWPORT_TOP_GUTTER));
     if (!panelEl) return Math.min(MAX_PANEL_HEIGHT, viewportMaxHeight);
 
     const rect = panelEl.getBoundingClientRect();
-    const availableAbovePanel = Math.floor(rect.bottom - viewportTop - 16);
+    const availableAbovePanel = Math.floor(rect.bottom - viewportTop - PANEL_VIEWPORT_TOP_GUTTER);
     const availableHeight =
       availableAbovePanel > 0 ? Math.min(viewportMaxHeight, availableAbovePanel) : viewportMaxHeight;
     return Math.max(120, Math.min(MAX_PANEL_HEIGHT, availableHeight));
@@ -22325,6 +22699,21 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   const applyPanelDisplayMaxHeight = ($panel: JQuery<HTMLElement>): void => {
     if (!$panel?.length) return;
     $panel[0].style.setProperty('max-height', `${getPanelDisplayMaxHeight($panel)}px`, 'important');
+  };
+
+  const clampPanelHeightToDisplay = (
+    $panel: JQuery<HTMLElement>,
+    height: unknown,
+    displayMaxHeight?: number,
+  ): number | null => {
+    const rawHeight = Number.parseInt(String(height ?? ''), 10);
+    if (!Number.isFinite(rawHeight)) return null;
+    const normalizedHeight = Math.max(MIN_PANEL_HEIGHT, Math.min(MAX_PANEL_HEIGHT, rawHeight));
+    const effectiveMaxHeight =
+      typeof displayMaxHeight === 'number' && Number.isFinite(displayMaxHeight)
+        ? displayMaxHeight
+        : getPanelDisplayMaxHeight($panel);
+    return Math.max(MIN_PANEL_HEIGHT, Math.min(effectiveMaxHeight, normalizedHeight));
   };
 
   const getStoredPanelHeight = (panelKey: unknown): number | null => {
@@ -22341,8 +22730,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
   const setPanelRequestedHeight = ($panel: JQuery<HTMLElement>, height: unknown): number | null => {
     if (!$panel?.length) return null;
-    const normalizedHeight = normalizePanelHeightValue(height);
-    applyPanelDisplayMaxHeight($panel);
+    const displayMaxHeight = getPanelDisplayMaxHeight($panel);
+    const normalizedHeight = clampPanelHeightToDisplay($panel, height, displayMaxHeight);
+    $panel[0].style.setProperty('max-height', `${displayMaxHeight}px`, 'important');
     if (!normalizedHeight) {
       clearPanelRequestedHeight($panel);
       return null;
@@ -22365,9 +22755,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
   const getPanelDragStartHeight = ($panel: JQuery<HTMLElement>): number => {
     return (
-      normalizePanelHeightValue($panel.attr('data-acu-requested-height')) ||
-      normalizePanelHeightValue($panel.css('height')) ||
-      normalizePanelHeightValue($panel.height()) ||
+      clampPanelHeightToDisplay($panel, $panel.attr('data-acu-requested-height')) ||
+      clampPanelHeightToDisplay($panel, $panel.css('height')) ||
+      clampPanelHeightToDisplay($panel, $panel.height()) ||
       MIN_PANEL_HEIGHT
     );
   };
@@ -23111,7 +23501,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const rawData = cachedRawData || getTableData();
     if (!rawData) {
       console.error('[DICE]ACU clearPresetAttributesForCharacter: 无法获取表格数据');
-      if (window.toastr) showActionableErrorToast('无法获取表格数据');
+      if (window.toastr)
+        showActionableErrorToast('无法获取表格数据，暂时不能清空角色属性。', { suggestion: 'table' });
       return { success: false };
     }
 
@@ -23126,7 +23517,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     // 验证是否找到目标
     if (!targetSheet || targetRowIndex < 0) {
       console.error('[DICE]ACU clearPresetAttributesForCharacter: 找不到角色', charName);
-      if (window.toastr) showActionableErrorToast(`找不到角色「${charName || '<user>'}」`);
+      if (window.toastr)
+        showActionableErrorToast(`找不到角色「${charName || '<user>'}」，无法清空属性。`, {
+          suggestion: '请确认角色名与表格中的名称一致，并刷新数据后再试；如果角色确实存在，请检查角色表是否包含名称列。',
+        });
       return { success: false };
     }
 
@@ -23162,7 +23556,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const rawData = cachedRawData || getTableData();
     if (!rawData) {
       console.error('[DICE]ACU writeAttributesToCharacter: 无法获取表格数据');
-      if (window.toastr) showActionableErrorToast('无法获取表格数据');
+      if (window.toastr)
+        showActionableErrorToast('无法获取表格数据，暂时不能写入角色属性。', { suggestion: 'table' });
       return { success: false };
     }
 
@@ -23177,7 +23572,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     // 验证是否找到目标
     if (!targetSheet || targetRowIndex < 0) {
       console.error('[DICE]ACU writeAttributesToCharacter: 找不到角色', charName);
-      if (window.toastr) showActionableErrorToast(`找不到角色「${charName || '<user>'}」`);
+      if (window.toastr)
+        showActionableErrorToast(`找不到角色「${charName || '<user>'}」，无法写入属性。`, {
+          suggestion: '请确认角色名与表格中的名称一致，并刷新数据后再试；如果角色确实存在，请检查角色表是否包含名称列。',
+        });
       return { success: false };
     }
 
@@ -24540,7 +24938,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           }
         } catch (err) {
           console.error('[DICE]ACU 生成属性失败:', err);
-          if (window.toastr) showActionableErrorToast('生成属性失败');
+          if (window.toastr)
+            showActionableErrorToast('生成属性失败，未能把随机属性写回角色表。', {
+              suggestion: '请确认当前角色存在、属性列可写，并刷新表格数据后重试。',
+            });
         } finally {
           // [修复] 恢复更新处理器
           UpdateController.handleUpdate = originalHandler;
@@ -24580,7 +24981,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           }
         } catch (err) {
           console.error('[DICE]ACU 清空属性失败:', err);
-          if (window.toastr) showActionableErrorToast('清空属性失败');
+          if (window.toastr)
+            showActionableErrorToast('清空属性失败，未能把角色属性列清空。', {
+              suggestion: '请确认当前角色存在、属性列可写，并刷新表格数据后重试。',
+            });
         } finally {
           // 恢复更新处理器
           UpdateController.handleUpdate = originalHandler;
@@ -26108,12 +26512,18 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
               // 递归调用自己，现在资源已存在
               handleResourceBurnerClick(burner, context);
             } else {
-              if (window.toastr) showActionableErrorToast(`初始化幸运值失败: ${result.error}`);
+              if (window.toastr)
+                showActionableErrorToast(`初始化幸运值失败: ${result.error}`, {
+                  suggestion: '请确认角色表存在可写的幸运值/资源属性；如果表格结构正确仍失败，请查看控制台中的属性写入日志。',
+                });
             }
           });
           return;
         } else {
-          if (window.toastr) showActionableErrorToast(`找不到属性: ${burner.resourceName}`);
+          if (window.toastr)
+            showActionableErrorToast(`找不到属性「${burner.resourceName}」，无法执行资源消耗。`, {
+              suggestion: '请确认属性预设或角色表中存在这个资源属性；如果这是新资源，请先在属性表里创建或启用初始化。',
+            });
           return;
         }
       }
@@ -26256,7 +26666,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
         // subtract 模式检查资源上限，add 模式不限
         if (!isAddMode && amount > currentResource) {
-          if (window.toastr) showActionableErrorToast(`资源不足: 需要 ${amount}, 当前只有 ${currentResource}`);
+          if (window.toastr)
+            showActionableErrorToast(`资源不足: 需要 ${amount}，当前只有 ${currentResource}。`, {
+              suggestion: 'resource',
+            });
           return;
         }
 
@@ -26266,7 +26679,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         // 执行资源变更（使用原始角色名，让函数内部判断是否是主角）
         updateSingleAttribute(rawCharName, burner.resourceName, op, amount).then(result => {
           if (!result.success) {
-            if (window.toastr) showActionableErrorToast(`${actionVerb}资源失败: ${result.error}`);
+            if (window.toastr)
+              showActionableErrorToast(`${actionVerb}资源失败: ${result.error}`, {
+                suggestion: '请确认角色表中的资源属性可写，并刷新属性数据后重试；如果仍失败，请查看控制台中的属性写入日志。',
+              });
             return;
           }
 
@@ -26848,7 +27264,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const rollTotal = rollResult.total;
       if (Number.isNaN(rollTotal)) {
         console.warn('[DICE] 高级预设骰子语法错误:', diceExpression);
-        if (window.toastr) showActionableErrorToast(`骰子语法错误: ${diceExpression}`);
+        if (window.toastr)
+          showActionableErrorToast(`骰子语法错误: ${diceExpression}`, {
+            suggestion: '请检查高级预设中的骰子表达式，只使用形如 1d100、2d6+3 的合法写法。',
+          });
         return;
       }
 
@@ -27446,7 +27865,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       // 执行掷骰 - 使用 rollComplexDiceExpression 支持复合表达式如 2d6+33
       const rollResult = rollComplexDiceExpression(diceExpr);
       if (isNaN(rollResult.total)) {
-        if (window.toastr) showActionableErrorToast(`骰子语法错误: ${diceExpr}`);
+        if (window.toastr)
+          showActionableErrorToast(`骰子语法错误: ${diceExpr}`, {
+            suggestion: '请检查骰子输入框或当前预设公式，只使用形如 1d100、2d6+3 的合法写法。',
+          });
         return;
       }
 
@@ -28326,7 +28748,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           }
         } catch (err) {
           console.error('[DICE]ACU 对抗面板生成属性失败:', err);
-          if (window.toastr) showActionableErrorToast('生成属性失败');
+          if (window.toastr)
+            showActionableErrorToast('生成属性失败，未能把随机属性写回对抗角色表。', {
+              suggestion: '请确认对应角色存在、属性列可写，并刷新表格数据后重试。',
+            });
         } finally {
           // [修复] 恢复更新处理器
           UpdateController.handleUpdate = originalHandler;
@@ -28380,7 +28805,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           }
         } catch (err) {
           console.error('[DICE]ACU 对抗面板清空属性失败:', err);
-          if (window.toastr) showActionableErrorToast('清空属性失败');
+          if (window.toastr)
+            showActionableErrorToast('清空属性失败，未能清空对抗角色的属性列。', {
+              suggestion: '请确认对应角色存在、属性列可写，并刷新表格数据后重试。',
+            });
         } finally {
           // 恢复更新处理器
           UpdateController.handleUpdate = originalHandler;
@@ -29312,7 +29740,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       if (isNaN(initRoll.total) || isNaN(oppRoll.total)) {
         if (window.toastr) {
           const errorExpr = isNaN(initRoll.total) ? initDiceExpr : oppDiceExpr;
-          showActionableErrorToast(`骰子语法错误: ${errorExpr}`);
+          showActionableErrorToast(`骰子语法错误: ${errorExpr}`, {
+            suggestion: '请检查对抗检定双方的骰子表达式，只使用形如 1d100、2d6+3 的合法写法。',
+          });
         }
         return;
       }
@@ -29823,7 +30253,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       if (Number.isNaN(initResult.total) || Number.isNaN(oppResult.total)) {
         const errorFormula = Number.isNaN(initResult.total) ? initFormula : oppFormula;
         console.warn('[DICE] 对抗检定骰子语法错误:', errorFormula);
-        if (window.toastr) showActionableErrorToast(`骰子语法错误: ${errorFormula}`);
+        if (window.toastr)
+          showActionableErrorToast(`骰子语法错误: ${errorFormula}`, {
+            suggestion: '请检查对抗检定预设公式，只使用形如 1d100、2d6+3 的合法写法。',
+          });
         return;
       }
       const initRollTotal = initResult.total;
@@ -33615,7 +34048,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         }
       } catch (err) {
         console.error('[DICE]ACU 重新上传失败:', err);
-        if (window.toastr) showActionableErrorToast('上传失败');
+        if (window.toastr)
+          showActionableErrorToast('头像图片上传失败，未能保存新的本地头像。', { suggestion: 'image' });
       }
 
       $(this).val('');
@@ -34697,7 +35131,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             }
           } catch (err) {
             console.error('[DICE]ACU 上传头像失败:', err);
-            if (window.toastr) showActionableErrorToast('上传失败');
+            if (window.toastr)
+              showActionableErrorToast('头像图片上传失败，未能保存新的本地头像。', { suggestion: 'image' });
           }
 
           $(this).val('');
@@ -34819,7 +35254,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
               const analysis = AvatarManager.analyzeImport(jsonData);
 
               if (!analysis.valid) {
-                if (window.toastr) showActionableErrorToast(analysis.error);
+                if (window.toastr)
+                  showActionableErrorToast(analysis.error, {
+                    suggestion: '请确认导入文件是从“角色头像预设”导出的配置，并检查其中的角色名、URL 和本地图片引用是否完整。',
+                  });
                 return;
               }
 
@@ -34830,7 +35268,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
               });
             } catch (err) {
               console.error('[DICE]ACU 导入解析失败:', err);
-              if (window.toastr) showActionableErrorToast('文件解析失败');
+              if (window.toastr)
+                showActionableErrorToast('头像配置文件解析失败，无法读取为有效 JSON。', { suggestion: 'importExport' });
             }
           };
           reader.readAsText(file);
@@ -34846,7 +35285,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       console.error('角色头像预设错误:', error);
       if (window.toastr) {
         const errorMsg = error instanceof Error ? error.message : '未知错误';
-        showActionableErrorToast(`角色头像预设加载失败: ${errorMsg}`);
+        showActionableErrorToast(`角色头像预设加载失败: ${errorMsg}`, { developerHint: true });
       }
       // 清理可能残留的DOM
       $('.acu-avatar-manager-overlay').remove();
@@ -34991,7 +35430,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         }
       } catch (err) {
         console.error('[DICE] 手动弹窗操作失败:', err);
-        if (window.toastr) showActionableErrorToast('操作失败，请查看控制台日志');
+        if (window.toastr) showActionableErrorToast('手动更新操作失败，请查看控制台日志。', { developerHint: true });
         $btn.prop('disabled', false).html(escapeHtml(confirmText));
       }
     });
@@ -35111,7 +35550,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         onComplete && onComplete();
       } catch (err) {
         console.error('[DICE]ACU 导入失败:', err);
-        if (window.toastr) showActionableErrorToast('导入失败：' + err.message);
+        if (window.toastr)
+          showActionableErrorToast('头像配置导入失败：' + (err instanceof Error ? err.message : String(err)), {
+            suggestion: '请确认导入内容仍符合头像配置格式；如果确认无误，请打开控制台复制 [DICE]ACU 导入失败日志联系开发者。',
+          });
       }
     });
   };
@@ -36609,7 +37051,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           description: item.description,
           poolTags: [...item.poolTags],
           icon: item.icon,
-          iconUrl: item.iconUrl,
           enabled: isGachaItemEnabled(item),
           order: item.order,
           createdAt: item.createdAt,
@@ -36620,6 +37061,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           grantQuantity: item.grantQuantity,
           rewardTarget: item.rewardTarget,
         };
+        if (item.targetTable) normalized.targetTable = item.targetTable;
+        if (item.targetColumns) normalized.targetColumns = item.targetColumns;
         if (item.customFields) normalized.customFields = item.customFields;
         return normalized;
       });
@@ -37161,7 +37604,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           toastr.success('配置备份已导出');
         }
       } catch (error) {
-        showActionableErrorToast(error instanceof Error ? error.message : '导出失败');
+        showActionableErrorToast(error instanceof Error ? error.message : '导出失败', {
+          title: '导出失败',
+          suggestion: 'importExport',
+        });
       } finally {
         button.disabled = false;
       }
@@ -37185,7 +37631,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           parsedBackup = null;
           parsedWarnings = [];
           dialog.find('#acu-config-backup-apply').prop('hidden', true);
-          showActionableErrorToast(error instanceof Error ? error.message : '读取备份文件失败');
+          showActionableErrorToast(error instanceof Error ? error.message : '读取备份文件失败', {
+            title: '读取备份失败',
+            suggestion: 'importExport',
+          });
         }
       })();
     });
@@ -37216,7 +37665,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         );
       } catch (error) {
         console.error('[DICE]配置备份恢复失败:', error, parsedWarnings);
-        showActionableErrorToast(error instanceof Error ? error.message : '恢复失败');
+        showActionableErrorToast(error instanceof Error ? error.message : '恢复失败', {
+          title: '恢复失败',
+          suggestion: 'importExport',
+          developerHint: true,
+        });
       } finally {
         button.disabled = false;
       }
@@ -37250,6 +37703,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     'settingsTables',
     'settingsDicePresets',
     'settingsAdvanced',
+    'templateInspection',
     'configBackup',
     'dice',
     'contestDice',
@@ -38948,7 +39402,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         stack: e.stack,
       });
       if (window.toastr) {
-        showActionableErrorToast(errorMessage, { title: '保存失败', toastrOptions: { timeOut: 7000 } });
+        showActionableErrorToast(errorMessage, { title: '保存失败', suggestion: 'save', toastrOptions: { timeOut: 7000 } });
       } else {
         void showDiceSystemConfirmDialog({
           title: '保存失败',
@@ -39155,7 +39609,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     } catch (e) {
       const errorMsg = e instanceof Error ? e.message : String(e);
       console.error('[DICE]ACU saveRowInstantly error:', getRuntimeErrorLogPayload(e));
-      showActionableErrorToast(`保存失败: ${errorMsg}`);
+      showActionableErrorToast(`保存失败: ${errorMsg}`, { title: '保存失败', suggestion: 'save' });
       throw e;
     }
   };
@@ -39831,7 +40285,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         try {
           new RegExp(pattern);
         } catch (e) {
-          if (window.toastr) showActionableErrorToast('正则表达式无效');
+          if (window.toastr) showActionableErrorToast('正则表达式无效', { suggestion: 'input' });
           return;
         }
         ruleConfig.pattern = pattern;
@@ -39970,7 +40424,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         }
         // 事件由父级事件委托处理，无需单独绑定
       } else {
-        if (window.toastr) showActionableErrorToast(isEditMode ? '规则更新失败' : '规则添加失败');
+        if (window.toastr) {
+          showActionableErrorToast(isEditMode ? '规则更新失败' : '规则添加失败', {
+            title: isEditMode ? '规则更新失败' : '规则添加失败',
+            suggestion: 'input',
+          });
+        }
       }
     });
 
@@ -40595,7 +41054,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         renderInterface();
       } catch (e) {
         console.error('[DICE]ACU 反向写入失败:', e);
-        if (window.toastr) showActionableErrorToast('反向写入失败: ' + (e.message || '未知错误'));
+        if (window.toastr) showActionableErrorToast('反向写入失败: ' + (e.message || '未知错误'), { suggestion: 'save' });
       }
     });
 
@@ -40652,11 +41111,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           closeDialog();
           renderInterface();
         } else {
-          if (window.toastr) showActionableErrorToast('无法找到目标单元格');
+          if (window.toastr) showActionableErrorToast('无法找到目标单元格', { suggestion: 'table' });
         }
       } catch (e) {
         console.error('[DICE]ACU 更新单元格失败:', e);
-        if (window.toastr) showActionableErrorToast('更新失败: ' + (e.message || '未知错误'));
+        if (window.toastr) showActionableErrorToast('更新失败: ' + (e.message || '未知错误'), { suggestion: 'save' });
       }
     });
   };
@@ -41495,7 +41954,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         }
       } catch (e) {
         console.error('[DICE]ACU 修复序列递增失败:', e);
-        if (window.toastr) showActionableErrorToast('修复失败: ' + (e.message || '未知错误'));
+        if (window.toastr) showActionableErrorToast('修复失败: ' + (e.message || '未知错误'), { suggestion: 'save' });
         $btn.prop('disabled', false).html('<i class="fa-solid fa-magic"></i> 自动修复');
       }
     });
@@ -41527,7 +41986,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         renderInterface();
       } catch (e) {
         console.error('[DICE]ACU 删除行失败:', e);
-        if (window.toastr) showActionableErrorToast('删除失败: ' + (e.message || '未知错误'));
+        if (window.toastr) showActionableErrorToast('删除失败: ' + (e.message || '未知错误'), { suggestion: 'save' });
       }
     });
   };
@@ -41716,7 +42175,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       } else {
         json = AttributePresetManager.exportPreset(id);
         if (!json) {
-          if (window.toastr) showActionableErrorToast('导出失败');
+          if (window.toastr) showActionableErrorToast('导出失败', { title: '属性预设导出失败', suggestion: 'importExport' });
           return;
         }
         const preset = presets.find(p => p.id === id);
@@ -41746,7 +42205,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           overlay.remove();
           showAttributePresetManager();
         } else {
-          if (window.toastr) showActionableErrorToast('删除失败');
+          if (window.toastr) showActionableErrorToast('删除失败', { title: '属性预设删除失败', suggestion: 'save' });
         }
       }
     });
@@ -41821,7 +42280,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             parsedData = parseJsoncRecord(jsonStr.trim(), '属性预设');
           } catch (error) {
             console.error('[DICE]ACU 属性预设 JSONC 解析失败:', error);
-            if (window.toastr) showActionableErrorToast('JSONC 格式无效');
+            if (window.toastr) showActionableErrorToast('JSONC 格式无效', { suggestion: 'importExport' });
             return;
           }
 
@@ -41855,7 +42314,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
               overlay.remove();
               showAttributePresetManager();
             } else {
-              if (window.toastr) showActionableErrorToast('导入失败：格式不正确');
+              if (window.toastr) showActionableErrorToast('导入失败：格式不正确', { suggestion: 'importExport' });
             }
           };
 
@@ -41875,7 +42334,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           }
         } catch (err) {
           console.error('[DICE]ACU 导入预设失败:', err);
-          if (window.toastr) showActionableErrorToast('导入失败: ' + getJsonLikeErrorMessage(err));
+          if (window.toastr) showActionableErrorToast('导入失败: ' + getJsonLikeErrorMessage(err), { suggestion: 'importExport' });
         } finally {
           input.value = '';
         }
@@ -42152,7 +42611,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         popModal();
       } catch (err) {
         console.error('[DICE]ACU 保存预设失败:', err);
-        if (window.toastr) showActionableErrorToast('保存失败：' + getJsonLikeErrorMessage(err));
+        if (window.toastr) showActionableErrorToast('保存失败：' + getJsonLikeErrorMessage(err), { suggestion: 'save' });
       }
     });
 
@@ -42598,7 +43057,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const id = $(this).data('id');
       const json = AdvancedDicePresetManager.exportPreset(id);
       if (!json) {
-        if (window.toastr) showActionableErrorToast('导出失败');
+        if (window.toastr) showActionableErrorToast('导出失败', { title: '高级骰子预设导出失败', suggestion: 'importExport' });
         return;
       }
       const preset = presets.find(p => p.id === id);
@@ -42627,7 +43086,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           showPresetListDialog({ fromDicePanel }, false);
           refreshDicePanelPresets();
         } catch (err) {
-          if (window.toastr) showActionableErrorToast('删除失败: ' + err.message);
+          if (window.toastr) showActionableErrorToast('删除失败: ' + err.message, { title: '高级骰子预设删除失败', suggestion: 'save' });
         }
       }
     });
@@ -42676,10 +43135,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             refreshDicePanelPresets();
           } else {
             const importError = AdvancedDicePresetManager.getLastImportError();
-            if (window.toastr) showActionableErrorToast('导入失败: ' + (importError || '格式错误'));
+            if (window.toastr) showActionableErrorToast('导入失败: ' + (importError || '格式错误'), { suggestion: 'importExport' });
           }
         } catch (err) {
-          if (window.toastr) showActionableErrorToast('导入失败: ' + getAdvancedPresetErrorMessage(err));
+          if (window.toastr) showActionableErrorToast('导入失败: ' + getAdvancedPresetErrorMessage(err), { suggestion: 'importExport' });
         } finally {
           input.value = '';
         }
@@ -43024,6 +43483,18 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return `acu_render_preset_ai_prompt_${safeName}_${datePart}.md`;
   };
 
+  const buildGachaCatalogAgentPromptFilename = (poolName: string): string => {
+    const safeName =
+      poolName
+        .trim()
+        .replace(/[\\/:*?"<>|]+/g, '_')
+        .replace(/\s+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .slice(0, 60) || 'gacha_catalog';
+    const datePart = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    return `acu_gacha_catalog_ai_prompt_${safeName}_${datePart}.md`;
+  };
+
   const showAdvancedPresetEditor = (presetId: string | null = null) => {
     const { $ } = getCore();
     $('.acu-edit-overlay').remove();
@@ -43232,7 +43703,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         refreshDicePanelPresets(); // 刷新检定面板预设按钮
       } catch (err) {
         console.error('[DICE]ACU 保存高级预设失败:', err);
-        if (window.toastr) showActionableErrorToast('保存失败：' + getAdvancedPresetErrorMessage(err));
+        if (window.toastr) showActionableErrorToast('保存失败：' + getAdvancedPresetErrorMessage(err), { suggestion: 'save' });
       }
     });
 
@@ -43379,7 +43850,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const preset = presets.find(p => p.id === id);
       const json = ActionPresetManager.exportPreset(id);
       if (!json) {
-        if (window.toastr) showActionableErrorToast('导出失败');
+        if (window.toastr) showActionableErrorToast('导出失败', { title: '动作预设导出失败', suggestion: 'importExport' });
         return;
       }
 
@@ -43428,7 +43899,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           overlay.remove();
           showActionPresetManager();
         } else {
-          if (window.toastr) showActionableErrorToast('删除失败');
+          if (window.toastr) showActionableErrorToast('删除失败', { title: '动作预设删除失败', suggestion: 'save' });
         }
       }
     });
@@ -43447,7 +43918,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         try {
           const jsonStr = selected.text;
           if (!jsonStr?.trim()) {
-            if (window.toastr) showActionableErrorToast('文件内容为空');
+            if (window.toastr) showActionableErrorToast('文件内容为空', { suggestion: 'importExport' });
             return;
           }
 
@@ -43457,11 +43928,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             overlay.remove();
             showActionPresetManager();
           } else {
-            if (window.toastr) showActionableErrorToast('导入失败，请检查 JSONC 格式');
+            if (window.toastr) showActionableErrorToast('导入失败，请检查 JSONC 格式', { suggestion: 'importExport' });
           }
         } catch (error) {
           console.error('[DICE]ACU 交互规则导入失败:', error);
-          if (window.toastr) showActionableErrorToast('导入失败: ' + getJsonLikeErrorMessage(error));
+          if (window.toastr) showActionableErrorToast('导入失败: ' + getJsonLikeErrorMessage(error), { suggestion: 'importExport' });
         }
       })();
     });
@@ -43732,7 +44203,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         overlay.remove();
         popModal();
       } catch (e) {
-        if (window.toastr) showActionableErrorToast('JSONC 格式错误: ' + getJsonLikeErrorMessage(e));
+        if (window.toastr) showActionableErrorToast('JSONC 格式错误: ' + getJsonLikeErrorMessage(e), { suggestion: 'importExport' });
       }
     });
 
@@ -43878,7 +44349,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const preset = presets.find(item => item.id === id);
       const json = DashboardPresetManager.exportPreset(id);
       if (!json) {
-        if (window.toastr) showActionableErrorToast('导出失败');
+        if (window.toastr) showActionableErrorToast('导出失败', { title: '仪表盘预设导出失败', suggestion: 'importExport' });
         return;
       }
 
@@ -43921,7 +44392,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           overlay.remove();
           showDashboardPresetManager();
         } else if (window.toastr) {
-          showActionableErrorToast('删除失败');
+          showActionableErrorToast('删除失败', { title: '仪表盘预设删除失败', suggestion: 'save' });
         }
       }
     });
@@ -43938,7 +44409,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         try {
           const jsonText = selected.text.trim();
           if (!jsonText) {
-            if (window.toastr) showActionableErrorToast('文件内容为空');
+            if (window.toastr) showActionableErrorToast('文件内容为空', { suggestion: 'importExport' });
             return;
           }
 
@@ -43950,7 +44421,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           }
         } catch (error) {
           console.error('[DICE]ACU 仪表盘预设导入失败:', error);
-          if (window.toastr) showActionableErrorToast('导入失败: ' + getJsonLikeErrorMessage(error));
+          if (window.toastr) showActionableErrorToast('导入失败: ' + getJsonLikeErrorMessage(error), { suggestion: 'importExport' });
         }
       })();
     });
@@ -44095,7 +44566,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             modules: parsed.modules,
           });
           if (!success) {
-            if (window.toastr) showActionableErrorToast('保存失败');
+            if (window.toastr) showActionableErrorToast('保存失败', { title: '仪表盘预设保存失败', suggestion: 'save' });
             return;
           }
           if (window.toastr) window.toastr.success('仪表盘预设已更新');
@@ -44111,7 +44582,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         overlay.remove();
         popModal();
       } catch (error) {
-        if (window.toastr) showActionableErrorToast('JSONC 格式错误: ' + getJsonLikeErrorMessage(error));
+        if (window.toastr) showActionableErrorToast('JSONC 格式错误: ' + getJsonLikeErrorMessage(error), { suggestion: 'importExport' });
       }
     });
 
@@ -44263,7 +44734,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const preset = presets.find(item => item.id === id);
       const json = RenderPresetManager.exportPreset(id);
       if (!json) {
-        if (window.toastr) showActionableErrorToast('导出失败');
+        if (window.toastr) showActionableErrorToast('导出失败', { title: '渲染预设导出失败', suggestion: 'importExport' });
         return;
       }
 
@@ -44309,7 +44780,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         overlay.remove();
         showRenderPresetManager();
       } else if (window.toastr) {
-        window.toastr.error('删除失败');
+        showActionableErrorToast('删除失败', { title: '渲染预设删除失败', suggestion: 'save' });
       }
     });
 
@@ -44325,7 +44796,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         try {
           const jsonText = selected.text.trim();
           if (!jsonText) {
-            if (window.toastr) showActionableErrorToast('文件内容为空');
+            if (window.toastr) showActionableErrorToast('文件内容为空', { suggestion: 'importExport' });
             return;
           }
 
@@ -44337,7 +44808,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           }
         } catch (error) {
           console.error('[DICE]ACU 渲染预设导入失败:', error);
-          if (window.toastr) showActionableErrorToast('导入失败: ' + getJsonLikeErrorMessage(error));
+          if (window.toastr) showActionableErrorToast('导入失败: ' + getJsonLikeErrorMessage(error), { suggestion: 'importExport' });
         }
       })();
     });
@@ -44487,7 +44958,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             rules: parsed.rules,
           });
           if (!success) {
-            if (window.toastr) showActionableErrorToast('保存失败');
+            if (window.toastr) showActionableErrorToast('保存失败', { title: '渲染预设保存失败', suggestion: 'save' });
             return;
           }
           if (window.toastr) window.toastr.success('渲染预设已更新');
@@ -44505,7 +44976,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         overlay.remove();
         popModal();
       } catch (error) {
-        if (window.toastr) showActionableErrorToast('JSONC 格式错误: ' + getJsonLikeErrorMessage(error));
+        if (window.toastr) showActionableErrorToast('JSONC 格式错误: ' + getJsonLikeErrorMessage(error), { suggestion: 'importExport' });
       }
     });
 
@@ -44732,7 +45203,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         }
       } catch (err) {
         console.error('[DICE]DebugConsole 复制失败:', err);
-        if (window.toastr) showActionableErrorToast('复制失败');
+        if (window.toastr) {
+          showActionableErrorToast('复制失败', {
+            suggestion: '请尝试使用手动复制窗口，或检查浏览器是否允许当前页面访问剪贴板。',
+          });
+        }
       }
     });
 
@@ -45421,7 +45896,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const ok = await copyTextWithTavernApi(detailText);
       if (window.toastr) {
         if (ok) window.toastr.success('详情已复制');
-        else showActionableErrorToast('复制失败');
+        else showActionableErrorToast('复制失败', { suggestion: '请手动选中详情文本复制，或检查浏览器剪贴板权限。' });
       }
     });
 
@@ -47469,7 +47944,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         closePanel();
         showFavoritesPanel();
       } else {
-        showActionableErrorToast('复制失败');
+        showActionableErrorToast('复制失败', { suggestion: '请重试复制；如果仍失败，请刷新收藏面板后再试。' });
       }
     });
 
@@ -47515,7 +47990,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             $(this).remove();
           });
       } else {
-        showActionableErrorToast('删除失败');
+        showActionableErrorToast('删除失败', { title: '收藏删除失败', suggestion: 'save' });
       }
     });
 
@@ -47554,7 +48029,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     $panel.find('#acu-fav-export').on('click', async () => {
       const json = await FavoritesManager.exportFavorites();
       if (!json) {
-        showActionableErrorToast('导出失败');
+        showActionableErrorToast('导出失败', { title: '收藏导出失败', suggestion: 'importExport' });
         return;
       }
 
@@ -47589,10 +48064,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             closePanel();
             showFavoritesPanel();
           } else {
-            showActionableErrorToast('导入失败: 格式无效');
+            showActionableErrorToast('导入失败: 格式无效', { suggestion: 'importExport' });
           }
         } catch (err) {
-          showActionableErrorToast('导入失败: ' + (err instanceof Error ? err.message : String(err)));
+          showActionableErrorToast('导入失败: ' + (err instanceof Error ? err.message : String(err)), {
+            suggestion: 'importExport',
+          });
         }
       };
       input.click();
@@ -47848,7 +48325,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const key = $modal.find('#acu-fav-new-template').val() as string;
       const table = currentTables[key];
       if (!table || !table.content || !table.content[0]) {
-        showActionableErrorToast('无效的表格模板');
+        showActionableErrorToast('无效的表格模板', { suggestion: 'tableTemplate' });
         return;
       }
 
@@ -47947,7 +48424,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const table = currentTables[uid];
 
       if (!table || !table.content) {
-        showActionableErrorToast('无法获取目标表格');
+        showActionableErrorToast('无法获取目标表格', { suggestion: 'table' });
         return;
       }
 
@@ -47959,7 +48436,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         console.log('[DICE]FavoritesManager 发送成功，已写入数据库');
       } catch (err) {
         console.error('[DICE]FavoritesManager 写入数据库失败:', err);
-        showActionableErrorToast('写入数据库失败: ' + (err.message || err));
+        showActionableErrorToast('写入数据库失败: ' + (err.message || err), {
+          title: '写入收藏失败',
+          suggestion: 'save',
+          developerHint: true,
+        });
         return;
       }
 
@@ -48263,6 +48744,79 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return { label: '提示', icon: 'fa-circle-info', color: 'var(--acu-hl-diff)' };
   };
 
+  const repairCurrentTableTemplateFromPreset = async (presetId: string, currentOverlay?: JQuery<HTMLElement>): Promise<void> => {
+    const dbApi = getCore().getDB() as Record<string, unknown> | null | undefined;
+    if (!dbApi || typeof dbApi.getTableTemplate !== 'function' || typeof dbApi.importTemplateFromData !== 'function') {
+      showActionableErrorToast('数据库模板 API 不可用，无法修复当前聊天表格模板。', { developerHint: true });
+      return;
+    }
+
+    const preset = TableTemplateRequirementPresetManager.getPresetById(presetId) || TableTemplateRequirementPresetManager.getActivePreset();
+    if (!preset) {
+      showActionableErrorToast('找不到当前模板检验预设。', { suggestion: 'tableTemplate' });
+      return;
+    }
+
+    try {
+      const currentTemplate = (dbApi.getTableTemplate as () => unknown).call(dbApi);
+      const plan = buildTableTemplateAppendRepairPlan(currentTemplate, preset);
+      if (plan.manualIssues.length > 0 && plan.actions.length === 0) {
+        showActionableErrorToast(`当前模板存在需要手动处理的问题：${plan.manualIssues[0]}`, {
+          suggestion: 'tableTemplate',
+        });
+        return;
+      }
+      if (!plan.changed || !plan.repairedTemplate) {
+        if (window.toastr) window.toastr.info('当前聊天模板已经满足可自动追加的要求。');
+        currentOverlay?.remove();
+        showTemplateInspectionModal();
+        return;
+      }
+
+      const actionPreview = plan.actions.slice(0, 12).map(action => `• ${action}`);
+      const hiddenActionCount = Math.max(0, plan.actions.length - actionPreview.length);
+      if (hiddenActionCount > 0) actionPreview.push(`• 还有 ${hiddenActionCount} 项追加动作`);
+      const manualPreview = plan.manualIssues.slice(0, 6).map(issue => `• ${issue}`);
+      const detailParts = [
+        '将只修复当前聊天模板，不会修改全局模板，也不会直接写入运行时表格数据。',
+        '',
+        '将追加：',
+        ...actionPreview,
+      ];
+      if (manualPreview.length > 0) {
+        detailParts.push('', '仍需手动处理：', ...manualPreview);
+      }
+
+      const confirmed = await showDiceSystemConfirmDialog({
+        title: '修复当前聊天表格模板',
+        message: '将把缺失表、缺失列、建表说明和模板说明追加到当前聊天模板末尾。',
+        detail: detailParts.join('\n'),
+        iconClass: 'fa-wrench',
+        confirmText: '修复当前聊天模板',
+        cancelText: '取消',
+        tone: 'warning',
+      });
+      if (!confirmed) return;
+
+      const importResult = await (dbApi.importTemplateFromData as Function).call(dbApi, plan.repairedTemplate, {
+        scope: 'chat',
+      });
+      if (importResult && typeof importResult === 'object' && importResult.success === false) {
+        throw new Error(importResult.error || importResult.message || '数据库本体拒绝导入修复后的模板');
+      }
+
+      if (window.toastr) window.toastr.success(`已追加修复 ${plan.actions.length} 项当前聊天模板要求`);
+      currentOverlay?.remove();
+      showTemplateInspectionModal();
+    } catch (error) {
+      console.error('[DICE]智能修复表格模板失败:', error);
+      showActionableErrorToast(`智能修复失败: ${(error as Error).message || error}`, {
+        suggestion: 'tableTemplate',
+        developerHint: true,
+      });
+    }
+  };
+
   const showTemplateInspectionResultModal = (result: TemplateInspectionResult): void => {
     const { $ } = getCore();
     const config = getConfig();
@@ -48273,7 +48827,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const infoCount = result.issues.filter(issue => issue.severity === 'info').length;
     const statusText =
       result.issues.length === 0
-        ? '未发现会影响骰子系统的模板缺失项。'
+        ? '当前聊天模板满足当前模板检验预设的最低要求。'
         : `发现 ${result.issues.length} 项需要关注的模板问题。`;
     const severityRank: Record<TemplateInspectionSeverity, number> = { error: 3, warning: 2, info: 1 };
     const groupedIssues = result.issues.reduce<TemplateInspectionIssueGroup[]>((groups, issue) => {
@@ -48291,113 +48845,166 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     }, []);
 
     groupedIssues.sort((a, b) => severityRank[b.severity] - severityRank[a.severity] || a.name.localeCompare(b.name));
+    const isClean = groupedIssues.length === 0;
+    const summarySeverity = errorCount > 0 ? 'error' : warningCount > 0 ? 'warning' : 'info';
+    const summaryMeta = getTemplateInspectionSeverityMeta(summarySeverity);
+    const presetLabel = result.presetName || '当前模板检验预设';
+    const issueSummaryTitle = isClean ? '模板结构完整' : `发现 ${result.issues.length} 项模板问题`;
+    const repairButtonHtml =
+      result.fixableCount > 0
+        ? `<button class="acu-dialog-btn acu-btn-confirm" id="template-inspection-repair" title="追加修复当前聊天模板" aria-label="追加修复当前聊天模板">
+             <i class="fa-solid fa-wrench"></i> 修复
+           </button>`
+        : '';
 
     const tabHtml =
-      groupedIssues.length === 0
+      isClean
         ? ''
         : groupedIssues
             .map((group, index) => {
               const meta = getTemplateInspectionSeverityMeta(group.severity);
               return `
-                <button class="acu-template-inspection-tab ${index === 0 ? 'active' : ''}" data-group-index="${index}" style="display:flex;align-items:center;gap:8px;width:100%;padding:9px 10px;border:1px solid ${index === 0 ? 'var(--acu-accent)' : 'var(--acu-border)'};border-radius:8px;background:${index === 0 ? 'var(--acu-table-head)' : 'var(--acu-card-bg)'};color:var(--acu-text-main);cursor:pointer;text-align:left;">
-                  <i class="fa-solid ${meta.icon}" style="color:${meta.color};width:14px;"></i>
-                  <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(group.name)}</span>
-                  <span class="acu-changes-count" style="margin-left:0;background:${meta.color};">${group.issues.length}</span>
+                <button class="acu-template-inspection-tab ${index === 0 ? 'active' : ''}" data-group-index="${index}" style="--acu-template-inspection-color:${meta.color};">
+                  <i class="fa-solid ${meta.icon} acu-template-inspection-tab-icon"></i>
+                  <span class="acu-template-inspection-tab-label">${escapeHtml(group.name)}</span>
+                  <span class="acu-changes-count acu-template-inspection-tab-count" style="background:${meta.color};">${group.issues.length}</span>
                 </button>`;
             })
             .join('');
 
-    const panelHtml =
-      groupedIssues.length === 0
-        ? `<div class="acu-empty-hint" style="padding:44px 20px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:260px;">
-             <i class="fa-solid fa-check-circle" style="font-size:36px;color:var(--acu-success-text);margin-bottom:12px;display:block;"></i>
-             <strong style="font-size:15px;color:var(--acu-text-main);">模板关键结构完整</strong>
-             <span style="margin-top:6px;color:var(--acu-text-sub);">可以继续使用当前聊天数据库模板。</span>
-           </div>`
-        : groupedIssues
-            .map((group, groupIndex) => {
-              const issueCards = group.issues
-                .map((issue, issueIndex) => {
-                  const meta = getTemplateInspectionSeverityMeta(issue.severity);
-                  const missingHtml = issue.missing.map(item => `<li>${escapeHtml(item)}</li>`).join('');
-                  const collapsed = issueIndex > 0;
-                  return `
-                    <div class="acu-changes-group acu-template-inspection-card ${collapsed ? 'collapsed' : ''}" style="--acu-template-inspection-color:${meta.color};">
-                      <div class="acu-changes-group-header acu-template-inspection-card-header" style="cursor:pointer;">
-                        <i class="fa-solid fa-chevron-${collapsed ? 'right' : 'down'} acu-collapse-icon" style="font-size:10px;width:12px;transition:transform 0.2s;"></i>
-                        <i class="fa-solid ${meta.icon}" style="color:${meta.color};"></i>
-                        <span style="flex:1;">${escapeHtml(issue.title)}</span>
-                        <span class="acu-changes-count" style="background:${meta.color};">${meta.label}</span>
-                      </div>
-                      <div class="acu-changes-group-body" style="${collapsed ? 'display:none;' : ''}">
-                        <div class="acu-change-item" style="display:block;line-height:1.65;">
-                          <div style="font-weight:700;color:var(--acu-text-main);margin-bottom:4px;">缺失内容</div>
-                          <ul style="margin:0 0 8px 18px;padding:0;color:var(--acu-text-main);">${missingHtml}</ul>
-                          <div style="font-weight:700;color:var(--acu-text-main);margin-bottom:4px;">影响功能</div>
-                          <div style="margin-bottom:8px;color:var(--acu-text-main);">${escapeHtml(issue.impact)}</div>
-                          <div style="font-weight:700;color:var(--acu-text-main);margin-bottom:4px;">建议做法</div>
-                          <div style="color:var(--acu-text-sub);">${escapeHtml(issue.suggestion)}</div>
-                        </div>
-                      </div>
-                    </div>`;
-                })
-                .join('');
-              return `
-                <div class="acu-template-inspection-panel" data-group-index="${groupIndex}" style="${groupIndex === 0 ? '' : 'display:none;'}">
-                  <div class="acu-changes-list acu-template-inspection-card-list">${issueCards}</div>
-                </div>`;
-            })
-            .join('');
+    const panelHtml = groupedIssues
+      .map((group, groupIndex) => {
+        const issueCards = group.issues
+          .map((issue, issueIndex) => {
+            const meta = getTemplateInspectionSeverityMeta(issue.severity);
+            const missingHtml = issue.missing.map(item => `<li>${escapeHtml(item)}</li>`).join('');
+            const isFixable = !!issue.fixActions && issue.fixActions.length > 0;
+            const resolutionHtml = isFixable
+              ? `<div style="font-weight:700;color:var(--acu-text-main);margin-bottom:4px;">智能修复</div>
+                 <ul style="margin:0 0 8px 18px;padding:0;color:var(--acu-text-main);">${issue.fixActions
+                   .map(action => `<li>${escapeHtml(action)}</li>`)
+                   .join('')}</ul>`
+              : `<div style="font-weight:700;color:var(--acu-text-main);margin-bottom:4px;">建议做法</div>
+                 <div style="color:var(--acu-text-main);">${escapeHtml(issue.suggestion)}</div>`;
+            const collapsed = issueIndex > 0;
+            return `
+              <div class="acu-changes-group acu-template-inspection-card ${collapsed ? 'collapsed' : ''}" style="--acu-template-inspection-color:${meta.color};">
+                <div class="acu-changes-group-header acu-template-inspection-card-header" style="cursor:pointer;">
+                  <i class="fa-solid fa-chevron-${collapsed ? 'right' : 'down'} acu-collapse-icon" style="font-size:10px;width:12px;transition:transform 0.2s;"></i>
+                  <i class="fa-solid ${meta.icon}" style="color:${meta.color};"></i>
+                  <span style="flex:1;">${escapeHtml(issue.title)}</span>
+                  <span class="acu-changes-count" style="background:${meta.color};">${meta.label}</span>
+                </div>
+                <div class="acu-changes-group-body" style="${collapsed ? 'display:none;' : ''}">
+                  <div class="acu-change-item" style="display:block;line-height:1.65;">
+                    <div style="font-weight:700;color:var(--acu-text-main);margin-bottom:4px;">缺失内容</div>
+                    <ul style="margin:0 0 8px 18px;padding:0;color:var(--acu-text-main);">${missingHtml}</ul>
+                    <div style="font-weight:700;color:var(--acu-text-main);margin-bottom:4px;">影响功能</div>
+                    <div style="margin-bottom:8px;color:var(--acu-text-main);">${escapeHtml(issue.impact)}</div>
+                    ${resolutionHtml}
+                  </div>
+                </div>
+              </div>`;
+          })
+          .join('');
+        return `
+          <div class="acu-template-inspection-panel" data-group-index="${groupIndex}" style="${groupIndex === 0 ? '' : 'display:none;'}">
+            <div class="acu-changes-list acu-template-inspection-card-list">${issueCards}</div>
+          </div>`;
+      })
+      .join('');
+
+    const cleanBodyHtml = `
+      <div class="acu-template-inspection-clean-card">
+        <div class="acu-template-inspection-clean-result">
+          <div class="acu-template-inspection-clean-icon"><i class="fa-solid fa-check"></i></div>
+          <div class="acu-template-inspection-clean-copy">
+            <div class="acu-template-inspection-clean-title">模板关键结构完整</div>
+            <div class="acu-template-inspection-clean-desc">${escapeHtml(statusText)}</div>
+          </div>
+        </div>
+        <div class="acu-template-inspection-clean-meta">
+          <div><span>预设</span><strong>${escapeHtml(presetLabel)}</strong></div>
+          <div><span>模板</span><strong>${result.sheets.length} 张表</strong></div>
+          <div><span>检查时间</span><strong>${escapeHtml(result.checkedAt)}</strong></div>
+        </div>
+        <div class="acu-template-inspection-clean-stats">
+          <span><b>${errorCount}</b> 严重</span>
+          <span><b>${warningCount}</b> 警告</span>
+          <span><b>${infoCount}</b> 提示</span>
+          <span><b>${result.fixableCount || 0}</b> 可修复</span>
+          <span><b>${result.manualCount || 0}</b> 手动</span>
+        </div>
+      </div>`;
+
+    const issueBodyHtml = `
+      <div class="acu-template-inspection-summary" style="--acu-template-inspection-summary-color:${summaryMeta.color};">
+        <div class="acu-template-inspection-summary-head">
+          <span class="acu-template-inspection-summary-icon" aria-hidden="true">
+            <i class="fa-solid ${summaryMeta.icon}"></i>
+          </span>
+          <div class="acu-template-inspection-summary-copy">
+            <div class="acu-template-inspection-summary-title">${escapeHtml(issueSummaryTitle)}</div>
+          </div>
+        </div>
+        <div class="acu-template-inspection-stats" aria-label="问题统计">
+          <span class="acu-template-inspection-stat acu-template-inspection-stat-error"><b>${errorCount}</b> 严重</span>
+          <span class="acu-template-inspection-stat acu-template-inspection-stat-warning"><b>${warningCount}</b> 警告</span>
+          <span class="acu-template-inspection-stat acu-template-inspection-stat-info"><b>${infoCount}</b> 提示</span>
+          <span class="acu-template-inspection-stat"><b>${result.fixableCount || 0}</b> 智能修复</span>
+          <span class="acu-template-inspection-stat"><b>${result.manualCount || 0}</b> 需手动处理</span>
+        </div>
+      </div>
+      <div class="acu-template-inspection-layout" style="display:grid;grid-template-columns:220px minmax(0,1fr);gap:12px;align-items:start;">
+        <div class="acu-template-inspection-tabs" style="display:flex;flex-direction:column;gap:8px;max-height:54vh;overflow:auto;padding-right:2px;">
+          ${tabHtml}
+        </div>
+        <div class="acu-template-inspection-panels" style="min-width:0;max-height:54vh;overflow:auto;padding-right:2px;">
+          ${panelHtml}
+        </div>
+      </div>`;
 
     const overlay = $(`
       <div class="acu-edit-overlay acu-template-inspection-overlay">
-        <div class="acu-edit-dialog acu-template-inspection-dialog acu-theme-${config.theme}" style="width: 900px; max-width: 96vw; max-height: 88vh;">
-          <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:12px;border-bottom:1px solid var(--acu-border);">
-            <div style="font-size:16px;font-weight:bold;color:var(--acu-text-main);">
+        <div class="acu-edit-dialog acu-template-inspection-dialog ${isClean ? 'acu-template-inspection-dialog-clean' : ''} acu-theme-${config.theme}" style="width: 900px; max-width: 96vw; max-height: 88vh;">
+          <div class="acu-template-inspection-header" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding-bottom:12px;border-bottom:1px solid var(--acu-border);">
+            <div class="acu-template-inspection-title" style="font-size:16px;font-weight:bold;color:var(--acu-text-main);min-width:0;display:flex;align-items:center;gap:6px;">
               <i class="fa-solid fa-stethoscope"></i> 检验表格模板
             </div>
-            <button class="acu-close-btn acu-template-inspection-close"><i class="fa-solid fa-times"></i></button>
+            <div class="acu-template-inspection-header-actions">
+              ${getTutorialButtonHtml('templateInspection', '查看检验表格模板教程', 'acu-template-inspection-tutorial-btn')}
+              <button class="acu-close-btn acu-template-inspection-close" title="关闭" aria-label="关闭检验表格模板结果"><i class="fa-solid fa-times"></i></button>
+            </div>
           </div>
-          <div class="acu-settings-content acu-settings-content-scroll" style="padding:12px 0;">
-            <div class="acu-template-inspection-summary" style="border:1px solid var(--acu-border);border-radius:10px;background:var(--acu-card-bg);padding:12px;margin-bottom:12px;">
-              <div class="acu-template-inspection-summary-title">${escapeHtml(statusText)}</div>
-              <div class="acu-template-inspection-summary-sub">已读取当前聊天生效模板：${result.sheets.length} 张表 · ${escapeHtml(result.checkedAt)}</div>
-              <div class="acu-template-inspection-stats" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
-                <span><b>${errorCount}</b> 严重</span>
-                <span><b>${warningCount}</b> 警告</span>
-                <span><b>${infoCount}</b> 提示</span>
-              </div>
-            </div>
-            <div class="acu-template-inspection-layout ${groupedIssues.length === 0 ? 'acu-template-inspection-layout-empty' : ''}" style="display:grid;grid-template-columns:220px minmax(0,1fr);gap:12px;align-items:start;">
-              <div class="acu-template-inspection-tabs" style="display:flex;flex-direction:column;gap:8px;max-height:54vh;overflow:auto;padding-right:2px;">
-                ${tabHtml}
-              </div>
-              <div class="acu-template-inspection-panels" style="min-width:0;max-height:54vh;overflow:auto;padding-right:2px;">
-                ${panelHtml}
-              </div>
-            </div>
+          <div class="acu-settings-content acu-settings-content-scroll acu-template-inspection-body" style="padding:12px 0;">
+            ${isClean ? cleanBodyHtml : issueBodyHtml}
           </div>
           <div class="acu-dialog-btns acu-template-inspection-actions" style="justify-content:space-between;align-items:center;gap:10px;">
-            <button class="acu-dialog-btn acu-template-inspection-download" id="template-inspection-download" style="background:var(--acu-card-bg);color:var(--acu-text-main);border:1px solid var(--acu-border);">
-              <i class="fa-solid fa-arrow-up-right-from-square"></i> 下载最新表格模板
+            <button class="acu-dialog-btn acu-template-inspection-download" id="template-inspection-download" title="下载最新表格模板" aria-label="下载最新表格模板" style="background:var(--acu-card-bg);color:var(--acu-text-main);border:1px solid var(--acu-border);">
+              <i class="fa-solid fa-arrow-up-right-from-square"></i> 最新模板
             </button>
-            <button class="acu-dialog-btn acu-btn-confirm acu-template-inspection-close"><i class="fa-solid fa-check"></i> 我知道了</button>
+            <div class="acu-template-inspection-primary-actions" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
+              ${repairButtonHtml}
+            </div>
           </div>
         </div>
       </div>`);
 
     $('body').append(overlay);
+    bindTutorialButtonsIn(overlay);
     overlay.find('.acu-template-inspection-close').on('click', () => overlay.remove());
     overlay.find('#template-inspection-download').on('click', () => {
       window.open(LATEST_TABLE_TEMPLATE_URL, '_blank', 'noopener,noreferrer');
+    });
+    overlay.find('#template-inspection-repair').on('click', () => {
+      void repairCurrentTableTemplateFromPreset(result.presetId, overlay);
     });
     overlay.find('.acu-template-inspection-tab').on('click', function () {
       const groupIndex = $(this).data('group-index');
       overlay
         .find('.acu-template-inspection-tab')
-        .removeClass('active')
-        .css({ borderColor: 'var(--acu-border)', background: 'var(--acu-card-bg)' });
-      $(this).addClass('active').css({ borderColor: 'var(--acu-accent)', background: 'var(--acu-table-head)' });
+        .removeClass('active');
+      $(this).addClass('active');
       overlay.find('.acu-template-inspection-panel').hide();
       overlay.find(`.acu-template-inspection-panel[data-group-index="${groupIndex}"]`).show();
     });
@@ -48421,18 +49028,353 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   const showTemplateInspectionModal = (): void => {
     const dbApi = getCore().getDB() as Record<string, unknown> | null | undefined;
     if (!dbApi || typeof dbApi.getTableTemplate !== 'function') {
-      showActionableErrorToast('数据库模板 API 不可用，无法读取当前聊天表格模板。');
+      showActionableErrorToast('数据库模板 API 不可用，无法读取当前聊天表格模板。', { developerHint: true });
       return;
     }
 
     try {
       const template = (dbApi.getTableTemplate as () => unknown).call(dbApi);
-      const result = inspectTableTemplate(template);
+      const preset = TableTemplateRequirementPresetManager.getActivePreset();
+      const result = inspectTableTemplateWithPreset(template, preset);
       showTemplateInspectionResultModal(result);
     } catch (error) {
       console.error('[DICE]检验表格模板失败:', error);
-      showActionableErrorToast(`检验表格模板失败: ${(error as Error).message || error}`);
+      showActionableErrorToast(`检验表格模板失败: ${(error as Error).message || error}`, {
+        suggestion: 'tableTemplate',
+        developerHint: true,
+      });
     }
+  };
+
+  const showTableTemplateRequirementPresetEditor = (presetId: string | null = null): void => {
+    const { $ } = getCore();
+    $('.acu-edit-overlay').remove();
+    pushModal('showTableTemplateRequirementPresetEditor', () => showTableTemplateRequirementPresetEditor(presetId));
+
+    const config = getConfig();
+    const isEdit = Boolean(presetId);
+    const existingPreset = isEdit ? TableTemplateRequirementPresetManager.getPresetById(presetId) : null;
+    const defaultJsonText = existingPreset
+      ? JSON.stringify(
+          {
+            name: existingPreset.name,
+            description: existingPreset.description || '',
+            template: existingPreset.template,
+          },
+          null,
+          2,
+        )
+      : buildNewTableTemplateRequirementPresetJsoncTemplate();
+    const defaultPreset =
+      normalizeTableTemplateRequirementPreset(parseTableTemplateRequirementPresetJson(defaultJsonText), presetId || undefined) ||
+      TableTemplateRequirementPresetManager.getActivePreset();
+
+    const overlay = $(`
+      <div class="acu-edit-overlay">
+        <div class="acu-edit-dialog acu-advanced-preset-editor-dialog acu-theme-${config.theme}">
+          <div class="acu-advanced-preset-header">
+            <h3><i class="fa-solid fa-table-list"></i> ${isEdit ? '编辑' : '新建'}模板检验预设</h3>
+            <div class="acu-advanced-preset-header-actions">
+              <button type="button" class="acu-close-btn" aria-label="关闭模板检验预设编辑器" title="关闭"><i class="fa-solid fa-times"></i></button>
+            </div>
+          </div>
+
+          <div class="acu-advanced-preset-editor-body">
+            <div class="acu-advanced-preset-editor-fields">
+              <div class="acu-advanced-preset-field">
+                <label for="table-template-requirement-preset-name">预设名称</label>
+                <input id="table-template-requirement-preset-name" type="text" value="${escapeHtml(defaultPreset.name || '')}" class="acu-preset-editor-input" />
+              </div>
+              <div class="acu-advanced-preset-field">
+                <label for="table-template-requirement-preset-desc">描述</label>
+                <input id="table-template-requirement-preset-desc" type="text" value="${escapeHtml(defaultPreset.description || '')}" placeholder="可选" class="acu-preset-editor-input" />
+              </div>
+            </div>
+
+            <div class="acu-advanced-preset-json-section">
+              <div class="acu-advanced-preset-json-head">
+                <label class="acu-advanced-preset-json-label" for="table-template-requirement-preset-json">
+                  JSONC 配置
+                  <span>支持完整预设、仅 template 对象，或直接导入表格模板 JSON</span>
+                </label>
+              </div>
+              <textarea id="table-template-requirement-preset-json" class="acu-preset-editor-textarea acu-advanced-preset-json-textarea"></textarea>
+              <div class="acu-advanced-preset-format-help-summary">
+                <strong>分层要求：</strong>
+                <span>template 中出现的表、列和可选 sourceData / DDL / 配置会参与校验；可用 requirementLevels 标记 error、warning 或 info。</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="acu-advanced-preset-editor-footer">
+            <div class="acu-advanced-preset-editor-tools">
+              <button id="table-template-requirement-preset-validate" type="button" class="acu-dialog-btn acu-advanced-preset-tool-btn">
+                <i class="fa-solid fa-vial-circle-check"></i> 验证配置
+              </button>
+            </div>
+            <div class="acu-advanced-preset-editor-actions">
+              <button type="button" id="table-template-requirement-preset-save" class="acu-dialog-btn acu-btn-confirm acu-advanced-preset-editor-save">
+                <i class="fa-solid fa-check"></i> 保存
+              </button>
+              <button type="button" id="table-template-requirement-preset-cancel" class="acu-dialog-btn">
+                <i class="fa-solid fa-times"></i> 取消
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `);
+
+    $('body').append(overlay);
+    const $jsonTextarea = overlay.find('#table-template-requirement-preset-json');
+    $jsonTextarea.val(defaultJsonText);
+
+    const parseEditorPreset = () => {
+      const name = String(overlay.find('#table-template-requirement-preset-name').val() || '').trim();
+      const description = String(overlay.find('#table-template-requirement-preset-desc').val() || '').trim();
+      const parsed = parseTableTemplateRequirementPresetJson(String($jsonTextarea.val() || ''));
+      const normalized = normalizeTableTemplateRequirementPreset(parsed, presetId || undefined);
+      if (!normalized) throw new Error('配置中必须包含 template 对象，或直接提供表格模板对象。');
+      normalized.name = name || normalized.name;
+      normalized.description = description || normalized.description || '';
+      normalized.builtin = false;
+      return normalized;
+    };
+
+    overlay.find('#table-template-requirement-preset-validate').on('click', () => {
+      validateJsoncEditorConfig({
+        text: String($jsonTextarea.val() || ''),
+        parse: () => parseEditorPreset(),
+        successMessage: preset => {
+          const stats = getTableTemplateRequirementPresetStats(preset);
+          return `配置有效：${preset.name}，${stats.sheetCount} 张表，${stats.headerCount} 个业务列`;
+        },
+        logLabel: '[DICE]ACU 模板检验预设验证失败:',
+      });
+    });
+
+    overlay.find('#table-template-requirement-preset-save').on('click', () => {
+      try {
+        const preset = parseEditorPreset();
+        if (!preset.name) {
+          if (window.toastr) window.toastr.warning('请输入预设名称');
+          return;
+        }
+        if (isEdit && presetId) {
+          TableTemplateRequirementPresetManager.updatePreset(presetId, preset);
+        } else {
+          TableTemplateRequirementPresetManager.createPreset(preset);
+        }
+        overlay.remove();
+        popModal();
+        showTableTemplateRequirementPresetManager();
+      } catch (error) {
+        console.error('[DICE]ACU 保存模板检验预设失败:', error);
+        showActionableErrorToast('保存失败: ' + getJsonLikeErrorMessage(error), { suggestion: 'save' });
+      }
+    });
+
+    overlay.find('.acu-close-btn, #table-template-requirement-preset-cancel').on('click', () => {
+      overlay.remove();
+      popModal();
+      showTableTemplateRequirementPresetManager();
+    });
+
+    setupOverlayClose(overlay, 'acu-edit-overlay', () => {
+      overlay.remove();
+      popModal();
+      showTableTemplateRequirementPresetManager();
+    });
+  };
+
+  const showTableTemplateRequirementPresetManager = (): void => {
+    const { $ } = getCore();
+    $('.acu-edit-overlay').remove();
+    pushModal('showTableTemplateRequirementPresetManager', showTableTemplateRequirementPresetManager);
+
+    const config = getConfig();
+    const presets = TableTemplateRequirementPresetManager.getAllPresets();
+    const activeId = TableTemplateRequirementPresetManager.getActivePresetId();
+    const presetsHtml = presets
+            .map(preset => {
+              const isActive = preset.id === activeId;
+              const isBuiltin = preset.builtin === true;
+              const stats = getTableTemplateRequirementPresetStats(preset);
+              return `
+          <div class="acu-preset-item acu-table-template-requirement-preset-item" data-id="${escapeHtml(preset.id)}">
+            <div class="acu-preset-info">
+              <div class="acu-preset-name" title="${escapeHtml(preset.name)}">
+                ${escapeHtml(preset.name)}
+                ${isBuiltin ? `<span class="acu-preset-badge">内置</span>` : ''}
+                ${isActive ? `<span class="acu-preset-badge">当前</span>` : ''}
+              </div>
+              ${preset.description ? `<div class="acu-preset-desc">${escapeHtml(preset.description)}</div>` : ''}
+              <div class="acu-preset-stats" title="${escapeHtml(preset.format || TABLE_TEMPLATE_REQUIREMENT_PRESET_FORMAT)}">${stats.sheetCount} 张表 · ${stats.headerCount} 列</div>
+            </div>
+            <div class="acu-preset-actions">
+              <label class="acu-toggle" title="设为当前模板检验预设">
+                <input type="checkbox" class="acu-table-template-requirement-preset-toggle" data-id="${escapeHtml(preset.id)}" ${isActive ? 'checked' : ''} aria-label="启用 ${escapeHtml(preset.name)}">
+                <span class="acu-toggle-slider"></span>
+              </label>
+              ${
+                isBuiltin
+                  ? `<button type="button" class="acu-preset-btn acu-table-template-requirement-preset-copy" data-id="${escapeHtml(preset.id)}" title="复制为自定义预设" aria-label="复制 ${escapeHtml(preset.name)}"><i class="fa-solid fa-copy"></i></button>`
+                  : `<button type="button" class="acu-preset-btn acu-table-template-requirement-preset-edit" data-id="${escapeHtml(preset.id)}" title="编辑" aria-label="编辑 ${escapeHtml(preset.name)}"><i class="fa-solid fa-pen"></i></button>`
+              }
+              <button type="button" class="acu-preset-btn acu-table-template-requirement-preset-export" data-id="${escapeHtml(preset.id)}" title="导出" aria-label="导出 ${escapeHtml(preset.name)}"><i class="fa-solid fa-download"></i></button>
+              ${!isBuiltin ? `<button type="button" class="acu-preset-btn acu-preset-delete acu-table-template-requirement-preset-delete" data-id="${escapeHtml(preset.id)}" title="删除" aria-label="删除 ${escapeHtml(preset.name)}"><i class="fa-solid fa-trash"></i></button>` : ''}
+            </div>
+          </div>`;
+      })
+      .join('');
+
+    const overlay = $(`
+      <div class="acu-edit-overlay">
+        <div class="acu-edit-dialog acu-advanced-preset-manager-dialog acu-table-template-requirement-manager-dialog acu-theme-${config.theme}">
+          <div class="acu-advanced-preset-header">
+            <h3><i class="fa-solid fa-table-list"></i> 模板检验预设管理</h3>
+            <div class="acu-advanced-preset-header-actions">
+              <button type="button" class="acu-close-btn" aria-label="关闭模板检验预设管理" title="关闭"><i class="fa-solid fa-times"></i></button>
+            </div>
+          </div>
+
+          <div class="acu-advanced-preset-body">
+            <div id="acu-table-template-requirement-presets-list">
+              ${presetsHtml || `<div class="acu-empty-state">暂无模板检验预设</div>`}
+            </div>
+          </div>
+
+          <div class="acu-advanced-preset-footer">
+            <button id="acu-table-template-requirement-preset-new" type="button" class="acu-dialog-btn acu-btn-confirm acu-advanced-preset-footer-main" title="新建模板检验预设" aria-label="新建模板检验预设">
+              <i class="fa-solid fa-plus"></i> 新建
+            </button>
+            <button id="acu-table-template-requirement-preset-import" type="button" class="acu-dialog-btn acu-advanced-preset-footer-main">
+              <i class="fa-solid fa-file-import"></i> 导入
+            </button>
+            <button id="acu-table-template-requirement-preset-back" type="button" class="acu-dialog-btn">
+              <i class="fa-solid fa-arrow-left"></i> 返回
+            </button>
+          </div>
+        </div>
+      </div>
+    `);
+
+    $('body').append(overlay);
+
+    overlay.find('.acu-close-btn, #acu-table-template-requirement-preset-back').on('click', () => {
+      overlay.remove();
+      popModal();
+    });
+
+    overlay.on('change', '.acu-table-template-requirement-preset-toggle', function () {
+      const $toggle = $(this);
+      const id = String($toggle.data('id') || '');
+      if (!$toggle.is(':checked')) {
+        $toggle.prop('checked', true);
+        return;
+      }
+      const success = TableTemplateRequirementPresetManager.setActivePresetId(id);
+      if (!success) {
+        showActionableErrorToast('切换模板检验预设失败', { suggestion: 'tableTemplate' });
+        return;
+      }
+      overlay.find('.acu-table-template-requirement-preset-toggle').each(function () {
+        if (String($(this).data('id') || '') !== id) $(this).prop('checked', false);
+      });
+      if (window.toastr) window.toastr.success('已切换模板检验预设');
+      overlay.remove();
+      showTableTemplateRequirementPresetManager();
+    });
+
+    overlay.on('click', '.acu-table-template-requirement-preset-copy', function () {
+      const id = String($(this).data('id') || '');
+      const preset = TableTemplateRequirementPresetManager.getPresetById(id);
+      if (!preset) return;
+      const copy = TableTemplateRequirementPresetManager.createPreset({
+        name: `${preset.name} (副本)`,
+        description: preset.description || '',
+        template: cloneTemplateValue(preset.template),
+      });
+      if (copy && window.toastr) window.toastr.success(`已创建副本：${copy.name}`);
+      overlay.remove();
+      showTableTemplateRequirementPresetManager();
+    });
+
+    overlay.on('click', '.acu-table-template-requirement-preset-edit', function () {
+      const id = String($(this).data('id') || '');
+      overlay.remove();
+      popModal();
+      showTableTemplateRequirementPresetEditor(id);
+    });
+
+    overlay.on('click', '.acu-table-template-requirement-preset-export', function () {
+      const id = String($(this).data('id') || '');
+      const preset = TableTemplateRequirementPresetManager.getPresetById(id);
+      const json = TableTemplateRequirementPresetManager.exportPreset(id);
+      if (!json) {
+        showActionableErrorToast('导出失败', { title: '模板检验预设导出失败', suggestion: 'importExport' });
+        return;
+      }
+      downloadJsonFile(json, `${preset?.name || '模板检验预设'}.json`);
+      if (window.toastr) window.toastr.success('已导出文件');
+    });
+
+    overlay.on('click', '.acu-table-template-requirement-preset-delete', async function () {
+      const id = String($(this).data('id') || '');
+      const preset = TableTemplateRequirementPresetManager.getPresetById(id);
+      const confirmed = await showDiceSystemConfirmDialog({
+        title: '删除模板检验预设',
+        message: `确定要删除「${preset?.name || '未命名预设'}」吗？`,
+        detail: '删除后需要重新导入或手动创建才能恢复。内置默认预设不会被删除。',
+        iconClass: 'fa-trash',
+        confirmText: '删除预设',
+        cancelText: '取消',
+        tone: 'danger',
+      });
+      if (!confirmed) return;
+      try {
+        const success = TableTemplateRequirementPresetManager.deletePreset(id);
+        if (!success) {
+          showActionableErrorToast('删除失败', { title: '模板检验预设删除失败', suggestion: 'save' });
+          return;
+        }
+        overlay.remove();
+        showTableTemplateRequirementPresetManager();
+      } catch (error) {
+        showActionableErrorToast('删除失败: ' + getJsonLikeErrorMessage(error), { suggestion: 'save' });
+      }
+    });
+
+    overlay.find('#acu-table-template-requirement-preset-new').on('click', () => {
+      overlay.remove();
+      popModal();
+      showTableTemplateRequirementPresetEditor();
+    });
+
+    overlay.find('#acu-table-template-requirement-preset-import').on('click', () => {
+      void (async () => {
+        const selected = await pickTextFile();
+        if (!selected) return;
+        try {
+          const preset = TableTemplateRequirementPresetManager.importPreset(selected.text);
+          if (!preset) {
+            showActionableErrorToast('导入失败，请检查 JSONC 格式和 template 内容', { suggestion: 'importExport' });
+            return;
+          }
+          if (window.toastr) window.toastr.success(`导入成功：${preset.name}`);
+          overlay.remove();
+          showTableTemplateRequirementPresetManager();
+        } catch (error) {
+          console.error('[DICE]ACU 模板检验预设导入失败:', error);
+          showActionableErrorToast('导入失败: ' + getJsonLikeErrorMessage(error), { suggestion: 'importExport' });
+        }
+      })();
+    });
+
+    setupOverlayClose(overlay, 'acu-edit-overlay', () => {
+      overlay.remove();
+      popModal();
+    });
   };
 
   const showSettingsModal = () => {
@@ -48935,6 +49877,14 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                                     <i class="fa-solid fa-cog"></i> 管理
                                 </button>
                             </div>
+                            <div class="acu-setting-row" id="settings-row-table-template-requirement-preset">
+                                <div class="acu-setting-info">
+                                    <span class="acu-setting-label"><i class="fa-solid fa-table-list"></i> 模板检验预设</span>
+                                </div>
+                                <button type="button" id="cfg-table-template-requirement-preset-manage" class="acu-setting-action-btn acu-settings-compact-action">
+                                    <i class="fa-solid fa-cog"></i> 管理
+                                </button>
+                            </div>
                             <div class="acu-setting-row" id="settings-row-avatar-preset">
                                 <div class="acu-setting-info">
                                     <span class="acu-setting-label"><i class="fa-solid fa-user-circle"></i> 角色头像预设</span>
@@ -49322,6 +50272,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       dialog.remove();
       isSettingsOpen = false;
       showRenderPresetManager();
+    });
+
+    // 管理模板检验预设按钮
+    dialog.find('#cfg-table-template-requirement-preset-manage').on('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      dialog.remove();
+      isSettingsOpen = false;
+      showTableTemplateRequirementPresetManager();
     });
 
     // 管理角色头像预设按钮
@@ -49789,7 +50748,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             parsedData = parseJsoncRecord(json.trim(), '数据验证预设');
           } catch (error) {
             console.error('[DICE]PresetManager JSONC 解析失败:', error);
-            if (window.toastr) showActionableErrorToast('JSONC 格式无效');
+            if (window.toastr) showActionableErrorToast('JSONC 格式无效', { suggestion: 'importExport' });
             return;
           }
 
@@ -49845,12 +50804,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                   if (PresetManager.mergePresetWithDefaults(newPreset.id)) {
                     refreshPresetUI();
                   } else {
-                    if (window.toastr) showActionableErrorToast('合并失败');
+                    if (window.toastr) showActionableErrorToast('合并失败', { title: '预设合并失败', suggestion: 'importExport' });
                   }
                 }
               }
             } else {
-              if (window.toastr) showActionableErrorToast('导入失败，请检查格式');
+              if (window.toastr) showActionableErrorToast('导入失败，请检查格式', { suggestion: 'importExport' });
             }
           };
 
@@ -49874,7 +50833,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           }
         } catch (err) {
           console.error('[DICE]PresetManager 导入失败:', err);
-          if (window.toastr) showActionableErrorToast('导入失败: ' + getJsonLikeErrorMessage(err));
+          if (window.toastr) showActionableErrorToast('导入失败: ' + getJsonLikeErrorMessage(err), { suggestion: 'importExport' });
         }
       })();
     });
@@ -49897,7 +50856,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           refreshPresetUI();
         }
       } else {
-        if (window.toastr) showActionableErrorToast('恢复失败');
+        if (window.toastr) showActionableErrorToast('恢复失败', { suggestion: 'save' });
       }
     });
 
@@ -49983,7 +50942,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
         refreshRegexRulesList(); // 刷新规则列表
       } else {
-        showActionableErrorToast('预设名称已存在');
+        showActionableErrorToast('预设名称已存在', { suggestion: 'input' });
       }
     });
 
@@ -50009,7 +50968,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
         refreshRegexRulesList(); // 刷新规则列表
       } else {
-        showActionableErrorToast('预设名称已存在');
+        showActionableErrorToast('预设名称已存在', { suggestion: 'input' });
       }
     });
 
@@ -50042,7 +51001,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
           refreshRegexRulesList(); // 刷新规则列表
         } else {
-          showActionableErrorToast('不能删除最后一个预设');
+          showActionableErrorToast('不能删除最后一个预设', { suggestion: 'input' });
         }
       }
     });
@@ -50073,7 +51032,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             parsedData = parseJsoncRecord(text.trim(), '正则预设');
           } catch (error) {
             console.error('[DICE]RegexPresetManager JSONC 解析失败:', error);
-            showActionableErrorToast('JSONC 格式无效');
+            showActionableErrorToast('JSONC 格式无效', { suggestion: 'importExport' });
             return;
           }
 
@@ -50120,7 +51079,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
               refreshRegexRulesList(); // 刷新规则列表
             } else {
-              showActionableErrorToast('预设格式无效');
+              showActionableErrorToast('预设格式无效', { suggestion: 'importExport' });
             }
           };
 
@@ -50139,7 +51098,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             doImport(false);
           }
         } catch (err) {
-          showActionableErrorToast('导入失败: ' + getJsonLikeErrorMessage(err));
+          showActionableErrorToast('导入失败: ' + getJsonLikeErrorMessage(err), { suggestion: 'importExport' });
         }
       })();
     });
@@ -50226,7 +51185,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           try {
             parsed = JSON.parse(text.trim());
           } catch {
-            showActionableErrorToast('JSON格式无效');
+            showActionableErrorToast('JSON格式无效', { suggestion: 'importExport' });
             return;
           }
 
@@ -50235,7 +51194,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
           // 验证格式：必须有 scriptName 和 findRegex
           if (!tavernRegexList.every(r => r.scriptName && r.findRegex)) {
-            showActionableErrorToast('不是有效的酒馆正则格式（需要 scriptName 和 findRegex 字段）');
+            showActionableErrorToast('不是有效的酒馆正则格式（需要 scriptName 和 findRegex 字段）', {
+              suggestion: '请确认导入文件是 SillyTavern 正则导出 JSON，并包含 scriptName 与 findRegex 字段。',
+            });
             return;
           }
 
@@ -50302,7 +51263,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           // 开始处理
           processNext(0);
         } catch (err) {
-          showActionableErrorToast('导入失败: ' + (err as Error).message);
+          showActionableErrorToast('导入失败: ' + (err as Error).message, { suggestion: 'importExport' });
         }
       };
       input.click();
@@ -50418,7 +51379,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   const VIEWPORT_COMPOSER_ELEMENT_IDS = new Set(['send_form', 'form_sheld', 'send_textarea', 'chat_input']);
   // iPad 横屏可到 1366px；固定底部导航在这类视口下应跟随聊天容器，而不是输入框内部宽度。
   const TABLET_FIXED_NAV_FULL_WIDTH_MAX = 1366;
-  const MOBILE_FIXED_NAV_CONTENT_WIDTH_MAX = 768;
   const FIXED_MODE_ANCHOR_PRIORITY = new Map([
     ['send_form', 0],
     ['form_sheld', 1],
@@ -50568,6 +51528,30 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     const rect = chat.getBoundingClientRect();
     return rect.width > 0 ? rect : null;
+  };
+
+  const getFixedWrapperParentMetrics = (
+    parent: HTMLElement | null,
+    targetWindow: Window,
+    fallbackWidth: number,
+    fallbackLeft: number,
+  ): { contentWidth: number; contentLeft: number } | null => {
+    const parentRect = parent?.getBoundingClientRect();
+    const rectWidth = parentRect && parentRect.width > 0 ? parentRect.width : 0;
+    const clientWidth = parent && parent.clientWidth > 0 ? parent.clientWidth : 0;
+    const fallbackContentWidth = fallbackWidth > 0 ? fallbackWidth : 0;
+    const contentWidthCandidates = [clientWidth, rectWidth, fallbackContentWidth].filter(width => width > 0);
+    const contentWidth = contentWidthCandidates.length > 0 ? Math.min(...contentWidthCandidates) : 0;
+    if (contentWidth <= 0) return null;
+
+    const style = parent ? targetWindow.getComputedStyle(parent) : null;
+    const borderLeft = style ? Number.parseFloat(style.borderLeftWidth) || 0 : 0;
+    const contentLeft = (parentRect?.left ?? fallbackLeft) + borderLeft;
+
+    return {
+      contentWidth,
+      contentLeft,
+    };
   };
 
   const getFixedModeAnchorRect = (): DOMRect | null => {
@@ -50785,13 +51769,16 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       targetWindow.innerWidth || targetDocument.documentElement.clientWidth || window.innerWidth || viewportWidth;
 
     const parent = wrapper.parentElement;
-    const parentRect = parent?.getBoundingClientRect();
-    const parentWidth =
-      parentRect && parentRect.width > 0
-        ? parentRect.width
-        : viewportWidth || targetDocument.documentElement.clientWidth || layoutViewportWidth;
+    const parentMetrics = getFixedWrapperParentMetrics(
+      parent,
+      targetWindow,
+      viewportWidth || targetDocument.documentElement.clientWidth || layoutViewportWidth,
+      viewportLeft,
+    );
+    if (!parentMetrics) return;
+    const parentWidth = parentMetrics.contentWidth;
+    const parentLeft = parentMetrics.contentLeft;
     if (parentWidth <= 0) return;
-    const parentClientWidth = parent && parent.clientWidth > 0 ? parent.clientWidth : parentWidth;
 
     const applyFixedWrapperLayout = (width: number, marginLeft: number) => {
       wrapper.style.setProperty('box-sizing', 'border-box');
@@ -50809,11 +51796,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     };
 
     if (layoutViewportWidth > 0 && layoutViewportWidth <= TABLET_FIXED_NAV_FULL_WIDTH_MAX) {
-      const fixedWidth =
-        layoutViewportWidth <= MOBILE_FIXED_NAV_CONTENT_WIDTH_MAX
-          ? Math.min(parentWidth, parentClientWidth)
-          : parentWidth;
-      applyFixedWrapperLayout(Math.round(fixedWidth), 0);
+      applyFixedWrapperLayout(Math.round(parentWidth), 0);
       return;
     }
 
@@ -50826,7 +51809,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const rawAnchorWidth = Math.max(0, visibleAnchorRight - visibleAnchorLeft);
 
     const preferredWidth = Math.max(280, Math.round(rawAnchorWidth || anchorRect.width));
-    const parentLeft = parentRect?.left ?? viewportLeft;
     const maxMarginLeft = Math.max(0, parentWidth - Math.min(preferredWidth, parentWidth));
     const marginLeft = Math.min(maxMarginLeft, Math.max(0, Math.round(visibleAnchorLeft - parentLeft)));
     const width = Math.max(0, Math.min(preferredWidth, parentWidth - marginLeft));
@@ -51351,6 +52333,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           // [修复] 修正函数名错误，复用主事件绑定
           bindEvents(tables);
           bindOptionEvents(); // <--- 加上这一句，以此确保万无一失
+          syncHostRegenerateButtonVisibility($(DICE_ROOT_SELECTOR).last());
           return;
         }
       }
@@ -51438,8 +52421,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       // [修改开始] 添加收起面板的开关 - 叙事书页风重设计
       if (checkSuggestionTables.length > 0 || optionTables.length > 0) {
         const isOptionsCollapsed = getOptionsCollapsedState();
-        const collapseIcon = isOptionsCollapsed ? 'fa-chevron-right' : 'fa-chevron-down';
-        const collapseText = isOptionsCollapsed ? '展开' : '收起';
         const collapsedClass = isOptionsCollapsed ? 'collapsed' : '';
 
         // [修改结束]
@@ -51452,7 +52433,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         let buttonsHtml = `
                     <div class="acu-opt-header" data-action="toggle-options">
                         <span>
-                            <i class="fa-solid ${collapseIcon}" style="margin-right:6px;font-size:10px;"></i>
+                            <span class="acu-opt-chevron" aria-hidden="true"></span>
                             选项面板 (${optionCount})
                         </span>
                     </div>`;
@@ -51539,6 +52520,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       html += `
                 <div class="acu-nav-container ${config.actionsPosition === 'top' ? 'acu-pos-top' : ''}" id="acu-nav-bar" style="${gridFixStyle}">
                     <div class="acu-order-controls" id="acu-order-hint"><i class="fa-solid fa-arrows-alt"></i> 拖动调整顺序，完成后点击保存退出</div>
+                    <div class="acu-nav-items" id="acu-nav-items">
             `;
 
       // === 计算变更数量 + 验证错误数量（供审核按钮显示） ===
@@ -51671,6 +52653,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         }
       });
 
+      html += `</div>`;
+
       // 渲染固定功能按钮（order 设为最大值，确保在最后）
       html += `<div class="acu-actions-group" id="acu-active-actions" style="order: 9999;">`;
       ACTION_BUTTONS.forEach(btn => {
@@ -51746,6 +52730,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         }
       }
     }
+    syncHostRegenerateButtonVisibility($(DICE_ROOT_SELECTOR).last());
     applyStoredPanelHeight(getDataAreaForRoot(), getActivePanelHeightKey());
     requestAnimationFrame(() => {
       applyStoredPanelHeight(getDataAreaForRoot(), getActivePanelHeightKey());
@@ -51761,6 +52746,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     requestAnimationFrame(() => updateFloatingCollapseBounds());
     requestAnimationFrame(() => {
       ensurePanelNavigationVisible($(DICE_ROOT_SELECTOR).last());
+      syncHostRegenerateButtonVisibility($(DICE_ROOT_SELECTOR).last());
     });
 
     // --- [修改] 悬浮模式下，只有选项变化且可见时才插入 ---
@@ -52980,10 +53966,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       e.preventDefault();
       collapseExpandedGlobalInteractionRows();
       $(panelDocument).find('.acu-global-interaction-floating-host').remove();
-      Store.set(STORAGE_KEY_GLOBAL_INTERACTIONS_ACTIVE, false);
-      $panel.removeClass('visible');
-      $panel.closest(DICE_ROOT_SELECTOR).find('.acu-nav-btn.active').removeClass('active');
-      cleanupGlobalInteractionFloatingMenus();
+      closePanel($panel.closest<HTMLElement>(DICE_ROOT_SELECTOR));
     });
 
     bindCompositionSafeSearchInput(
@@ -53453,8 +54436,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       .on('click', function () {
         Store.set('acu_changes_panel_active', false);
         const $panel = getChangesPanel();
-        $panel.removeClass('visible');
-        $panel.closest(DICE_ROOT_SELECTOR).find('.acu-nav-btn').removeClass('active');
+        closePanel($panel.closest<HTMLElement>(DICE_ROOT_SELECTOR));
       });
 
     // === 触摸滑动检测阈值（用于区分滑动和点击）===
@@ -53505,7 +54487,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           if (window.toastr) window.toastr.warning('无法找到对应的快照数据');
         } catch (err) {
           console.error('[DICE]ACU 恢复快照值失败:', err);
-          if (window.toastr) showActionableErrorToast('恢复失败');
+          if (window.toastr) showActionableErrorToast('恢复失败', { suggestion: 'save' });
         }
       });
 
@@ -53537,7 +54519,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           showSmartFixModal(error);
         } catch (err) {
           console.error('[DICE]ACU 解析规则数据失败:', err);
-          if (window.toastr) showActionableErrorToast('解析规则数据失败');
+          if (window.toastr) showActionableErrorToast('解析规则数据失败', { developerHint: true });
         }
       });
 
@@ -54160,7 +55142,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
               errorMessage = '保存失败：服务器连接问题或数据过大，请检查网络连接或减少数据量';
             }
             if (window.toastr) {
-              showActionableErrorToast(errorMessage, { title: '保存失败', toastrOptions: { timeOut: 7000 } });
+              showActionableErrorToast(errorMessage, { title: '保存失败', suggestion: 'save', toastrOptions: { timeOut: 7000 } });
             } else {
               void showDiceSystemConfirmDialog({
                 title: '保存失败',
@@ -55030,6 +56012,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     items: InventoryParsedItem[];
     colMap: GachaRewardColumnMap;
   };
+  type GachaRewardParseOptions = {
+    targetTable?: string;
+    targetColumns?: GachaRewardTargetColumns;
+    requireNameColumn?: boolean;
+  };
   type InventoryMetadataRecord = {
     acquiredAt: string;
     acquiredAtLocation: string;
@@ -55558,9 +56545,61 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       .slice(0, maxLength)
       .join('');
 
+  const normalizeGachaTargetTable = (raw: unknown): string | undefined => {
+    if (typeof raw !== 'string') return undefined;
+    const value = truncateGachaText(raw.trim(), GACHA_TARGET_TABLE_MAX_LENGTH);
+    return value || undefined;
+  };
+
+  const normalizeGachaTargetColumns = (raw: unknown): GachaRewardTargetColumns | undefined => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+    const columns: GachaRewardTargetColumns = {};
+    const record = raw as Record<string, unknown>;
+    GACHA_TARGET_COLUMN_KEYS.forEach(key => {
+      const value = record[key];
+      if (typeof value !== 'string') return;
+      const headerName = truncateGachaText(value.trim(), GACHA_TARGET_COLUMN_VALUE_MAX_LENGTH);
+      if (headerName) columns[key] = headerName;
+    });
+    return Object.keys(columns).length ? columns : undefined;
+  };
+
+  const getGachaTargetColumnEntries = (targetColumns?: GachaRewardTargetColumns): [GachaRewardTargetColumnKey, string][] =>
+    GACHA_TARGET_COLUMN_KEYS.map(key => [key, String(targetColumns?.[key] || '').trim()] as [GachaRewardTargetColumnKey, string]).filter(
+      ([, value]) => Boolean(value),
+    );
+
   const GACHA_CUSTOM_FIELD_MAX_COUNT = 20;
   const GACHA_CUSTOM_FIELD_KEY_MAX_LENGTH = 30;
   const GACHA_CUSTOM_FIELD_VALUE_MAX_LENGTH = 500;
+  const GACHA_TARGET_TABLE_MAX_LENGTH = 60;
+  const GACHA_TARGET_COLUMN_VALUE_MAX_LENGTH = 30;
+  const GACHA_TARGET_COLUMN_KEYS: readonly GachaRewardTargetColumnKey[] = [
+    'name',
+    'type',
+    'quantity',
+    'quality',
+    'description',
+    'part',
+    'status',
+  ];
+  const GACHA_TARGET_COLUMN_LABELS: Record<GachaRewardTargetColumnKey, string> = {
+    name: '名称列',
+    type: '类型列',
+    quantity: '数量列',
+    quality: '品质列',
+    description: '描述列',
+    part: '部位列',
+    status: '状态列',
+  };
+  const GACHA_BASE_WRITTEN_TARGET_COLUMN_KEYS = new Set<GachaRewardTargetColumnKey>([
+    'name',
+    'type',
+    'quantity',
+    'quality',
+    'description',
+    'status',
+  ]);
   const GACHA_CUSTOM_FIELD_RESERVED_KEYS = new Set([
     'row_id',
     '物品名称',
@@ -55601,6 +56640,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   type GachaCustomFieldsPreviewRenderOptions = {
     limit?: number;
     showOverflowCount?: boolean;
+    valueOnly?: boolean;
   };
 
   type GachaCustomFieldsDetailsRenderOptions = {
@@ -55609,7 +56649,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   };
 
   const renderGachaCustomFieldsPreviewHtml = (
-    item: Pick<GachaItemDefinition, 'customFields'>,
+    item: Pick<GachaItemDefinition, 'customFields' | 'targetColumns'>,
     options: GachaCustomFieldsPreviewRenderOptions = {},
   ): string => {
     const entries = getGachaCustomFieldEntries(item);
@@ -55621,9 +56661,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const fieldsHtml = visibleEntries
       .map(([key, value]) => {
         const title = `${key}：${value}`;
+        const valueOnlyClass = options.valueOnly ? ' acu-gacha-custom-field-preview-chip-value-only' : '';
         return `
-          <span class="acu-gacha-custom-field-preview-chip acu-gacha-custom-field-chip" title="${escapeHtml(title)}">
-            <span class="acu-gacha-custom-field-preview-key">${escapeHtml(key)}</span>
+          <span class="acu-gacha-custom-field-preview-chip acu-gacha-custom-field-chip${valueOnlyClass}" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">
+            ${options.valueOnly ? '' : `<span class="acu-gacha-custom-field-preview-key">${escapeHtml(key)}</span>`}
             <span class="acu-gacha-custom-field-preview-value">${escapeHtml(value)}</span>
           </span>
         `;
@@ -55631,7 +56672,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       .join('');
     const overflowHtml =
       options.showOverflowCount !== false && overflowCount > 0
-        ? `<span class="acu-gacha-custom-field-preview-more">+${escapeHtml(String(overflowCount))} 字段</span>`
+        ? `<span class="acu-gacha-custom-field-preview-more">${escapeHtml(options.valueOnly ? `+${String(overflowCount)}` : `+${String(overflowCount)} 字段`)}</span>`
         : '';
 
     if (!fieldsHtml && !overflowHtml) return '';
@@ -56092,110 +57133,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     },
   };
 
-  const GachaItemIconDB = {
-    DB_NAME: 'acu_gacha_item_icons',
-    STORE_NAME: 'icons',
-    DB_VERSION: 1,
-    _db: null as IDBDatabase | null,
-    _urlCache: new Map<string, string>(),
-
-    async init(): Promise<IDBDatabase> {
-      if (this._db) return this._db;
-      return new Promise((resolve, reject) => {
-        const request = indexedDB.open(this.DB_NAME, this.DB_VERSION);
-        request.onerror = () => {
-          console.error('[DICE][GACHA]物品图标 IndexedDB 打开失败:', request.error);
-          reject(request.error);
-        };
-        request.onsuccess = () => {
-          this._db = request.result;
-          resolve(this._db);
-        };
-        request.onupgradeneeded = event => {
-          const db = (event.target as IDBOpenDBRequest).result;
-          if (!db.objectStoreNames.contains(this.STORE_NAME)) {
-            db.createObjectStore(this.STORE_NAME, { keyPath: 'key' });
-          }
-        };
-      });
-    },
-
-    async save(key: string, blob: Blob): Promise<boolean> {
-      if (!key || !blob) return false;
-      try {
-        const db = await this.init();
-        if (this._urlCache.has(key)) {
-          URL.revokeObjectURL(this._urlCache.get(key) || '');
-          this._urlCache.delete(key);
-        }
-        return await new Promise(resolve => {
-          const tx = db.transaction(this.STORE_NAME, 'readwrite');
-          const request = tx.objectStore(this.STORE_NAME).put({
-            key,
-            blob,
-            size: blob.size,
-            type: blob.type,
-            updatedAt: Date.now(),
-          });
-          request.onsuccess = () => resolve(true);
-          request.onerror = () => {
-            console.error('[DICE][GACHA]保存物品图标失败:', request.error);
-            resolve(false);
-          };
-        });
-      } catch (error) {
-        console.error('[DICE][GACHA]保存物品图标异常:', error);
-        return false;
-      }
-    },
-
-    async get(key: string): Promise<string | null> {
-      if (!key) return null;
-      if (this._urlCache.has(key)) return this._urlCache.get(key) || null;
-      try {
-        const db = await this.init();
-        return await new Promise(resolve => {
-          const tx = db.transaction(this.STORE_NAME, 'readonly');
-          const request = tx.objectStore(this.STORE_NAME).get(key);
-          request.onsuccess = () => {
-            const result = request.result as { blob?: Blob } | undefined;
-            if (!result?.blob) {
-              resolve(null);
-              return;
-            }
-            const url = URL.createObjectURL(result.blob);
-            this._urlCache.set(key, url);
-            resolve(url);
-          };
-          request.onerror = () => resolve(null);
-        });
-      } catch (error) {
-        console.warn('[DICE][GACHA]读取物品图标失败:', error);
-        return null;
-      }
-    },
-
-    async delete(key: string): Promise<boolean> {
-      if (!key) return false;
-      try {
-        if (this._urlCache.has(key)) {
-          URL.revokeObjectURL(this._urlCache.get(key) || '');
-          this._urlCache.delete(key);
-        }
-        const db = await this.init();
-        return await new Promise(resolve => {
-          const tx = db.transaction(this.STORE_NAME, 'readwrite');
-          const request = tx.objectStore(this.STORE_NAME).delete(key);
-          request.onsuccess = () => resolve(true);
-          request.onerror = () => resolve(false);
-        });
-      } catch (error) {
-        console.warn('[DICE][GACHA]删除物品图标失败:', error);
-        return false;
-      }
-    },
-  };
-
   const normalizeGachaCatalogRecord = (catalogRaw: unknown): GachaCatalog | null => {
     if (!catalogRaw || typeof catalogRaw !== 'object') return null;
     const record = catalogRaw as Record<string, unknown>;
@@ -56486,11 +57423,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const generatedId = !String(record.id || '').trim();
     const order = Number(record.order);
     const customFields = normalizeGachaCustomFields(record.customFields);
-    const rawIconUrl = String(record.iconUrl || record.icon_url || '').trim();
-    const iconUrl = normalizeStorableImageUrl(rawIconUrl);
-    if (rawIconUrl && !iconUrl) {
-      errors.push(`「${name}」的 iconUrl 无效，已忽略`);
-    }
+    const targetTable = normalizeGachaTargetTable(record.targetTable);
+    const targetColumns = normalizeGachaTargetColumns(record.targetColumns);
     const item: NormalizedGachaCatalogItem = {
       id: generatedId ? buildStableGachaCustomItemId({ name, quality, type }) : String(record.id || '').trim(),
       name,
@@ -56499,7 +57433,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       description,
       poolTags,
       icon: String(record.icon || '').trim() || undefined,
-      iconUrl: iconUrl || undefined,
       enabled: normalizeGachaItemEnabled(record.enabled),
       order: Number.isFinite(order) ? normalizeGachaItemOrder(order) : undefined,
       createdAt: normalizeGachaTimestamp(record.createdAt || record.created_at),
@@ -56511,6 +57444,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       rewardTarget,
       generatedId,
     };
+    if (targetTable) item.targetTable = targetTable;
+    if (targetColumns) item.targetColumns = targetColumns;
     if (customFields) item.customFields = customFields;
     return item;
   };
@@ -56598,6 +57533,21 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     };
   };
 
+  const formatGachaCatalogImportErrors = (errors: readonly string[], limit = 6): string => {
+    if (!errors.length) return '';
+    const visibleErrors = errors.slice(0, limit).join('；');
+    return errors.length > limit ? `${visibleErrors}；还有 ${errors.length - limit} 项错误未显示` : visibleErrors;
+  };
+
+  const getGachaCatalogImportFailureMessage = (analysis: GachaCatalogImportAnalysis | null): string => {
+    if (!analysis) {
+      return '导入失败：JSON / JSONC 格式错误，或顶层结构无法解析。请确认文件是对象，且包含 items 数组。';
+    }
+    const errorText = formatGachaCatalogImportErrors(analysis.errors);
+    if (errorText) return `导入失败：没有有效物品。${errorText}`;
+    return '导入失败：没有有效物品。请确认 items 是非空数组，并且每个物品都包含 name、quality、poolTags、weight、grantQuantity。';
+  };
+
   const mergeImportedGachaPools = (pools: readonly GachaPoolDefinition[]) => {
     if (!pools.length) return;
     const current = getConfiguredGachaPoolDefinitions();
@@ -56649,7 +57599,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         description: item.description,
         poolTags: [...item.poolTags],
         icon: item.icon,
-        iconUrl: item.iconUrl,
         enabled: isGachaItemEnabled(item),
         order: item.order,
         createdAt: item.createdAt,
@@ -56660,6 +57609,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         grantQuantity: item.grantQuantity,
         rewardTarget: item.rewardTarget,
       };
+      if (item.targetTable) nextItem.targetTable = item.targetTable;
+      if (item.targetColumns) nextItem.targetColumns = item.targetColumns;
       if (item.customFields) nextItem.customFields = item.customFields;
 
       if (hasConflict && mode === 'rename') {
@@ -56763,7 +57714,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             <div class="acu-import-warning-container">
               <i class="fa-solid fa-broom acu-import-warning-icon acu-gacha-catalog-import-icon"></i>
               <div class="acu-import-warning-title">当前聊天有 ${escapeHtml(String(count))} 个自定义物品</div>
-              <div class="acu-import-warning-message">清空后不会影响内置卡池，也不会删除已经写入物品表或装备表的奖励。</div>
+              <div class="acu-import-warning-message">清空后不会影响内置卡池，也不会删除已经写入目标表的奖励。</div>
             </div>
           </div>
           <div class="acu-import-confirm-footer acu-gacha-catalog-clear-footer">
@@ -56790,7 +57741,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
   const buildGachaCatalogTemplateJsonc = (): string => `{
   // 骰子商店自定义物品与卡池导入模板。
-  // 注意：抽到或兑换的奖励最终会写入当前数据库本体的物品表/装备表，并受对应表 DDL 约束。
+  // 注意：抽到或兑换的奖励默认写入当前仪表盘预设解析到的物品/装备区，也可以用 targetTable 固定到指定表。
   // 建议让 name、type、quality、description、rewardTarget 等字段满足当前 DDL 的 NOT NULL、CHECK、LENGTH 等检验。
   // 如果世界观需要更长名称/描述、新类型、新品质，或额外必填列，请先到数据库本体修改对应表 DDL 并重新校验 DDL。
   // 使用方法：
@@ -56842,11 +57793,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       // poolTags：出现在哪些卡池。可填写内置卡池或自定义卡池 id；写 全部 会自动展开为当前加入“全部”的卡池。
       "poolTags": ["赛博朋克"],
 
-      // icon：可选，符号图标。支持 fa:box、ti:wand 这类格式，也可直接写一个 emoji。
+      // icon：可选，符号图标。支持 fa:box、ti:wand 这类格式，也可直接写一个 emoji。图片类图标请到“图标管理预设”里配置。
       "icon": "fa:coins",
-
-      // iconUrl：可选，外链图片 URL。优先级高于 icon。
-      "iconUrl": "",
 
       // enabled：是否参与抽取和碎片商城兑换；设置页仍会显示禁用物品。
       "enabled": true,
@@ -56866,10 +57814,16 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       // grantQuantity：抽到时发放数量，必须是正整数。写入物品表时会增加 quantity；装备表默认无数量列，重复装备通常转为碎片。
       "grantQuantity": 1,
 
+      // targetTable：可选。填写当前数据库里用户可见的表名，例如“装扮表”；留空则跟随当前仪表盘预设的物品/装备区。
+      "targetTable": "",
+
+      // targetColumns：可选。目标表的基础字段表头和默认/仪表盘关键词不一致时再填；值必须与表头完全一致。
+      "targetColumns": { "name": "物品名称", "type": "类型", "quantity": "数量", "description": "描述" },
+
       // customFields：可选，自定义字段。键名必须与目标表的列标题完全一致，值会按文本保存；不会自动读取未知顶层字段。
       "customFields": { "情感分量": "怀旧" },
 
-      // rewardTarget：inventory 写入物品表；equipment 写入装备表。目标表必须存在，且对应行数据要能通过该表 DDL 检验。
+      // rewardTarget：inventory 走物品型写入逻辑；equipment 走装备型写入逻辑。目标表必须存在，且对应行数据要能通过该表 DDL 检验。
       "rewardTarget": "inventory"
     }
     */
@@ -56895,8 +57849,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       grantQuantity: item.grantQuantity,
       rewardTarget: item.rewardTarget,
     };
+    const targetTable = normalizeGachaTargetTable(item.targetTable);
+    if (targetTable) exported.targetTable = targetTable;
+    const targetColumns = normalizeGachaTargetColumns(item.targetColumns);
+    if (targetColumns) exported.targetColumns = targetColumns;
     if (item.icon) exported.icon = item.icon;
-    if (item.iconUrl && isRemoteImageUrlValid(item.iconUrl)) exported.iconUrl = item.iconUrl;
     const customFields = normalizeGachaCustomFields(item.customFields);
     if (customFields) exported.customFields = customFields;
     return exported;
@@ -57054,7 +58011,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         await ensureGachaCatalogLoaded(rawData);
         const latestAnalysis = analyzeGachaCatalogImport(jsonString, rawData);
         if (!latestAnalysis || latestAnalysis.items.length === 0) {
-          if (window.toastr) window.toastr.warning('导入失败：没有有效物品');
+          if (window.toastr) {
+            showActionableErrorToast(getGachaCatalogImportFailureMessage(latestAnalysis), { suggestion: 'importExport' });
+          }
           return;
         }
         const stats = await applyGachaCatalogImport(rawData, latestAnalysis, mode);
@@ -57076,13 +58035,13 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         await ensureGachaCatalogLoaded(rawData);
         const analysis = analyzeGachaCatalogImport(jsonString, rawData);
         if (!analysis || analysis.items.length === 0) {
-          if (window.toastr) window.toastr.warning('导入失败：没有有效物品');
+          if (window.toastr) showActionableErrorToast(getGachaCatalogImportFailureMessage(analysis), { suggestion: 'importExport' });
           return;
         }
         showGachaCatalogImportConfirm(jsonString, analysis);
       } catch (error) {
         console.error('[DICE][GACHA]导入文件失败:', error);
-        if (window.toastr) showActionableErrorToast('导入失败: ' + getJsonLikeErrorMessage(error));
+        if (window.toastr) showActionableErrorToast('导入失败: ' + getJsonLikeErrorMessage(error), { suggestion: 'importExport' });
       }
     })();
   };
@@ -57218,7 +58177,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const detail = message || '未知错误';
     const toast = window.toastr || window.parent?.toastr;
     if (toast) {
-      showActionableErrorToast(`${actionText}失败：${detail}`, { title: '骰子商店', toastrOptions: { timeOut: 9000 } });
+      showActionableErrorToast(`${actionText}失败：${detail}`, {
+        title: '骰子商店',
+        suggestion: 'save',
+        toastrOptions: { timeOut: 9000 },
+      });
     }
   };
 
@@ -57250,12 +58213,53 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   const getGachaRewardTargetTableLabel = (target: GachaRewardTarget): string =>
     target === 'equipment' ? '装备表' : '物品表';
 
-  const getGachaRewardParseResult = (rawData, target: GachaRewardTarget): GachaRewardParseResult =>
-    target === 'equipment' ? parseEquipmentItems(rawData) : parseInventoryItems(rawData);
+  const formatGachaRewardDestinationLabel = (
+    rawData,
+    item: Pick<GachaItemDefinition, 'rewardTarget' | 'targetTable' | 'targetColumns'>,
+  ): string => {
+    const fallback = normalizeGachaTargetTable(item.targetTable) || getGachaRewardTargetTableLabel(item.rewardTarget);
+    try {
+      const parsed = getGachaRewardParseResult(rawData, item.rewardTarget, getGachaRewardTargetOptions(item));
+      return parsed.tableName || fallback;
+    } catch {
+      return fallback;
+    }
+  };
+
+  const getGachaRewardTargetOptions = (
+    item: Pick<GachaItemDefinition, 'targetTable' | 'targetColumns'>,
+  ): GachaRewardParseOptions => ({
+    targetTable: normalizeGachaTargetTable(item.targetTable),
+    targetColumns: normalizeGachaTargetColumns(item.targetColumns),
+  });
+
+  const getGachaRewardParseResult = (
+    rawData,
+    target: GachaRewardTarget,
+    options: GachaRewardParseOptions = {},
+  ): GachaRewardParseResult => (target === 'equipment' ? parseEquipmentItems(rawData, options) : parseInventoryItems(rawData, options));
+
+  const getGachaRewardParseResultForItem = (
+    rawData,
+    item: Pick<GachaItemDefinition, 'rewardTarget' | 'targetTable' | 'targetColumns'>,
+  ): GachaRewardParseResult =>
+    getGachaRewardParseResult(rawData, item.rewardTarget, { ...getGachaRewardTargetOptions(item), requireNameColumn: true });
 
   const hasGachaRewardTable = (rawData, target: GachaRewardTarget): boolean => {
     const parsed = getGachaRewardParseResult(rawData, target);
     return Boolean(parsed.tableKey && rawData?.[parsed.tableKey] && Array.isArray(rawData[parsed.tableKey]?.content));
+  };
+
+  const hasGachaRewardTableForItem = (
+    rawData,
+    item: Pick<GachaItemDefinition, 'rewardTarget' | 'targetTable' | 'targetColumns'>,
+  ): boolean => {
+    try {
+      const parsed = getGachaRewardParseResultForItem(rawData, item);
+      return Boolean(parsed.tableKey && rawData?.[parsed.tableKey] && Array.isArray(rawData[parsed.tableKey]?.content));
+    } catch {
+      return false;
+    }
   };
 
   const getAvailableGachaRewardTargets = (rawData): Set<GachaRewardTarget> =>
@@ -57455,6 +58459,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
   type GachaCustomFieldApplyOptions = {
     target: GachaRewardTarget;
+    targetColumns?: GachaRewardTargetColumns;
     preserveNonEmptyExisting?: boolean;
   };
 
@@ -57463,7 +58468,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     tableName: string;
     headers: unknown[];
     sheet: unknown;
-    item: Pick<GachaItemDefinition, 'name' | 'customFields'>;
+    item: Pick<GachaItemDefinition, 'name' | 'customFields' | 'targetColumns'>;
     throwOnMissing?: boolean;
   };
 
@@ -57477,12 +58482,20 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     message: string;
   };
 
-  const getGachaReservedCustomFieldHeaders = (target: GachaRewardTarget): Set<string> =>
-    new Set(
+  const getGachaReservedCustomFieldHeaders = (
+    target: GachaRewardTarget,
+    targetColumns?: GachaRewardTargetColumns,
+  ): Set<string> => {
+    const headers = new Set(
       target === 'equipment'
         ? ['row_id', '装备名称', '类型', '数量', '品质', '状态', '描述']
         : ['row_id', '物品名称', '类型', '数量', '品质', '描述'],
     );
+    getGachaTargetColumnEntries(targetColumns).forEach(([key, headerName]) => {
+      if (GACHA_BASE_WRITTEN_TARGET_COLUMN_KEYS.has(key)) headers.add(headerName);
+    });
+    return headers;
+  };
 
   const buildGachaCustomFieldHeaderMap = (headers: unknown[]): Map<string, number> => {
     const headerMap = new Map<string, number>();
@@ -57506,7 +58519,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     if (!Array.isArray(row) || !Array.isArray(headers) || !hasGachaCustomFields(item)) return;
 
     const headerMap = buildGachaCustomFieldHeaderMap(headers);
-    const reservedHeaders = getGachaReservedCustomFieldHeaders(options.target);
+    const reservedHeaders = getGachaReservedCustomFieldHeaders(options.target, options.targetColumns || item.targetColumns);
 
     for (const [rawKey, rawValue] of getGachaCustomFieldEntries(item)) {
       const headerName = String(rawKey ?? '').trim();
@@ -57527,7 +58540,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const availableHeaders = Array.from(buildGachaCustomFieldHeaderMap(options.headers).keys());
     const missingHeaders: string[] = [];
     const requiredHeaders = buildCrudRequiredHeaderSet(options.sheet);
-    const reservedHeaders = getGachaReservedCustomFieldHeaders(options.target);
+    const reservedHeaders = getGachaReservedCustomFieldHeaders(options.target, options.item.targetColumns);
     const providedCustomFieldHeaders = new Set<string>();
 
     if (hasGachaCustomFields(options.item)) {
@@ -57618,7 +58631,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     item: GachaItemDefinition,
     quantity: number,
   ): { outcome: GachaDrawOutcome; modifiedSheetKey?: string } | null => {
-    const parsed = parseInventoryItems(rawData);
+    const parsed = getGachaRewardParseResultForItem(rawData, item);
     if (!parsed.tableKey || !rawData?.[parsed.tableKey] || !Array.isArray(rawData[parsed.tableKey]?.content)) {
       return null;
     }
@@ -57655,7 +58668,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       );
       const nextQuantity = currentQuantity + Math.max(1, quantity);
       setInventoryRowBasicFields(row, parsed.colMap, item, nextQuantity);
-      applyGachaCustomFieldsToRow(row, parsed.headers, item, { target: 'inventory', preserveNonEmptyExisting: true });
+      applyGachaCustomFieldsToRow(row, parsed.headers, item, {
+        target: 'inventory',
+        targetColumns: item.targetColumns,
+        preserveNonEmptyExisting: true,
+      });
       return {
         outcome: {
           kind: 'item',
@@ -57680,7 +58697,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const newRow = new Array(Math.max(headerRow.length, 1)).fill('');
     if (newRow.length > 0) newRow[0] = String(table.content.length);
     setInventoryRowBasicFields(newRow, parsed.colMap, item, Math.max(1, quantity));
-    applyGachaCustomFieldsToRow(newRow, headerRow, item, { target: 'inventory' });
+    applyGachaCustomFieldsToRow(newRow, headerRow, item, { target: 'inventory', targetColumns: item.targetColumns });
     assertCrudInsertRequiredCells(parsed.tableName, headerRow, newRow, sheet, table.content.length);
     table.content.push(newRow);
     setInventoryMetadataForItem(
@@ -57710,7 +58727,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     item: GachaItemDefinition,
     quantity: number,
   ): { outcome: GachaDrawOutcome; modifiedSheetKey?: string } | null => {
-    const parsed = parseEquipmentItems(rawData);
+    const parsed = getGachaRewardParseResultForItem(rawData, item);
     if (!parsed.tableKey || !rawData?.[parsed.tableKey] || !Array.isArray(rawData[parsed.tableKey]?.content)) {
       return null;
     }
@@ -57748,7 +58765,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       );
       const nextQuantity = currentQuantity + Math.max(1, quantity);
       setEquipmentRowBasicFields(row, parsed.colMap, item, nextQuantity);
-      applyGachaCustomFieldsToRow(row, parsed.headers, item, { target: 'equipment', preserveNonEmptyExisting: true });
+      applyGachaCustomFieldsToRow(row, parsed.headers, item, {
+        target: 'equipment',
+        targetColumns: item.targetColumns,
+        preserveNonEmptyExisting: true,
+      });
       return {
         outcome: {
           kind: 'item',
@@ -57773,7 +58794,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const newRow = new Array(Math.max(headerRow.length, 1)).fill('');
     if (newRow.length > 0) newRow[0] = String(table.content.length);
     setEquipmentRowBasicFields(newRow, parsed.colMap, item, Math.max(1, quantity));
-    applyGachaCustomFieldsToRow(newRow, headerRow, item, { target: 'equipment' });
+    applyGachaCustomFieldsToRow(newRow, headerRow, item, { target: 'equipment', targetColumns: item.targetColumns });
     assertCrudInsertRequiredCells(parsed.tableName, headerRow, newRow, sheet, table.content.length);
     table.content.push(newRow);
     return {
@@ -57984,6 +59005,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     if (!item) return false;
 
     const targetLabel = item.rewardTarget === 'equipment' ? '装备' : '物品';
+    const destinationLabel = formatGachaRewardDestinationLabel(cachedRawData || getTableData(), item);
     const stackableLabel = item.stackable ? '可堆叠' : '不可堆叠';
     const uniqueLabel = item.unique ? '唯一' : '可重复';
     const customIconContext = getGachaItemCustomTableNameIconContext(item);
@@ -58015,6 +59037,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                 <span class="acu-inventory-detail-field-value">${escapeHtml(targetLabel)}</span>
               </div>
               <div class="acu-inventory-detail-field-row acu-gacha-static-field-row">
+                <span class="acu-inventory-detail-field-label">${item.targetTable ? '固定写入' : '默认写入'}</span>
+                <span class="acu-inventory-detail-field-value">${escapeHtml(destinationLabel)}</span>
+              </div>
+              <div class="acu-inventory-detail-field-row acu-gacha-static-field-row">
                 <span class="acu-inventory-detail-field-label">规则</span>
                 <span class="acu-inventory-detail-field-value">${escapeHtml(`${stackableLabel} · ${uniqueLabel}`)}</span>
               </div>
@@ -58028,7 +59054,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     $('.acu-gacha-pickup-detail-overlay').remove();
     $('body').append(detail);
-    hydrateGachaLocalIconsIn(detail);
     hydrateCustomTableNameIconsIn(detail);
     const detailEl = detail[0] as HTMLElement | undefined;
     if (detailEl) {
@@ -58347,7 +59372,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const deletingFallbackPool = id === GACHA_CUSTOM_ONLY_POOL_TAG;
     const nextItems: GachaItemDefinition[] = [];
     const removedItemIds: string[] = [];
-    const removedIconKeys: string[] = [];
     let needsFallbackPool = false;
 
     getCustomGachaItemDefinitions(rawData).forEach(item => {
@@ -58365,7 +59389,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       }
       if (deletingFallbackPool) {
         removedItemIds.push(item.id);
-        if (item.localIconKey) removedIconKeys.push(item.localIconKey);
         return;
       }
       needsFallbackPool = true;
@@ -58393,7 +59416,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     if (!savedCatalog) return false;
     saveGachaPoolSettings(pools);
     removedItemIds.forEach(deleteGachaItemSetting);
-    await Promise.all(removedIconKeys.map(iconKey => GachaItemIconDB.delete(iconKey)));
     if (getStoredGachaActivePoolTag(GACHA_ALL_POOL_TAG) === id) saveStoredGachaActivePoolTag(GACHA_ALL_POOL_TAG);
     if (normalizeGachaPoolId(Store.get(STORAGE_KEY_GACHA_SETTINGS_POOL_TAG, GACHA_ALL_POOL_TAG)) === id) {
       saveStoredGachaSettingsPoolTag(GACHA_ALL_POOL_TAG);
@@ -58571,13 +59593,14 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const enabled = isGachaItemEnabled(item);
         const customText = custom ? '自定义' : '内置';
         const enabledText = enabled ? '启用' : '禁用';
+        const destinationLabel = formatGachaRewardDestinationLabel(rawData, item);
         const createdAt = getGachaItemCreatedAtMs(item);
         const qualityRank = getGachaRarityRank(item.quality);
         const customFieldsCount = getGachaCustomFieldEntries(item).length;
         const customFieldsSearchText = getGachaCustomFieldsSearchText(item);
         const customFieldsSummaryHtml =
           customFieldsCount > 0
-            ? `<div class="acu-gacha-settings-item-custom-fields" aria-label="${escapeHtml(`自定义字段 ${String(customFieldsCount)} 项`)}">${renderGachaCustomFieldsPreviewHtml(item, { limit: 2, showOverflowCount: true })}</div>`
+            ? `<div class="acu-gacha-settings-item-custom-fields" aria-label="${escapeHtml(`自定义字段 ${String(customFieldsCount)} 项`)}">${renderGachaCustomFieldsPreviewHtml(item, { limit: 2, showOverflowCount: true, valueOnly: true })}</div>`
             : '';
         const searchText = [
           item.name,
@@ -58585,6 +59608,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           item.quality,
           item.description,
           formatGachaPoolTags(item.poolTags, rawData),
+          destinationLabel,
           customText,
           enabledText,
           customFieldsSearchText,
@@ -58617,7 +59641,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                 ${enabled ? '' : '<span class="acu-gacha-settings-disabled-tag">禁用</span>'}
               </div>
               <div class="acu-gacha-settings-item-desc">${escapeHtml(item.description || '暂无描述')}</div>
-              <div class="acu-gacha-settings-item-meta">${escapeHtml(item.type)} · ${escapeHtml(formatGachaPoolTags(item.poolTags, rawData))} · 权重 ${escapeHtml(String(item.weight))} · ${escapeHtml(formatGachaItemCreatedAt(item))}${customFieldsCount > 0 ? ` · 自定义字段 ${escapeHtml(String(customFieldsCount))} 项` : ''}</div>
+              <div class="acu-gacha-settings-item-meta">${escapeHtml(item.type)} · 写入 ${escapeHtml(destinationLabel)} · ${escapeHtml(formatGachaPoolTags(item.poolTags, rawData))} · 权重 ${escapeHtml(String(item.weight))} · ${escapeHtml(formatGachaItemCreatedAt(item))}</div>
               ${customFieldsSummaryHtml}
             </div>
             <div class="acu-gacha-settings-actions">
@@ -58630,16 +59654,21 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                   ? `<span class="acu-gacha-settings-inline-actions">
                       <button class="acu-preset-btn acu-gacha-item-edit" type="button" title="编辑"><i class="fa-solid fa-pen"></i></button>
                       <button class="acu-preset-btn acu-gacha-item-delete acu-preset-delete" type="button" title="删除"><i class="fa-solid fa-trash"></i></button>
-                    </span>
-                    <details class="acu-gacha-settings-more">
-                      <summary class="acu-preset-btn" title="更多操作"><i class="fa-solid fa-ellipsis-vertical"></i></summary>
-                      <div class="acu-gacha-settings-more-menu">
-                        <button class="acu-gacha-item-edit" type="button"><i class="fa-solid fa-pen"></i><span>编辑</span></button>
-                        <button class="acu-gacha-item-delete danger" type="button"><i class="fa-solid fa-trash"></i><span>删除</span></button>
-                      </div>
-                    </details>`
+                    </span>`
                   : ''
               }
+              <details class="acu-gacha-settings-more">
+                <summary class="acu-preset-btn" title="更多操作" aria-label="${escapeHtml(`${item.name} 更多操作`)}"><i class="fa-solid fa-ellipsis-vertical"></i></summary>
+                <div class="acu-gacha-settings-more-menu">
+                  <button class="acu-gacha-item-toggle-menu" type="button"><i class="fa-solid ${enabled ? 'fa-toggle-off' : 'fa-toggle-on'}"></i><span>${enabled ? '禁用' : '启用'}</span></button>
+                  ${
+                    custom
+                      ? `<button class="acu-gacha-item-edit" type="button"><i class="fa-solid fa-pen"></i><span>编辑</span></button>
+                        <button class="acu-gacha-item-delete danger" type="button"><i class="fa-solid fa-trash"></i><span>删除</span></button>`
+                      : ''
+                  }
+                </div>
+              </details>
             </div>
           </article>
         `;
@@ -58811,17 +59840,16 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           <div class="acu-gacha-settings-footer">
             <button class="acu-dialog-btn acu-btn-confirm acu-gacha-pool-new" type="button"><i class="fa-solid fa-plus"></i> 新建卡池</button>
             <button class="acu-dialog-btn acu-gacha-item-new" type="button"><i class="fa-solid fa-plus"></i> 新建物品</button>
+            <button class="acu-dialog-btn acu-gacha-settings-prompt" type="button" title="下载给 AI 生成骰子商店物品 JSON 的提示词"><i class="fa-solid fa-file-arrow-down"></i> 下载 AI 提示词</button>
             <button class="acu-dialog-btn acu-gacha-settings-import" type="button"><i class="fa-solid fa-file-import"></i> 导入 JSON</button>
             <button class="acu-dialog-btn acu-gacha-settings-export" type="button"><i class="fa-solid fa-file-export"></i> 导出 JSON</button>
             <button class="acu-dialog-btn acu-gacha-settings-clear danger" type="button"><i class="fa-solid fa-broom"></i> 清空自定义</button>
-            <button class="acu-dialog-btn acu-gacha-settings-close" type="button"><i class="fa-solid fa-arrow-left"></i> 返回</button>
           </div>
         </div>
       </div>
     `);
 
     $('body').append(overlay);
-    hydrateGachaLocalIconsIn(overlay);
     hydrateCustomTableNameIconsIn(overlay);
     bindTutorialButtonsIn(overlay);
 
@@ -58992,7 +60020,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       overlay
         .find('.acu-gacha-settings-items-section')
         .replaceWith(renderGachaSettingsPoolViewerHtml(rawData, normalizedPoolId));
-      hydrateGachaLocalIconsIn(overlay);
+      hydrateCustomTableNameIconsIn(overlay);
       syncSettingsItemFilterControls();
       applySettingsItemFilters();
       bindSettingsItemSortable();
@@ -59079,8 +60107,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           message: `确定删除卡池「${pool.name}」吗？`,
           detail:
             pool.id === GACHA_CUSTOM_ONLY_POOL_TAG
-              ? '仅属于该卡池的自定义物品会一并删除；已经写入物品表或装备表的奖励不会被删除。'
-              : '仅属于该卡池的自定义物品会转入“自定义”卡池；已经写入物品表或装备表的奖励不会被删除。',
+              ? '仅属于该卡池的自定义物品会一并删除；已经写入目标表的奖励不会被删除。'
+              : '仅属于该卡池的自定义物品会转入“自定义”卡池；已经写入目标表的奖励不会被删除。',
           iconClass: 'fa-trash',
           confirmText: '删除',
           danger: true,
@@ -59181,6 +60209,21 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       refreshGachaShardShop();
     });
 
+    overlay.on('click', '.acu-gacha-item-toggle-menu', function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      const $row = $(this).closest('.acu-gacha-settings-item');
+      const itemId = String($row.data('item-id') || '').trim();
+      if (!itemId) return;
+      const nextEnabled = String($row.attr('data-enabled') || '') !== 'true';
+      updateGachaItemSetting(itemId, { enabled: nextEnabled });
+      const currentPoolId = normalizeGachaPoolId($(this).closest('.acu-gacha-settings-items-section').data('pool-id'));
+      refreshSettingsPoolViewer(currentPoolId || GACHA_ALL_POOL_TAG);
+      refreshGachaVisualization(rawData);
+      refreshGachaShardShop();
+    });
+
     overlay.on('click', '.acu-gacha-item-new', function (event) {
       event.preventDefault();
       event.stopPropagation();
@@ -59213,14 +60256,13 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const confirmed = await showGachaConfirmDialog({
           title: '删除自定义物品',
           message: `确定删除「${item.name}」吗？`,
-          detail: '只会从骰子商店自定义卡池中删除，不会删除已经写入物品表或装备表的奖励。',
+          detail: '只会从骰子商店自定义卡池中删除，不会删除已经写入目标表的奖励。',
           iconClass: 'fa-trash',
           confirmText: '删除',
           danger: true,
         });
         if (!confirmed) return;
         const nextItems = getCustomGachaItemDefinitions(rawData).filter(candidate => candidate.id !== itemId);
-        if (item.localIconKey) await GachaItemIconDB.delete(item.localIconKey);
         deleteGachaItemSetting(itemId);
         await saveStoredGachaCatalog(nextItems);
         refreshGachaVisualization(rawData);
@@ -59229,6 +60271,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       })();
     });
 
+    overlay.on('click', '.acu-gacha-settings-prompt', () => {
+      const selectedPoolId = normalizeGachaPoolId(overlay.find('.acu-gacha-settings-items-section').data('pool-id'));
+      const promptName = getGachaPoolDisplayName(selectedPoolId || GACHA_CUSTOM_ONLY_POOL_TAG, rawData);
+      downloadAiPromptFile(buildGachaCatalogAgentPrompt(), buildGachaCatalogAgentPromptFilename(promptName));
+      if (window.toastr) window.toastr.success('已下载 AI 提示词');
+    });
     overlay.on('click', '.acu-gacha-settings-import', () => importGachaCatalogJsonFromFile());
     overlay.on('click', '.acu-gacha-settings-export', () => void downloadGachaCatalogJson());
     overlay.on('click', '.acu-gacha-settings-clear', () => void showGachaCatalogClearDialog());
@@ -59329,6 +60377,23 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       target =>
         `<option value="${escapeHtml(target)}" ${item.rewardTarget === target ? 'selected' : ''}>${target === 'equipment' ? '装备' : '物品'}</option>`,
     ).join('');
+    const targetTableValue = normalizeGachaTargetTable(item.targetTable) || '';
+    const targetColumns = normalizeGachaTargetColumns(item.targetColumns);
+    const renderTargetColumnInputHtml = (key: GachaRewardTargetColumnKey, placeholder: string) => `
+      <label class="acu-gacha-target-column-field" data-column-key="${escapeHtml(key)}">
+        <span>${escapeHtml(GACHA_TARGET_COLUMN_LABELS[key])}</span>
+        <input class="acu-gacha-target-column-input" type="text" data-column-key="${escapeHtml(key)}" value="${escapeHtml(targetColumns?.[key] || '')}" maxlength="${GACHA_TARGET_COLUMN_VALUE_MAX_LENGTH}" placeholder="${escapeHtml(placeholder)}" />
+      </label>
+    `;
+    const targetColumnsHtml = [
+      renderTargetColumnInputHtml('name', '物品名称 / 装扮名称'),
+      renderTargetColumnInputHtml('type', '类型'),
+      renderTargetColumnInputHtml('quantity', '数量'),
+      renderTargetColumnInputHtml('quality', '品质'),
+      renderTargetColumnInputHtml('description', '描述 / 外观描述'),
+      renderTargetColumnInputHtml('part', '部位 / 适用场景'),
+      renderTargetColumnInputHtml('status', '状态 / 当前状态'),
+    ].join('');
     const renderCustomFieldRowHtml = (key = '', value = '') => `
       <div class="acu-gacha-custom-field-row">
         <label class="acu-gacha-custom-field-key-cell">
@@ -59375,20 +60440,26 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
               <div class="acu-gacha-icon-editor-preview">${renderGachaItemIconContent(item, getGachaItemCustomTableNameIconContext(item))}</div>
               <div class="acu-gacha-icon-editor-fields">
                 <label class="acu-gacha-item-field acu-gacha-item-icon-field"><span>符号图标</span><input class="acu-gacha-item-icon" type="text" value="${escapeHtml(item.icon || '')}" placeholder="fa:coins / ti:wand / ✨" /></label>
-                <label class="acu-gacha-item-field acu-gacha-item-icon-url-field"><span>图片 URL</span><input class="acu-gacha-item-icon-url" type="url" value="${escapeHtml(item.iconUrl || '')}" placeholder="https://..." /></label>
-                <label class="acu-gacha-icon-upload">
-                  <span><i class="fa-solid fa-image"></i> 本地图标</span>
-                  <input class="acu-gacha-item-icon-file" type="file" accept="image/*" />
-                  <strong><i class="fa-solid fa-upload"></i> 选择图片</strong>
-                  <small>仅保存到本机 IndexedDB，普通 JSON 导出不会包含图片文件</small>
-                </label>
-                ${
-                  item.localIconKey
-                    ? `<label class="acu-gacha-item-checkbox acu-gacha-clear-local-icon-row"><input class="acu-gacha-item-clear-local-icon" type="checkbox" /> <span>清除当前本地图标</span></label>`
-                    : ''
-                }
+                <small class="acu-gacha-icon-editor-note">图片类图标请在“图标管理预设”中按物品/装备名称统一配置。</small>
               </div>
             </div>
+            <details class="wide acu-gacha-custom-fields acu-gacha-target-settings" ${targetTableValue || targetColumns ? 'open' : ''}>
+              <summary>
+                <span><i class="fa-solid fa-location-dot"></i> 写入目标</span>
+                <small>留空则跟随当前仪表盘预设</small>
+              </summary>
+              <div class="acu-gacha-custom-field-panel">
+                <label class="acu-gacha-item-field acu-gacha-target-table-field">
+                  <span>固定目标表</span>
+                  <input class="acu-gacha-item-target-table" type="text" value="${escapeHtml(targetTableValue)}" maxlength="${GACHA_TARGET_TABLE_MAX_LENGTH}" placeholder="例如：装扮表；留空使用仪表盘映射" />
+                </label>
+                <div class="acu-gacha-target-column-toolbar">
+                  <strong>基础字段列映射</strong>
+                  <small>只有默认关键词识别不到表头时填写；表头必须精确匹配。</small>
+                </div>
+                <div class="acu-gacha-target-column-grid">${targetColumnsHtml}</div>
+              </div>
+            </details>
             <details class="wide acu-gacha-custom-fields" ${customFieldEntries.length ? 'open' : ''}>
               <summary>
                 <span><i class="fa-solid fa-table-columns"></i> 自定义字段</span>
@@ -59422,43 +60493,49 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       </div>
     `);
     $('body').append(overlay);
-    hydrateGachaLocalIconsIn(overlay);
     hydrateCustomTableNameIconsIn(overlay);
     bindTutorialButtonsIn(overlay);
 
-    let previewObjectUrl: string | null = null;
-    const revokePreviewObjectUrl = () => {
-      if (!previewObjectUrl) return;
-      URL.revokeObjectURL(previewObjectUrl);
-      previewObjectUrl = null;
-    };
     const refreshEditorIconPreview = () => {
-      revokePreviewObjectUrl();
       const icon = String(overlay.find('.acu-gacha-item-icon').val() || '').trim();
-      const iconUrl = String(overlay.find('.acu-gacha-item-icon-url').val() || '').trim();
-      const shouldClearLocalIcon = overlay.find('.acu-gacha-item-clear-local-icon').prop('checked') === true;
-      const fileInput = overlay.find('.acu-gacha-item-icon-file')[0] as HTMLInputElement | undefined;
-      const iconFile = fileInput?.files?.[0] || null;
-      if (iconFile && iconFile.type.startsWith('image/')) {
-        previewObjectUrl = URL.createObjectURL(iconFile);
-      }
-      const previewItem: Pick<GachaItemDefinition, 'name' | 'type' | 'icon' | 'iconUrl' | 'localIconKey'> = {
+      const previewItem: Pick<GachaItemDefinition, 'name' | 'type' | 'icon'> = {
         name: String(overlay.find('.acu-gacha-item-name').val() || item.name || '').trim(),
         type: String(overlay.find('.acu-gacha-item-type').val() || item.type || '').trim(),
         icon: icon || undefined,
-        iconUrl: previewObjectUrl || (iconUrl && isRemoteImageUrlValid(iconUrl) ? iconUrl : undefined),
-        localIconKey: previewObjectUrl || iconUrl || shouldClearLocalIcon ? undefined : item.localIconKey,
+      };
+      const previewContextItem = {
+        ...item,
+        ...previewItem,
+        rewardTarget: getEditorRewardTarget(),
+        targetTable: getEditorTargetTable(),
+        targetColumns: collectEditorTargetColumns(),
       };
       const $preview = overlay.find('.acu-gacha-icon-editor-preview');
-      $preview.html(renderGachaItemIconContent(previewItem, getGachaItemCustomTableNameIconContext(item)));
-      hydrateGachaLocalIconsIn($preview);
+      $preview.html(renderGachaItemIconContent(previewItem, getGachaItemCustomTableNameIconContext(previewContextItem)));
       hydrateCustomTableNameIconsIn($preview);
     };
     const getEditorRewardTarget = (): GachaRewardTarget =>
       normalizeGachaRewardTarget(overlay.find('.acu-gacha-item-target').val());
-    const getEditorTargetTableContext = (target: GachaRewardTarget) => {
+    const getEditorTargetTable = (): string | undefined =>
+      normalizeGachaTargetTable(overlay.find('.acu-gacha-item-target-table').val());
+    const collectEditorTargetColumns = (): GachaRewardTargetColumns | undefined => {
+      const rawColumns: Record<string, string> = {};
+      overlay.find('.acu-gacha-target-column-input').each((_, element) => {
+        const key = String($(element).attr('data-column-key') || '').trim();
+        if (!GACHA_TARGET_COLUMN_KEYS.includes(key as GachaRewardTargetColumnKey)) return;
+        const value = String($(element).val() || '').trim();
+        if (value) rawColumns[key] = value;
+      });
+      return normalizeGachaTargetColumns(rawColumns);
+    };
+    const getEditorTargetOptions = (): GachaRewardParseOptions => ({
+      targetTable: getEditorTargetTable(),
+      targetColumns: collectEditorTargetColumns(),
+    });
+    const getEditorTargetTableContext = (target: GachaRewardTarget, options: GachaRewardParseOptions = {}) => {
       const latestRawData = getTableData({ silent: true }) || rawData;
-      const parsed = target === 'equipment' ? parseEquipmentItems(latestRawData) : parseInventoryItems(latestRawData);
+      const parsed =
+        target === 'equipment' ? parseEquipmentItems(latestRawData, options) : parseInventoryItems(latestRawData, options);
       const sheet = parsed.tableKey && latestRawData ? latestRawData[parsed.tableKey] : undefined;
       return { parsed, sheet };
     };
@@ -59479,8 +60556,19 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     };
     const refreshCustomFieldHeaderSuggestions = () => {
       const target = getEditorRewardTarget();
-      const { parsed } = getEditorTargetTableContext(target);
-      const reservedHeaders = getGachaReservedCustomFieldHeaders(target);
+      let parsed: GachaRewardParseResult;
+      let targetOptions: GachaRewardParseOptions;
+      try {
+        targetOptions = getEditorTargetOptions();
+        ({ parsed } = getEditorTargetTableContext(target, targetOptions));
+      } catch (error) {
+        const list = overlay.find('.acu-gacha-custom-field-suggestion-list').empty();
+        $('<em class="acu-gacha-custom-field-suggestion-empty"></em>')
+          .text(getRuntimeErrorMessage(error) || '当前目标表无法解析')
+          .appendTo(list);
+        return;
+      }
+      const reservedHeaders = getGachaReservedCustomFieldHeaders(target, targetOptions.targetColumns);
       const headers = Array.from(buildGachaCustomFieldHeaderMap(parsed.headers).keys()).filter(
         headerName => !reservedHeaders.has(headerName) && !GACHA_CUSTOM_FIELD_RESERVED_KEYS.has(headerName),
       );
@@ -59502,8 +60590,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       customFields?: GachaCustomFields;
       message?: string;
     };
-    const collectEditorCustomFields = (target: GachaRewardTarget): EditorCustomFieldCollectResult => {
-      const reservedHeaders = getGachaReservedCustomFieldHeaders(target);
+    const collectEditorCustomFields = (
+      target: GachaRewardTarget,
+      targetColumns?: GachaRewardTargetColumns,
+    ): EditorCustomFieldCollectResult => {
+      const reservedHeaders = getGachaReservedCustomFieldHeaders(target, targetColumns);
       const rawFields: Record<string, string> = {};
       let message = '';
 
@@ -59552,7 +60643,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       clampField($descriptionInput, limits.description);
     };
     const closeEditor = () => {
-      revokePreviewObjectUrl();
       overlay.remove();
     };
     overlay.on('click', '.acu-gacha-item-editor-close', closeEditor);
@@ -59588,10 +60678,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       targetRow.find('.acu-gacha-custom-field-key').val(headerName);
       targetRow.find('.acu-gacha-custom-field-value').trigger('focus');
     });
-    overlay.on('change', '.acu-gacha-item-target', refreshCustomFieldHeaderSuggestions);
+    overlay.on('input change', '.acu-gacha-item-target, .acu-gacha-item-target-table, .acu-gacha-target-column-input', () => {
+      refreshCustomFieldHeaderSuggestions();
+    });
     overlay.on(
       'input change',
-      '.acu-gacha-item-name, .acu-gacha-item-type, .acu-gacha-item-target, .acu-gacha-item-description, .acu-gacha-item-icon, .acu-gacha-item-icon-url, .acu-gacha-item-icon-file, .acu-gacha-item-clear-local-icon',
+      '.acu-gacha-item-name, .acu-gacha-item-type, .acu-gacha-item-target, .acu-gacha-item-target-table, .acu-gacha-target-column-input, .acu-gacha-item-description, .acu-gacha-item-icon',
       () => {
         applyEditorFieldLimits();
         refreshEditorIconPreview();
@@ -59604,6 +60696,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const name = String(overlay.find('.acu-gacha-item-name').val() || '').trim();
         const quality = String(overlay.find('.acu-gacha-item-quality').val() || '普通') as GachaRarity;
         const rewardTarget = String(overlay.find('.acu-gacha-item-target').val() || 'inventory') as GachaRewardTarget;
+        const targetTable = getEditorTargetTable();
+        const targetColumns = collectEditorTargetColumns();
         const description = String(overlay.find('.acu-gacha-item-description').val() || '').trim();
         const rawType = String(overlay.find('.acu-gacha-item-type').val() || '').trim();
         const type =
@@ -59611,7 +60705,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             ? inferEquipmentTableTypeForGachaItem({ id: existingItem?.id || '', name, type: rawType, description })
             : rawType || '道具';
         const icon = String(overlay.find('.acu-gacha-item-icon').val() || '').trim();
-        const iconUrl = String(overlay.find('.acu-gacha-item-icon-url').val() || '').trim();
         const weight = Number(overlay.find('.acu-gacha-item-weight').val());
         const grantQuantity = Math.floor(Number(overlay.find('.acu-gacha-item-quantity').val()));
         const stackable = overlay.find('.acu-gacha-item-stackable').prop('checked') === true;
@@ -59655,24 +60748,29 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           if (window.toastr) window.toastr.warning('请至少选择一个卡池');
           return;
         }
-        const iconUrlValidation = iconUrl ? getRemoteImageUrlValidationError(iconUrl) : null;
-        if (iconUrlValidation) {
-          if (window.toastr) window.toastr.warning(getImageUrlValidationMessage('图片 URL', iconUrlValidation));
-          return;
-        }
-        const customFieldResult = collectEditorCustomFields(rewardTarget);
+        const customFieldResult = collectEditorCustomFields(rewardTarget, targetColumns);
         if (customFieldResult.message) {
           if (window.toastr) window.toastr.warning(customFieldResult.message);
           return;
         }
         const customFields = customFieldResult.customFields;
-        const targetContext = getEditorTargetTableContext(rewardTarget);
+        let targetContext: ReturnType<typeof getEditorTargetTableContext>;
+        try {
+          targetContext = getEditorTargetTableContext(rewardTarget, {
+            targetTable,
+            targetColumns,
+            requireNameColumn: true,
+          });
+        } catch (error) {
+          if (window.toastr) window.toastr.warning(getRuntimeErrorMessage(error) || '写入目标无法解析');
+          return;
+        }
         const customFieldValidation = validateGachaCustomFieldsForTargetTable({
           target: rewardTarget,
           tableName: targetContext.parsed.tableName,
           headers: targetContext.parsed.headers,
           sheet: targetContext.sheet,
-          item: { name, customFields },
+          item: { name, customFields, targetColumns },
           throwOnMissing: false,
         });
         if (customFieldValidation.message) {
@@ -59686,30 +60784,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const id =
           existingItem?.id ||
           createUniqueGachaItemId(buildStableGachaCustomItemId({ name, quality, type }), existingIds);
-        let localIconKey = existingItem?.localIconKey;
-        const shouldClearLocalIcon = overlay.find('.acu-gacha-item-clear-local-icon').prop('checked') === true;
-        const fileInput = overlay.find('.acu-gacha-item-icon-file')[0] as HTMLInputElement | undefined;
-        const iconFile = fileInput?.files?.[0] || null;
-        if (shouldClearLocalIcon && localIconKey) {
-          await GachaItemIconDB.delete(localIconKey);
-          localIconKey = undefined;
-        }
-        if (iconFile) {
-          if (!iconFile.type.startsWith('image/')) {
-            if (window.toastr) window.toastr.warning('请选择图片文件');
-            return;
-          }
-          if (iconFile.size > 5 * 1024 * 1024) {
-            if (window.toastr) window.toastr.warning('图片大小不能超过 5MB');
-            return;
-          }
-          localIconKey = localIconKey || `gacha_item_${id}`;
-          const saved = await GachaItemIconDB.save(localIconKey, iconFile);
-          if (!saved) {
-            if (window.toastr) showActionableErrorToast('本地图标保存失败');
-            return;
-          }
-        }
 
         const savedAt = Date.now();
         const nextItem: GachaItemDefinition = {
@@ -59720,8 +60794,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           description,
           poolTags,
           icon: icon || undefined,
-          iconUrl: iconUrl || undefined,
-          localIconKey,
           enabled: isGachaItemEnabled(item),
           order: item.order,
           createdAt: existingItem?.createdAt || savedAt,
@@ -59731,6 +60803,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           unique,
           grantQuantity,
           rewardTarget,
+          ...(targetTable ? { targetTable } : {}),
+          ...(targetColumns ? { targetColumns } : {}),
           ...(customFields ? { customFields } : {}),
         };
         const nextItems = existingItem
@@ -60098,12 +61172,114 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     saveInventoryMetadataRoot(root);
   };
 
-  const getInventoryResult = rawData => {
+  const getGachaRewardTargetModuleKey = (target: GachaRewardTarget): 'bag' | 'equip' =>
+    target === 'equipment' ? 'equip' : 'bag';
+
+  const getGachaRewardTargetModuleName = (target: GachaRewardTarget): string =>
+    target === 'equipment' ? '装备' : '物品';
+
+  const getGachaTargetTableMatches = (rawData, targetTable: string): Array<{ key: string; sheet: any }> => {
+    const tableName = normalizeGachaTargetTable(targetTable);
+    if (!tableName || !rawData || typeof rawData !== 'object') return [];
+    return Object.entries(rawData as Record<string, any>)
+      .filter(([key, sheet]) => key.startsWith('sheet_') && sheet?.name === tableName)
+      .map(([key, sheet]) => ({ key, sheet }));
+  };
+
+  const buildGachaTableResultFromSheet = (entry: { key: string; sheet: any }, config) => {
+    const sheet = entry.sheet || {};
+    const content = Array.isArray(sheet.content) ? sheet.content : [];
+    const rows = content.slice(1).map((row, rowIndex) => {
+      if (row && typeof row === 'object') {
+        Object.defineProperty(row, GACHA_CATALOG_RAW_ROW_INDEX_PROP, {
+          value: rowIndex,
+          configurable: true,
+        });
+      }
+      return row;
+    });
+    return {
+      data: {
+        key: entry.key,
+        headers: content[0] || [],
+        rows,
+        rawContent: content,
+        exportConfig: sheet.exportConfig || {},
+        updateConfig: sheet.updateConfig || {},
+        ...sheet,
+      },
+      name: sheet.name || entry.key,
+      key: entry.key,
+      config,
+    };
+  };
+
+  const resolveGachaTargetTableOverride = (rawData, target: GachaRewardTarget, options: GachaRewardParseOptions) => {
+    const targetTable = normalizeGachaTargetTable(options.targetTable);
+    if (!targetTable) return null;
+    const matches = getGachaTargetTableMatches(rawData, targetTable);
+    if (matches.length === 0) {
+      throw new Error(
+        withTableTemplateCheckHint(
+          `未找到骰子商店奖励目标表“${targetTable}”。请检查该物品的 targetTable，或清空 targetTable 改用当前仪表盘预设的${getGachaRewardTargetModuleName(target)}区映射。`,
+        ),
+      );
+    }
+    if (matches.length > 1) {
+      throw new Error(
+        withTableTemplateCheckHint(
+          `骰子商店奖励目标表“${targetTable}”存在 ${matches.length} 张同名表，无法判断应该写入哪一张。请先改成唯一表名，再更新 targetTable。`,
+        ),
+      );
+    }
+    const moduleKey = getGachaRewardTargetModuleKey(target);
+    const config = getDashboardModuleConfig(moduleKey) || DASHBOARD_TABLE_CONFIG[moduleKey];
+    return buildGachaTableResultFromSheet(matches[0], config);
+  };
+
+  const findGachaTargetColumnIndex = (headers: unknown[], headerName: string): number =>
+    headers.findIndex(header => String(header || '').trim() === headerName);
+
+  const applyGachaTargetColumnOverrides = (
+    colMap: GachaRewardColumnMap,
+    headers: unknown[],
+    tableName: string,
+    targetColumns?: GachaRewardTargetColumns,
+  ): GachaRewardColumnMap => {
+    const entries = getGachaTargetColumnEntries(targetColumns);
+    if (entries.length === 0) return colMap;
+    const nextMap: GachaRewardColumnMap = { ...colMap };
+    entries.forEach(([key, headerName]) => {
+      const columnIndex = findGachaTargetColumnIndex(headers, headerName);
+      if (columnIndex < 0) {
+        throw new Error(
+          withTableTemplateCheckHint(
+            `目标表“${tableName}”找不到 targetColumns.${key} 指定的表头“${headerName}”。当前表头：${headers.map(header => String(header || '').trim()).filter(Boolean).join('、') || '（无）'}。`,
+          ),
+        );
+      }
+      nextMap[key] = columnIndex;
+    });
+    return nextMap;
+  };
+
+  const assertGachaRewardNameColumn = (tableName: string, headers: unknown[], colMap: GachaRewardColumnMap): void => {
+    if (colMap.name >= 0 && colMap.name < headers.length) return;
+    throw new Error(
+      withTableTemplateCheckHint(
+        `目标表“${tableName}”缺少可用于奖励名称的列。请在该物品的 targetColumns.name 中填写真实表头，或调整当前仪表盘预设的名称列关键词。`,
+      ),
+    );
+  };
+
+  const getInventoryResult = (rawData, options: GachaRewardParseOptions = {}) => {
+    const targetOverride = resolveGachaTargetTableOverride(rawData, 'inventory', options);
+    if (targetOverride) return targetOverride;
     const tables = processJsonData(rawData || {});
     return DashboardDataParser.findTable(tables, 'bag');
   };
 
-  const getInventoryColumnMap = inventoryResult => {
+  const getInventoryColumnMap = (inventoryResult, options: GachaRewardParseOptions = {}) => {
     const headers = inventoryResult?.data?.headers || [];
     const config = inventoryResult?.config || getDashboardModuleConfig('bag') || DASHBOARD_TABLE_CONFIG.bag;
     const findExtra = (keywords, fallbackIndex) => {
@@ -60113,17 +61289,18 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       }
       return fallbackIndex;
     };
-    return {
+    const colMap: GachaRewardColumnMap = {
       name: DashboardDataParser.findColumnIndex(headers, 'name', config),
       type: DashboardDataParser.findColumnIndex(headers, 'type', config),
       quantity: DashboardDataParser.findColumnIndex(headers, 'count', config),
       quality: findExtra(['品质', '稀有度', '品级'], -1),
       description: findExtra(['描述', '说明', '用途', '效果'], 5),
     };
+    return applyGachaTargetColumnOverrides(colMap, headers, inventoryResult?.name || '物品表', options.targetColumns);
   };
 
-  const parseInventoryItems = rawData => {
-    const inventoryResult = getInventoryResult(rawData);
+  const parseInventoryItems = (rawData, options: GachaRewardParseOptions = {}) => {
+    const inventoryResult = getInventoryResult(rawData, options);
     if (!inventoryResult?.data) {
       return {
         tableName: '物品表',
@@ -60136,8 +61313,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     const headers = inventoryResult.data.headers || [];
     const rows = inventoryResult.data.rows || [];
-    const colMap = getInventoryColumnMap(inventoryResult);
+    const colMap = getInventoryColumnMap(inventoryResult, options);
     const tableName = inventoryResult.name || '物品表';
+    if (options.requireNameColumn) assertGachaRewardNameColumn(tableName, headers, colMap);
 
     const items = rows
       .map((row, rowIndex) => {
@@ -60170,12 +61348,14 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return { tableName, tableKey: inventoryResult.key || '', headers, items, colMap };
   };
 
-  const getEquipmentResult = rawData => {
+  const getEquipmentResult = (rawData, options: GachaRewardParseOptions = {}) => {
+    const targetOverride = resolveGachaTargetTableOverride(rawData, 'equipment', options);
+    if (targetOverride) return targetOverride;
     const tables = processJsonData(rawData || {});
     return DashboardDataParser.findTable(tables, 'equip');
   };
 
-  const getEquipmentColumnMap = equipmentResult => {
+  const getEquipmentColumnMap = (equipmentResult, options: GachaRewardParseOptions = {}) => {
     const headers = equipmentResult?.data?.headers || [];
     const config = equipmentResult?.config || getDashboardModuleConfig('equip') || DASHBOARD_TABLE_CONFIG.equip;
     const findExtra = (keywords, fallbackIndex) => {
@@ -60185,7 +61365,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       }
       return fallbackIndex;
     };
-    return {
+    const colMap: GachaRewardColumnMap = {
       name: DashboardDataParser.findColumnIndex(headers, 'name', config),
       type: DashboardDataParser.findColumnIndex(headers, 'type', config),
       part: DashboardDataParser.findColumnIndex(headers, 'part', config),
@@ -60194,10 +61374,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       quality: findExtra(['品质', '稀有度', '品级'], -1),
       description: findExtra(['描述', '说明', '效果', '备注'], 6),
     };
+    return applyGachaTargetColumnOverrides(colMap, headers, equipmentResult?.name || '装备表', options.targetColumns);
   };
 
-  const parseEquipmentItems = rawData => {
-    const equipmentResult = getEquipmentResult(rawData);
+  const parseEquipmentItems = (rawData, options: GachaRewardParseOptions = {}) => {
+    const equipmentResult = getEquipmentResult(rawData, options);
     if (!equipmentResult?.data) {
       return {
         tableName: '装备表',
@@ -60210,8 +61391,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     const headers = equipmentResult.data.headers || [];
     const rows = equipmentResult.data.rows || [];
-    const colMap = getEquipmentColumnMap(equipmentResult);
+    const colMap = getEquipmentColumnMap(equipmentResult, options);
     const tableName = equipmentResult.name || '装备表';
+    if (options.requireNameColumn) assertGachaRewardNameColumn(tableName, headers, colMap);
 
     const items = rows
       .map((row, rowIndex) => {
@@ -60257,8 +61439,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   };
 
   const isGachaItemOwned = (rawData, item: GachaItemDefinition): boolean => {
-    const parsed = getGachaRewardParseResult(rawData, item.rewardTarget);
-    return parsed.items.some(candidate => candidate.name === item.name);
+    try {
+      const parsed = getGachaRewardParseResultForItem(rawData, item);
+      return parsed.items.some(candidate => candidate.name === item.name);
+    } catch {
+      return false;
+    }
   };
 
   const renderGachaShardShopHtml = rawData => {
@@ -60314,7 +61500,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
               const canAfford = balance >= GACHA_SHARD_EXCHANGE_COST;
               const ownedBlocked = owned && (item.unique || !item.stackable);
               const disabled = !canAfford || ownedBlocked;
-              const rewardTargetLabel = getGachaRewardTargetTableLabel(item.rewardTarget);
+              const rewardTargetLabel = formatGachaRewardDestinationLabel(rawData, item);
               const statusHtml = ownedBlocked ? '<span class="acu-gacha-shard-owned">已拥有</span>' : '';
               return `
                 <article
@@ -60409,7 +61595,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const $nextOverlay = $(renderGachaShardShopHtml(rawData));
       $shopOverlay.children().replaceWith($nextOverlay.children());
       bindGachaShardShopInteractions($shopOverlay as JQuery<HTMLElement>);
-      hydrateGachaLocalIconsIn($shopOverlay as JQuery<HTMLElement>);
+      hydrateCustomTableNameIconsIn($shopOverlay as JQuery<HTMLElement>);
     })();
   };
 
@@ -60435,7 +61621,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       overlayEl.style.setProperty('z-index', '31320', 'important');
     }
     bindGachaShardShopInteractions(overlay as JQuery<HTMLElement>);
-    hydrateGachaLocalIconsIn(overlay);
     hydrateCustomTableNameIconsIn(overlay);
     setupOverlayClose(overlay, 'acu-inventory-detail-overlay', () => overlay.remove());
   };
@@ -60452,8 +61637,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           if (window.toastr) window.toastr.warning('这个物品已禁用，暂时无法兑换');
           return;
         }
-        if (!hasGachaRewardTable(rawData, item.rewardTarget)) {
-          warnTableTemplateIssue(`未找到${getGachaRewardTargetTableLabel(item.rewardTarget)}，暂时无法兑换`);
+        if (!hasGachaRewardTableForItem(rawData, item)) {
+          warnTableTemplateIssue(
+            `未找到${formatGachaRewardDestinationLabel(rawData, item)}，暂时无法兑换。请检查该物品的 targetTable 或当前仪表盘预设。`,
+          );
           return;
         }
         const state = touchGachaActivity(getGachaState(rawData, true));
@@ -60462,7 +61649,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         if (ownedBlocked) {
           if (window.toastr)
             window.toastr.warning(
-              `这个物品已在${getGachaRewardTargetTableLabel(item.rewardTarget)}中拥有，不能重复兑换`,
+              `这个物品已在${formatGachaRewardDestinationLabel(rawData, item)}中拥有，不能重复兑换`,
             );
           return;
         }
@@ -60513,11 +61700,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     }
     if (isGachaItemOwned(rawData, item) && (item.unique || !item.stackable)) {
       if (window.toastr)
-        window.toastr.warning(`这个物品已在${getGachaRewardTargetTableLabel(item.rewardTarget)}中拥有，不能重复兑换`);
+        window.toastr.warning(`这个物品已在${formatGachaRewardDestinationLabel(rawData, item)}中拥有，不能重复兑换`);
       return;
     }
 
-    const targetLabel = getGachaRewardTargetTableLabel(item.rewardTarget);
+    const targetLabel = formatGachaRewardDestinationLabel(rawData, item);
     const customFieldsDetailsHtml = renderGachaCustomFieldsDetailsHtml(item, { openThreshold: 2 });
 
     $('.acu-gacha-shard-confirm-overlay').remove();
@@ -60541,7 +61728,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       </div>
     `);
     $('body').append(overlay);
-    hydrateGachaLocalIconsIn(overlay);
     hydrateCustomTableNameIconsIn(overlay);
     const overlayEl = overlay[0] as HTMLElement | undefined;
     if (overlayEl) {
@@ -60662,7 +61848,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       await ensureGachaCatalogLoaded(rawData);
       if (!overlay.isConnected) return;
       overlay.innerHTML = renderGachaPanelHtml(rawData);
-      hydrateGachaLocalIconsIn(overlay);
       hydrateCustomTableNameIconsIn(overlay);
     })();
   };
@@ -60676,7 +61861,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const overlay = $(`<div class="acu-gacha-overlay acu-theme-${getConfig().theme}"></div>`);
     overlay.html(renderGachaPanelHtml(rawData));
     $('body').append(overlay);
-    hydrateGachaLocalIconsIn(overlay);
     hydrateCustomTableNameIconsIn(overlay);
     gachaShopRootElement = overlay[0] as HTMLElement | null;
     startGachaShopUiRefresh();
@@ -61064,7 +62248,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           dialog.remove();
         } catch (e) {
           console.error(`[DICE] 保存物品${fieldLabel}失败:`, e);
-          if (window.toastr) showActionableErrorToast(`保存${fieldLabel}失败`);
+          if (window.toastr) {
+            showActionableErrorToast(`保存${fieldLabel}失败`, {
+              title: `保存${fieldLabel}失败`,
+              developerHint: true,
+            });
+          }
         }
       });
       return;
@@ -61084,7 +62273,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             await saveInventoryFieldValue(rowIndex, fieldKey, String(newVal || ''));
           } catch (e) {
             console.error(`[DICE] 保存物品${fieldLabel}失败:`, e);
-            if (window.toastr) showActionableErrorToast(`保存${fieldLabel}失败`);
+            if (window.toastr) {
+              showActionableErrorToast(`保存${fieldLabel}失败`, {
+                title: `保存${fieldLabel}失败`,
+                developerHint: true,
+              });
+            }
           }
         },
         {
@@ -61109,7 +62303,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           await saveInventoryFieldValue(rowIndex, fieldKey, String(newVal || ''));
         } catch (e) {
           console.error(`[DICE] 保存物品${fieldLabel}失败:`, e);
-          if (window.toastr) showActionableErrorToast(`保存${fieldLabel}失败`);
+          if (window.toastr) {
+            showActionableErrorToast(`保存${fieldLabel}失败`, {
+              title: `保存${fieldLabel}失败`,
+              developerHint: true,
+            });
+          }
         }
       },
       {
@@ -61171,7 +62370,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         dialog.remove();
       } catch (e) {
         console.error('[DICE] 保存物品获得信息失败:', e);
-        if (window.toastr) showActionableErrorToast('保存获得信息失败');
+        if (window.toastr) {
+          showActionableErrorToast('保存获得信息失败', {
+            title: '保存获得信息失败',
+            developerHint: true,
+          });
+        }
       }
     });
   };
@@ -62041,8 +63245,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     $panel.on('click.favEvents', '.acu-close-btn', function (e) {
       e.stopPropagation();
       Store.set('acu_favorites_panel_active', false);
-      $panel.removeClass('visible').html('');
-      $panel.closest(DICE_ROOT_SELECTOR).find('#acu-btn-favorites').removeClass('active');
+      closePanel($panel.closest<HTMLElement>(DICE_ROOT_SELECTOR));
+      $panel.html('');
     });
 
     // [修复] 高度拖拽 - 收藏夹面板
@@ -62801,6 +64005,58 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return $('#acu-data-area').first();
   };
 
+  const getLatestAssistantMessageElement = (): JQuery<HTMLElement> => {
+    const { $ } = getCore();
+    return $('#chat .mes')
+      .filter(function () {
+        const $message = $(this);
+        if ($message.attr('is_user') === 'true' || $message.attr('is_system') === 'true') return false;
+        if ($message.hasClass('sys_mes') || $message.attr('data-is-system') === 'true') return false;
+        if ($message.find('.name_text').text().trim() === 'System') return false;
+        if ($message.find('.mes_text').length === 0) return false;
+        if ($message.css('display') === 'none') return false;
+        return true;
+      })
+      .last() as JQuery<HTMLElement>;
+  };
+
+  const getPanelHostMessage = ($root?: JQuery<HTMLElement>): JQuery<HTMLElement> => {
+    const { $ } = getCore();
+    const $currentRoot = $root && $root.length ? $root : $(DICE_ROOT_SELECTOR).last();
+    const $rootHost = $currentRoot.closest<HTMLElement>('.mes').first();
+    if ($rootHost.length) return $rootHost;
+
+    const $panelHost = getDataAreaForRoot($currentRoot).closest<HTMLElement>('.mes').first();
+    if ($panelHost.length) return $panelHost;
+
+    return getLatestAssistantMessageElement();
+  };
+
+  const syncHostRegenerateButtonVisibility = ($root?: JQuery<HTMLElement>): void => {
+    const { $ } = getCore();
+    const $currentRoot = $root && $root.length ? $root : $(DICE_ROOT_SELECTOR).last();
+    const $panel = getDataAreaForRoot($currentRoot);
+    const shouldHideRegenerate = Boolean($currentRoot.length && $panel.length && $panel.hasClass('visible'));
+    const $hostMessage = shouldHideRegenerate ? getPanelHostMessage($currentRoot) : $();
+    const $markedMessages = $(`#chat .mes.${HOST_REGENERATE_HIDDEN_CLASS}`);
+
+    if ($hostMessage.length) {
+      $markedMessages.not($hostMessage).removeClass(HOST_REGENERATE_HIDDEN_CLASS);
+    } else {
+      $markedMessages.removeClass(HOST_REGENERATE_HIDDEN_CLASS);
+    }
+
+    if (
+      !shouldHideRegenerate ||
+      !$hostMessage.length ||
+      !$hostMessage.find(HOST_REGENERATE_BUTTON_SELECTOR).length
+    ) {
+      return;
+    }
+
+    $hostMessage.addClass(HOST_REGENERATE_HIDDEN_CLASS);
+  };
+
   function ensurePanelNavigationVisible(_$root?: JQuery<HTMLElement>): void {
     const config = getConfig();
     if (isFloatingCollapseActive(config)) return;
@@ -62829,6 +64085,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     Store.set('acu_changes_panel_active', false);
     Store.set('acu_favorites_panel_active', false);
     saveActiveTabState(null);
+    syncHostRegenerateButtonVisibility($root);
     // [修复] 关闭表格面板时，不要移除气泡里的选项面板
     // $('.acu-embedded-options-container').remove();
   };
@@ -62874,9 +64131,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const showPanel = () => {
       refreshPanelHeight();
       if (!$panel.hasClass('visible')) $panel.addClass('visible');
+      syncHostRegenerateButtonVisibility($root);
       requestAnimationFrame(() => {
         refreshPanelHeight();
         ensurePanelNavigationVisible($root);
+        syncHostRegenerateButtonVisibility($root);
       });
       window.setTimeout(() => {
         refreshPanelHeight();
@@ -62885,7 +64144,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const showPanelError = (error: unknown) => {
       console.error('[DICE]ACU 面板切换失败:', error);
       $panel.html('<div class="acu-panel-content"><div class="acu-empty-hint">面板打开失败，请查看控制台</div></div>');
-      if (window.toastr) showActionableErrorToast('面板打开失败，请查看控制台');
+      if (window.toastr) showActionableErrorToast('面板打开失败，请查看控制台', { developerHint: true });
       showPanel();
     };
 
@@ -63105,7 +64364,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         // 向用户显示友好的错误提示
         const errorMsg = error instanceof Error ? error.message : '未知错误';
         if (window.toastr) {
-          showActionableErrorToast(`打开角色头像预设失败: ${errorMsg}`);
+          showActionableErrorToast(`打开角色头像预设失败: ${errorMsg}`, { developerHint: true });
         }
       }
     });
@@ -63231,6 +64490,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
               Store.set(STORAGE_KEY_DASHBOARD_ACTIVE, false);
               $rootPanel.removeClass('visible');
               $rootNavButtons.removeClass('active');
+              syncHostRegenerateButtonVisibility($currentRoot);
             } else {
               // 打开仪表盘（使用平滑过渡）
               clearAllPanelStates();
@@ -63267,6 +64527,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
               Store.set('acu_changes_panel_active', false);
               $rootPanel.removeClass('visible');
               $rootNavButtons.removeClass('active');
+              syncHostRegenerateButtonVisibility($currentRoot);
             } else {
               // 打开变更面板（使用平滑过渡）
               clearAllPanelStates(); // [修复] 统一清理所有面板状态
@@ -63300,6 +64561,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
               Store.set('acu_favorites_panel_active', false);
               $rootPanel.removeClass('visible');
               $rootNavButtons.removeClass('active');
+              syncHostRegenerateButtonVisibility($currentRoot);
             } else {
               // 打开收藏夹面板
               clearAllPanelStates(); // [修复] 统一清理所有面板状态
@@ -63330,6 +64592,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
               Store.set(STORAGE_KEY_GLOBAL_INTERACTIONS_ACTIVE, false);
               $rootPanel.removeClass('visible');
               $rootNavButtons.removeClass('active');
+              syncHostRegenerateButtonVisibility($currentRoot);
             } else {
               clearAllPanelStates();
               Store.set(STORAGE_KEY_GLOBAL_INTERACTIONS_ACTIVE, true);
@@ -63361,6 +64624,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
               saveActiveTabState(null);
               $rootPanel.removeClass('visible');
               $rootNavButtons.removeClass('active');
+              syncHostRegenerateButtonVisibility($currentRoot);
             } else {
               // 打开变量面板（使用平滑过渡）
               clearAllPanelStates(); // [修复] 统一清理所有面板状态
@@ -63510,7 +64774,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             const errorMessage = err.message || '更新过程中出现错误';
             if (window.toastr) {
               showActionableErrorToast(`更新失败: ${errorMessage}`, {
-                title: '错误',
+                title: '更新失败',
+                developerHint: true,
                 toastrOptions: { timeOut: 5000 },
               });
             } else {
@@ -63583,7 +64848,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             const errorMessage = err.message || '填表过程中出现错误';
             if (window.toastr) {
               showActionableErrorToast(`填表失败: ${errorMessage}`, {
-                title: '错误',
+                title: '填表失败',
+                developerHint: true,
                 toastrOptions: { timeOut: 5000 },
               });
             } else {
@@ -63637,7 +64903,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
           // 5. 提示用户
         } else {
-          if (window.toastr) showActionableErrorToast('无法获取有效数据，保存失败');
+          if (window.toastr) showActionableErrorToast('无法获取有效数据，保存失败', { suggestion: 'table' });
         }
       });
 
@@ -64735,6 +66001,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
       // 关闭数据面板
       $root.find('#acu-data-area').removeClass('visible');
+      syncHostRegenerateButtonVisibility($root);
 
       // 设置可拖拽属性（排除投骰按钮，避免影响快捷投骰入口）
       $container.find('.acu-nav-btn').not('#acu-btn-dice-nav').attr('draggable', 'true');
@@ -65325,7 +66592,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         // 获取当前行的完整数据
         const tableData = cachedRawData?.[tableKey];
         if (!tableData || !tableData.content) {
-          showActionableErrorToast('无法获取表格数据');
+          showActionableErrorToast('无法获取表格数据', { suggestion: 'table' });
           closeAll();
           return;
         }
@@ -65339,7 +66606,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const rowDataValues: (string | number)[] = fullRowData.slice(1);
 
         if (header.length === 0 || rowDataValues.length === 0) {
-          showActionableErrorToast('行数据为空');
+          showActionableErrorToast('行数据为空', { suggestion: 'table' });
           closeAll();
           return;
         }
@@ -65364,11 +66631,14 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         if (result) {
           toastr.success('收藏成功');
         } else {
-          showActionableErrorToast('收藏失败');
+          showActionableErrorToast('收藏失败', { title: '收藏失败', suggestion: 'save' });
         }
       } catch (e) {
         console.error('[DICE]收藏失败:', e);
-        showActionableErrorToast('收藏失败: ' + (e instanceof Error ? e.message : String(e)));
+        showActionableErrorToast('收藏失败: ' + (e instanceof Error ? e.message : String(e)), {
+          title: '收藏失败',
+          suggestion: 'save',
+        });
       }
       closeAll();
     });
@@ -65506,7 +66776,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         }, 60);
       } catch (e) {
         console.error('[DICE]ACU 删除保存失败:', e);
-        showActionableErrorToast('删除保存失败: ' + (e instanceof Error ? e.message : String(e)));
+        showActionableErrorToast('删除保存失败: ' + (e instanceof Error ? e.message : String(e)), {
+          title: '删除保存失败',
+          developerHint: true,
+        });
         renderInterface();
 
         // [修复] 即使失败也恢复滚动位置
@@ -65597,7 +66870,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           });
         } catch (e) {
           console.error('[DICE]ACU 单元格保存失败:', e);
-          showActionableErrorToast('保存失败: ' + (e instanceof Error ? e.message : String(e)));
+          showActionableErrorToast('保存失败: ' + (e instanceof Error ? e.message : String(e)), {
+            title: '单元格保存失败',
+            developerHint: true,
+          });
           return;
         }
 

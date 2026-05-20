@@ -8,6 +8,7 @@ export type TutorialScope =
   | 'settingsTables'
   | 'settingsDicePresets'
   | 'settingsAdvanced'
+  | 'templateInspection'
   | 'configBackup'
   | 'dice'
   | 'contestDice'
@@ -111,6 +112,10 @@ interface TutorialRect {
 const STORAGE_KEY = 'acu_tutorial_state_v1';
 const STYLE_ID = 'acu-tutorial-style';
 const OVERLAY_CLASS = 'acu-tutorial-overlay';
+const TUTORIAL_OVERLAY_Z_INDEX = 31600;
+const AUTO_START_MAX_ATTEMPTS = 30;
+const AUTO_START_INTERVAL_MS = 160;
+const BLOCKING_LAYER_MIN_VIEWPORT_AREA_RATIO = 0.2;
 const DEFAULT_STATE: TutorialState = {
   version: 1,
   revision: 8,
@@ -602,6 +607,54 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
       title: '数据库弹窗',
       content: '选择“禁用”后会尽量屏蔽数据库本体弹出的提示消息，适合不想被打扰时使用。',
       placement: 'left',
+    },
+  ],
+  templateInspection: [
+    {
+      selector: '.acu-template-inspection-dialog',
+      title: '检验结果',
+      content:
+        '这里显示当前聊天表格模板和模板检验预设的匹配结果。没有问题时会显示通过摘要；发现问题时会按表格分组列出影响。',
+      placement: 'left',
+    },
+    {
+      selector: '.acu-template-inspection-header-actions .acu-template-inspection-tutorial-btn',
+      title: '重播教程',
+      content: '右上角问号可以随时重播本教程；关闭按钮只会关闭检验结果，不会修改模板。',
+      placement: 'left',
+    },
+    {
+      selector: ['.acu-template-inspection-summary', '.acu-template-inspection-clean-card'],
+      title: '结果摘要',
+      content:
+        '摘要会汇总严重、警告、提示、智能修复和需手动处理的数量。优先处理严重项，再看是否需要按警告调整模板。',
+      placement: 'bottom',
+    },
+    {
+      selector: '.acu-template-inspection-tabs',
+      title: '按表定位',
+      content: '左侧列表按表格分组展示问题，数字是该表的问题数量，图标和颜色会提示当前分组的最高风险等级。',
+      placement: 'right',
+    },
+    {
+      selector: '.acu-template-inspection-card',
+      title: '问题详情',
+      content:
+        '展开卡片可以查看缺失内容、影响功能，以及建议做法或智能修复项。修复前先确认问题确实来自当前聊天模板，而不是切错了模板检验预设。',
+      placement: 'left',
+    },
+    {
+      selector: '#template-inspection-repair',
+      title: '追加修复',
+      content:
+        '有智能修复项时，这个按钮会把预设要求的缺失表结构追加到当前聊天模板末尾，不会改动已有表；修复后建议再检验一次。',
+      placement: 'top',
+    },
+    {
+      selector: '#template-inspection-download',
+      title: '最新模板',
+      content: '需要手动对照完整默认结构时，可以打开最新模板作为参考，再回到当前聊天模板里补齐缺失部分。',
+      placement: 'top',
     },
   ],
   configBackup: [
@@ -1842,7 +1895,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
       selector: '.acu-gacha-settings-footer',
       title: '导入导出',
       content:
-        '底部提供新建卡池、新建物品、导入卡池JSON、导出卡池JSON、清空自定义和返回。导入、删除与清空都会先弹出确认框。',
+        '底部提供新建卡池、新建物品、下载 AI 提示词、导入卡池JSON、导出卡池JSON和清空自定义。导入、删除与清空都会先弹出确认框。',
       placement: 'top',
     },
   ],
@@ -2007,7 +2060,7 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
       .${OVERLAY_CLASS} {
         position: fixed;
         inset: 0;
-        z-index: 31600;
+        z-index: ${TUTORIAL_OVERLAY_Z_INDEX};
         pointer-events: auto;
         isolation: isolate;
         font-family: "Microsoft YaHei", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -2269,8 +2322,14 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
     return target instanceof getWin().Node && popover.contains(target);
   };
 
+  const isOverlayEventTarget = (target: EventTarget | null): boolean => {
+    if (!target || !overlay) return false;
+    return target instanceof getWin().Node && overlay.contains(target);
+  };
+
   const blockOutsideTutorialEvent = (event: Event): void => {
     if (!activeTutorial || !overlay || isPopoverEventTarget(event.target)) return;
+    if (!isOverlayEventTarget(event.target)) return;
     event.preventDefault();
     event.stopPropagation();
   };
@@ -2346,6 +2405,51 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
     const win = getWin();
     const coarsePointer = win.matchMedia?.('(pointer: coarse)').matches === true;
     return viewport.width <= 640 || (coarsePointer && viewport.width <= 820);
+  };
+
+  const getNumericZIndex = (element: HTMLElement): number | null => {
+    const zIndex = getWin().getComputedStyle(element).zIndex;
+    if (zIndex === 'auto') return null;
+    const numericZIndex = Number.parseInt(zIndex, 10);
+    return Number.isFinite(numericZIndex) ? numericZIndex : null;
+  };
+
+  const getViewportAreaRatio = (element: HTMLElement): number => {
+    const viewport = getViewportRect();
+    const viewportArea = viewport.width * viewport.height;
+    if (viewportArea <= 0) return 0;
+
+    const rect = rectToTutorialViewport(element.getBoundingClientRect());
+    const visibleRect = intersectRects(rect, viewport);
+    if (!visibleRect) return 0;
+    return (visibleRect.width * visibleRect.height) / viewportArea;
+  };
+
+  const isVisiblePointerLayer = (element: HTMLElement): boolean => {
+    if (!element.isConnected) return false;
+
+    const style = getWin().getComputedStyle(element);
+    if (style.display === 'none' || style.visibility === 'hidden' || style.pointerEvents === 'none') return false;
+    if (Number.parseFloat(style.opacity || '1') <= 0.01) return false;
+
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  };
+
+  const hasExternalBlockingLayer = (): boolean => {
+    const doc = getDoc();
+    const win = getWin();
+
+    return Array.from(doc.body.children).some(child => {
+      if (!(child instanceof win.HTMLElement)) return false;
+      if (child.id === STYLE_ID || child.closest(`.${OVERLAY_CLASS}`)) return false;
+      if (!isVisiblePointerLayer(child)) return false;
+
+      const zIndex = getNumericZIndex(child);
+      if (zIndex === null || zIndex < TUTORIAL_OVERLAY_Z_INDEX) return false;
+
+      return getViewportAreaRatio(child) >= BLOCKING_LAYER_MIN_VIEWPORT_AREA_RATIO;
+    });
   };
 
   const getPopoverPosition = (
@@ -3032,8 +3136,6 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
     scope: TutorialScope,
     optionsOverride: { target?: HTMLElement; interrupt?: boolean } = {},
   ): void => {
-    const maxAttempts = 6;
-    const intervalMs = 160;
     let attempts = 0;
     const attemptStart = (): void => {
       if (activeTutorial && optionsOverride.interrupt !== true) return;
@@ -3041,6 +3143,13 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
       if (state.disabled || hasCompleted(state, scope)) return;
 
       attempts += 1;
+      if (hasExternalBlockingLayer()) {
+        if (attempts < AUTO_START_MAX_ATTEMPTS) {
+          getWin().setTimeout(attemptStart, AUTO_START_INTERVAL_MS);
+        }
+        return;
+      }
+
       const tutorial: ActiveTutorial = {
         scope,
         steps: STEPS[scope] || [],
@@ -3055,11 +3164,11 @@ export const createTutorialModule = (options: TutorialModuleOptions): TutorialMo
         start(scope, optionsOverride);
         return;
       }
-      if (attempts < maxAttempts) {
-        getWin().setTimeout(attemptStart, intervalMs);
+      if (attempts < AUTO_START_MAX_ATTEMPTS) {
+        getWin().setTimeout(attemptStart, AUTO_START_INTERVAL_MS);
       }
     };
-    getWin().setTimeout(attemptStart, intervalMs);
+    getWin().setTimeout(attemptStart, AUTO_START_INTERVAL_MS);
   };
 
   return {

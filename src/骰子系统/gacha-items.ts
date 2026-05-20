@@ -6,6 +6,17 @@ export type GachaRewardTarget = 'inventory' | 'equipment';
 
 export type GachaCustomFields = Record<string, string>;
 
+export type GachaRewardTargetColumnKey =
+  | 'name'
+  | 'type'
+  | 'quantity'
+  | 'quality'
+  | 'description'
+  | 'part'
+  | 'status';
+
+export type GachaRewardTargetColumns = Partial<Record<GachaRewardTargetColumnKey, string>>;
+
 export interface GachaPoolDefinition {
   id: GachaPoolTag;
   name: string;
@@ -23,8 +34,6 @@ export interface GachaItemDefinition {
   description: string;
   poolTags: readonly GachaPoolTag[];
   icon?: string;
-  iconUrl?: string;
-  localIconKey?: string;
   customFields?: GachaCustomFields;
   enabled?: boolean;
   order?: number;
@@ -35,6 +44,8 @@ export interface GachaItemDefinition {
   unique: boolean;
   grantQuantity: number;
   rewardTarget: GachaRewardTarget;
+  targetTable?: string;
+  targetColumns?: GachaRewardTargetColumns;
 }
 
 export const GACHA_CATALOG_EXPORT_KIND = 'acu-gacha-items';

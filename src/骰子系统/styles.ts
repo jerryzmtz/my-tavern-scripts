@@ -84,6 +84,13 @@ export const MAIN_STYLES = `
         --acu-state-accent-border: color-mix(in srgb, var(--acu-accent) 58%, var(--acu-border));
     }
 
+    .mes.acu-host-regenerate-hidden .swipeRightBlock,
+    .mes.acu-host-regenerate-hidden .swipe_right {
+        display: none !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+    }
+
     /* ========== 正文头像渲染 ========== */
     .acu-dialogue-indent-root {
         width: 100%;
@@ -1677,6 +1684,7 @@ export const MAIN_STYLES = `
     .acu-wrapper.acu-dice-ui-root.acu-mode-embedded .acu-nav-container::before { border-radius: 0 !important; }
     .acu-wrapper.acu-dice-ui-root.acu-mode-embedded .acu-data-display { position: absolute !important; bottom: 100% !important; left: 0 !important; right: 0 !important; width: 100% !important; box-shadow: 0 -10px 30px rgba(0,0,0,0.25) !important; border: 1px solid var(--acu-border); margin-bottom: 5px; z-index: 31010 !important; max-height: 70vh !important; overflow-y: auto !important; }
     .acu-nav-container { display: grid; grid-template-columns: repeat(var(--acu-grid-cols, 3), 1fr); gap: 5px; padding: 6px; background: var(--acu-bg-nav); border: 1px solid var(--acu-border); border-radius: 10px; align-items: center; box-shadow: 0 2px 6px var(--acu-shadow); position: relative; z-index: 31020 !important; }
+    .acu-nav-items { display: contents; }
     .acu-nav-btn { touch-action: manipulation; -webkit-tap-highlight-color: transparent; width: 100%; display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 4px; padding: 4px 6px; border: 1px solid var(--acu-border); border-radius: 7px; background: var(--acu-btn-bg); color: var(--acu-text-main); font-weight: 600; font-size: var(--acu-nav-font-size, 13px); cursor: pointer; transition: background-color var(--acu-motion-fast) var(--acu-ease-standard), color var(--acu-motion-fast) var(--acu-ease-standard), border-color var(--acu-motion-fast) var(--acu-ease-standard), box-shadow var(--acu-motion-fast) var(--acu-ease-standard), transform var(--acu-motion-fast) var(--acu-ease-standard); user-select: none; overflow: hidden; height: var(--acu-nav-button-size, 32px); }
     .acu-nav-btn span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; margin-top: 1px; }
     .acu-nav-btn:hover { background: var(--acu-btn-hover); border-color: var(--acu-accent); transform: translateY(-1px); }
@@ -1816,16 +1824,15 @@ export const MAIN_STYLES = `
             .acu-empty-state { min-height: 160px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--acu-text-sub); text-align: center; padding: 24px; }
             .acu-empty-state i { font-size: 20px; opacity: 0.7; }
             .acu-empty-state span { font-size: 12px; }
-            /* 增加了 min-width 和 flex-shrink: 0 */
-            .acu-wrapper.acu-dice-ui-root .acu-panel-content { flex: 1; min-height: 0; overflow-x: auto; overflow-y: hidden; padding: 15px; background: transparent; scrollbar-width: thin; scrollbar-color: var(--acu-scrollbar-thumb) var(--acu-scrollbar-track); overscroll-behavior-x: contain; overscroll-behavior-y: auto; touch-action: pan-x pan-y; -webkit-overflow-scrolling: touch; }
-            /* 增加了 height: 100%; 让网格容器填满面板的高度 */
-.acu-wrapper.acu-dice-ui-root .acu-card-grid { display: flex; flex-wrap: nowrap; gap: 12px; align-items: flex-start; }
-.acu-wrapper.acu-dice-ui-root:not(.acu-layout-vertical) .acu-panel-content > .acu-card-grid { height: 100%; min-height: 0; }
-.acu-wrapper.acu-dice-ui-root:not(.acu-layout-vertical) .acu-panel-content > .acu-card-grid > .acu-data-card { max-height: 100%; min-height: 0; overflow-y: auto; }
+            /* 普通横向表格由卡片自己纵向滚动；手动高度模式才把面板高度传给卡片 */
+            .acu-wrapper.acu-dice-ui-root .acu-panel-content { flex: 1; min-height: 0; overflow-x: auto; overflow-y: hidden; padding: 15px; background: transparent; scrollbar-width: thin; scrollbar-color: var(--acu-scrollbar-thumb) var(--acu-scrollbar-track); overscroll-behavior-x: contain; overscroll-behavior-y: contain; touch-action: pan-x pan-y; -webkit-overflow-scrolling: touch; }
+            .acu-wrapper.acu-dice-ui-root .acu-card-grid { display: flex; flex-wrap: nowrap; gap: 12px; align-items: flex-start; }
+            .acu-wrapper.acu-dice-ui-root:not(.acu-layout-vertical) .acu-manual-mode .acu-panel-content > .acu-card-grid { height: 100%; min-height: 0; }
+            .acu-wrapper.acu-dice-ui-root:not(.acu-layout-vertical) .acu-manual-mode .acu-panel-content > .acu-card-grid > .acu-data-card { max-height: 100% !important; min-height: 0; overflow-y: auto; }
             .acu-wrapper.acu-dice-ui-root.acu-layout-vertical .acu-panel-content { overflow-x: hidden !important; overflow-y: auto !important; overscroll-behavior: auto; touch-action: manipulation; min-height: 0; }
             /* 竖向布局时恢复 auto 高度 */
-.acu-wrapper.acu-dice-ui-root.acu-layout-vertical .acu-card-grid { flex-wrap: wrap !important; justify-content: center; padding-bottom: 20px; height: auto; }
-.acu-wrapper.acu-dice-ui-root:not(.acu-layout-vertical) .acu-manual-mode .acu-card-grid { height: 100%; min-height: 0; } .acu-wrapper.acu-dice-ui-root .acu-manual-mode .acu-data-card { max-height: 100% !important; min-height: 0; overscroll-behavior-y: auto; } .acu-wrapper.acu-dice-ui-root .acu-data-card, .acu-preview-overlay .acu-data-card { flex: 0 0 var(--acu-card-width, 260px); width: var(--acu-card-width, 260px); background: var(--acu-card-bg); border: 1px solid var(--acu-border); border-radius: 8px; height: auto; max-height: 60vh; overflow-y: auto; overscroll-behavior-y: auto; touch-action: manipulation; transition: border-color var(--acu-motion-fast) var(--acu-ease-standard), box-shadow var(--acu-motion-fast) var(--acu-ease-standard), transform var(--acu-motion-fast) var(--acu-ease-standard); display: flex; flex-direction: column; position: relative; }
+            .acu-wrapper.acu-dice-ui-root.acu-layout-vertical .acu-card-grid { flex-wrap: wrap !important; justify-content: center; padding-bottom: 20px; height: auto; }
+            .acu-wrapper.acu-dice-ui-root .acu-data-card, .acu-preview-overlay .acu-data-card { flex: 0 0 var(--acu-card-width, 260px); width: var(--acu-card-width, 260px); background: var(--acu-card-bg); border: 1px solid var(--acu-border); border-radius: 8px; height: auto; max-height: min(52vh, 520px, calc(100dvh - 140px)); overflow-y: auto; overscroll-behavior-y: contain; touch-action: pan-x pan-y; -webkit-overflow-scrolling: touch; transition: border-color var(--acu-motion-fast) var(--acu-ease-standard), box-shadow var(--acu-motion-fast) var(--acu-ease-standard), transform var(--acu-motion-fast) var(--acu-ease-standard); display: flex; flex-direction: column; position: relative; }
             .acu-wrapper.acu-dice-ui-root .acu-data-card:hover,
             .acu-preview-overlay .acu-data-card:hover { transform: translateY(-1px); box-shadow: 0 4px 12px var(--acu-shadow); border-color: var(--acu-accent); }
             .acu-wrapper.acu-dice-ui-root .acu-data-card.pending-deletion,
@@ -1931,6 +1938,26 @@ export const MAIN_STYLES = `
             }
             .acu-opt-header:hover {
                 color: var(--acu-text-main);
+            }
+            .acu-opt-header > span {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                min-width: 0;
+            }
+            .acu-opt-chevron {
+                flex: 0 0 auto;
+                width: 8px;
+                height: 8px;
+                box-sizing: border-box;
+                border-right: 2px solid currentColor;
+                border-bottom: 2px solid currentColor;
+                transform: rotate(45deg);
+                transform-origin: center;
+                transition: transform 0.16s ease;
+            }
+            .acu-option-panel.collapsed .acu-opt-chevron {
+                transform: rotate(-45deg);
             }
 
             /* --- [重设计] 叙事条目风格按钮 --- */
@@ -2289,18 +2316,56 @@ export const MAIN_STYLES = `
             @media (max-width: 768px) {
                 .acu-wrapper.acu-dice-ui-root .acu-panel-content { -webkit-overflow-scrolling: touch !important; overscroll-behavior-y: auto; }
                 .acu-wrapper.acu-dice-ui-root.acu-mode-fixed.acu-has-visible-panel .acu-nav-container {
+                    display: flex !important;
+                    flex-direction: column !important;
+                    align-items: stretch !important;
                     max-height: clamp(152px, 28dvh, 196px);
+                    overflow: hidden !important;
+                    overscroll-behavior: contain;
+                }
+                .acu-wrapper.acu-dice-ui-root.acu-mode-fixed.acu-has-visible-panel .acu-nav-items {
+                    display: grid;
+                    grid-template-columns: repeat(var(--acu-grid-cols, 3), minmax(0, 1fr));
+                    gap: 5px;
+                    align-content: start;
+                    flex: 1 1 auto;
+                    min-height: 0;
+                    overflow-x: hidden !important;
                     overflow-y: auto !important;
                     overscroll-behavior-y: contain;
                     -webkit-overflow-scrolling: touch;
-                    scrollbar-width: thin;
+                    scrollbar-width: none;
+                }
+                .acu-wrapper.acu-dice-ui-root.acu-mode-fixed.acu-has-visible-panel .acu-nav-items::-webkit-scrollbar {
+                    width: 0 !important;
+                    height: 0 !important;
+                    display: none !important;
+                }
+                .acu-wrapper.acu-dice-ui-root.acu-mode-fixed.acu-has-visible-panel .acu-nav-items .acu-nav-btn {
+                    width: 100%;
+                    min-width: 0;
                 }
                 .acu-wrapper.acu-dice-ui-root.acu-mode-fixed.acu-has-visible-panel .acu-actions-group {
-                    position: sticky;
-                    bottom: 0;
-                    z-index: 1;
+                    position: relative;
+                    bottom: auto;
+                    z-index: 2;
+                    flex: 0 0 auto;
+                    width: 100%;
+                    box-sizing: border-box;
+                    margin-top: 6px !important;
+                    padding-top: 6px;
+                    border-top: 1px solid var(--acu-border);
                     background: var(--acu-bg-nav);
-                    box-shadow: 0 -6px 12px rgba(0,0,0,0.08);
+                    box-shadow: none;
+                }
+                .acu-wrapper.acu-dice-ui-root.acu-mode-fixed.acu-has-visible-panel .acu-nav-container.acu-pos-top .acu-actions-group {
+                    order: -1 !important;
+                    margin-top: 0 !important;
+                    margin-bottom: 6px !important;
+                    padding-top: 0;
+                    padding-bottom: 6px;
+                    border-top: none !important;
+                    border-bottom: 1px solid var(--acu-border) !important;
                 }
                 .acu-wrapper.acu-dice-ui-root .acu-data-card,
                 .acu-preview-overlay .acu-data-card { box-shadow: none !important; border: 1px solid var(--acu-border); transform: translateZ(0); }
@@ -2788,6 +2853,10 @@ export const MAIN_STYLES = `
                     touch-action: pan-y !important;
                     overscroll-behavior-y: contain;
                     max-height: calc(80vh - 60px);
+                }
+
+                .acu-wrapper.acu-dice-ui-root .acu-data-display.acu-manual-mode .acu-dashboard-content {
+                    max-height: none !important;
                 }
 
                 /* === 仪表盘交互按钮优化 === */
@@ -7854,14 +7923,30 @@ export const MAIN_STYLES = `
                 opacity: var(--acu-disabled-opacity);
                 cursor: not-allowed;
             }
-            @media (max-width: 420px) {
+            @media (max-width: 380px) {
                 .acu-settings-dialog .acu-setting-row {
                     align-items: stretch;
                     flex-direction: column;
                     gap: 8px;
                 }
+                .acu-settings-dialog .acu-setting-info {
+                    width: 100%;
+                }
                 .acu-settings-dialog .acu-setting-dependent-row {
                     margin-left: 12px;
+                }
+                .acu-settings-dialog .acu-setting-select,
+                .acu-settings-dialog .acu-stepper {
+                    width: 100%;
+                    min-width: 0;
+                }
+                .acu-settings-dialog .acu-stepper-btn {
+                    flex: 1 1 0;
+                    min-width: 44px;
+                }
+                .acu-settings-dialog .acu-stepper-value {
+                    flex: 1.2 1 0;
+                    min-width: 72px;
                 }
                 .acu-settings-dialog .acu-setting-segmented {
                     flex-wrap: wrap;
@@ -7870,7 +7955,8 @@ export const MAIN_STYLES = `
                     justify-content: stretch;
                 }
                 .acu-settings-dialog .acu-setting-segmented-option {
-                    flex: 1 1 auto;
+                    flex: 1 1 0;
+                    min-width: 0;
                 }
             }
             .acu-setting-slider {
@@ -7958,19 +8044,22 @@ export const MAIN_STYLES = `
             #acu-presets-list .acu-preset-item,
             #acu-action-presets-list .acu-preset-item,
             #acu-dashboard-presets-list .acu-preset-item,
-            #acu-render-presets-list .acu-preset-item {
+            #acu-render-presets-list .acu-preset-item,
+            #acu-table-template-requirement-presets-list .acu-preset-item {
                 display: flex;
                 gap: 12px;
             }
             #acu-presets-list .acu-preset-info,
             #acu-action-presets-list .acu-preset-info,
             #acu-dashboard-presets-list .acu-preset-info,
-            #acu-render-presets-list .acu-preset-info {
+            #acu-render-presets-list .acu-preset-info,
+            #acu-table-template-requirement-presets-list .acu-preset-info {
                 flex: 1;
                 min-width: 0;
             }
             #acu-dashboard-presets-list .acu-preset-stats,
-            #acu-render-presets-list .acu-preset-stats {
+            #acu-render-presets-list .acu-preset-stats,
+            #acu-table-template-requirement-presets-list .acu-preset-stats {
                 white-space: nowrap;
                 overflow: hidden;
                 text-overflow: ellipsis;
@@ -7990,12 +8079,19 @@ export const MAIN_STYLES = `
                 flex-direction: column;
                 gap: 8px;
             }
+            #acu-table-template-requirement-presets-list {
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+            }
             #acu-action-presets-list .acu-preset-item,
             #acu-dashboard-presets-list .acu-preset-item,
-            #acu-render-presets-list .acu-preset-item {
+            #acu-render-presets-list .acu-preset-item,
+            #acu-table-template-requirement-presets-list .acu-preset-item {
                 margin-bottom: 0;
             }
-            #acu-action-presets-list .acu-preset-stats {
+            #acu-action-presets-list .acu-preset-stats,
+            #acu-table-template-requirement-presets-list .acu-preset-stats {
                 white-space: nowrap;
                 overflow: hidden;
                 text-overflow: ellipsis;
@@ -8950,8 +9046,370 @@ export const MAIN_STYLES = `
                 font-weight: 700;
             }
             .acu-template-inspection-card {
-                border: 1px solid color-mix(in srgb, var(--acu-template-inspection-color, var(--acu-accent)) 58%, var(--acu-border));
-                background: color-mix(in srgb, var(--acu-template-inspection-color, var(--acu-accent)) 8%, var(--acu-card-bg));
+                border: 1px solid var(--acu-border);
+                background: var(--acu-card-bg);
+            }
+            .acu-template-inspection-header-actions {
+                display: flex;
+                align-items: center;
+                justify-content: flex-end;
+                gap: 8px;
+                flex: 0 0 auto;
+            }
+            .acu-template-inspection-title {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .acu-template-inspection-tutorial-btn,
+            .acu-template-inspection-close {
+                width: 30px !important;
+                height: 30px !important;
+                min-width: 30px !important;
+                min-height: 30px !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                display: inline-flex !important;
+                align-items: center;
+                justify-content: center;
+                border: 1px solid transparent !important;
+                border-radius: 6px !important;
+                background: transparent !important;
+                color: var(--acu-text-sub) !important;
+                font-size: 17px;
+            }
+            .acu-template-inspection-tutorial-btn i,
+            .acu-template-inspection-close i {
+                color: inherit !important;
+            }
+            .acu-template-inspection-tutorial-btn:hover,
+            .acu-template-inspection-tutorial-btn:focus-visible,
+            .acu-template-inspection-close:hover,
+            .acu-template-inspection-close:focus-visible {
+                background: var(--acu-btn-hover, var(--acu-table-hover)) !important;
+                color: var(--acu-accent) !important;
+                border-color: var(--acu-border) !important;
+                outline: none;
+            }
+            .acu-template-inspection-summary {
+                display: flex;
+                align-items: flex-start;
+                justify-content: space-between;
+                gap: 12px;
+                margin-bottom: 14px;
+                padding: 0 0 10px;
+                border-bottom: 1px solid var(--acu-border);
+            }
+            .acu-template-inspection-summary-head {
+                display: flex;
+                align-items: flex-start;
+                gap: 8px;
+                min-width: 0;
+            }
+            .acu-template-inspection-summary-icon {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                flex: 0 0 18px;
+                width: 18px;
+                height: 18px;
+                margin-top: 1px;
+                color: var(--acu-template-inspection-summary-color, var(--acu-accent));
+                font-size: 12px;
+            }
+            .acu-template-inspection-summary-copy {
+                min-width: 0;
+            }
+            .acu-template-inspection-summary-title {
+                color: var(--acu-text-main);
+                font-size: 14px;
+                font-weight: 800;
+                line-height: 1.3;
+            }
+            .acu-template-inspection-stats {
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: flex-end;
+                gap: 4px 10px;
+                flex: 0 0 auto;
+                max-width: 50%;
+                padding-top: 1px;
+            }
+            .acu-template-inspection-stat {
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
+                min-height: 20px;
+                padding: 0;
+                border: 0;
+                border-radius: 0;
+                background: transparent;
+                color: var(--acu-text-sub);
+                font-size: 11px;
+                line-height: 1.2;
+            }
+            .acu-template-inspection-stat b {
+                color: var(--acu-text-main);
+                font-size: 12px;
+                font-weight: 800;
+            }
+            .acu-template-inspection-stat-error {
+                color: var(--acu-text-main);
+            }
+            .acu-template-inspection-stat-error b {
+                color: var(--acu-error-text);
+            }
+            .acu-template-inspection-stat-warning {
+                color: var(--acu-text-main);
+            }
+            .acu-template-inspection-stat-warning b {
+                color: var(--acu-warning-text);
+            }
+            .acu-template-inspection-stat-info {
+                color: var(--acu-text-main);
+            }
+            .acu-template-inspection-stat-info b {
+                color: var(--acu-accent);
+            }
+            .acu-template-inspection-tabs {
+                gap: 0 !important;
+                padding: 0 !important;
+                border: 1px solid var(--acu-border);
+                border-radius: 8px;
+                background: var(--acu-card-bg);
+                overflow-x: hidden !important;
+                overflow-y: auto !important;
+            }
+            .acu-template-inspection-tab {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                width: 100%;
+                min-height: 44px;
+                padding: 8px 10px;
+                border: 0;
+                border-bottom: 1px solid var(--acu-border);
+                border-radius: 0;
+                background: transparent;
+                color: var(--acu-text-main);
+                cursor: pointer;
+                text-align: left;
+                touch-action: manipulation;
+                transition:
+                    background-color var(--acu-motion-fast) var(--acu-ease-standard),
+                    color var(--acu-motion-fast) var(--acu-ease-standard);
+            }
+            .acu-template-inspection-tab:last-child {
+                border-bottom: 0;
+            }
+            .acu-template-inspection-tab:hover,
+            .acu-template-inspection-tab:focus {
+                background: var(--acu-table-hover);
+                outline: none;
+            }
+            .acu-template-inspection-tab.active {
+                background: color-mix(in srgb, var(--acu-template-inspection-color, var(--acu-accent)) 10%, var(--acu-table-head));
+            }
+            .acu-template-inspection-tab-icon {
+                flex: 0 0 14px;
+                width: 14px;
+                color: var(--acu-template-inspection-color, var(--acu-accent));
+                text-align: center;
+                font-size: 12px;
+            }
+            .acu-template-inspection-tab-label {
+                flex: 1;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .acu-template-inspection-tab.active .acu-template-inspection-tab-label {
+                font-weight: 700;
+            }
+            .acu-template-inspection-tab-count {
+                margin-left: 0 !important;
+                flex: 0 0 auto;
+            }
+            .acu-template-inspection-card-list {
+                gap: 8px;
+            }
+            .acu-template-inspection-panels,
+            .acu-template-inspection-panel,
+            .acu-template-inspection-card-list,
+            .acu-template-inspection-card {
+                width: 100%;
+                min-width: 0;
+                box-sizing: border-box;
+            }
+            .acu-template-inspection-card .acu-changes-group-header {
+                min-height: 42px;
+                border-bottom: 1px solid var(--acu-border);
+                background: var(--acu-table-head);
+            }
+            .acu-template-inspection-card .acu-changes-count {
+                font-weight: 700;
+            }
+            .acu-template-inspection-card .acu-changes-group-body {
+                padding: 0;
+            }
+            .acu-template-inspection-card .acu-change-item {
+                border: 0;
+                border-radius: 0;
+                background: transparent;
+                padding: 12px 14px;
+            }
+            .acu-template-inspection-dialog-clean {
+                width: min(720px, 96vw) !important;
+            }
+            .acu-template-inspection-dialog-clean .acu-template-inspection-body {
+                flex: 0 0 auto;
+                overflow: visible;
+                padding: 14px 0 !important;
+            }
+            .acu-template-inspection-clean-card {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr);
+                gap: 14px;
+                padding: 16px;
+                border: 1px solid var(--acu-border);
+                border-radius: 10px;
+                background: var(--acu-card-bg);
+            }
+            .acu-template-inspection-clean-result {
+                display: grid;
+                grid-template-columns: 42px minmax(0, 1fr);
+                gap: 12px;
+                align-items: center;
+            }
+            .acu-template-inspection-clean-icon {
+                width: 42px;
+                height: 42px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 999px;
+                background: color-mix(in srgb, var(--acu-success-text) 18%, var(--acu-card-bg));
+                color: var(--acu-success-text);
+                font-size: 20px;
+            }
+            .acu-template-inspection-clean-copy {
+                min-width: 0;
+            }
+            .acu-template-inspection-clean-title {
+                color: var(--acu-text-main);
+                font-size: 15px;
+                font-weight: 700;
+                line-height: 1.35;
+            }
+            .acu-template-inspection-clean-desc {
+                margin-top: 3px;
+                color: var(--acu-text-sub);
+                font-size: 12px;
+                line-height: 1.45;
+            }
+            .acu-template-inspection-clean-meta {
+                display: grid;
+                grid-template-columns: minmax(0, 1.5fr) minmax(92px, 0.6fr) minmax(126px, 0.8fr);
+                gap: 8px;
+            }
+            .acu-template-inspection-clean-meta div {
+                min-width: 0;
+                padding: 8px 10px;
+                border: 1px solid var(--acu-border);
+                border-radius: 8px;
+                background: var(--acu-table-head);
+            }
+            .acu-template-inspection-clean-meta span {
+                display: block;
+                color: var(--acu-text-sub);
+                font-size: 10px;
+                line-height: 1.2;
+                margin-bottom: 3px;
+            }
+            .acu-template-inspection-clean-meta strong {
+                display: block;
+                overflow: hidden;
+                color: var(--acu-text-main);
+                font-size: 12px;
+                font-weight: 600;
+                line-height: 1.35;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .acu-template-inspection-clean-stats {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 6px;
+            }
+            .acu-template-inspection-clean-stats span {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                padding: 4px 8px;
+                border: 1px solid var(--acu-border);
+                border-radius: 999px;
+                color: var(--acu-text-sub);
+                background: var(--acu-table-head);
+                font-size: 11px;
+                line-height: 1.2;
+            }
+            .acu-template-inspection-clean-stats b {
+                color: var(--acu-text-main);
+            }
+            .acu-table-template-requirement-manager-dialog .acu-preset-item {
+                align-items: center;
+                padding: 12px;
+                border-radius: 10px;
+            }
+            .acu-table-template-requirement-manager-dialog .acu-preset-name {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                max-width: 100%;
+                margin-bottom: 3px;
+            }
+            .acu-table-template-requirement-manager-dialog .acu-preset-name .acu-preset-badge {
+                margin-left: 0;
+                flex-shrink: 0;
+            }
+            .acu-table-template-requirement-manager-dialog .acu-preset-actions {
+                margin-left: auto;
+                padding-left: 8px;
+            }
+            .acu-template-inspection-overlay .acu-template-inspection-layout-empty {
+                min-height: 190px !important;
+            }
+            .acu-template-inspection-overlay .acu-template-inspection-layout-empty .acu-empty-hint {
+                min-height: 190px !important;
+                padding: 22px 20px !important;
+            }
+            .acu-template-inspection-overlay .acu-dialog-btn {
+                white-space: nowrap;
+            }
+            .acu-template-inspection-overlay .acu-template-inspection-actions {
+                flex-wrap: nowrap;
+            }
+            .acu-template-inspection-overlay .acu-template-inspection-download {
+                flex: 0 1 auto;
+                min-width: 0;
+                max-width: 220px;
+            }
+            .acu-template-inspection-overlay .acu-template-inspection-primary-actions {
+                flex: 0 0 auto;
+                min-width: 0;
+            }
+            .acu-template-inspection-dialog-clean .acu-template-inspection-actions {
+                padding-top: 12px;
+                border-top: 1px solid var(--acu-border);
+            }
+            .acu-template-inspection-overlay .acu-dialog-btn:disabled {
+                background: var(--acu-btn-bg);
+                border-color: var(--acu-border);
+                color: var(--acu-text-sub);
+                opacity: 0.5;
+                cursor: not-allowed;
+                box-shadow: none;
             }
             @media (max-width: 768px) {
                 .acu-edit-dialog.acu-advanced-preset-manager-dialog {
@@ -8978,6 +9436,19 @@ export const MAIN_STYLES = `
                     width: 28px;
                     height: 28px;
                     font-size: 12px;
+                }
+                .acu-table-template-requirement-manager-dialog .acu-preset-item {
+                    align-items: stretch;
+                    gap: 10px;
+                    padding: 10px;
+                }
+                .acu-table-template-requirement-manager-dialog .acu-preset-actions {
+                    gap: 5px;
+                    padding-left: 0;
+                }
+                .acu-table-template-requirement-manager-dialog .acu-preset-btn {
+                    width: 30px;
+                    height: 30px;
                 }
                 .acu-advanced-preset-footer {
                     flex-wrap: nowrap;
@@ -9095,44 +9566,110 @@ export const MAIN_STYLES = `
                     max-height: calc(100dvh - 24px) !important;
                     padding: 12px !important;
                 }
+                .acu-template-inspection-dialog-clean .acu-template-inspection-body {
+                    padding: 10px 0 !important;
+                }
+                .acu-template-inspection-clean-card {
+                    gap: 12px;
+                    padding: 12px;
+                }
+                .acu-template-inspection-clean-result {
+                    grid-template-columns: 36px minmax(0, 1fr);
+                    gap: 10px;
+                }
+                .acu-template-inspection-clean-icon {
+                    width: 36px;
+                    height: 36px;
+                    font-size: 17px;
+                }
+                .acu-template-inspection-clean-meta {
+                    grid-template-columns: minmax(0, 1fr);
+                    gap: 6px;
+                }
+                .acu-template-inspection-clean-meta div {
+                    padding: 7px 9px;
+                }
                 .acu-template-inspection-overlay .acu-settings-content-scroll {
                     max-height: calc(100dvh - 230px) !important;
                     overflow-y: auto !important;
                     padding: 10px 0 !important;
                 }
+                .acu-template-inspection-overlay .acu-template-inspection-dialog-clean .acu-template-inspection-body {
+                    max-height: none !important;
+                    overflow: visible !important;
+                }
+                .acu-template-inspection-overlay .acu-template-inspection-dialog-clean .acu-template-inspection-actions {
+                    gap: 8px !important;
+                    padding-top: 10px !important;
+                }
+                .acu-template-inspection-overlay .acu-template-inspection-dialog-clean .acu-template-inspection-download {
+                    flex: 1 1 0;
+                    max-width: none;
+                }
+                .acu-template-inspection-overlay .acu-template-inspection-dialog-clean .acu-template-inspection-primary-actions {
+                    flex: 0 0 auto;
+                }
                 .acu-template-inspection-summary {
-                    padding: 10px !important;
+                    flex-direction: column;
+                    gap: 5px !important;
+                    padding: 0 0 8px !important;
                     margin-bottom: 10px !important;
+                }
+                .acu-template-inspection-summary-head {
+                    gap: 7px;
+                }
+                .acu-template-inspection-summary-icon {
+                    flex-basis: 16px;
+                    width: 16px;
+                    height: 16px;
+                    font-size: 11px;
+                }
+                .acu-template-inspection-summary-title {
+                    font-size: 13px;
+                }
+                .acu-template-inspection-stats {
+                    display: flex;
+                    gap: 4px 10px;
+                    justify-content: flex-start;
+                    max-width: none;
+                }
+                .acu-template-inspection-stat {
+                    justify-content: flex-start;
+                    min-width: 0;
+                    min-height: 18px;
+                    padding: 0;
                 }
                 .acu-template-inspection-layout {
                     display: flex !important;
                     flex-direction: column !important;
+                    align-items: stretch !important;
                     gap: 10px !important;
                 }
                 .acu-template-inspection-tabs {
                     display: flex !important;
-                    flex-direction: row !important;
-                    gap: 8px !important;
+                    flex-direction: column !important;
+                    gap: 0 !important;
                     width: 100% !important;
                     max-width: 100% !important;
                     min-width: 0 !important;
                     max-height: none !important;
-                    overflow-x: auto !important;
-                    overflow-y: hidden !important;
-                    padding: 0 0 6px 0 !important;
-                    -webkit-overflow-scrolling: touch;
+                    overflow: visible !important;
+                    padding: 0 !important;
                 }
                 .acu-template-inspection-layout-empty {
-                    min-height: min(360px, 42dvh) !important;
+                    min-height: 180px !important;
                 }
                 .acu-template-inspection-tab {
-                    width: auto !important;
-                    min-width: 136px !important;
-                    max-width: 210px !important;
-                    flex: 0 0 auto !important;
+                    width: 100% !important;
+                    min-width: 0 !important;
+                    max-width: none !important;
                     padding: 8px 9px !important;
+                    min-height: 44px;
                 }
                 .acu-template-inspection-panels {
+                    width: 100% !important;
+                    min-width: 0 !important;
+                    max-width: 100% !important;
                     max-height: none !important;
                     overflow: visible !important;
                     padding-right: 0 !important;
@@ -9156,14 +9693,18 @@ export const MAIN_STYLES = `
                 }
                 .acu-template-inspection-overlay .acu-dialog-btn {
                     min-width: 0 !important;
-                    white-space: normal !important;
+                    white-space: nowrap !important;
+                }
+                .acu-template-inspection-overlay .acu-template-inspection-primary-actions {
+                    flex-wrap: nowrap !important;
+                    min-width: 0;
                 }
             }
             .acu-template-inspection-layout-empty {
                 display: flex !important;
                 align-items: center !important;
                 justify-content: center !important;
-                min-height: min(360px, 42vh);
+                min-height: 190px;
             }
             .acu-template-inspection-layout-empty .acu-template-inspection-tabs {
                 display: none !important;
@@ -9176,8 +9717,8 @@ export const MAIN_STYLES = `
             }
             .acu-template-inspection-layout-empty .acu-empty-hint {
                 width: 100%;
-                min-height: min(360px, 42vh) !important;
-                padding: 0 20px !important;
+                min-height: 190px !important;
+                padding: 22px 20px !important;
             }
             .acu-change-field-count { font-size: 11px; color: var(--acu-text-sub); margin-left: 4px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
             /* 多字段整体编辑弹窗样式 */
@@ -12102,29 +12643,7 @@ export const MAIN_STYLES = `
             0 0 0 1px color-mix(in srgb, var(--acu-btn-active-text, #fff) 36%, transparent),
             0 8px 18px color-mix(in srgb, var(--acu-accent) 32%, transparent);
     }
-    .acu-gacha-image-icon {
-        width: 100%;
-        height: 100%;
-        min-width: 18px;
-        min-height: 18px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: inherit;
-        background-position: center;
-        background-size: contain;
-        background-repeat: no-repeat;
-        overflow: hidden;
-        line-height: 1;
-    }
-    .acu-gacha-image-icon.has-image > :not(.acu-custom-async-image) {
-        display: none;
-    }
-    .acu-gacha-image-icon.has-image {
-        color: transparent;
-    }
-    .acu-custom-table-name-icon.has-image,
-    .acu-gacha-image-icon.has-image {
+    .acu-custom-table-name-icon.has-image {
         background-image: none !important;
     }
     .acu-custom-async-image {
@@ -12494,21 +13013,28 @@ export const MAIN_STYLES = `
         min-width: 0;
         justify-self: end;
         min-height: 34px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
         padding: 0 10px;
         border: 1px solid var(--acu-border);
         border-radius: 9px;
         background: var(--acu-btn-bg);
         color: var(--acu-text-sub);
     }
-    .acu-gacha-settings-search input {
+    .acu-gacha-settings-dialog .acu-gacha-settings-search input.acu-gacha-settings-item-search {
         width: 100%;
         min-width: 0;
-        border: 0;
-        outline: 0;
-        background: transparent;
-        color: var(--acu-text-main);
-        font: inherit;
-        font-size: 12px;
+        height: 100%;
+        padding: 0 !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        outline: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        color: var(--acu-text-main) !important;
+        font: inherit !important;
+        font-size: 12px !important;
     }
     .acu-gacha-settings-filter {
         width: 100%;
@@ -12815,58 +13341,14 @@ export const MAIN_STYLES = `
     .acu-gacha-icon-editor-fields {
         min-width: 0;
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: minmax(0, 1fr);
         gap: 10px;
     }
-    .acu-gacha-icon-upload,
-    .acu-gacha-clear-local-icon-row {
-        grid-column: 1 / -1;
-    }
-    .acu-gacha-icon-upload {
-        position: relative;
-        min-height: 70px;
-        justify-content: center;
-        padding: 10px 12px;
-        border: 1px dashed color-mix(in srgb, var(--acu-accent) 50%, var(--acu-border));
-        border-radius: 10px;
-        background: color-mix(in srgb, var(--acu-btn-bg) 74%, transparent);
-        cursor: pointer;
-        transition: border-color .14s ease, background-color .14s ease, color .14s ease;
-    }
-    .acu-gacha-icon-upload input[type="file"] {
-        position: absolute;
-        inset: 0;
-        width: 100%;
-        height: 100%;
-        opacity: 0;
-        cursor: pointer;
-    }
-    .acu-gacha-icon-upload strong {
-        width: fit-content;
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 6px 10px;
-        border-radius: 8px;
-        background: color-mix(in srgb, var(--acu-accent) 16%, var(--acu-btn-bg));
-        color: var(--acu-text-main);
-        font-size: 12px;
-        line-height: 1;
-        transition: background-color .14s ease, color .14s ease;
-    }
-    .acu-gacha-icon-upload small {
+    .acu-gacha-icon-editor-note {
         color: var(--acu-text-sub);
-        font-size: 10px;
+        font-size: 11px;
         font-weight: 600;
-        line-height: 1.35;
-    }
-    .acu-gacha-icon-upload:hover {
-        border-color: var(--acu-accent);
-        background: color-mix(in srgb, var(--acu-accent) 10%, var(--acu-btn-bg));
-    }
-    .acu-gacha-icon-upload:hover strong {
-        background: var(--acu-accent);
-        color: var(--acu-btn-active-text, var(--acu-button-text-on-accent, #fff));
+        line-height: 1.45;
     }
     .acu-gacha-custom-fields {
         grid-column: 1 / -1;
@@ -12946,6 +13428,36 @@ export const MAIN_STYLES = `
         font-size: 10px;
         font-weight: 650;
         line-height: 1.35;
+    }
+    .acu-gacha-target-table-field {
+        margin: 0;
+    }
+    .acu-gacha-target-column-toolbar {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+        padding-top: 2px;
+    }
+    .acu-gacha-target-column-toolbar strong {
+        color: var(--acu-text-main);
+        font-size: 12px;
+        line-height: 1.2;
+    }
+    .acu-gacha-target-column-toolbar small {
+        color: var(--acu-text-sub);
+        font-size: 10px;
+        font-weight: 650;
+        line-height: 1.35;
+        text-align: right;
+    }
+    .acu-gacha-target-column-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+    }
+    .acu-gacha-target-column-field {
+        margin: 0;
     }
     .acu-gacha-custom-field-add {
         flex: 0 0 auto;
@@ -13278,6 +13790,13 @@ export const MAIN_STYLES = `
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+    }
+    .acu-gacha-custom-field-preview-chip-value-only {
+        max-width: min(100%, 168px);
+        border-color: color-mix(in srgb, var(--acu-text-sub) 24%, var(--acu-border));
+        background: color-mix(in srgb, var(--acu-table-hover) 84%, transparent);
+        color: var(--acu-text-main);
+        font-weight: 700;
     }
     .acu-gacha-custom-field-preview-more {
         flex: 0 0 auto;
@@ -14295,6 +14814,9 @@ export const MAIN_STYLES = `
         text-align: center;
         padding: 18px;
     }
+    .acu-inventory-empty[hidden] {
+        display: none !important;
+    }
     .acu-inventory-empty.compact {
         min-height: 88px;
     }
@@ -15022,6 +15544,16 @@ export const MAIN_STYLES = `
             align-items: stretch;
             flex-direction: column;
         }
+        .acu-gacha-target-column-toolbar {
+            align-items: flex-start;
+            flex-direction: column;
+        }
+        .acu-gacha-target-column-toolbar small {
+            text-align: left;
+        }
+        .acu-gacha-target-column-grid {
+            grid-template-columns: minmax(0, 1fr);
+        }
         .acu-gacha-custom-field-add {
             width: 100%;
             justify-content: center;
@@ -15118,10 +15650,23 @@ export const MAIN_STYLES = `
             flex-wrap: nowrap;
         }
         .acu-gacha-settings-dialog > .acu-gacha-settings-footer {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 6px;
+            padding-top: 8px;
         }
-        .acu-gacha-settings-footer .acu-dialog-btn {
-            min-height: 40px;
+        .acu-gacha-settings-dialog > .acu-gacha-settings-footer .acu-dialog-btn {
+            min-height: 42px;
+            padding: 5px 4px;
+            flex-direction: column;
+            gap: 3px;
+            font-size: 11px;
+            line-height: 1.08;
+            white-space: normal;
+            text-align: center;
+        }
+        .acu-gacha-settings-dialog > .acu-gacha-settings-footer .acu-dialog-btn i {
+            font-size: 12px;
+            line-height: 1;
         }
         .acu-gacha-shard-items {
             grid-template-columns: 1fr;
@@ -15717,20 +16262,23 @@ export const MAIN_STYLES = `
 
     @media (max-width: 480px) {
         .acu-gacha-settings-item {
-            grid-template-columns: 18px 30px minmax(0, 1fr);
+            grid-template-columns: 18px 30px minmax(0, 1fr) 44px;
         }
         .acu-gacha-settings-item .acu-gacha-settings-actions {
-            grid-column: 1 / -1;
-            grid-row: auto;
-            align-self: stretch;
+            grid-column: 4 / 5;
+            grid-row: 1 / 2;
+            align-self: center;
             justify-content: flex-end;
-            flex-wrap: wrap;
+            flex-wrap: nowrap;
+        }
+        .acu-gacha-settings-item .acu-gacha-item-enabled-toggle {
+            display: none;
         }
         .acu-gacha-settings-more > summary {
-            width: 40px;
-            height: 40px;
-            min-width: 40px;
-            min-height: 40px;
+            width: 44px;
+            height: 44px;
+            min-width: 44px;
+            min-height: 44px;
         }
         .acu-gacha-custom-field-toolbar,
         .acu-gacha-custom-field-suggestions,
