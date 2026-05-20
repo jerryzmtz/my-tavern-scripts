@@ -9,6 +9,8 @@ export type TutorialScope =
   | 'settingsDicePresets'
   | 'settingsAdvanced'
   | 'templateInspection'
+  | 'tableTemplateRequirementPresetManager'
+  | 'tableTemplateRequirementPresetEditor'
   | 'configBackup'
   | 'dice'
   | 'contestDice'
@@ -657,6 +659,97 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
       placement: 'top',
     },
   ],
+  tableTemplateRequirementPresetManager: [
+    {
+      selector: ['.acu-table-template-requirement-manager-dialog', '#acu-table-template-requirement-presets-list'],
+      title: '模板检验预设管理',
+      content:
+        '这里管理“检验表格模板”使用的规则。不同世界观可以准备不同预设，用来检查当前聊天模板是否缺少关键表、业务列、规则说明或 DDL。',
+      placement: 'left',
+    },
+    {
+      selector: '#acu-table-template-requirement-presets-list .acu-preset-item:first-child',
+      title: '预设列表',
+      content:
+        '列表会显示内置和自定义模板检验预设。当前标记表示检验时会使用这套规则；条目摘要展示它会检查多少张表和业务列。',
+      placement: 'right',
+    },
+    {
+      selector: '.acu-table-template-requirement-preset-copy',
+      title: '复制内置规则',
+      content: '内置预设不能直接编辑。需要调整默认检查范围时，请先复制成自定义预设，再编辑副本。',
+      placement: 'left',
+    },
+    {
+      selector: '.acu-table-template-requirement-preset-export',
+      title: '导出参考',
+      content:
+        '导出可以把当前规则保存为 JSON，适合备份、分享，或交给 AI/Agent 作为生成新预设的参考。',
+      placement: 'left',
+    },
+    {
+      selector: ['#acu-table-template-requirement-preset-new', '#acu-table-template-requirement-preset-import'],
+      title: '新建与导入',
+      content:
+        '新建会打开模板检验预设编辑器。复杂模板建议先在编辑器下载 AI 提示词，再把世界观表格需求一起交给 AI 生成配置。',
+      placement: 'top',
+    },
+  ],
+  tableTemplateRequirementPresetEditor: [
+    {
+      selector: ['.acu-table-template-requirement-preset-editor-dialog', '#table-template-requirement-preset-json'],
+      title: '新建模板检验预设',
+      content:
+        '这里用于创建或编辑模板检验预设。预设会声明需要检查的表、业务列、sourceData、DDL 和严重度分层；如果不想手写 JSONC，建议先下载 AI 提示词。',
+      placement: 'left',
+    },
+    {
+      selector: '#table-template-requirement-preset-name',
+      title: '预设名称',
+      content: '名称会显示在模板检验预设管理列表中，建议写清楚适用的世界观或表格结构。',
+      placement: 'bottom',
+    },
+    {
+      selector: '#table-template-requirement-preset-desc',
+      title: '描述',
+      content: '描述用于说明这套检验规则会关注哪些功能和模板要求，方便之后在列表中辨认。',
+      placement: 'bottom',
+    },
+    {
+      selector: '#table-template-requirement-preset-download-ai-prompt',
+      title: '下载 AI 提示词',
+      content:
+        '这个按钮会下载一份 .md 提示词。把它和你的世界观表格结构、必须保留的功能、哪些缺失算严重问题一起交给外部 AI Agent，可生成能粘贴到编辑区的 JSONC。',
+      placement: 'left',
+    },
+    {
+      selector: '#table-template-requirement-preset-validate',
+      title: '验证配置',
+      content:
+        '验证只检查当前编辑区内容，不会保存。它会解析 JSONC，并提示 template、表格、业务列或 requirementLevels 中的问题。',
+      placement: 'left',
+    },
+    {
+      selector: '#table-template-requirement-preset-json',
+      title: 'JSONC 配置',
+      content:
+        '核心配置写在这里。可以粘贴完整预设、只含 template 的对象，或直接粘贴表格模板 JSON；保存前会走同一套解析和规范化管线。',
+      placement: 'top',
+    },
+    {
+      selector: '#table-template-requirement-preset-format-help',
+      title: '分层要求',
+      content:
+        'template 中出现的表和列会参与校验，requirementLevels 用来把缺失项标成严重、警告或提示。只写真正影响功能的业务列，避免把整份模板变成硬性门槛。',
+      placement: 'top',
+    },
+    {
+      selector: '#table-template-requirement-preset-save',
+      title: '保存预设',
+      content: '保存会先解析并规范化配置，通过后写入自定义预设列表。之后“检验表格模板”会按当前启用的预设检查聊天模板。',
+      placement: 'top',
+    },
+  ],
   configBackup: [
     {
       selector: '.acu-config-backup-dialog',
@@ -696,13 +789,6 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
       title: '备份摘要',
       content:
         '导入备份文件后，这里会显示导出时间、可恢复模块和项目数量。恢复前先核对版本和内容规模，避免拿错文件。',
-      placement: 'bottom',
-    },
-    {
-      selector: '.acu-config-backup-template-notice',
-      title: '数据库模板',
-      content:
-        '如果备份里包含数据库表格模板，恢复时会导入到数据库模板列表；已有同名模板会被覆盖，操作前请确认当前模板是否需要先另存。',
       placement: 'bottom',
     },
     {
@@ -1846,7 +1932,7 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     {
       selector: '.acu-gacha-settings-open',
       title: '商城设置',
-      content: '这里可以管理奖池显示、是否加入“全部”，也可以新建和编辑自定义物品。JSON 导入导出仍然可以继续使用。',
+      content: '这里可以管理卡池启用状态，也可以新建和编辑自定义物品。JSON 导入导出仍然可以继续使用。',
       placement: 'bottom',
     },
   ],
@@ -1861,14 +1947,14 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
       selector: '#acu-gacha-settings-pool-list',
       title: '卡池管理',
       content:
-        '每行代表一个卡池。拖拽把手调整顺序，眼睛控制是否出现在商店快捷切换卡池选项中，开关控制是否加入“全部”的抽取范围。',
+        '每行代表一个卡池。拖拽把手调整顺序，开关控制卡池是否启用；启用后会显示快捷标签并加入“全部”的抽取范围。',
       placement: 'bottom',
     },
     {
       selector: '#acu-gacha-settings-pool-list .acu-gacha-settings-pool-item[data-pool-id="奇幻"]',
       title: '卡池操作',
       content:
-        '以“奇幻”为例，右侧可以控制快捷标签、是否加入“全部”抽取范围、导出此卡池和重命名。只有自定义卡池会额外显示删除按钮。',
+        '以“奇幻”为例，右侧可以启用或停用卡池、导出此卡池和重命名。只有自定义卡池会额外显示删除按钮。',
       placement: 'bottom',
     },
     {
@@ -1991,6 +2077,8 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
   ],
 };
 
+export const TUTORIAL_SCOPE_LIST = Object.keys(STEPS) as TutorialScope[];
+
 const escapeHtml = (value: string): string =>
   value
     .replace(/&/g, '&amp;')
@@ -2003,7 +2091,7 @@ const normalizeState = (rawState: unknown): TutorialState => {
   if (!rawState || typeof rawState !== 'object') return { ...DEFAULT_STATE };
   const data = rawState as Partial<TutorialState>;
   const completedScopes = Array.isArray(data.completedScopes)
-    ? data.completedScopes.filter((scope): scope is TutorialScope => Object.keys(STEPS).includes(String(scope)))
+    ? data.completedScopes.filter((scope): scope is TutorialScope => TUTORIAL_SCOPE_LIST.includes(String(scope) as TutorialScope))
     : [];
   return {
     version: 1,

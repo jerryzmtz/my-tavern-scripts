@@ -158,7 +158,7 @@
 
   "dialogueIndent": {
     "whitelist": ["*"],
-    "blacklist": ["summary", "tucao", "JSONPatch", "Analysis", "UpdateVariable", "StatusBlock", "options", "meta:检定结果", "摘要", "image", "script", "placeholder", "think", "thought", "thinking"]
+    "blacklist": ["summary", "tucao", "JSONPatch", "Analysis", "UpdateVariable", "StatusBlock", "StatusPlaceHolderImpl", "options", "meta:检定结果", "摘要", "image", "script", "placeholder", "think", "thought", "thinking"]
   }
 }
 ```

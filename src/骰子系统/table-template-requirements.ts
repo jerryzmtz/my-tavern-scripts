@@ -157,6 +157,10 @@ const normalizeTemplateText = (value: unknown): string =>
     .toLowerCase();
 
 const normalizeHeaderText = (value: unknown): string => normalizeTemplateText(value).replace(/\s+/g, '');
+const normalizeHeaderLookupText = (value: unknown): string =>
+  normalizeHeaderText(value)
+    .replace(/（/g, '(')
+    .replace(/）/g, ')');
 
 const isRowIdHeader = (value: unknown): boolean => {
   const normalized = normalizeHeaderText(value);
@@ -175,9 +179,23 @@ const getConfigFieldLabel = (field: string): string =>
 
 const formatSheetName = (name: string): string => `“${name}”`;
 
+const normalizeDdlColumnComment = (comment: unknown): string =>
+  toSafeString(comment)
+    .replace(/[，,].*$/, '')
+    .trim();
+
+const getDdlColumnCommentAliases = (comment: unknown): string[] => {
+  const fullComment = normalizeDdlColumnComment(comment);
+  if (!fullComment) return [];
+  const aliases = [fullComment];
+  const looseComment = fullComment.replace(/[（(].*$/, '').trim();
+  if (looseComment && looseComment !== fullComment) aliases.push(looseComment);
+  return Array.from(new Set(aliases));
+};
+
 const headersEquivalent = (left: unknown, right: unknown): boolean => {
   if (isRowIdHeader(left) && isRowIdHeader(right)) return true;
-  return normalizeHeaderText(left) === normalizeHeaderText(right);
+  return normalizeHeaderLookupText(left) === normalizeHeaderLookupText(right);
 };
 
 const toSafeString = (value: unknown): string => String(value ?? '').trim();
@@ -284,10 +302,7 @@ const parseDdlColumns = (ddl: unknown): DdlColumnInfo[] => {
     const sqlName = (match[1] || match[2] || match[3] || match[4]).replace(/""/g, '"').replace(/``/g, '`');
     const definition = normalizeDdlColumnDefinition(`${sqlName}${match[5] || ''}`);
     const commentMatch = definition.match(/--\s*(.+?)\s*$/);
-    const comment = toSafeString(commentMatch?.[1])
-      .replace(/[，,].*$/, '')
-      .replace(/[（(].*$/, '')
-      .trim();
+    const comment = normalizeDdlColumnComment(commentMatch?.[1]);
     columns.push({ sqlName, comment, definition });
   }
   return columns;
@@ -319,7 +334,11 @@ const getDdlColumnForHeader = (ddl: unknown, header: string): DdlColumnInfo | nu
 };
 
 const getDdlColumnsForHeader = (ddl: unknown, header: string): DdlColumnInfo[] =>
-  parseDdlColumns(ddl).filter(column => headersEquivalent(column.comment, header) || headersEquivalent(column.sqlName, header));
+  parseDdlColumns(ddl).filter(
+    column =>
+      getDdlColumnCommentAliases(column.comment).some(alias => headersEquivalent(alias, header)) ||
+      headersEquivalent(column.sqlName, header),
+  );
 
 const getDdlColumnsForSqlName = (ddl: unknown, sqlName: string): DdlColumnInfo[] =>
   parseDdlColumns(ddl).filter(column => column.sqlName === sqlName);

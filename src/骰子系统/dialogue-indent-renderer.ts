@@ -66,6 +66,7 @@ interface DialogueIndentRendererDependencies {
   getHostDocument: () => Document;
   getJQuery: () => JQueryStatic;
   retrieveDisplayedMessage: (messageId: number | string) => JQuery<HTMLElement> | null;
+  emitMessageRendered?: (messageId: number | string) => void;
   getLatestAssistantMessage: () => DialogueRenderMessage | null;
   warn: (message: string, error?: unknown) => void;
 }
@@ -75,7 +76,7 @@ export interface DialogueIndentRenderer {
   refreshNow: () => void;
 }
 
-const DIALOGUE_INDENT_RENDER_VERSION = '1';
+const DIALOGUE_INDENT_RENDER_VERSION = '3';
 const DIALOGUE_INDENT_ORIGINAL_HTML_KEY = 'acuDialogueIndentOriginalHtml';
 const DIALOGUE_INDENT_RENDER_DELAY_MS = 120;
 const USER_AVATAR_PRIMARY_NAMES = ['{{user}}', '<user>'] as const;
@@ -93,6 +94,53 @@ interface DialogueIndentTagPair {
   name: string;
   contentStart: number;
   contentEnd: number;
+}
+
+interface DialogueIndentAtomicRange {
+  start: number;
+  end: number;
+  contentStart: number;
+  contentEnd: number;
+}
+
+type DialogueIndentSplitMarker =
+  | {
+      type: 'tag';
+      start: number;
+      end: number;
+      raw: string;
+    }
+  | {
+      type: 'atomic';
+      start: number;
+      end: number;
+      contentStart: number;
+      contentEnd: number;
+    };
+
+type DialogueIndentFrontendChunk =
+  | {
+      type: 'text';
+      text: string;
+    }
+  | {
+      type: 'frontend';
+      text: string;
+    };
+
+type DialogueIndentRenderItem =
+  | {
+      type: 'html';
+      html: string;
+    }
+  | {
+      type: 'frontend';
+      sourceText: string;
+    };
+
+interface DialogueIndentFrontendElement {
+  element: HTMLElement;
+  rendered: boolean;
 }
 
 export const normalizeDialogueIndentStrategy = (value: unknown): DialogueIndentStrategy => {
@@ -125,11 +173,76 @@ const normalizeDialogueIndentTagList = (tags: readonly string[]): string[] => {
   return result;
 };
 
-const collectDialogueIndentTagTokens = (text: string): DialogueIndentTagToken[] => {
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const isIndexInAtomicRanges = (index: number, ranges: readonly DialogueIndentAtomicRange[]): boolean =>
+  ranges.some(range => range.start <= index && index < range.end);
+
+const collectMarkdownFenceRanges = (text: string): DialogueIndentAtomicRange[] => {
+  const ranges: DialogueIndentAtomicRange[] = [];
+  const openPattern = /(^|\r?\n)[ \t]{0,3}(`{3,}|~{3,})([^\r\n]*)(?:\r?\n|$)/g;
+  let openMatch: RegExpExecArray | null;
+  while ((openMatch = openPattern.exec(text)) !== null) {
+    const start = openMatch.index + openMatch[1].length;
+    const marker = openMatch[2];
+    const fenceChar = marker.charAt(0);
+    const closePattern = new RegExp(`(^|\\r?\\n)[ \\t]{0,3}${escapeRegExp(fenceChar)}{${marker.length},}[ \\t]*(?:\\r?\\n|$)`, 'g');
+    closePattern.lastIndex = openPattern.lastIndex;
+    const closeMatch = closePattern.exec(text);
+    const contentStart = openPattern.lastIndex;
+    const contentEnd = closeMatch ? closeMatch.index : text.length;
+    const end = closeMatch ? closeMatch.index + closeMatch[0].length : text.length;
+    ranges.push({
+      start,
+      end,
+      contentStart,
+      contentEnd,
+    });
+    openPattern.lastIndex = end;
+  }
+  return ranges;
+};
+
+const isDialogueIndentFrontendCode = (text: string): boolean => {
+  const normalized = String(text || '').toLocaleLowerCase();
+  return ['html>', '<head>', '<body'].some(token => normalized.includes(token));
+};
+
+const collectDialogueIndentFrontendRanges = (text: string): DialogueIndentAtomicRange[] =>
+  collectMarkdownFenceRanges(text).filter(range =>
+    isDialogueIndentFrontendCode(text.slice(range.contentStart, range.contentEnd)),
+  );
+
+const splitDialogueIndentTextByFrontendBlocks = (text: string): DialogueIndentFrontendChunk[] => {
+  const ranges = collectDialogueIndentFrontendRanges(text);
+  if (ranges.length === 0) {
+    return [{ type: 'text', text }];
+  }
+
+  const chunks: DialogueIndentFrontendChunk[] = [];
+  let cursor = 0;
+  ranges.forEach(range => {
+    if (range.start > cursor) {
+      chunks.push({ type: 'text', text: text.slice(cursor, range.start) });
+    }
+    chunks.push({ type: 'frontend', text: text.slice(range.start, range.end) });
+    cursor = Math.max(cursor, range.end);
+  });
+  if (cursor < text.length) {
+    chunks.push({ type: 'text', text: text.slice(cursor) });
+  }
+  return chunks.filter(chunk => chunk.text.length > 0);
+};
+
+const collectDialogueIndentTagTokens = (
+  text: string,
+  atomicRanges: readonly DialogueIndentAtomicRange[] = [],
+): DialogueIndentTagToken[] => {
   const tokens: DialogueIndentTagToken[] = [];
   const tagPattern = /<\s*(\/?)\s*([^\s>/]+)(?:\s[^>]*)?(\/?)\s*>/g;
   for (const match of text.matchAll(tagPattern)) {
     if (typeof match.index !== 'number') continue;
+    if (isIndexInAtomicRanges(match.index, atomicRanges)) continue;
     const raw = match[0];
     const rawName = String(match[2] || '')
       .replace(/\/$/, '')
@@ -200,7 +313,8 @@ export const splitDialogueIndentTextByTagFilter = (
 
   const whitelist = normalizeDialogueIndentTagList(tagFilter.whitelist);
   const blacklist = normalizeDialogueIndentTagList(tagFilter.blacklist);
-  const tokens = collectDialogueIndentTagTokens(text);
+  const atomicRanges = collectMarkdownFenceRanges(text);
+  const tokens = collectDialogueIndentTagTokens(text, atomicRanges);
   const pairs = collectDialogueIndentTagPairs(tokens);
   const parts: DialogueIndentTextPart[] = [];
 
@@ -214,14 +328,31 @@ export const splitDialogueIndentTextByTagFilter = (
     parts.push({ text: partText, renderable });
   };
 
+  const markers: DialogueIndentSplitMarker[] = [
+    ...tokens.map(token => ({
+      type: 'tag' as const,
+      start: token.start,
+      end: token.end,
+      raw: token.raw,
+    })),
+    ...atomicRanges.map(range => ({
+      type: 'atomic' as const,
+      start: range.start,
+      end: range.end,
+      contentStart: range.contentStart,
+      contentEnd: range.contentEnd,
+    })),
+  ].sort((left, right) => left.start - right.start || left.end - right.end);
+
   let cursor = 0;
-  tokens.forEach(token => {
-    if (token.start > cursor) {
-      const activeTags = getActiveDialogueIndentTags(pairs, cursor, token.start);
-      pushPart(text.slice(cursor, token.start), canRenderDialogueIndentPart(activeTags, whitelist, blacklist));
+  markers.forEach(marker => {
+    if (marker.end <= cursor) return;
+    if (marker.start > cursor) {
+      const activeTags = getActiveDialogueIndentTags(pairs, cursor, marker.start);
+      pushPart(text.slice(cursor, marker.start), canRenderDialogueIndentPart(activeTags, whitelist, blacklist));
     }
-    pushPart(token.raw, false);
-    cursor = Math.max(cursor, token.end);
+    pushPart(marker.type === 'tag' ? marker.raw : text.slice(marker.start, marker.end), false);
+    cursor = Math.max(cursor, marker.end);
   });
 
   if (cursor < text.length) {
@@ -433,6 +564,49 @@ export const createDialogueIndentRenderer = (deps: DialogueIndentRendererDepende
     return deps.escapeHtml(text).replace(/\n/g, '<br>');
   };
 
+  const collectFrontendRenderElements = ($mesText: JQuery<HTMLElement>): DialogueIndentFrontendElement[] => {
+    const $ = deps.getJQuery();
+    const elements: DialogueIndentFrontendElement[] = [];
+    $mesText.find('div.TH-render, pre').each((_, element) => {
+      const $element = $(element);
+      if ($element.is('pre')) {
+        if ($element.closest('div.TH-render').length > 0) return;
+        if (!isDialogueIndentFrontendCode($element.text())) return;
+      } else if (!isDialogueIndentFrontendCode($element.find('pre').text() || $element.text())) {
+        return;
+      }
+      elements.push({ element, rendered: $element.is('div.TH-render') });
+    });
+    return elements;
+  };
+
+  const createDialogueIndentRootElement = (
+    items: readonly DialogueIndentRenderItem[],
+    themeName: string,
+    frontendElements: DialogueIndentFrontendElement[],
+    messageId: number | string,
+  ): JQuery<HTMLElement> => {
+    const $ = deps.getJQuery();
+    const $root = $('<div>')
+      .addClass(`acu-dialogue-indent-root acu-theme-${themeName}`)
+      .attr('data-acu-dialogue-indent-version', DIALOGUE_INDENT_RENDER_VERSION);
+
+    items.forEach(item => {
+      if (item.type === 'html') {
+        $root.append(item.html);
+        return;
+      }
+      const frontendElement = frontendElements.shift();
+      if (frontendElement) {
+        $root.append(frontendElement.element);
+      } else {
+        $root.append(renderMessageTextFragment(item.sourceText, messageId));
+      }
+    });
+
+    return $root;
+  };
+
   const escapeCssUrlValue = (url: string): string => {
     return String(url).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '').replace(/\r/g, '');
   };
@@ -497,28 +671,46 @@ export const createDialogueIndentRenderer = (deps: DialogueIndentRendererDepende
     strategy: DialogueIndentStrategy,
     tagFilter: DialogueIndentTagFilter,
     messageId: number | string,
-  ): Promise<{ html: string; hasDialogue: boolean }> => {
-    const parts = splitDialogueIndentTextByTagFilter(messageText, tagFilter);
+  ): Promise<{ items: DialogueIndentRenderItem[]; hasDialogue: boolean; hasFrontendBlock: boolean }> => {
+    const chunks = splitDialogueIndentTextByFrontendBlocks(messageText);
     let hasDialogue = false;
-    const htmlParts: string[] = [];
-    for (const part of parts) {
-      if (!part.renderable) {
-        htmlParts.push(renderMessageTextFragment(part.text, messageId));
+    let hasFrontendBlock = false;
+    const items: DialogueIndentRenderItem[] = [];
+    const pushHtml = (html: string): void => {
+      if (!html) return;
+      const previous = items[items.length - 1];
+      if (previous?.type === 'html') {
+        previous.html += html;
+        return;
+      }
+      items.push({ type: 'html', html });
+    };
+
+    for (const chunk of chunks) {
+      if (chunk.type === 'frontend') {
+        hasFrontendBlock = true;
+        items.push({
+          type: 'frontend',
+          sourceText: chunk.text,
+        });
         continue;
       }
-      const segments = parseDialogueIndentSegments(part.text, speakerIndex, strategy);
-      if (hasDialogueQuoteSegments(segments)) {
-        hasDialogue = true;
+
+      const parts = splitDialogueIndentTextByTagFilter(chunk.text, tagFilter);
+      for (const part of parts) {
+        if (!part.renderable) {
+          pushHtml(renderMessageTextFragment(part.text, messageId));
+          continue;
+        }
+        const segments = parseDialogueIndentSegments(part.text, speakerIndex, strategy);
+        if (hasDialogueQuoteSegments(segments)) {
+          hasDialogue = true;
+        }
+        pushHtml(await renderDialogueIndentSegmentsHtml(segments, messageId));
       }
-      htmlParts.push(await renderDialogueIndentSegmentsHtml(segments, messageId));
     }
 
-    const config = deps.getConfig();
-    const themeName = String(config.theme || deps.getDefaultTheme()).replace(/[^a-z0-9_-]/gi, '');
-    return {
-      html: `<div class="acu-dialogue-indent-root acu-theme-${themeName}" data-acu-dialogue-indent-version="${DIALOGUE_INDENT_RENDER_VERSION}">${htmlParts.join('')}</div>`,
-      hasDialogue,
-    };
+    return { items, hasDialogue, hasFrontendBlock };
   };
 
   const createRenderHash = (
@@ -573,6 +765,7 @@ export const createDialogueIndentRenderer = (deps: DialogueIndentRendererDepende
       restoreDialogueIndentElement($mesText);
     }
 
+    const frontendElements = collectFrontendRenderElements($mesText);
     const speakers = await buildDialogueIndentSpeakers();
     if (ticket !== renderTicket) return;
 
@@ -591,10 +784,18 @@ export const createDialogueIndentRenderer = (deps: DialogueIndentRendererDepende
 
     if (ticket !== renderTicket) return;
 
+    const themeName = String(deps.getConfig().theme || deps.getDefaultTheme()).replace(/[^a-z0-9_-]/gi, '');
+    const renderedFrontendElementCount = frontendElements.filter(item => item.rendered).length;
+    const frontendBlockCount = renderResult.items.filter(item => item.type === 'frontend').length;
+    const $root = createDialogueIndentRootElement(renderResult.items, themeName, frontendElements, messageId);
     $mesText
-      .html(renderResult.html)
+      .empty()
+      .append($root)
       .attr('data-acu-dialogue-indent-applied', 'true')
       .attr('data-acu-dialogue-indent-hash', renderHash);
+    if (renderResult.hasFrontendBlock && frontendBlockCount > renderedFrontendElementCount && deps.emitMessageRendered) {
+      window.setTimeout(() => deps.emitMessageRendered?.(messageId), 0);
+    }
   };
 
   const schedule = (): void => {

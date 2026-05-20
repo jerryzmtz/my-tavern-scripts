@@ -12825,7 +12825,7 @@ export const MAIN_STYLES = `
     .acu-gacha-settings-item .acu-gacha-item-handle {
         cursor: grab;
     }
-    .acu-gacha-settings-pool-item.is-hidden,
+    .acu-gacha-settings-pool-item.is-disabled,
     .acu-gacha-settings-item.is-disabled,
     .acu-gacha-settings-item[style*="display: none"] {
         opacity: .55;
@@ -12964,10 +12964,6 @@ export const MAIN_STYLES = `
     .acu-gacha-pool-all-toggle {
         flex: 0 0 44px;
         margin: 0;
-    }
-    .acu-gacha-pool-visible-toggle:disabled {
-        opacity: .45;
-        cursor: default;
     }
     .acu-gacha-pool-handle,
     .acu-gacha-pool-handle-placeholder,
@@ -16057,7 +16053,6 @@ export const MAIN_STYLES = `
     }
 
     .acu-config-backup-warning-list,
-    .acu-config-backup-template-notice,
     .acu-config-backup-privacy-notice {
         display: flex;
         gap: 6px;
@@ -16072,10 +16067,6 @@ export const MAIN_STYLES = `
 
     .acu-config-backup-warning-list {
         flex-direction: column;
-    }
-
-    .acu-config-backup-template-notice {
-        align-items: flex-start;
     }
 
     .acu-config-backup-privacy-notice {

@@ -65,7 +65,6 @@
 {
   "id": "steam_london",
   "name": "蒸汽伦敦",
-  "visibleInTabs": true,
   "includeInAll": true,
   "order": 100
 }
@@ -79,7 +78,7 @@
 - 不要使用 `"全部"` 作为自定义卡池 id。
 - 只有当用户明确要求使用系统内置卡池时，才可以让物品直接写入 `奇幻`、`修真`、`都市`、`校园`、`历史`。
 - 对具体世界观或具体主题生成新卡池时，`poolTags` 默认只写本次 `pools[].id`；不要因为主题像校园、都市或历史，就顺手追加 `校园`、`都市`、`历史` 这类内置池。
-- `visibleInTabs` 和 `includeInAll` 使用布尔值，不要写成字符串。
+- `includeInAll` 表示卡池是否启用；启用后会显示快捷标签，并加入“全部”的抽取范围。必须使用布尔值，不要写成字符串。
 - `order` 使用数字。
 
 ## items 必填字段
@@ -362,7 +361,6 @@ name / type / quantity / quality / description / part / status
     {
       "id": "steam_london",
       "name": "蒸汽伦敦",
-      "visibleInTabs": true,
       "includeInAll": true,
       "order": 100
     }

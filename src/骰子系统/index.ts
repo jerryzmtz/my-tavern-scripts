@@ -3,7 +3,7 @@ import { ELEMENT_EMOJI_MAP, LOCATION_EMOJI_MAP, RELATION_ICON_MAP } from './emoj
 import { MAIN_STYLES } from './styles';
 import { setDatabaseToastMute } from './database-toast-mute';
 import { showActionableErrorToast } from './actionable-error-toast';
-import { createTutorialModule, type TutorialModule, type TutorialScope } from './tutorial';
+import { TUTORIAL_SCOPE_LIST, createTutorialModule, type TutorialModule, type TutorialScope } from './tutorial';
 import { createDialogueIndentRenderer, normalizeDialogueIndentStrategy } from './dialogue-indent-renderer';
 import { RollResult, CustomFieldConfig, DerivedVarSpec, DiceExprPatch } from './types';
 import advancedPresetAgentPromptTemplate from './docs/advanced-preset-agent-prompt.md?raw';
@@ -12,6 +12,7 @@ import attributePresetAgentPromptTemplate from './docs/attribute-preset-agent-pr
 import actionPresetAgentPromptTemplate from './docs/action-preset-agent-prompt.md?raw';
 import renderPresetAgentPromptTemplate from './docs/render-preset-agent-prompt.md?raw';
 import gachaCatalogAgentPromptTemplate from './docs/gacha-catalog-agent-prompt.md?raw';
+import tableTemplateRequirementPresetAgentPromptTemplate from './docs/table-template-requirement-preset-agent-prompt.md?raw';
 import defaultTableTemplateRequirementRaw from './骰子表格SQL_v4.2.json?raw';
 import {
   DEFAULT_TABLE_TEMPLATE_REQUIREMENT_PRESET_ID,
@@ -1863,6 +1864,7 @@ import {
   const STORAGE_KEY_GACHA_POOL_SETTINGS = 'acu_gacha_pool_settings_v1';
   const STORAGE_KEY_GACHA_SETTINGS_POOL_TAG = 'acu_gacha_settings_pool_tag_v1';
   const STORAGE_KEY_GACHA_ITEM_SETTINGS = 'acu_gacha_item_settings_v1';
+  const GACHA_CATALOG_GLOBAL_SCOPE_KEY = 'global';
   const GACHA_SHOP_UI_REFRESH_MS = 250;
   const GACHA_CATALOG_RAW_ROW_INDEX_PROP = '__acuRawRowIndex';
 
@@ -2292,7 +2294,7 @@ import {
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.8.4'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v6.18'; // 脚本版本号
+  const SCRIPT_VERSION = 'v6.21'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -3049,7 +3051,7 @@ import {
       builtin: true,
       intercept: false,
       targetTable: '任务表',
-      targetColumn: '进度(%)',
+      targetColumn: '进度（%）',
       ruleType: 'format',
       config: { pattern: '^(100|[1-9]?\\d)%$' },
       errorMessage: '进度必须为0%~100%格式（如：0%、50%、100%）',
@@ -3522,6 +3524,7 @@ import {
     'Analysis',
     'UpdateVariable',
     'StatusBlock',
+    'StatusPlaceHolderImpl',
     'options',
     'meta:检定结果',
     '摘要',
@@ -5586,12 +5589,28 @@ import {
       const exactIndex = headers.indexOf(targetColumn);
       if (exactIndex !== -1) return exactIndex;
 
+      const normalizeColumnName = (value: unknown): string =>
+        String(value ?? '')
+          .trim()
+          .replace(/（/g, '(')
+          .replace(/）/g, ')')
+          .replace(/\s+/g, '')
+          .toLowerCase();
+      const targetNormalized = normalizeColumnName(targetColumn);
+      if (targetNormalized) {
+        for (let i = 0; i < headers.length; i++) {
+          if (normalizeColumnName(headers[i]) === targetNormalized) return i;
+        }
+      }
+
       // 2. 模糊匹配 fallback：找包含目标列名的列
       for (let i = 0; i < headers.length; i++) {
         const header = headers[i];
         if (header && header.includes(targetColumn)) {
           return i;
         }
+        const headerNormalized = normalizeColumnName(header);
+        if (targetNormalized && headerNormalized.includes(targetNormalized)) return i;
       }
 
       return -1; // 未找到
@@ -14810,6 +14829,8 @@ $opponent $oppAttrName：$oppCheckValueText$oppModText，$formula=$oppRoll，总
 
   const buildRenderPresetAgentPrompt = (): string => renderPresetAgentPromptTemplate;
 
+  const buildTableTemplateRequirementPresetAgentPrompt = (): string => tableTemplateRequirementPresetAgentPromptTemplate;
+
   const buildGachaCatalogAgentPrompt = (): string => gachaCatalogAgentPromptTemplate;
 
   const BUILTIN_TABLE_TEMPLATE_REQUIREMENT_PRESETS = [
@@ -14936,26 +14957,36 @@ $opponent $oppAttrName：$oppCheckValueText$oppModText，$formula=$oppRoll，总
     };
 
     const getBuiltinPresets = () => BUILTIN_TABLE_TEMPLATE_REQUIREMENT_PRESETS.map(preset => cloneTemplateValue(preset));
+    const getBuiltinPresetIds = () => new Set(BUILTIN_TABLE_TEMPLATE_REQUIREMENT_PRESETS.map(preset => preset.id));
 
-    const getCustomPresets = () =>
-      getStoredPresets()
-        .map((preset, index) =>
-          normalizeTableTemplateRequirementPreset(preset, `custom_table_template_requirement_${Date.now()}_${index}`),
-        )
-        .filter(Boolean)
-        .map((preset, index) => ({
-          ...preset,
+    const getCustomPresets = () => {
+      const builtinIds = getBuiltinPresetIds();
+      const customById = new Map();
+      getStoredPresets().forEach((preset, index) => {
+        if (!isDiceConfigBackupRecord(preset)) return;
+        const id = getDiceConfigBackupPresetRecordId(preset);
+        if (!id || preset.builtin === true || builtinIds.has(id)) return;
+        const normalized = normalizeTableTemplateRequirementPreset(preset, id);
+        if (!normalized || normalized.builtin === true) return;
+        customById.set(id, {
+          ...normalized,
+          id,
           builtin: false,
-          order: Number.isFinite(Number(preset.order)) ? Number(preset.order) : 1000 + index,
-        }));
+          order: Number.isFinite(Number(normalized.order)) ? Number(normalized.order) : 1000 + index,
+        });
+      });
+      return Array.from(customById.values());
+    };
 
     const saveCustomPresets = presets => {
       Store.set(
         STORAGE_KEY_TABLE_TEMPLATE_REQUIREMENT_PRESETS,
-        presets.map(preset => ({
-          ...preset,
-          builtin: false,
-        })),
+        presets
+          .filter(preset => preset && preset.builtin !== true && !getBuiltinPresetIds().has(preset.id))
+          .map(preset => ({
+            ...preset,
+            builtin: false,
+          })),
       );
       _cache = null;
     };
@@ -14999,6 +15030,10 @@ $opponent $oppAttrName：$oppCheckValueText$oppModText，$formula=$oppRoll，总
 
       getActivePreset() {
         return this.getPresetById(this.getActivePresetId()) || BUILTIN_TABLE_TEMPLATE_REQUIREMENT_PRESETS[0];
+      },
+
+      clearCache() {
+        _cache = null;
       },
 
       setActivePresetId(id) {
@@ -22559,9 +22594,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         return def;
       }
     },
-    set: (key, val) => {
+    set: (key, val): boolean => {
       try {
         localStorage.setItem(key, JSON.stringify(val));
+        return true;
       } catch (e) {
         // 捕获存储空间已满错误
         if (e.name === 'QuotaExceededError' || e.message.includes('quota')) {
@@ -22572,6 +22608,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
             // 2. 再次尝试保存
             localStorage.setItem(key, JSON.stringify(val));
+            return true;
           } catch (retryErr) {
             // 如果清理后还是存不下，才弹窗打扰用户
             console.error('[DICE]ACU Store 清理后依然失败', retryErr);
@@ -22584,6 +22621,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         } else {
           console.error('[DICE]ACU Store', e);
         }
+        return false;
       }
     },
   };
@@ -35728,6 +35766,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     | 'dashboardPresets'
     | 'renderPresets'
     | 'tableTemplate'
+    | 'tableTemplateRequirementPresets'
     | 'validation'
     | 'regex'
     | 'avatarMap'
@@ -35794,6 +35833,16 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     key: string;
     value: unknown;
     moduleName: string;
+  }
+
+  interface DiceConfigBackupGachaCatalogRollbackSnapshot {
+    records: readonly GachaCatalogRecord[] | null;
+    warning?: string;
+  }
+
+  interface DiceConfigBackupTableTemplateRollbackSnapshot {
+    template?: unknown;
+    warning?: string;
   }
 
   const DICE_CONFIG_BACKUP_MODULES: DiceConfigBackupModuleDefinition[] = [
@@ -35863,6 +35912,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       storageKeys: [],
     },
     {
+      id: 'tableTemplateRequirementPresets',
+      name: '模板检验预设',
+      description: '自定义模板检验预设与当前激活状态。',
+      storageKeys: [STORAGE_KEY_TABLE_TEMPLATE_REQUIREMENT_PRESETS, STORAGE_KEY_ACTIVE_TABLE_TEMPLATE_REQUIREMENT_PRESET],
+    },
+    {
       id: 'validation',
       name: '数据验证',
       description: '数据验证预设、当前激活状态、启用状态与验证模式。',
@@ -35901,7 +35956,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     {
       id: 'gachaSettings',
       name: '骰子商城配置与自定义物品',
-      description: '商城卡池、条目设置、自定义物品目录、当前池与碎片商店稀有度。',
+      description: '商城卡池、条目设置、全局自定义物品目录、当前池与碎片商店稀有度。',
       storageKeys: [
         STORAGE_KEY_GACHA_POOL_SETTINGS,
         STORAGE_KEY_GACHA_SETTINGS_POOL_TAG,
@@ -35921,6 +35976,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     dashboardPresets: '可能包含仪表盘模块、表名、列名、关系图和展示规则。',
     renderPresets: '可能包含列名别名、关系/属性解析规则、正文头像渲染白名单与黑名单。',
     tableTemplate: '不包含当前表格行数据，但可能包含模板名、字段、说明、示例 SQL 或世界观设定。',
+    tableTemplateRequirementPresets: '可能包含模板检验规则、核心表名、列名、DDL、说明文本和世界观模板要求。',
     validation: '可能包含数据验证预设、表名、列名、枚举值、错误提示与拦截偏好。',
     regex: '可能包含正则表达式、替换文本、测试用例、表名/列名关键词和文本处理偏好。',
     avatarMap: '可能包含角色名、别名、头像 URL、裁剪偏移、缩放和颜色信息。',
@@ -35956,6 +36012,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     [STORAGE_KEY_ACTIVE_DASHBOARD_PRESET]: 'raw',
     [STORAGE_KEY_RENDER_PRESETS]: 'presetArray',
     [STORAGE_KEY_ACTIVE_RENDER_PRESET]: 'raw',
+    [STORAGE_KEY_TABLE_TEMPLATE_REQUIREMENT_PRESETS]: 'presetArray',
+    [STORAGE_KEY_ACTIVE_TABLE_TEMPLATE_REQUIREMENT_PRESET]: 'raw',
     [STORAGE_KEY_PRESETS]: 'presetArray',
     [STORAGE_KEY_ACTIVE_PRESET]: 'raw',
     [STORAGE_KEY_VALIDATION_ENABLED]: 'map',
@@ -35990,6 +36048,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     [STORAGE_KEY_ACTIVE_ACTION_PRESET]: STORAGE_KEY_ACTION_PRESETS,
     [STORAGE_KEY_ACTIVE_DASHBOARD_PRESET]: STORAGE_KEY_DASHBOARD_PRESETS,
     [STORAGE_KEY_ACTIVE_RENDER_PRESET]: STORAGE_KEY_RENDER_PRESETS,
+    [STORAGE_KEY_ACTIVE_TABLE_TEMPLATE_REQUIREMENT_PRESET]: STORAGE_KEY_TABLE_TEMPLATE_REQUIREMENT_PRESETS,
     [STORAGE_KEY_ACTIVE_PRESET]: STORAGE_KEY_PRESETS,
     [STORAGE_KEY_REGEX_ACTIVE_PRESET]: STORAGE_KEY_REGEX_PRESETS,
   };
@@ -36154,6 +36213,27 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     });
   };
 
+  const sanitizeDiceConfigBackupCustomOnlyPresetArrayForExport = (value: unknown, key: string): unknown => {
+    if (!Array.isArray(value)) return value;
+    const builtinPresetIds = new Set(getDiceConfigBackupBuiltinPresetIds(key));
+    const presetsById = new Map<string, Record<string, unknown>>();
+    value.forEach(item => {
+      if (!isDiceConfigBackupRecord(item)) return;
+      const sourceId = getDiceConfigBackupPresetRecordId(item);
+      if (!sourceId || builtinPresetIds.has(sourceId) || item.builtin === true) return;
+      const normalized =
+        key === STORAGE_KEY_TABLE_TEMPLATE_REQUIREMENT_PRESETS
+          ? normalizeTableTemplateRequirementPreset(item, sourceId)
+          : cloneDiceConfigBackupValue(item);
+      if (!normalized || !isDiceConfigBackupRecord(normalized)) return;
+      const id = getDiceConfigBackupPresetRecordId(normalized) || sourceId;
+      if (!id || builtinPresetIds.has(id) || normalized.builtin === true) return;
+      presetsById.set(id, { ...cloneDiceConfigBackupValue(normalized), id, builtin: false });
+    });
+    const sanitized = Array.from(presetsById.values());
+    return sanitized.length > 0 ? sanitized : undefined;
+  };
+
   const sanitizeDiceConfigBackupStoredValue = (key: string, value: unknown): unknown => {
     if (key === STORAGE_KEY_PRESETS)
       return sanitizeDiceConfigBackupPresetRules(value, sanitizeDiceConfigBackupValidationRule);
@@ -36163,6 +36243,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       return sanitizeDiceConfigBackupPresetRules(value, sanitizeDiceConfigBackupRegexRule);
     if (key === STORAGE_KEY_REGEX_RULES)
       return sanitizeDiceConfigBackupRuleList(value, sanitizeDiceConfigBackupRegexRule);
+    if (key === STORAGE_KEY_TABLE_TEMPLATE_REQUIREMENT_PRESETS) {
+      return sanitizeDiceConfigBackupCustomOnlyPresetArrayForExport(value, key);
+    }
     return value;
   };
 
@@ -36178,32 +36261,54 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     }
     if (key === STORAGE_KEY_CRAZY_MODE) return getCrazyModeConfig();
     if (key === STORAGE_KEY_GM_CONFIG && localStorage.getItem(key) !== null) return Store.get(key, DEFAULT_GM_CONFIG);
+    if (key === STORAGE_KEY_ACTIVE_TABLE_TEMPLATE_REQUIREMENT_PRESET)
+      return TableTemplateRequirementPresetManager.getActivePresetId();
 
     if (localStorage.getItem(key) === null) return undefined;
     return Store.get(key, null);
   };
 
+  const normalizeDiceConfigBackupGachaCatalogSnapshotRecords = (
+    records: readonly GachaCatalogRecord[],
+  ): GachaCatalogRecord[] =>
+    records
+      .map(record => {
+        const scopeKey = String(record.scopeKey || '').trim();
+        const catalog = normalizeGachaCatalogRecord(record);
+        if (!scopeKey || !catalog) return null;
+        return {
+          scopeKey,
+          version: catalog.version,
+          items: cloneGachaCatalogItems(catalog.items),
+          updatedAt: catalog.updatedAt,
+        } satisfies GachaCatalogRecord;
+      })
+      .filter((record): record is GachaCatalogRecord => Boolean(record));
+
   const collectDiceConfigBackupGachaCatalogRecords = async (): Promise<GachaCatalogRecord[]> => {
     try {
-      const records = await GachaCatalogDB.getAll();
-      return records
-        .map(record => {
-          const scopeKey = String(record.scopeKey || '').trim();
-          const catalog = normalizeGachaCatalogRecord(record);
-          if (!scopeKey || !catalog) return null;
-          return {
-            scopeKey,
-            version: catalog.version,
-            items: cloneGachaCatalogItems(catalog.items),
-            updatedAt: catalog.updatedAt,
-          } satisfies GachaCatalogRecord;
-        })
-        .filter((record): record is GachaCatalogRecord => Boolean(record));
+      await migrateGachaCatalogRecordsToGlobalScope();
+      return normalizeDiceConfigBackupGachaCatalogSnapshotRecords(await GachaCatalogDB.getAll());
     } catch (error) {
-      console.warn('[DICE]配置备份读取商城自定义目录失败:', error);
-      return [];
+      console.error('[DICE]配置备份读取商城自定义目录失败:', error);
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`读取骰子商城自定义物品目录失败，已取消导出：${message}`);
     }
   };
+
+  const collectDiceConfigBackupGachaCatalogRollbackSnapshot =
+    async (): Promise<DiceConfigBackupGachaCatalogRollbackSnapshot> => {
+      try {
+        return { records: normalizeDiceConfigBackupGachaCatalogSnapshotRecords(await GachaCatalogDB.getAll()) };
+      } catch (error) {
+        console.warn('[DICE]配置备份读取商城自定义目录回滚快照失败:', error);
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          records: null,
+          warning: `骰子商城配置与自定义物品: 无法创建回滚快照，已取消恢复：${message}`,
+        };
+      }
+    };
 
   const getDiceConfigBackupTableTemplateApi = (): DiceConfigBackupTableTemplateApi | null => {
     const api = getCore().getDB() as DiceConfigBackupTableTemplateApi | null | undefined;
@@ -36232,15 +36337,19 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   const getDiceConfigBackupGachaCatalogItemCount = (records: readonly GachaCatalogRecord[]): number =>
     records.reduce((count, record) => count + (Array.isArray(record.items) ? record.items.length : 0), 0);
 
-  const getDiceConfigBackupModuleResourceCount = (payload?: DiceConfigBackupModulePayload): number => {
+  const getDiceConfigBackupModuleResourceCount = (
+    payload?: DiceConfigBackupModulePayload,
+    moduleId?: DiceConfigBackupModuleId,
+  ): number => {
     const resources = payload?.resources;
     if (!resources) return 0;
-    const tableTemplate = resources[DICE_CONFIG_BACKUP_TABLE_TEMPLATE_RESOURCE_KEY];
-    if (tableTemplate !== undefined) {
-      return isDiceConfigBackupRecord(tableTemplate) ? Math.max(1, Object.keys(tableTemplate).length) : 1;
+    if (moduleId === 'tableTemplate') {
+      const tableTemplate = resources[DICE_CONFIG_BACKUP_TABLE_TEMPLATE_RESOURCE_KEY];
+      return isDiceConfigBackupRecord(tableTemplate) ? Math.max(1, Object.keys(tableTemplate).length) : 0;
     }
-    const gachaRecords = resources[DICE_CONFIG_BACKUP_GACHA_CATALOG_RESOURCE_KEY];
-    if (Array.isArray(gachaRecords)) {
+    if (moduleId === 'gachaSettings') {
+      const gachaRecords = resources[DICE_CONFIG_BACKUP_GACHA_CATALOG_RESOURCE_KEY];
+      if (!Array.isArray(gachaRecords)) return 0;
       const records = gachaRecords
         .map(record =>
           isDiceConfigBackupRecord(record) ? normalizeDiceConfigBackupGachaCatalogResourceRecord(record, []) : null,
@@ -36248,7 +36357,78 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         .filter((record): record is GachaCatalogRecord => Boolean(record));
       return getDiceConfigBackupGachaCatalogItemCount(records);
     }
-    return Object.values(resources).reduce((count, value) => count + (Array.isArray(value) ? value.length : 1), 0);
+    return 0;
+  };
+
+  const hasDiceConfigBackupTableTemplateResource = (payload?: DiceConfigBackupModulePayload): boolean =>
+    isDiceConfigBackupRecord(payload?.resources?.[DICE_CONFIG_BACKUP_TABLE_TEMPLATE_RESOURCE_KEY]);
+
+  const hasDiceConfigBackupRecoverableStorage = (
+    payload: DiceConfigBackupModulePayload,
+    definition: DiceConfigBackupModuleDefinition,
+  ): boolean =>
+    Object.entries(payload.storage || {}).some(([key, value]) => {
+      if (!definition.storageKeys.includes(key) || value === undefined) return false;
+      if (Array.isArray(value)) return value.length > 0;
+      if (isDiceConfigBackupRecord(value)) return Object.keys(value).length > 0;
+      return value !== null && value !== '';
+    });
+
+  const getDiceConfigBackupModuleResourceShapeWarnings = (
+    moduleId: DiceConfigBackupModuleId,
+    resources?: Record<string, unknown>,
+  ): string[] => {
+    if (!resources) return [];
+    const warnings: string[] = [];
+    const pushUnknownResourceWarnings = (knownKeys: ReadonlySet<string>) => {
+      const unknownKeys = Object.keys(resources).filter(key => !knownKeys.has(key));
+      if (unknownKeys.length > 0) {
+        warnings.push(`模块包含当前版本无法恢复的扩展资源：${unknownKeys.join('、')}。`);
+      }
+    };
+    if (moduleId === 'tableTemplate') {
+      if (
+        DICE_CONFIG_BACKUP_TABLE_TEMPLATE_RESOURCE_KEY in resources &&
+        !isDiceConfigBackupRecord(resources[DICE_CONFIG_BACKUP_TABLE_TEMPLATE_RESOURCE_KEY])
+      ) {
+        warnings.push('当前数据库表格模板: 模板资源结构无效，无法恢复该模板。');
+      }
+      pushUnknownResourceWarnings(new Set([DICE_CONFIG_BACKUP_TABLE_TEMPLATE_RESOURCE_KEY]));
+      return warnings;
+    }
+    if (moduleId === 'gachaSettings') {
+      if (DICE_CONFIG_BACKUP_GACHA_CATALOG_RESOURCE_KEY in resources) {
+        const value = resources[DICE_CONFIG_BACKUP_GACHA_CATALOG_RESOURCE_KEY];
+        if (!Array.isArray(value)) {
+          warnings.push('骰子商城配置与自定义物品: 自定义目录资源不是数组，无法恢复该目录。');
+        } else {
+          const resourceWarnings: string[] = [];
+          const runtimeRawData = getRuntimeGachaRawData();
+          const validCount = value.filter(record =>
+            normalizeDiceConfigBackupGachaCatalogResourceRecord(record, resourceWarnings, runtimeRawData),
+          ).length;
+          if (resourceWarnings.length > 0) {
+            const maybeDeferredByTemplateRestore = Boolean(isDiceConfigBackupRecord(resources) && runtimeRawData);
+            warnings.push(
+              ...Array.from(new Set(resourceWarnings)).map(warning =>
+                maybeDeferredByTemplateRestore
+                  ? `${warning} 若本次同时恢复“当前数据库表格模板”，最终会在模板导入后重新校验。`
+                  : warning,
+              ),
+            );
+          }
+          if (value.length > 0 && validCount === 0) {
+            warnings.push(
+              '骰子商城配置与自定义物品: 自定义目录资源在当前模板下没有有效物品；若本次同时恢复“当前数据库表格模板”，最终会在模板导入后重新校验。',
+            );
+          }
+        }
+      }
+      pushUnknownResourceWarnings(new Set([DICE_CONFIG_BACKUP_GACHA_CATALOG_RESOURCE_KEY]));
+      return warnings;
+    }
+    pushUnknownResourceWarnings(new Set());
+    return warnings;
   };
 
   const hasDiceConfigBackupLocalImageReference = (value: unknown, depth = 0): boolean => {
@@ -36325,6 +36505,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         extraWarnings.push(...templateResult.warnings);
       }
       const warnings = [...getDiceConfigBackupModuleWarnings(moduleId, storage, resources), ...extraWarnings];
+      if (Object.keys(storage).length === 0 && Object.keys(resources).length === 0 && warnings.length === 0) continue;
       modules[moduleId] = {
         storage,
         ...(Object.keys(resources).length > 0 ? { resources: cloneDiceConfigBackupValue(resources) } : {}),
@@ -36366,9 +36547,16 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         warnings.push(`备份文件包含未知模块 "${rawModuleId}"，已跳过。`);
         return;
       }
-      if (!isDiceConfigBackupRecord(rawPayload) || !isDiceConfigBackupRecord(rawPayload.storage)) {
+      if (!isDiceConfigBackupRecord(rawPayload)) {
         warnings.push(`模块 "${rawModuleId}" 的结构无效，已跳过。`);
         return;
+      }
+      const storageValue = rawPayload.storage;
+      const moduleStorage = isDiceConfigBackupRecord(storageValue)
+        ? cloneDiceConfigBackupValue(storageValue)
+        : {};
+      if (storageValue !== undefined && !isDiceConfigBackupRecord(storageValue)) {
+        warnings.push(`模块 "${rawModuleId}" 的 storage 结构无效，已按空对象处理。`);
       }
       const warningsValue = rawPayload.warnings;
       const moduleWarnings = Array.isArray(warningsValue)
@@ -36381,10 +36569,13 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       if (resourcesValue !== undefined && !moduleResources) {
         warnings.push(`模块 "${rawModuleId}" 的扩展资源结构无效，已忽略。`);
       }
+      const resourceShapeWarnings = getDiceConfigBackupModuleResourceShapeWarnings(rawModuleId, moduleResources);
       modules[rawModuleId] = {
-        storage: cloneDiceConfigBackupValue(rawPayload.storage),
+        storage: moduleStorage,
         ...(moduleResources ? { resources: moduleResources } : {}),
-        ...(moduleWarnings.length > 0 ? { warnings: moduleWarnings } : {}),
+        ...(moduleWarnings.length > 0 || resourceShapeWarnings.length > 0
+          ? { warnings: [...moduleWarnings, ...resourceShapeWarnings] }
+          : {}),
       };
     });
 
@@ -36452,8 +36643,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     moduleName: string,
     key: string,
   ): DiceConfigBackupPresetMergeResult => {
+    const builtinPresetIds = new Set(getDiceConfigBackupBuiltinPresetIds(key));
     const result: DiceConfigBackupPresetMergeResult = {
-      value: Array.isArray(current) ? cloneDiceConfigBackupValue(current) : [],
+      value: Array.isArray(current)
+        ? cloneDiceConfigBackupValue(current).filter(item => {
+            if (!isDiceConfigBackupRecord(item)) return true;
+            const id = getDiceConfigBackupPresetRecordId(item);
+            return !id || !builtinPresetIds.has(id);
+          })
+        : [],
       idMap: new Map<string, string>(),
       added: 0,
       overwritten: 0,
@@ -36490,6 +36688,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         result.warnings.push(`${moduleName}: 存在缺少 id 的预设 "${sourceName || '未命名'}"，已跳过。`);
         return;
       }
+      if (builtinPresetIds.has(sourceId) || imported.builtin === true) {
+        result.skipped += 1;
+        result.warnings.push(`${moduleName}: 内置预设 "${sourceName || sourceId}" 以当前脚本版本为准，已跳过备份中的同名记录。`);
+        return;
+      }
 
       if (indexById.has(sourceId)) {
         const targetIndex = indexById.get(sourceId)!;
@@ -36518,6 +36721,127 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       if (sourceName) indexByName.set(sourceName, targetIndex);
       result.idMap.set(sourceId, sourceId);
       result.added += 1;
+    });
+
+    return result;
+  };
+
+  const mergeDiceConfigBackupCustomOnlyPresetArray = (
+    current: unknown,
+    incoming: unknown,
+    moduleName: string,
+    key: string,
+  ): DiceConfigBackupPresetMergeResult => {
+    const result: DiceConfigBackupPresetMergeResult = {
+      value: [],
+      idMap: new Map<string, string>(),
+      added: 0,
+      overwritten: 0,
+      skipped: 0,
+      warnings: [],
+    };
+    const builtinPresetIds = new Set(getDiceConfigBackupBuiltinPresetIds(key));
+    const indexById = new Map<string, number>();
+    const currentIndexByName = new Map<string, number>();
+    const consumedCurrentNameIndexes = new Set<number>();
+    const normalizeCustomPreset = (item: unknown, fallbackId: string): Record<string, unknown> | null => {
+      let normalized: unknown = null;
+      if (key === STORAGE_KEY_TABLE_TEMPLATE_REQUIREMENT_PRESETS) {
+        normalized = normalizeTableTemplateRequirementPreset(item, fallbackId);
+      } else if (isDiceConfigBackupRecord(item)) {
+        normalized = cloneDiceConfigBackupValue(item);
+      }
+      if (!normalized || !isDiceConfigBackupRecord(normalized)) return null;
+      const id = getDiceConfigBackupPresetRecordId(normalized);
+      if (!id || builtinPresetIds.has(id)) return null;
+      return { ...cloneDiceConfigBackupValue(normalized), id, builtin: false };
+    };
+    const keepCurrentPresets = (items: readonly unknown[]): void => {
+      const currentById = new Map<string, Record<string, unknown>>();
+      items.forEach(item => {
+        const sourceId = isDiceConfigBackupRecord(item) ? getDiceConfigBackupPresetRecordId(item) : '';
+        const preset = normalizeCustomPreset(item, sourceId);
+        if (!preset) return;
+        const id = getDiceConfigBackupPresetRecordId(preset);
+        currentById.set(id, preset);
+      });
+      currentById.forEach(preset => {
+        const id = getDiceConfigBackupPresetRecordId(preset);
+        const targetIndex = result.value.length;
+        result.value.push(preset);
+        indexById.set(id, targetIndex);
+        const name = getDiceConfigBackupPresetRecordName(preset);
+        if (name && !currentIndexByName.has(name)) currentIndexByName.set(name, targetIndex);
+      });
+    };
+    if (Array.isArray(current)) keepCurrentPresets(current);
+    const addIncomingPreset = (preset: Record<string, unknown>, sourceId: string): void => {
+      const nextPreset = { ...preset, id: sourceId, builtin: false };
+      result.value.push(nextPreset);
+      indexById.set(sourceId, result.value.length - 1);
+      result.idMap.set(sourceId, sourceId);
+      result.added += 1;
+    };
+
+    if (!Array.isArray(incoming)) {
+      result.skipped += 1;
+      result.warnings.push(`${moduleName}: ${key} 不是预设数组，已跳过。`);
+      return result;
+    }
+
+    incoming.forEach(item => {
+      if (!isDiceConfigBackupRecord(item)) {
+        result.skipped += 1;
+        result.warnings.push(`${moduleName}: ${key} 中存在非对象预设，已跳过。`);
+        return;
+      }
+      const imported = cloneDiceConfigBackupValue(item);
+      const sourceId = getDiceConfigBackupPresetRecordId(imported);
+      const sourceName = getDiceConfigBackupPresetRecordName(imported);
+      if (!sourceId) {
+        result.skipped += 1;
+        result.warnings.push(`${moduleName}: 存在缺少 id 的预设 "${sourceName || '未命名'}"，已跳过。`);
+        return;
+      }
+      if (builtinPresetIds.has(sourceId) || imported.builtin === true) {
+        result.skipped += 1;
+        result.warnings.push(`${moduleName}: 内置预设 "${sourceName || sourceId}" 以当前脚本版本为准，已跳过备份中的同名记录。`);
+        return;
+      }
+      const normalized = normalizeCustomPreset(imported, sourceId);
+      if (!normalized) {
+        result.skipped += 1;
+        result.warnings.push(`${moduleName}: 预设 "${sourceName || sourceId}" 结构无效，已跳过。`);
+        return;
+      }
+
+      if (indexById.has(sourceId)) {
+        const targetIndex = indexById.get(sourceId)!;
+        const currentRecord = isDiceConfigBackupRecord(result.value[targetIndex]) ? result.value[targetIndex] : {};
+        result.value[targetIndex] = { ...currentRecord, ...normalized, id: sourceId, builtin: false };
+        result.idMap.set(sourceId, sourceId);
+        result.overwritten += 1;
+        consumedCurrentNameIndexes.add(targetIndex);
+        return;
+      }
+
+      if (sourceName && currentIndexByName.has(sourceName)) {
+        const targetIndex = currentIndexByName.get(sourceName)!;
+        if (consumedCurrentNameIndexes.has(targetIndex)) {
+          addIncomingPreset(normalized, sourceId);
+          return;
+        }
+        const currentRecord = isDiceConfigBackupRecord(result.value[targetIndex]) ? result.value[targetIndex] : {};
+        const targetId = getDiceConfigBackupPresetRecordId(currentRecord) || sourceId;
+        result.value[targetIndex] = { ...currentRecord, ...normalized, id: targetId, builtin: false };
+        result.idMap.set(sourceId, targetId);
+        result.overwritten += 1;
+        consumedCurrentNameIndexes.add(targetIndex);
+        indexById.set(targetId, targetIndex);
+        return;
+      }
+
+      addIncomingPreset(normalized, sourceId);
     });
 
     return result;
@@ -36693,14 +37017,23 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const currentRecord = isDiceConfigBackupRecord(result.value[targetIndex]) ? result.value[targetIndex] : {};
         const targetId = getDiceConfigBackupPresetRecordId(currentRecord) || sourceId;
         const targetIsBuiltin = builtinPresetIds.has(targetId) || currentRecord.builtin === true;
-        result.value[targetIndex] = {
-          ...currentRecord,
-          ...imported,
-          id: targetId,
-          builtin: targetIsBuiltin,
-          version: PRESET_FORMAT_VERSION,
-          rules: mergeRules(currentRecord.rules, imported.rules),
-        };
+        const mergedRules = mergeRules(currentRecord.rules, imported.rules);
+        result.value[targetIndex] = targetIsBuiltin
+          ? {
+              ...currentRecord,
+              id: targetId,
+              builtin: true,
+              version: PRESET_FORMAT_VERSION,
+              rules: mergedRules,
+            }
+          : {
+              ...currentRecord,
+              ...imported,
+              id: targetId,
+              builtin: false,
+              version: PRESET_FORMAT_VERSION,
+              rules: mergedRules,
+            };
         result.idMap.set(sourceId, targetId);
         result.overwritten += 1;
         return;
@@ -36756,12 +37089,13 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const incomingIds = new Set(incomingRecord.pools.map(pool => pool.id));
     const mergedPools = incomingRecord.pools.map(pool => {
       const existing = currentById.get(pool.id);
+      const enabled = pool.id !== GACHA_ALL_POOL_TAG && pool.includeInAll === true;
       return {
         ...(existing || buildDefaultGachaPoolDefinition(pool.id, pool)),
         ...pool,
         builtin: existing?.builtin === true || isBuiltinGachaPoolId(pool.id),
-        visibleInTabs: pool.id === GACHA_ALL_POOL_TAG ? true : pool.visibleInTabs !== false,
-        includeInAll: pool.id === GACHA_ALL_POOL_TAG ? false : pool.includeInAll === true,
+        visibleInTabs: pool.id === GACHA_ALL_POOL_TAG ? true : enabled,
+        includeInAll: enabled,
       };
     });
     currentRecord.pools.forEach(pool => {
@@ -36814,12 +37148,40 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     };
   };
 
+  const remapDiceConfigBackupGachaItemSettings = (
+    idMap: ReadonlyMap<string, string>,
+    sourceIds: ReadonlySet<string>,
+  ): boolean => {
+    if (idMap.size === 0) return false;
+    const currentRecord = normalizeDiceConfigBackupGachaItemSettings(Store.get(STORAGE_KEY_GACHA_ITEM_SETTINGS, null));
+    if (!currentRecord) return false;
+    const items = { ...currentRecord.items };
+    let changed = false;
+    idMap.forEach((targetId, sourceId) => {
+      if (!sourceIds.has(sourceId) || !sourceId || !targetId || sourceId === targetId || !items[sourceId]) return;
+      items[targetId] = items[sourceId];
+      delete items[sourceId];
+      changed = true;
+    });
+    if (!changed) return false;
+    if (!Store.set(STORAGE_KEY_GACHA_ITEM_SETTINGS, {
+      version: Math.max(1, currentRecord.version),
+      items,
+      updatedAt: Date.now(),
+    } satisfies GachaItemSettingsRecord)) {
+      throw new Error('自定义物品设置映射保存失败');
+    }
+    return true;
+  };
+
   const getDiceConfigBackupBuiltinPresetIds = (presetKey: string): string[] => {
     if (presetKey === STORAGE_KEY_ADVANCED_PRESETS) return BUILTIN_ADVANCED_PRESETS.map(preset => preset.id);
     if (presetKey === STORAGE_KEY_ATTRIBUTE_PRESETS) return BUILTIN_ATTRIBUTE_PRESETS.map(preset => String(preset.id));
     if (presetKey === STORAGE_KEY_ACTION_PRESETS) return BUILTIN_ACTION_PRESETS.map(preset => String(preset.id));
     if (presetKey === STORAGE_KEY_DASHBOARD_PRESETS) return [DASHBOARD_DEFAULT_PRESET_ID];
     if (presetKey === STORAGE_KEY_RENDER_PRESETS) return [RENDER_DEFAULT_PRESET_ID];
+    if (presetKey === STORAGE_KEY_TABLE_TEMPLATE_REQUIREMENT_PRESETS)
+      return BUILTIN_TABLE_TEMPLATE_REQUIREMENT_PRESETS.map(preset => preset.id);
     if (presetKey === STORAGE_KEY_PRESETS) return ['default'];
     if (presetKey === STORAGE_KEY_REGEX_PRESETS) return ['regex_default'];
     return [];
@@ -36830,9 +37192,19 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const stored = Store.get(presetKey, []);
     if (Array.isArray(stored)) {
       stored.forEach(item => {
-        if (!isDiceConfigBackupRecord(item)) return;
-        const id = getDiceConfigBackupPresetRecordId(item);
-        if (id) result.add(id);
+        const preset =
+          presetKey === STORAGE_KEY_TABLE_TEMPLATE_REQUIREMENT_PRESETS
+            ? isDiceConfigBackupRecord(item) &&
+              getDiceConfigBackupPresetRecordId(item) &&
+              item.builtin !== true
+              ? normalizeTableTemplateRequirementPreset(item, getDiceConfigBackupPresetRecordId(item))
+              : null
+            : isDiceConfigBackupRecord(item)
+              ? item
+              : null;
+        if (!preset || !isDiceConfigBackupRecord(preset)) return;
+        const id = getDiceConfigBackupPresetRecordId(preset);
+        if (id && preset.builtin !== true && !getDiceConfigBackupBuiltinPresetIds(presetKey).includes(id)) result.add(id);
       });
     }
     return result;
@@ -36843,7 +37215,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       localStorage.setItem(key, String(value ?? ''));
       return;
     }
-    Store.set(key, value);
+    if (!Store.set(key, value)) throw new Error(`存储项 ${key} 保存失败`);
   };
 
   const applyDiceConfigBackupValue = (
@@ -36967,6 +37339,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const merged =
         key === STORAGE_KEY_PRESETS || key === STORAGE_KEY_REGEX_PRESETS
           ? mergeDiceConfigBackupPresetArraySafely(current, value, moduleName, key)
+          : key === STORAGE_KEY_TABLE_TEMPLATE_REQUIREMENT_PRESETS
+            ? mergeDiceConfigBackupCustomOnlyPresetArray(current, value, moduleName, key)
           : mergeDiceConfigBackupPresetArray(current, sanitizeDiceConfigBackupStoredValue(key, value), moduleName, key);
       idMappings.set(key, merged.idMap);
       stats.added += merged.added;
@@ -37033,6 +37407,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     rawItems: unknown,
     warnings: string[],
     scopeKey: string,
+    rawData?: unknown,
   ): GachaItemDefinition[] => {
     if (!Array.isArray(rawItems)) {
       warnings.push(`骰子商城配置与自定义物品: ${scopeKey} 的自定义物品不是数组，已跳过。`);
@@ -37065,7 +37440,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         if (item.targetColumns) normalized.targetColumns = item.targetColumns;
         if (item.customFields) normalized.customFields = item.customFields;
         return normalized;
-      });
+      })
+      .filter(item => (rawData === undefined ? true : validateGachaCatalogImportItemTarget(rawData, item, warnings)));
     if (errors.length > 0) {
       warnings.push(`骰子商城配置与自定义物品: ${scopeKey} 有 ${errors.length} 条自定义物品无效，已跳过。`);
     }
@@ -37075,6 +37451,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   const normalizeDiceConfigBackupGachaCatalogResourceRecord = (
     rawRecord: unknown,
     warnings: string[],
+    rawData?: unknown,
   ): GachaCatalogRecord | null => {
     if (!isDiceConfigBackupRecord(rawRecord)) {
       warnings.push('骰子商城配置与自定义物品: 存在无效的自定义目录记录，已跳过。');
@@ -37085,7 +37462,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       warnings.push('骰子商城配置与自定义物品: 存在缺少 scopeKey 的自定义目录记录，已跳过。');
       return null;
     }
-    const items = normalizeDiceConfigBackupGachaCatalogItems(rawRecord.items, warnings, scopeKey);
+    if (!Array.isArray(rawRecord.items)) {
+      warnings.push(`骰子商城配置与自定义物品: ${scopeKey} 的自定义物品不是数组，已跳过。`);
+      return null;
+    }
+    const items = normalizeDiceConfigBackupGachaCatalogItems(rawRecord.items, warnings, scopeKey, rawData);
+    if (items.length === 0) {
+      warnings.push(`骰子商城配置与自定义物品: ${scopeKey} 没有有效自定义物品，已跳过。`);
+      return null;
+    }
     return {
       scopeKey,
       version: Number(rawRecord.version) || GACHA_CATALOG_VERSION,
@@ -37101,6 +37486,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     currentItems: readonly GachaItemDefinition[],
     incomingItems: readonly GachaItemDefinition[],
     stats: DiceConfigBackupApplyStats,
+    itemIdMap?: Map<string, string>,
   ): GachaItemDefinition[] => {
     const result = cloneGachaCatalogItems(currentItems);
     const indexById = new Map<string, number>();
@@ -37120,13 +37506,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const targetIndex = idIndex ?? (nameKey ? indexByName.get(nameKey) : undefined);
       if (targetIndex !== undefined) {
         const existing = result[targetIndex];
+        const targetId = existing.id || id;
         result[targetIndex] = {
           ...existing,
           ...imported,
-          id: existing.id || id,
+          id: targetId,
           createdAt: existing.createdAt || imported.createdAt,
           updatedAt: imported.updatedAt || Date.now(),
         };
+        if (id && targetId && id !== targetId) itemIdMap?.set(id, targetId);
         stats.overwritten += 1;
         return;
       }
@@ -37145,9 +37533,58 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return result;
   };
 
+  const getDiceConfigBackupTableTemplateRollbackSnapshot = (): DiceConfigBackupTableTemplateRollbackSnapshot => {
+    const api = getDiceConfigBackupTableTemplateApi();
+    if (!api || typeof api.getTableTemplate !== 'function') {
+      return { warning: '当前数据库表格模板: 数据库模板读取 API 不可用，已取消恢复以避免无法回滚。' };
+    }
+    try {
+      const template = api.getTableTemplate();
+      if (!isDiceConfigBackupRecord(template)) {
+        return { warning: '当前数据库表格模板: 恢复前没有可用模板快照，已取消恢复以避免无法回滚。' };
+      }
+      return { template: cloneDiceConfigBackupValue(template) };
+    } catch (error) {
+      console.warn('[DICE]配置备份读取数据库表格模板回滚快照失败:', error);
+      const message = error instanceof Error ? error.message : String(error);
+      return { warning: `当前数据库表格模板: 读取回滚快照失败，已取消恢复：${message}` };
+    }
+  };
+
+  const restoreDiceConfigBackupTableTemplateRollbackSnapshot = async (snapshot: unknown): Promise<string[]> => {
+    const warnings: string[] = [];
+    const template =
+      isDiceConfigBackupRecord(snapshot) && 'template' in snapshot
+        ? (snapshot as DiceConfigBackupTableTemplateRollbackSnapshot).template
+        : snapshot;
+    if (!isDiceConfigBackupRecord(template)) {
+      warnings.push('当前数据库表格模板: 恢复前没有可用模板快照，无法自动撤回已导入的模板。');
+      return warnings;
+    }
+    const api = getDiceConfigBackupTableTemplateApi();
+    if (!api || typeof api.importTemplateFromData !== 'function') {
+      warnings.push('当前数据库表格模板: 数据库模板导入 API 不可用，无法自动回滚模板。');
+      return warnings;
+    }
+    try {
+      const result = await Promise.resolve(api.importTemplateFromData(cloneDiceConfigBackupValue(template), { scope: 'chat' }));
+      if (isDiceConfigBackupRecord(result) && result.success === false) {
+        const message = typeof result.message === 'string' ? result.message : '未知错误';
+        warnings.push(`当前数据库表格模板: 回滚失败：${message}`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      warnings.push(`当前数据库表格模板: 回滚异常：${message}`);
+    }
+    warnings.forEach(warning => console.warn('[DICE]配置备份回滚数据库表格模板提示:', warning));
+    return warnings;
+  };
+
   const restoreDiceConfigBackupGachaCatalogRecords = async (
     recordsValue: unknown,
     stats: DiceConfigBackupApplyStats,
+    itemIdMap?: Map<string, string>,
+    rawData = getRuntimeGachaRawData(),
   ): Promise<void> => {
     if (recordsValue === undefined) return;
     if (!Array.isArray(recordsValue)) {
@@ -37155,44 +37592,58 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       stats.warnings.push('骰子商城配置与自定义物品: 自定义目录资源不是数组，已跳过。');
       return;
     }
+    await migrateGachaCatalogRecordsToGlobalScope();
+    const incomingRecords: GachaCatalogRecord[] = [];
     for (const rawRecord of recordsValue) {
-      const incomingRecord = normalizeDiceConfigBackupGachaCatalogResourceRecord(rawRecord, stats.warnings);
+      const incomingRecord = normalizeDiceConfigBackupGachaCatalogResourceRecord(
+        rawRecord,
+        stats.warnings,
+        rawData,
+      );
       if (!incomingRecord) {
         stats.skipped += 1;
         continue;
       }
-      const currentRecord = await GachaCatalogDB.get(incomingRecord.scopeKey);
-      const currentCatalog = normalizeGachaCatalogRecord(currentRecord) || createEmptyGachaCatalog();
-      const beforeTouched = stats.added + stats.overwritten + stats.skipped;
-      const mergedItems = mergeDiceConfigBackupGachaCatalogItems(currentCatalog.items, incomingRecord.items, stats);
-      if (stats.added + stats.overwritten + stats.skipped === beforeTouched) {
-        stats.skipped += 1;
-      }
-      const nextRecord: GachaCatalogRecord = {
-        scopeKey: incomingRecord.scopeKey,
-        version: Math.max(currentCatalog.version || 1, incomingRecord.version || 1, GACHA_CATALOG_VERSION),
-        items: mergedItems,
-        updatedAt: Date.now(),
-      };
-      const saved = await GachaCatalogDB.put(nextRecord);
-      if (!saved) throw new Error(`自定义物品目录 ${incomingRecord.scopeKey} 保存失败`);
-      if (incomingRecord.scopeKey === getGachaCatalogScopeKey()) {
-        gachaCatalogCache = {
-          scopeKey: incomingRecord.scopeKey,
-          catalog: {
-            version: nextRecord.version,
-            items: cloneGachaCatalogItems(nextRecord.items),
-            updatedAt: nextRecord.updatedAt,
-          },
-        };
-      }
-      ensureGachaPoolsForTags(incomingRecord.items.flatMap(item => [...item.poolTags]));
+      incomingRecords.push(incomingRecord);
     }
+    const incomingGlobalRecord = mergeGachaCatalogRecordsToGlobalScope(incomingRecords);
+    if (!incomingGlobalRecord) return;
+
+    const currentRecord = await GachaCatalogDB.get(GACHA_CATALOG_GLOBAL_SCOPE_KEY);
+    const currentCatalog = normalizeGachaCatalogRecord(currentRecord) || createEmptyGachaCatalog();
+    const beforeTouched = stats.added + stats.overwritten + stats.skipped;
+    const mergedItems = mergeDiceConfigBackupGachaCatalogItems(
+      currentCatalog.items,
+      incomingGlobalRecord.items,
+      stats,
+      itemIdMap,
+    );
+    if (stats.added + stats.overwritten + stats.skipped === beforeTouched) {
+      stats.skipped += 1;
+    }
+    const nextRecord: GachaCatalogRecord = {
+      scopeKey: GACHA_CATALOG_GLOBAL_SCOPE_KEY,
+      version: Math.max(currentCatalog.version || 1, incomingGlobalRecord.version || 1, GACHA_CATALOG_VERSION),
+      items: mergedItems,
+      updatedAt: Date.now(),
+    };
+    const saved = await GachaCatalogDB.put(nextRecord);
+    if (!saved) throw new Error('全局自定义物品目录保存失败');
+    gachaCatalogCache = {
+      scopeKey: GACHA_CATALOG_GLOBAL_SCOPE_KEY,
+      catalog: {
+        version: nextRecord.version,
+        items: cloneGachaCatalogItems(nextRecord.items),
+        updatedAt: nextRecord.updatedAt,
+      },
+    };
+    ensureGachaPoolsForTags(incomingGlobalRecord.items.flatMap(item => [...item.poolTags]));
   };
 
   const restoreDiceConfigBackupTableTemplate = async (
     templateValue: unknown,
     stats: DiceConfigBackupApplyStats,
+    onImportAttempt?: () => void,
   ): Promise<void> => {
     if (templateValue === undefined) {
       stats.skipped += 1;
@@ -37211,7 +37662,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     }
 
     const template = cloneDiceConfigBackupValue(templateValue);
+    onImportAttempt?.();
     const result = await Promise.resolve(api.importTemplateFromData(template, { scope: 'chat' }));
+    if (isDiceConfigBackupRecord(result) && result.success === false) {
+      const message = typeof result.message === 'string' ? result.message : '数据库模板导入失败';
+      throw new Error(message);
+    }
     console.info('[DICE]配置备份已调用数据库本体 API 导入表格模板:', result);
     stats.added += 1;
   };
@@ -37220,11 +37676,17 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     moduleId: DiceConfigBackupModuleId,
     payload: DiceConfigBackupModulePayload,
     stats: DiceConfigBackupApplyStats,
+    options: {
+      gachaItemIdMap?: Map<string, string>;
+      onTableTemplateImportAttempt?: () => void;
+      rawData?: unknown;
+    } = {},
   ): Promise<void> => {
     if (moduleId === 'tableTemplate') {
       await restoreDiceConfigBackupTableTemplate(
         payload.resources?.[DICE_CONFIG_BACKUP_TABLE_TEMPLATE_RESOURCE_KEY],
         stats,
+        options.onTableTemplateImportAttempt,
       );
       return;
     }
@@ -37232,20 +37694,28 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     await restoreDiceConfigBackupGachaCatalogRecords(
       payload.resources?.[DICE_CONFIG_BACKUP_GACHA_CATALOG_RESOURCE_KEY],
       stats,
+      options.gachaItemIdMap,
+      options.rawData,
     );
   };
 
   const restoreDiceConfigBackupGachaCatalogSnapshot = async (
-    snapshot: readonly GachaCatalogRecord[] | null,
-  ): Promise<void> => {
-    if (!snapshot) return;
-    const cleared = await GachaCatalogDB.clear();
-    if (!cleared) return;
-    for (const record of snapshot) {
-      await GachaCatalogDB.put(cloneDiceConfigBackupValue(record));
+    snapshot: DiceConfigBackupGachaCatalogRollbackSnapshot | null,
+  ): Promise<string[]> => {
+    const warnings: string[] = [];
+    if (!snapshot) return warnings;
+    if (!snapshot.records) {
+      warnings.push(snapshot.warning || '骰子商城配置与自定义物品: 恢复前没有可用回滚快照，无法自动撤回已导入的目录。');
+      return warnings;
+    }
+    const restored = await GachaCatalogDB.replaceAll(snapshot.records.map(record => cloneDiceConfigBackupValue(record)));
+    if (!restored) {
+      warnings.push('骰子商城配置与自定义物品: 回滚 IndexedDB 目录失败，可能残留部分导入内容。');
+      return warnings;
     }
     gachaCatalogCache = null;
     gachaCatalogLoadTask = null;
+    return warnings;
   };
 
   const syncDiceConfigBackupRuntimeAfterRestore = (
@@ -37262,6 +37732,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     ActionPresetManager.clearCache();
     DashboardPresetManager.clearCache();
     RenderPresetManager.clearCache();
+    TableTemplateRequirementPresetManager.clearCache();
     AvatarManager._cache = null;
     dashboardRuntimeConfigCache = null;
     if (restoredModuleIds.includes('gachaSettings')) {
@@ -37276,7 +37747,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     if (restoredModuleIds.includes('regex')) {
       const activeRegexPreset = RegexPresetManager.getActivePreset();
       if (activeRegexPreset) {
-        Store.set(STORAGE_KEY_REGEX_RULES, cloneDiceConfigBackupValue(activeRegexPreset.rules || []));
+        if (!Store.set(STORAGE_KEY_REGEX_RULES, cloneDiceConfigBackupValue(activeRegexPreset.rules || []))) {
+          throw new Error('正则规则同步保存失败');
+        }
         RegexTransformationManager.clearCache();
       }
     }
@@ -37318,6 +37791,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const idMappings = new Map<string, Map<string, string>>();
     const pendingActiveWrites: DiceConfigBackupPendingActiveWrite[] = [];
     const affectedKeys = new Set<string>();
+    const hasGachaCatalogResource =
+      selectedIds.includes('gachaSettings') &&
+      Array.isArray(backup.modules.gachaSettings?.resources?.[DICE_CONFIG_BACKUP_GACHA_CATALOG_RESOURCE_KEY]);
+    const incomingGachaItemSettings = normalizeDiceConfigBackupGachaItemSettings(
+      selectedIds.includes('gachaSettings')
+        ? backup.modules.gachaSettings?.storage?.[STORAGE_KEY_GACHA_ITEM_SETTINGS]
+        : undefined,
+    );
+    const gachaItemSettingSourceIds = new Set(Object.keys(incomingGachaItemSettings?.items || {}));
 
     selectedIds.forEach(moduleId => {
       const definition = getDiceConfigBackupModuleDefinition(moduleId);
@@ -37327,20 +37809,43 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         if (definition.storageKeys.includes(key)) affectedKeys.add(key);
       });
     });
+    if (selectedIds.includes('regex')) affectedKeys.add(STORAGE_KEY_REGEX_RULES);
+    if (hasGachaCatalogResource) affectedKeys.add(STORAGE_KEY_GACHA_POOL_SETTINGS);
 
     const rollbackValues = new Map<string, string | null>();
     affectedKeys.forEach(key => rollbackValues.set(key, localStorage.getItem(key)));
     const gachaCatalogRollbackSnapshot =
-      selectedIds.includes('gachaSettings') && backup.modules.gachaSettings?.resources
-        ? await collectDiceConfigBackupGachaCatalogRecords()
+      hasGachaCatalogResource
+        ? await collectDiceConfigBackupGachaCatalogRollbackSnapshot()
         : null;
+    if (gachaCatalogRollbackSnapshot?.warning) throw new Error(gachaCatalogRollbackSnapshot.warning);
+    const tableTemplateRollbackSnapshot =
+      selectedIds.includes('tableTemplate') && hasDiceConfigBackupTableTemplateResource(backup.modules.tableTemplate)
+        ? getDiceConfigBackupTableTemplateRollbackSnapshot()
+        : undefined;
+    if (tableTemplateRollbackSnapshot?.warning) throw new Error(tableTemplateRollbackSnapshot.warning);
+    const deferredTableTemplatePayload =
+      selectedIds.includes('tableTemplate') && backup.modules.tableTemplate
+        ? backup.modules.tableTemplate
+        : null;
+    const deferredGachaPayload =
+      selectedIds.includes('gachaSettings') && backup.modules.gachaSettings ? backup.modules.gachaSettings : null;
+    const gachaItemIdMap = new Map<string, string>();
+    let tableTemplateResourceImportAttempted = false;
+    let latestRestoreRawData: unknown = getRuntimeGachaRawData();
+    const getTouchedCount = () => stats.added + stats.overwritten + stats.skipped;
+    const pushRestoredModule = (moduleId: DiceConfigBackupModuleId, touchedBefore: number) => {
+      const definition = getDiceConfigBackupModuleDefinition(moduleId);
+      if (!definition || getTouchedCount() <= touchedBefore) return;
+      if (!stats.restoredModules.includes(definition.name)) stats.restoredModules.push(definition.name);
+    };
 
     try {
       for (const moduleId of selectedIds) {
         const definition = getDiceConfigBackupModuleDefinition(moduleId);
         const payload = backup.modules[moduleId];
         if (!definition || !payload) continue;
-        const moduleTouchedBefore = stats.added + stats.overwritten + stats.skipped;
+        const moduleTouchedBefore = getTouchedCount();
         if (payload.warnings?.length) stats.warnings.push(...payload.warnings);
 
         Object.entries(payload.storage).forEach(([key, value]) => {
@@ -37355,32 +37860,82 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           }
           applyDiceConfigBackupValue(key, value, definition.name, stats, idMappings);
         });
-        await restoreDiceConfigBackupModuleResources(moduleId, payload, stats);
-
-        if (stats.added + stats.overwritten + stats.skipped > moduleTouchedBefore) {
-          stats.restoredModules.push(definition.name);
-        }
+        pushRestoredModule(moduleId, moduleTouchedBefore);
       }
 
       pendingActiveWrites.forEach(write => applyDiceConfigBackupActiveValue(write, stats, idMappings));
+      if (deferredTableTemplatePayload) {
+        const moduleTouchedBefore = getTouchedCount();
+        const resourceAddedBefore = stats.added;
+        await restoreDiceConfigBackupModuleResources('tableTemplate', deferredTableTemplatePayload, stats, {
+          onTableTemplateImportAttempt: () => {
+            tableTemplateResourceImportAttempted = true;
+          },
+        });
+        const tableTemplateResourceImported = stats.added > resourceAddedBefore;
+        pushRestoredModule('tableTemplate', moduleTouchedBefore);
+        if (tableTemplateResourceImported) {
+          cachedRawData = null;
+          syncDiceConfigBackupRuntimeAfterRestore(selectedIds, { closeSettings: true });
+          latestRestoreRawData = getTableData({ silent: true }) || getRuntimeGachaRawData();
+        }
+      }
+      if (deferredGachaPayload) {
+        const moduleTouchedBefore = getTouchedCount();
+        await restoreDiceConfigBackupModuleResources('gachaSettings', deferredGachaPayload, stats, {
+          gachaItemIdMap,
+          rawData: latestRestoreRawData,
+        });
+        remapDiceConfigBackupGachaItemSettings(gachaItemIdMap, gachaItemSettingSourceIds);
+        pushRestoredModule('gachaSettings', moduleTouchedBefore);
+      }
       syncDiceConfigBackupRuntimeAfterRestore(selectedIds, { closeSettings: true });
       return stats;
     } catch (error) {
+      const rollbackWarnings: string[] = [];
       rollbackValues.forEach((value, key) => {
-        if (value === null) {
-          localStorage.removeItem(key);
-        } else {
-          localStorage.setItem(key, value);
+        try {
+          if (value === null) {
+            localStorage.removeItem(key);
+          } else {
+            localStorage.setItem(key, value);
+          }
+        } catch (rollbackError) {
+          const message = rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
+          rollbackWarnings.push(`${key} 回滚失败：${message}`);
         }
       });
-      await restoreDiceConfigBackupGachaCatalogSnapshot(gachaCatalogRollbackSnapshot);
-      syncDiceConfigBackupRuntimeAfterRestore([]);
+      rollbackWarnings.push(
+        ...(await restoreDiceConfigBackupGachaCatalogSnapshot(gachaCatalogRollbackSnapshot)),
+        ...(tableTemplateResourceImportAttempted
+          ? await restoreDiceConfigBackupTableTemplateRollbackSnapshot(tableTemplateRollbackSnapshot)
+          : []),
+      );
+      try {
+        syncDiceConfigBackupRuntimeAfterRestore(selectedIds);
+      } catch (syncError) {
+        const message = syncError instanceof Error ? syncError.message : String(syncError);
+        rollbackWarnings.push(`恢复失败后的界面刷新也失败：${message}`);
+      }
+      if (rollbackWarnings.length > 0) {
+        stats.warnings.push(...rollbackWarnings);
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`${message}；回滚提示：${rollbackWarnings.join('；')}`);
+      }
       throw error;
     }
   };
 
   const getDiceConfigBackupAvailableModuleIds = (backup: DiceConfigBackupDocument): DiceConfigBackupModuleId[] =>
-    DICE_CONFIG_BACKUP_MODULES.map(module => module.id).filter(moduleId => Boolean(backup.modules[moduleId]));
+    DICE_CONFIG_BACKUP_MODULES.filter(module => {
+      const payload = backup.modules[module.id];
+      if (!payload) return false;
+      if (module.id === 'tableTemplate') return hasDiceConfigBackupTableTemplateResource(payload);
+      return (
+        hasDiceConfigBackupRecoverableStorage(payload, module) ||
+        getDiceConfigBackupModuleResourceCount(payload, module.id) > 0
+      );
+    }).map(module => module.id);
 
   const getDiceConfigBackupSelectedModuleIdsFromDialog = (dialog: JQuery): DiceConfigBackupModuleId[] =>
     normalizeDiceConfigBackupSelectedModuleIds(
@@ -37388,6 +37943,18 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         .find<HTMLInputElement>('.acu-config-backup-module-checkbox:checked')
         .map((_, element) => String(element.value || ''))
         .get(),
+    );
+
+  const getDiceConfigBackupRestoreWarnings = (
+    backup: DiceConfigBackupDocument,
+    warnings: readonly string[],
+    moduleIds: readonly DiceConfigBackupModuleId[],
+  ): string[] =>
+    Array.from(
+      new Set([
+        ...warnings,
+        ...moduleIds.flatMap(moduleId => backup.modules[moduleId]?.warnings || []),
+      ]),
     );
 
   const getDiceConfigBackupModuleCountText = (
@@ -37414,7 +37981,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         if (!definition) return '';
         const payload = backup?.modules[moduleId];
         const storageCount = payload ? Object.keys(payload.storage).length : definition.storageKeys.length;
-        const resourceCount = getDiceConfigBackupModuleResourceCount(payload);
+        const resourceCount = getDiceConfigBackupModuleResourceCount(payload, moduleId);
         const countText = getDiceConfigBackupModuleCountText(moduleId, storageCount, resourceCount, Boolean(payload));
         const deprecatedBadgeHtml =
           definition.deprecated && definition.deprecatedReason
@@ -37451,6 +38018,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       </div>`;
   };
 
+  const renderDiceConfigBackupWarningSlot = (warnings: readonly string[]): string =>
+    `<div class="acu-config-backup-warning-slot">${renderDiceConfigBackupWarningList(warnings)}</div>`;
+
   const renderDiceConfigBackupPrivacyNotice = (mode: 'export' | 'restore'): string => {
     const title = mode === 'export' ? '公开分享前请检查备份文件' : '恢复前请确认备份来源可信';
     const message =
@@ -37485,25 +38055,19 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
   const renderDiceConfigBackupRestoreBody = (backup: DiceConfigBackupDocument, warnings: readonly string[]): string => {
     const moduleIds = getDiceConfigBackupAvailableModuleIds(backup);
+    const allWarnings = getDiceConfigBackupRestoreWarnings(backup, warnings, moduleIds);
     const storageKeyCount = moduleIds.reduce(
       (count, moduleId) => count + Object.keys(backup.modules[moduleId]?.storage || {}).length,
       0,
     );
     const resourceCount = moduleIds.reduce(
-      (count, moduleId) => count + getDiceConfigBackupModuleResourceCount(backup.modules[moduleId]),
+      (count, moduleId) => count + getDiceConfigBackupModuleResourceCount(backup.modules[moduleId], moduleId),
       0,
     );
     const itemCountText =
       storageKeyCount > 0 && resourceCount > 0
         ? `${storageKeyCount} + ${resourceCount}`
         : String(storageKeyCount + resourceCount);
-    const tableTemplateNotice = moduleIds.includes('tableTemplate')
-      ? `
-        <div class="acu-config-backup-template-notice">
-          <i class="fa-solid fa-database acu-config-backup-template-icon"></i>
-          <span>备份中包含数据库表格模板。恢复时会把它导入到数据库模板列表；如果已经有同名模板，会覆盖同名模板。</span>
-        </div>`
-      : '';
     return `
       <div class="acu-config-backup-content">
         ${renderDiceConfigBackupPrivacyNotice('restore')}
@@ -37512,8 +38076,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           <div class="acu-config-backup-summary-card"><div class="acu-config-backup-summary-label">模块</div><div class="acu-config-backup-summary-value">${moduleIds.length} 个</div></div>
           <div class="acu-config-backup-summary-card"><div class="acu-config-backup-summary-label">配置/自定义项</div><div class="acu-config-backup-summary-value">${escapeHtml(itemCountText)} 项</div></div>
         </div>
-        ${renderDiceConfigBackupWarningList(warnings)}
-        ${tableTemplateNotice}
+        ${renderDiceConfigBackupWarningSlot(allWarnings)}
         <div class="acu-config-backup-section-head">
           <div class="acu-config-backup-section-title">选择要恢复的配置模块</div>
           <div class="acu-config-backup-selection-actions">
@@ -37575,19 +38138,35 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     $('body').append(dialog);
     bindTutorialButtonsIn(dialog);
     setupOverlayClose(dialog, 'acu-config-backup-overlay', closeDialog);
+
+    const updateRestoreWarningSlot = () => {
+      if (!parsedBackup) return;
+      const availableIds = getDiceConfigBackupAvailableModuleIds(parsedBackup);
+      const selectedIds = getDiceConfigBackupSelectedModuleIdsFromDialog(dialog).filter(moduleId =>
+        availableIds.includes(moduleId),
+      );
+      dialog
+        .find('.acu-config-backup-warning-slot')
+        .html(renderDiceConfigBackupWarningList(getDiceConfigBackupRestoreWarnings(parsedBackup, parsedWarnings, selectedIds)));
+    };
+
     dialog.on('click', '.acu-config-backup-close', closeDialog);
     dialog.on('click', '#acu-config-backup-cancel', closeDialog);
     dialog.on('click', '.acu-config-backup-select-all', () => {
       dialog.find<HTMLInputElement>('.acu-config-backup-module-checkbox').prop('checked', true);
+      updateRestoreWarningSlot();
     });
     dialog.on('click', '.acu-config-backup-invert', () => {
       dialog.find<HTMLInputElement>('.acu-config-backup-module-checkbox').each((_, element) => {
         element.checked = !element.checked;
       });
+      updateRestoreWarningSlot();
     });
     dialog.on('click', '.acu-config-backup-clear', () => {
       dialog.find<HTMLInputElement>('.acu-config-backup-module-checkbox').prop('checked', false);
+      updateRestoreWarningSlot();
     });
+    dialog.on('change', '.acu-config-backup-module-checkbox', updateRestoreWarningSlot);
     dialog.on('click', '#acu-config-backup-export', async function () {
       const button = this as HTMLButtonElement;
       try {
@@ -37693,52 +38272,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   const getTutorialButtonHtml = (scope: TutorialScope, title = '查看本界面教程', extraClass = ''): string =>
     `<button class="acu-view-btn acu-panel-tutorial-btn ${extraClass}" data-tutorial-scope="${scope}" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}"><i class="fa-solid fa-circle-question"></i></button>`;
 
-  const TUTORIAL_SCOPES: readonly TutorialScope[] = [
-    'core',
-    'settings',
-    'settingsAppearance',
-    'settingsLayout',
-    'settingsPosition',
-    'settingsOptions',
-    'settingsTables',
-    'settingsDicePresets',
-    'settingsAdvanced',
-    'templateInspection',
-    'configBackup',
-    'dice',
-    'contestDice',
-    'diceHistory',
-    'diceSettings',
-    'advancedPresetManager',
-    'advancedPresetEditor',
-    'actionPresetManager',
-    'actionPresetEditor',
-    'globalInteractions',
-    'dashboardPresetManager',
-    'dashboardPresetEditor',
-    'renderPresetManager',
-    'renderPresetEditor',
-    'attributePresetEditor',
-    'attributePresetManager',
-    'map',
-    'relationshipGraph',
-    'avatarManager',
-    'customIconManager',
-    'table',
-    'optionTable',
-    'checkSuggestionTable',
-    'mvu',
-    'changes',
-    'favorites',
-    'inventory',
-    'inventoryDetail',
-    'shardShop',
-    'gacha',
-    'gachaSettings',
-    'gachaItemEditor',
-  ];
-
-  const isTutorialScope = (value: string): value is TutorialScope => TUTORIAL_SCOPES.includes(value as TutorialScope);
+  const isTutorialScope = (value: string): value is TutorialScope => TUTORIAL_SCOPE_LIST.includes(value as TutorialScope);
 
   let tutorialButtonEventsBound = false;
 
@@ -38656,30 +39190,278 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return String(sourceRecord?.ddl || '');
   };
 
+  const stripCrudSqlComments = (ddl: unknown): string => {
+    const text = String(ddl || '');
+    let result = '';
+    let index = 0;
+    let inSingleQuote = false;
+    let inDoubleQuote = false;
+    let inBracketQuote = false;
+    let inBacktickQuote = false;
+    while (index < text.length) {
+      const char = text[index];
+      const next = text[index + 1];
+      if (inSingleQuote) {
+        result += char;
+        if (char === "'" && next === "'") {
+          result += next;
+          index += 2;
+          continue;
+        }
+        if (char === "'") inSingleQuote = false;
+        index += 1;
+        continue;
+      }
+      if (inDoubleQuote) {
+        result += char;
+        if (char === '"' && next === '"') {
+          result += next;
+          index += 2;
+          continue;
+        }
+        if (char === '"') inDoubleQuote = false;
+        index += 1;
+        continue;
+      }
+      if (inBracketQuote) {
+        result += char;
+        if (char === ']') inBracketQuote = false;
+        index += 1;
+        continue;
+      }
+      if (inBacktickQuote) {
+        result += char;
+        if (char === '`' && next === '`') {
+          result += next;
+          index += 2;
+          continue;
+        }
+        if (char === '`') inBacktickQuote = false;
+        index += 1;
+        continue;
+      }
+      if (char === "'") {
+        inSingleQuote = true;
+        result += char;
+        index += 1;
+        continue;
+      }
+      if (char === '"') {
+        inDoubleQuote = true;
+        result += char;
+        index += 1;
+        continue;
+      }
+      if (char === '[') {
+        inBracketQuote = true;
+        result += char;
+        index += 1;
+        continue;
+      }
+      if (char === '`') {
+        inBacktickQuote = true;
+        result += char;
+        index += 1;
+        continue;
+      }
+      if (char === '-' && next === '-') {
+        while (index < text.length && text[index] !== '\n') index += 1;
+        if (index < text.length) result += text[index++];
+        continue;
+      }
+      if (char === '/' && next === '*') {
+        index += 2;
+        while (index < text.length && !(text[index] === '*' && text[index + 1] === '/')) {
+          if (text[index] === '\n') result += '\n';
+          index += 1;
+        }
+        index += index < text.length ? 2 : 0;
+        continue;
+      }
+      result += char;
+      index += 1;
+    }
+    return result;
+  };
+
+  const stripCrudSqlBlockComments = (ddl: unknown): string => {
+    const text = String(ddl || '');
+    let result = '';
+    let index = 0;
+    let inSingleQuote = false;
+    let inDoubleQuote = false;
+    let inBracketQuote = false;
+    let inBacktickQuote = false;
+    while (index < text.length) {
+      const char = text[index];
+      const next = text[index + 1];
+      if (inSingleQuote) {
+        result += char;
+        if (char === "'" && next === "'") {
+          result += next;
+          index += 2;
+          continue;
+        }
+        if (char === "'") inSingleQuote = false;
+        index += 1;
+        continue;
+      }
+      if (inDoubleQuote) {
+        result += char;
+        if (char === '"' && next === '"') {
+          result += next;
+          index += 2;
+          continue;
+        }
+        if (char === '"') inDoubleQuote = false;
+        index += 1;
+        continue;
+      }
+      if (inBracketQuote) {
+        result += char;
+        if (char === ']') inBracketQuote = false;
+        index += 1;
+        continue;
+      }
+      if (inBacktickQuote) {
+        result += char;
+        if (char === '`' && next === '`') {
+          result += next;
+          index += 2;
+          continue;
+        }
+        if (char === '`') inBacktickQuote = false;
+        index += 1;
+        continue;
+      }
+      if (char === "'") {
+        inSingleQuote = true;
+        result += char;
+        index += 1;
+        continue;
+      }
+      if (char === '"') {
+        inDoubleQuote = true;
+        result += char;
+        index += 1;
+        continue;
+      }
+      if (char === '[') {
+        inBracketQuote = true;
+        result += char;
+        index += 1;
+        continue;
+      }
+      if (char === '`') {
+        inBacktickQuote = true;
+        result += char;
+        index += 1;
+        continue;
+      }
+      if (char === '/' && next === '*') {
+        index += 2;
+        while (index < text.length && !(text[index] === '*' && text[index + 1] === '/')) {
+          if (text[index] === '\n') result += '\n';
+          index += 1;
+        }
+        index += index < text.length ? 2 : 0;
+        continue;
+      }
+      result += char;
+      index += 1;
+    }
+    return result;
+  };
+
+  const stripCrudSqlNonStructuralComments = (ddl: unknown): string =>
+    stripCrudSqlBlockComments(ddl)
+      .split(/\r?\n/)
+      .filter(line => !/^\s*--/.test(line))
+      .join('\n');
+
+  const CRUD_SQL_IDENTIFIER_PATTERN = '(?:"((?:[^"]|"")*)"|`((?:[^`]|``)*)`|\\[([^\\]]+)\\]|([A-Za-z_][A-Za-z0-9_]*))';
+
+  const decodeCrudSqlIdentifier = (...values: unknown[]): string => {
+    const raw = values.find(value => typeof value === 'string');
+    return String(raw || '')
+      .replace(/""/g, '"')
+      .replace(/``/g, '`')
+      .replace(/]]/g, ']')
+      .trim();
+  };
+
+  const normalizeCrudHeaderLookupKey = (value: unknown): string =>
+    normalizeDiffText(value)
+      .replace(/（/g, '(')
+      .replace(/）/g, ')');
+
+  const normalizeCrudSqlComment = (comment: unknown): string =>
+    String(comment || '')
+      .replace(/[，,].*$/, '')
+      .trim();
+
+  const getCrudSqlCommentAliases = (comment: unknown): string[] => {
+    const fullComment = normalizeCrudSqlComment(comment);
+    if (!fullComment) return [];
+    const aliases = [fullComment];
+    const looseComment = fullComment.replace(/[（(].*$/, '').trim();
+    if (looseComment && looseComment !== fullComment) aliases.push(looseComment);
+    return Array.from(new Set(aliases));
+  };
+
+  const addCrudColumnAlias = (aliases: Record<string, string>, alias: string, columnName: string): void => {
+    const trimmedAlias = normalizeDiffText(alias);
+    const normalizedAlias = normalizeCrudHeaderLookupKey(trimmedAlias);
+    [trimmedAlias, normalizedAlias].forEach(key => {
+      if (key && !aliases[key]) aliases[key] = columnName;
+    });
+  };
+
+  const getCrudColumnNameForHeader = (columnAliasMap: Record<string, string>, headerName: unknown): string => {
+    const trimmedHeader = normalizeDiffText(headerName);
+    return (
+      columnAliasMap[trimmedHeader] ||
+      columnAliasMap[normalizeCrudHeaderLookupKey(trimmedHeader)] ||
+      trimmedHeader
+    );
+  };
+
+  const parseCrudColumnDefinitionLine = (
+    line: string,
+  ): { columnName: string; definition: string; comment: string } | null => {
+    if (/^\s*CREATE\s+TABLE\b/i.test(line)) return null;
+    const match = line.match(new RegExp(`^\\s*${CRUD_SQL_IDENTIFIER_PATTERN}(?=\\s)(.*?)(?:--\\s*(.+?)\\s*)?$`));
+    if (!match) return null;
+    const columnName = decodeCrudSqlIdentifier(match[1], match[2], match[3], match[4]);
+    if (!columnName) return null;
+    return {
+      columnName,
+      definition: String(match[5] || ''),
+      comment: normalizeCrudSqlComment(match[6]),
+    };
+  };
+
   const getCrudSqlTableName = (sheet: unknown): string => {
-    const ddl = getCrudSheetDdl(sheet);
-    const match = ddl.match(/\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"[]?([A-Za-z_][A-Za-z0-9_]*)/i);
-    return normalizeDiffText(match?.[1]);
+    const ddl = stripCrudSqlComments(getCrudSheetDdl(sheet));
+    const match = ddl.match(
+      new RegExp(`\\bCREATE\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?${CRUD_SQL_IDENTIFIER_PATTERN}`, 'i'),
+    );
+    return normalizeDiffText(decodeCrudSqlIdentifier(match?.[1], match?.[2], match?.[3], match?.[4]));
   };
 
   const getCrudTableIdentifier = (sheet: unknown, fallbackName: string): string =>
     getCrudSqlTableName(sheet) || normalizeDiffText(fallbackName);
 
   const buildCrudColumnAliasMap = (sheet: unknown): Record<string, string> => {
-    const ddl = getCrudSheetDdl(sheet);
+    const ddl = stripCrudSqlNonStructuralComments(getCrudSheetDdl(sheet));
     const aliases: Record<string, string> = {};
     if (!ddl) return aliases;
 
     ddl.split(/\r?\n/).forEach(line => {
-      if (/^\s*CREATE\s+TABLE\b/i.test(line)) return;
-      const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\b.*?--\s*(.+?)\s*$/);
-      if (!match) return;
-      const columnName = match[1];
-      const comment = match[2]
-        .replace(/[，,].*$/, '')
-        .replace(/[（(].*$/, '')
-        .trim();
-      if (comment) aliases[comment] = columnName;
+      const parsed = parseCrudColumnDefinitionLine(line);
+      if (!parsed) return;
+      const { columnName, comment } = parsed;
+      getCrudSqlCommentAliases(comment).forEach(alias => addCrudColumnAlias(aliases, alias, columnName));
     });
 
     return aliases;
@@ -38695,21 +39477,38 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return values;
   };
 
-  const buildCrudEnumConstraintMap = (sheet: unknown): Record<string, string[]> => {
-    const ddl = getCrudSheetDdl(sheet);
-    const constraints: Record<string, string[]> = {};
+  type RuntimeCrudEnumConstraint = {
+    values: string[];
+    nullable: boolean;
+  };
+
+  const buildCrudEnumConstraintMap = (sheet: unknown): Record<string, RuntimeCrudEnumConstraint> => {
+    const ddl = stripCrudSqlComments(getCrudSheetDdl(sheet));
+    const constraints: Record<string, RuntimeCrudEnumConstraint> = {};
     if (!ddl) return constraints;
 
-    const regex = /CHECK\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s+IN\s*\(([^)]*)\)\s*\)/gi;
+    const regex = new RegExp(
+      `CHECK\\s*\\(\\s*(?:${CRUD_SQL_IDENTIFIER_PATTERN}\\s+IS\\s+NULL\\s+OR\\s*)?${CRUD_SQL_IDENTIFIER_PATTERN}\\s+IN\\s*\\(([^)]*)\\)\\s*\\)`,
+      'gi',
+    );
     let match: RegExpExecArray | null = null;
     while ((match = regex.exec(ddl)) !== null) {
-      const columnName = String(match[1] || '').trim();
-      const values = parseSqlQuotedValues(match[2] || '');
-      if (columnName && values.length > 0) constraints[columnName] = values;
+      const nullableColumnName = decodeCrudSqlIdentifier(match[1], match[2], match[3], match[4]);
+      const columnName = decodeCrudSqlIdentifier(match[5], match[6], match[7], match[8]);
+      const values = parseSqlQuotedValues(match[9] || '');
+      if (columnName && values.length > 0) {
+        constraints[columnName] = {
+          values,
+          nullable: Boolean(nullableColumnName && nullableColumnName === columnName),
+        };
+      }
     }
 
     return constraints;
   };
+
+  const isCrudNullableEnumEmptyValue = (value: unknown): boolean =>
+    value === null || value === undefined || String(value).trim() === '';
 
   const assertCrudEnumConstraints = (
     tableName: string,
@@ -38731,35 +39530,120 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const headerName = String(header || '').trim();
       if (!headerName) return;
 
-      const columnName = String(columnAliasMap[headerName] || headerName).trim();
-      const allowedValues = constraints[columnName];
-      if (!allowedValues || allowedValues.length === 0) return;
+      const columnName = getCrudColumnNameForHeader(columnAliasMap, headerName);
+      const constraint = constraints[columnName];
+      if (!constraint || constraint.values.length === 0) return;
+      if (constraint.nullable && isCrudNullableEnumEmptyValue(row[index])) return;
 
       const value = String(row[index] ?? '').trim();
-      if (allowedValues.includes(value)) return;
+      if (constraint.values.includes(value)) return;
 
       throw new Error(
-        `表 "${tableName}" 第 ${rowIndex + 1} 行的「${headerName}」不能写入「${value || '空值'}」：数据库结构只允许 ${allowedValues.join('、')}。请调整表格结构/枚举，或把要写入的内容改为允许值。`,
+        `表 "${tableName}" 第 ${rowIndex + 1} 行的「${headerName}」不能写入「${value || '空值'}」：数据库结构只允许 ${constraint.values.join('、')}。请调整表格结构/枚举，或把要写入的内容改为允许值。`,
+      );
+    });
+  };
+
+  const buildCrudLengthConstraintMap = (sheet: unknown): Record<string, number> => {
+    const ddl = stripCrudSqlComments(getCrudSheetDdl(sheet));
+    const constraints: Record<string, number> = {};
+    if (!ddl) return constraints;
+
+    const regex = new RegExp(
+      `CHECK\\s*\\(\\s*(?:${CRUD_SQL_IDENTIFIER_PATTERN}\\s+IS\\s+NULL\\s+OR\\s*)?LENGTH\\s*\\(\\s*${CRUD_SQL_IDENTIFIER_PATTERN}\\s*\\)\\s*(<=|<)\\s*(\\d+)\\s*\\)`,
+      'gi',
+    );
+    let match: RegExpExecArray | null = null;
+    while ((match = regex.exec(ddl)) !== null) {
+      const columnName = decodeCrudSqlIdentifier(match[5], match[6], match[7], match[8]);
+      const operator = String(match[9] || '').trim();
+      const rawLimit = Math.floor(Number(match[10]) || 0);
+      const maxLength = operator === '<' ? rawLimit - 1 : rawLimit;
+      if (columnName && maxLength >= 0) {
+        constraints[columnName] = constraints[columnName] === undefined ? maxLength : Math.min(constraints[columnName], maxLength);
+      }
+    }
+
+    return constraints;
+  };
+
+  const getCrudUnsupportedFallbackConstraintText = (sheet: unknown): string => {
+    let ddl = stripCrudSqlComments(getCrudSheetDdl(sheet));
+    if (!ddl) return '';
+    const enumCheckRegex = new RegExp(
+      `CHECK\\s*\\(\\s*(?:${CRUD_SQL_IDENTIFIER_PATTERN}\\s+IS\\s+NULL\\s+OR\\s*)?${CRUD_SQL_IDENTIFIER_PATTERN}\\s+IN\\s*\\(([^)]*)\\)\\s*\\)`,
+      'gi',
+    );
+    const lengthCheckRegex = new RegExp(
+      `CHECK\\s*\\(\\s*(?:${CRUD_SQL_IDENTIFIER_PATTERN}\\s+IS\\s+NULL\\s+OR\\s*)?LENGTH\\s*\\(\\s*${CRUD_SQL_IDENTIFIER_PATTERN}\\s*\\)\\s*(?:<=|<)\\s*\\d+\\s*\\)`,
+      'gi',
+    );
+    ddl = ddl.replace(enumCheckRegex, '').replace(lengthCheckRegex, '');
+    const unsupportedConstraintPatterns = [
+      /\bCHECK\s*\([^;\n]*/i,
+      /\bUNIQUE\b(?:\s*\([^)]*\))?/i,
+      /\b(?:FOREIGN\s+KEY|REFERENCES)\b[^,\n)]*/i,
+    ];
+    for (const pattern of unsupportedConstraintPatterns) {
+      const constraint = normalizeDiffText(ddl.match(pattern)?.[0]);
+      if (constraint) return constraint;
+    }
+    return '';
+  };
+
+  const assertCrudJsonFallbackAllowed = (tableName: string, sheet: unknown): void => {
+    const unsupportedConstraint = getCrudUnsupportedFallbackConstraintText(sheet);
+    if (!unsupportedConstraint) return;
+    throw new Error(
+      `更新 "${tableName}" 失败后已取消 JSON 回退保存：数据库结构包含当前无法本地复核的约束（${unsupportedConstraint}）。请修正单元格内容或表格结构后重试。`,
+    );
+  };
+
+  const assertCrudLengthConstraints = (
+    tableName: string,
+    headers,
+    row,
+    sheet,
+    rowIndex: number,
+    changedColumns?: Set<number>,
+    columnAliasMap = buildCrudColumnAliasMap(sheet),
+  ): void => {
+    if (!Array.isArray(row)) return;
+    if (!Array.isArray(headers)) return;
+    const constraints = buildCrudLengthConstraintMap(sheet);
+    if (Object.keys(constraints).length === 0) return;
+
+    headers.forEach((header, index) => {
+      if (index === 0) return;
+      if (changedColumns && !changedColumns.has(index)) return;
+      const headerName = String(header || '').trim();
+      if (!headerName) return;
+
+      const columnName = getCrudColumnNameForHeader(columnAliasMap, headerName);
+      const maxLength = constraints[columnName];
+      if (maxLength === undefined) return;
+
+      const value = String(row[index] ?? '');
+      const length = countUnicodeCharacters(value);
+      if (length <= maxLength) return;
+
+      throw new Error(
+        `表 "${tableName}" 第 ${rowIndex + 1} 行的「${headerName}」长度为 ${length}，超过数据库结构允许的 ${maxLength} 字。请缩短内容，或调整表格结构的长度约束。`,
       );
     });
   };
 
   const buildCrudRequiredHeaderSet = (sheet: unknown): Set<string> => {
-    const ddl = getCrudSheetDdl(sheet);
+    const ddl = stripCrudSqlNonStructuralComments(getCrudSheetDdl(sheet));
     const headers = new Set<string>();
     if (!ddl) return headers;
 
     ddl.split(/\r?\n/).forEach(line => {
-      const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\b(.*?)(?:--\s*(.+?)\s*)?$/);
-      if (!match) return;
-      const columnName = String(match[1] || '').trim();
-      const definition = String(match[2] || '');
+      const parsed = parseCrudColumnDefinitionLine(line);
+      if (!parsed) return;
+      const { columnName, definition, comment } = parsed;
       if (!/\bNOT\s+NULL\b/i.test(definition)) return;
       if (/\bPRIMARY\s+KEY\b/i.test(definition)) return;
-      const comment = String(match[3] || '')
-        .replace(/[，,].*$/, '')
-        .replace(/[（(].*$/, '')
-        .trim();
       if (columnName) headers.add(columnName);
       if (comment) headers.add(comment);
     });
@@ -38767,14 +39651,109 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return headers;
   };
 
-  const buildRowDataForCrud = (headers, row, changedColumns?: Set<number>) => {
+  const assertCrudRequiredColumnsRepresented = (tableName: string, headers, sheet): void => {
+    if (!Array.isArray(headers)) return;
+    const requiredHeaders = buildCrudRequiredHeaderSet(sheet);
+    if (requiredHeaders.size === 0) return;
+    const headerSet = new Set(headers.map(header => normalizeDiffText(header)).filter(Boolean));
+    const aliasMap = buildCrudColumnAliasMap(sheet);
+    const represented = new Set<string>();
+    const representedColumns = new Set<string>();
+    headerSet.forEach(headerName => {
+      represented.add(headerName);
+      represented.add(normalizeCrudHeaderLookupKey(headerName));
+      const columnName = getCrudColumnNameForHeader(aliasMap, headerName);
+      if (columnName) {
+        represented.add(columnName);
+        representedColumns.add(columnName);
+      }
+    });
+    Object.entries(aliasMap).forEach(([comment, columnName]) => {
+      if (representedColumns.has(String(columnName || '').trim())) represented.add(comment);
+    });
+    const missing = Array.from(requiredHeaders).filter(headerName => !represented.has(headerName));
+    if (missing.length === 0) return;
+    throw new Error(
+      `表 "${tableName}" 的 DDL 存在必填列未出现在表头中：${missing.join('、')}。请先修正表头/DDL，确保每个 NOT NULL 列都有可写入的表头或注释别名。`,
+    );
+  };
+
+  const getCrudRequiredColumnsByHeaderIndex = (
+    headers,
+    sheet,
+    columnAliasMap = buildCrudColumnAliasMap(sheet),
+  ): Map<number, string> => {
+    const result = new Map<number, string>();
+    if (!Array.isArray(headers)) return result;
+    const requiredHeaders = buildCrudRequiredHeaderSet(sheet);
+    if (requiredHeaders.size === 0) return result;
+    headers.forEach((header, index) => {
+      if (index === 0) return;
+      const headerName = normalizeDiffText(header);
+      if (!headerName) return;
+      const columnName = getCrudColumnNameForHeader(columnAliasMap, headerName);
+      if (requiredHeaders.has(headerName) || requiredHeaders.has(columnName)) {
+        result.set(index, headerName);
+      }
+    });
+    return result;
+  };
+
+  const assertCrudRequiredCellValues = (
+    tableName: string,
+    headers,
+    row,
+    sheet,
+    rowIndex: number,
+    columnAliasMap = buildCrudColumnAliasMap(sheet),
+  ): void => {
+    if (!Array.isArray(headers) || !Array.isArray(row)) return;
+    const requiredColumns = getCrudRequiredColumnsByHeaderIndex(headers, sheet, columnAliasMap);
+    if (requiredColumns.size === 0) return;
+    const missingColumns: string[] = [];
+    requiredColumns.forEach((headerName, index) => {
+      if (String(row[index] ?? '').trim() === '') missingColumns.push(headerName);
+    });
+    if (missingColumns.length > 0) {
+      throw new Error(
+        `表 "${tableName}" 第 ${rowIndex + 1} 行存在必填列为空：${missingColumns.join('、')}。请先补全这些字段，或调整数据库结构。`,
+      );
+    }
+  };
+
+  const getCrudCellValueForWrite = (
+    headers,
+    row,
+    index: number,
+    sheet: unknown,
+    columnAliasMap = buildCrudColumnAliasMap(sheet),
+    enumConstraints = buildCrudEnumConstraintMap(sheet),
+  ): unknown => {
+    const value = Array.isArray(row) ? row[index] : undefined;
+    const headerName = normalizeDiffText(Array.isArray(headers) ? headers[index] : '');
+    const columnName = getCrudColumnNameForHeader(columnAliasMap, headerName);
+    const constraint = columnName ? enumConstraints[columnName] : undefined;
+    if (constraint?.nullable && isCrudNullableEnumEmptyValue(value)) return null;
+    return value ?? '';
+  };
+
+  const buildRowDataForCrud = (
+    headers,
+    row,
+    changedColumns?: Set<number>,
+    sheet?: unknown,
+    columnAliasMap = sheet ? buildCrudColumnAliasMap(sheet) : {},
+    enumConstraints = sheet ? buildCrudEnumConstraintMap(sheet) : {},
+  ) => {
     const data: RuntimeCrudRowData = {};
     headers.forEach((header, index) => {
       if (index === 0) return;
       if (!header) return;
       if (changedColumns && !changedColumns.has(index)) return;
       const headerName = String(header);
-      data[headerName] = row?.[index] ?? '';
+      data[headerName] = sheet
+        ? getCrudCellValueForWrite(headers, row, index, sheet, columnAliasMap, enumConstraints)
+        : row?.[index] ?? '';
     });
     return data;
   };
@@ -38988,8 +39967,22 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const sheetKey = liveEntry?.key || input.sheetKey || '';
     if (!sheetKey) return false;
 
-    const value = input.nextRow[colIndex] ?? '';
+    const value = getCrudCellValueForWrite(
+      input.headers,
+      input.nextRow,
+      colIndex,
+      input.sheet,
+      input.columnAliasMap || buildCrudColumnAliasMap(input.sheet),
+    );
     patchCrudSheetCellInRecord(liveData, sheetKey, input.sheet, input.rowIndex, colIndex, value);
+    assertCrudRequiredCellValues(
+      input.tableName,
+      input.headers,
+      input.nextRow,
+      input.sheet,
+      input.rowIndex,
+      input.columnAliasMap || buildCrudColumnAliasMap(input.sheet),
+    );
     const persisted = await patchLatestChatSheetCellWithoutTracking(
       sheetKey,
       input.sheet,
@@ -39083,21 +40076,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   };
 
   const assertCrudInsertRequiredCells = (tableName: string, headers, row, sheet, rowIndex: number): void => {
-    if (!Array.isArray(headers) || !Array.isArray(row)) return;
-    const requiredHeaders = buildCrudRequiredHeaderSet(sheet);
-    if (requiredHeaders.size === 0) return;
-
-    const missingColumns: string[] = [];
-    headers.forEach((header, index) => {
-      if (index === 0) return;
-      const headerName = String(header || '').trim();
-      if (!headerName || !requiredHeaders.has(headerName)) return;
-      if (String(row[index] ?? '').trim() === '') missingColumns.push(headerName);
-    });
-
-    if (missingColumns.length > 0) {
+    try {
+      assertCrudRequiredCellValues(tableName, headers, row, sheet, rowIndex);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       throw new Error(
-        `向 "${tableName}" 追加第 ${rowIndex + 1} 行前发现必填列为空：${missingColumns.join('、')}。请先补全这些字段，或调整数据库结构。`,
+        message.replace(
+          `表 "${tableName}" 第 ${rowIndex + 1} 行存在必填列为空`,
+          `向 "${tableName}" 追加第 ${rowIndex + 1} 行前发现必填列为空`,
+        ),
       );
     }
   };
@@ -39125,7 +40112,17 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     if (writableColumns.size === 0) return writableColumns;
 
     const columnAliasMap = input.columnAliasMap || buildCrudColumnAliasMap(input.sheet);
+    assertCrudRequiredColumnsRepresented(input.tableName, input.headers, input.sheet);
     assertCrudEnumConstraints(
+      input.tableName,
+      input.headers,
+      input.nextRow,
+      input.sheet,
+      input.rowIndex,
+      writableColumns,
+      columnAliasMap,
+    );
+    assertCrudLengthConstraints(
       input.tableName,
       input.headers,
       input.nextRow,
@@ -39144,7 +40141,13 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           tableName: input.crudTableName,
           rowIndex: input.rowIndex + 1,
           colIdentifier: headerName,
-          value: input.nextRow[colIndex] ?? '',
+          value: getCrudCellValueForWrite(
+            input.headers,
+            input.nextRow,
+            colIndex,
+            input.sheet,
+            columnAliasMap,
+          ),
           skipNotify: true,
         });
       } catch (error) {
@@ -39153,6 +40156,33 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       }
       if (result === false || result === -1) {
         restoreCrudRowIdPreparation(rowIdPreparation);
+        assertCrudEnumConstraints(
+          input.tableName,
+          input.headers,
+          input.nextRow,
+          input.sheet,
+          input.rowIndex,
+          undefined,
+          columnAliasMap,
+        );
+        assertCrudLengthConstraints(
+          input.tableName,
+          input.headers,
+          input.nextRow,
+          input.sheet,
+          input.rowIndex,
+          undefined,
+          columnAliasMap,
+        );
+        assertCrudRequiredCellValues(
+          input.tableName,
+          input.headers,
+          input.nextRow,
+          input.sheet,
+          input.rowIndex,
+          columnAliasMap,
+        );
+        assertCrudJsonFallbackAllowed(input.tableName, input.sheet);
         if (rowIdPreparation && (await applyJsonCellFallbackForCrud(input, colIndex))) {
           continue;
         }
@@ -39231,6 +40261,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const desiredRows = getSheetRows(desiredSheet);
     const oldRows = getSheetRows(latestSheet);
     const columnAliasMap = buildCrudColumnAliasMap(desiredSheet);
+    assertCrudRequiredColumnsRepresented(tableName, headers, desiredSheet);
 
     if (desiredRows.length > oldRows.length) {
       assertAppendOnlyRows(oldRows, desiredRows);
@@ -39261,7 +40292,16 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           undefined,
           columnAliasMap,
         );
-        const rowData = buildRowDataForCrud(headers, desiredRows[index], undefined);
+        assertCrudLengthConstraints(
+          tableName,
+          headers,
+          desiredRows[index],
+          desiredSheet,
+          index,
+          undefined,
+          columnAliasMap,
+        );
+        const rowData = buildRowDataForCrud(headers, desiredRows[index], undefined, desiredSheet, columnAliasMap);
         const result = await api.insertRow({ tableName: crudTableName, data: rowData, skipNotify: true });
         if (result === false || result === -1) {
           throw new Error(`向 "${tableName}" 追加新行失败：数据库拒绝写入，请检查表结构、必填列和枚举约束。`);
@@ -39478,9 +40518,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         sourceData?.tableName || sourceData?.sqlTableName || sourceData?.databaseTableName,
       );
       if (directName) return directName;
-      const ddl = String(sourceData?.ddl || '');
-      const match = ddl.match(/\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"[]?([A-Za-z_][A-Za-z0-9_]*)/i);
-      return normalizeDiffText(match?.[1]);
+      const ddl = stripCrudSqlComments(sourceData?.ddl || '');
+      const match = ddl.match(
+        new RegExp(`\\bCREATE\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?${CRUD_SQL_IDENTIFIER_PATTERN}`, 'i'),
+      );
+      return normalizeDiffText(decodeCrudSqlIdentifier(match?.[1], match?.[2], match?.[3], match?.[4]));
     };
 
     const matchesTargetKey = (candidate: unknown): boolean => {
@@ -39629,6 +40671,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const crudTableName = getCrudTableIdentifier(entry.sheet, tableName);
       const nextRow = [...newRowData];
       const columnAliasMap = buildCrudColumnAliasMap(entry.sheet);
+      assertCrudRequiredColumnsRepresented(tableName, headers, entry.sheet);
       assertCrudInsertRequiredCells(tableName, headers, nextRow, entry.sheet, getSheetRows(entry.sheet).length);
       assertCrudEnumConstraints(
         tableName,
@@ -39639,7 +40682,16 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         undefined,
         columnAliasMap,
       );
-      const rowData = buildRowDataForCrud(headers, nextRow, undefined);
+      assertCrudLengthConstraints(
+        tableName,
+        headers,
+        nextRow,
+        entry.sheet,
+        getSheetRows(entry.sheet).length,
+        undefined,
+        columnAliasMap,
+      );
+      const rowData = buildRowDataForCrud(headers, nextRow, undefined, entry.sheet, columnAliasMap);
       const result = await api.insertRow({ tableName: crudTableName, data: rowData, skipNotify: true });
       if (result === false || result === -1) {
         throw new Error(`向 "${tableName}" 追加新行失败：数据库拒绝写入，请检查表结构、必填列和枚举约束。`);
@@ -43481,6 +44533,18 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         .slice(0, 60) || 'render_preset';
     const datePart = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
     return `acu_render_preset_ai_prompt_${safeName}_${datePart}.md`;
+  };
+
+  const buildTableTemplateRequirementPresetAgentPromptFilename = (presetName: string): string => {
+    const safeName =
+      presetName
+        .trim()
+        .replace(/[\\/:*?"<>|]+/g, '_')
+        .replace(/\s+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .slice(0, 60) || 'table_template_requirement_preset';
+    const datePart = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    return `acu_table_template_requirement_preset_ai_prompt_${safeName}_${datePart}.md`;
   };
 
   const buildGachaCatalogAgentPromptFilename = (poolName: string): string => {
@@ -49059,6 +50123,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           {
             name: existingPreset.name,
             description: existingPreset.description || '',
+            requirementLevels: existingPreset.requirementLevels,
             template: existingPreset.template,
           },
           null,
@@ -49071,10 +50136,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     const overlay = $(`
       <div class="acu-edit-overlay">
-        <div class="acu-edit-dialog acu-advanced-preset-editor-dialog acu-theme-${config.theme}">
+        <div class="acu-edit-dialog acu-advanced-preset-editor-dialog acu-table-template-requirement-preset-editor-dialog acu-theme-${config.theme}">
           <div class="acu-advanced-preset-header">
             <h3><i class="fa-solid fa-table-list"></i> ${isEdit ? '编辑' : '新建'}模板检验预设</h3>
             <div class="acu-advanced-preset-header-actions">
+              ${getTutorialButtonHtml('tableTemplateRequirementPresetEditor', '查看模板检验预设教程', 'acu-help-btn')}
               <button type="button" class="acu-close-btn" aria-label="关闭模板检验预设编辑器" title="关闭"><i class="fa-solid fa-times"></i></button>
             </div>
           </div>
@@ -49099,7 +50165,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                 </label>
               </div>
               <textarea id="table-template-requirement-preset-json" class="acu-preset-editor-textarea acu-advanced-preset-json-textarea"></textarea>
-              <div class="acu-advanced-preset-format-help-summary">
+              <div id="table-template-requirement-preset-format-help" class="acu-advanced-preset-format-help-summary">
                 <strong>分层要求：</strong>
                 <span>template 中出现的表、列和可选 sourceData / DDL / 配置会参与校验；可用 requirementLevels 标记 error、warning 或 info。</span>
               </div>
@@ -49108,6 +50174,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
           <div class="acu-advanced-preset-editor-footer">
             <div class="acu-advanced-preset-editor-tools">
+              <button id="table-template-requirement-preset-download-ai-prompt" type="button" class="acu-dialog-btn acu-advanced-preset-tool-btn">
+                <i class="fa-solid fa-file-arrow-down"></i> 下载 AI 提示词
+              </button>
               <button id="table-template-requirement-preset-validate" type="button" class="acu-dialog-btn acu-advanced-preset-tool-btn">
                 <i class="fa-solid fa-vial-circle-check"></i> 验证配置
               </button>
@@ -49126,6 +50195,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     `);
 
     $('body').append(overlay);
+    bindTutorialButtonsIn(overlay);
+
     const $jsonTextarea = overlay.find('#table-template-requirement-preset-json');
     $jsonTextarea.val(defaultJsonText);
 
@@ -49140,6 +50211,18 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       normalized.builtin = false;
       return normalized;
     };
+
+    overlay.find('#table-template-requirement-preset-download-ai-prompt').on('click', () => {
+      const promptText = buildTableTemplateRequirementPresetAgentPrompt();
+      const presetName = String(
+        overlay.find('#table-template-requirement-preset-name').val() ||
+          defaultPreset?.name ||
+          'table_template_requirement_preset',
+      );
+      const filename = buildTableTemplateRequirementPresetAgentPromptFilename(presetName);
+      downloadAiPromptFile(promptText, filename);
+      if (window.toastr) window.toastr.success('已下载 AI 提示词');
+    });
 
     overlay.find('#table-template-requirement-preset-validate').on('click', () => {
       validateJsoncEditorConfig({
@@ -49234,6 +50317,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           <div class="acu-advanced-preset-header">
             <h3><i class="fa-solid fa-table-list"></i> 模板检验预设管理</h3>
             <div class="acu-advanced-preset-header-actions">
+              ${getTutorialButtonHtml('tableTemplateRequirementPresetManager', '查看模板检验预设管理教程', 'acu-help-btn')}
               <button type="button" class="acu-close-btn" aria-label="关闭模板检验预设管理" title="关闭"><i class="fa-solid fa-times"></i></button>
             </div>
           </div>
@@ -49260,6 +50344,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     `);
 
     $('body').append(overlay);
+    bindTutorialButtonsIn(overlay);
 
     overlay.find('.acu-close-btn, #acu-table-template-requirement-preset-back').on('click', () => {
       overlay.remove();
@@ -49293,6 +50378,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const copy = TableTemplateRequirementPresetManager.createPreset({
         name: `${preset.name} (副本)`,
         description: preset.description || '',
+        requirementLevels: preset.requirementLevels ? cloneTemplateValue(preset.requirementLevels) : undefined,
         template: cloneTemplateValue(preset.template),
       });
       if (copy && window.toastr) window.toastr.success(`已创建副本：${copy.name}`);
@@ -56066,6 +57152,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     updated: number;
     renamed: number;
     skipped: number;
+    warnings: string[];
   };
   type GachaSettingsItemSourceFilter = 'all' | 'custom' | 'builtin';
   type GachaSettingsItemStatusFilter = 'all' | 'enabled' | 'disabled';
@@ -56364,14 +57451,17 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   const buildDefaultGachaPoolDefinition = (
     id: GachaPoolTag,
     options: Partial<Omit<GachaPoolDefinition, 'id'>> = {},
-  ): GachaPoolDefinition => ({
-    id,
-    name: options.name || id,
-    builtin: options.builtin === true,
-    visibleInTabs: options.visibleInTabs !== false,
-    includeInAll: id !== GACHA_ALL_POOL_TAG && options.includeInAll === true,
-    order: Number.isFinite(Number(options.order)) ? Number(options.order) : 999,
-  });
+  ): GachaPoolDefinition => {
+    const enabled = id !== GACHA_ALL_POOL_TAG && options.includeInAll === true;
+    return {
+      id,
+      name: options.name || id,
+      builtin: options.builtin === true,
+      visibleInTabs: id === GACHA_ALL_POOL_TAG || enabled,
+      includeInAll: enabled,
+      order: Number.isFinite(Number(options.order)) ? Number(options.order) : 999,
+    };
+  };
 
   const normalizeGachaPoolDefinition = (rawPool: unknown): GachaPoolDefinition | null => {
     if (!rawPool || typeof rawPool !== 'object') return null;
@@ -56380,12 +57470,17 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     if (!id) return null;
     const builtin = isBuiltinGachaPoolId(id);
     const allPool = id === GACHA_ALL_POOL_TAG;
+    const enabled =
+      !allPool &&
+      (record.includeInAll === undefined
+        ? record.visibleInTabs !== false && record.visible !== false
+        : record.includeInAll === true);
     return {
       id,
       name: normalizeGachaPoolName(record.name || record.label || id, id),
       builtin,
-      visibleInTabs: allPool ? true : record.visibleInTabs !== false && record.visible !== false,
-      includeInAll: allPool ? false : record.includeInAll === true || record.includeInAll === undefined,
+      visibleInTabs: allPool || enabled,
+      includeInAll: enabled,
       order: Number.isFinite(Number(record.order)) ? Number(record.order) : builtin ? 100 : 999,
     };
   };
@@ -56404,40 +57499,48 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   };
 
   const saveGachaPoolSettings = (pools: readonly GachaPoolDefinition[]) => {
-    const normalized = cloneGachaPoolDefinitions(pools).map(pool => ({
-      ...pool,
-      visibleInTabs: pool.id === GACHA_ALL_POOL_TAG ? true : pool.visibleInTabs !== false,
-      includeInAll: pool.id === GACHA_ALL_POOL_TAG ? false : pool.includeInAll === true,
-    }));
-    Store.set(STORAGE_KEY_GACHA_POOL_SETTINGS, {
+    const normalized = cloneGachaPoolDefinitions(pools).map(pool => {
+      const enabled = pool.id !== GACHA_ALL_POOL_TAG && pool.includeInAll === true;
+      return {
+        ...pool,
+        visibleInTabs: pool.id === GACHA_ALL_POOL_TAG ? true : enabled,
+        includeInAll: enabled,
+      };
+    });
+    const saved = Store.set(STORAGE_KEY_GACHA_POOL_SETTINGS, {
       version: 1,
       pools: normalized,
       updatedAt: Date.now(),
     } satisfies GachaPoolSettingsRecord);
+    if (!saved) throw new Error('卡池设置保存失败');
   };
+
+  const sortGachaPoolDefinitions = (pools: GachaPoolDefinition[]): GachaPoolDefinition[] =>
+    pools.sort((a, b) => {
+      if (a.id === GACHA_ALL_POOL_TAG) return -1;
+      if (b.id === GACHA_ALL_POOL_TAG) return 1;
+      return (a.order ?? 999) - (b.order ?? 999) || a.name.localeCompare(b.name, 'zh-Hans-CN');
+    });
 
   const getConfiguredGachaPoolDefinitions = (): GachaPoolDefinition[] => {
     const byId = new Map<GachaPoolTag, GachaPoolDefinition>();
     BUILTIN_GACHA_POOL_DEFINITIONS.forEach(pool => byId.set(pool.id, { ...pool }));
     getStoredGachaPoolSettings().pools.forEach(pool => {
       const existing = byId.get(pool.id);
+      const enabled = pool.id !== GACHA_ALL_POOL_TAG && pool.includeInAll === true;
       byId.set(pool.id, {
         ...buildDefaultGachaPoolDefinition(pool.id, existing || pool),
         ...existing,
         ...pool,
         builtin: existing?.builtin === true,
-        visibleInTabs: pool.id === GACHA_ALL_POOL_TAG ? true : pool.visibleInTabs !== false,
-        includeInAll: pool.id === GACHA_ALL_POOL_TAG ? false : pool.includeInAll === true,
+        visibleInTabs: pool.id === GACHA_ALL_POOL_TAG ? true : enabled,
+        includeInAll: enabled,
       });
     });
     if (!byId.has(GACHA_ALL_POOL_TAG)) {
       byId.set(GACHA_ALL_POOL_TAG, buildDefaultGachaPoolDefinition(GACHA_ALL_POOL_TAG, { builtin: true, order: 0 }));
     }
-    return Array.from(byId.values()).sort((a, b) => {
-      if (a.id === GACHA_ALL_POOL_TAG) return -1;
-      if (b.id === GACHA_ALL_POOL_TAG) return 1;
-      return (a.order ?? 999) - (b.order ?? 999) || a.name.localeCompare(b.name, 'zh-Hans-CN');
-    });
+    return sortGachaPoolDefinitions(Array.from(byId.values()));
   };
 
   const collectGachaPoolTagsFromItems = (rawData = getRuntimeGachaRawData()): GachaPoolTag[] => {
@@ -56459,8 +57562,17 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
   const ensureGachaPoolsForTags = (tags: readonly GachaPoolTag[]): GachaPoolDefinition[] => {
     const pools = getConfiguredGachaPoolDefinitions();
+    const nextPools = getGachaPoolDefinitionsWithVirtualTags(tags, pools);
+    if (nextPools.length !== pools.length) saveGachaPoolSettings(nextPools);
+    return getConfiguredGachaPoolDefinitions();
+  };
+
+  const getGachaPoolDefinitionsWithVirtualTags = (
+    tags: readonly GachaPoolTag[],
+    basePools: readonly GachaPoolDefinition[] = getConfiguredGachaPoolDefinitions(),
+  ): GachaPoolDefinition[] => {
+    const pools = cloneGachaPoolDefinitions(basePools);
     const known = new Set(pools.map(pool => pool.id));
-    let changed = false;
     let nextOrder = pools.reduce((max, pool) => Math.max(max, Number(pool.order) || 0), 0) + 10;
     tags.forEach(rawTag => {
       const id = normalizeGachaPoolId(rawTag);
@@ -56476,25 +57588,23 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       );
       known.add(id);
       nextOrder += 10;
-      changed = true;
     });
-    if (changed) saveGachaPoolSettings(pools);
-    return getConfiguredGachaPoolDefinitions();
+    return sortGachaPoolDefinitions(pools);
   };
 
   const getAllGachaPoolConfigDefinitions = (rawData = getRuntimeGachaRawData()): GachaPoolDefinition[] => {
-    ensureGachaPoolsForTags(collectGachaPoolTagsFromItems(rawData));
-    return getConfiguredGachaPoolDefinitions();
+    return getGachaPoolDefinitionsWithVirtualTags(collectGachaPoolTagsFromItems(rawData));
   };
 
+  const isGachaPoolEnabled = (pool: GachaPoolDefinition): boolean =>
+    pool.id === GACHA_ALL_POOL_TAG || pool.includeInAll === true;
+
   const getVisibleGachaPoolConfigDefinitions = (rawData = getRuntimeGachaRawData()): GachaPoolDefinition[] =>
-    getAllGachaPoolConfigDefinitions(rawData).filter(
-      pool => pool.id === GACHA_ALL_POOL_TAG || pool.visibleInTabs !== false,
-    );
+    getAllGachaPoolConfigDefinitions(rawData).filter(isGachaPoolEnabled);
 
   const getGachaAllExpandablePoolTags = (rawData = getRuntimeGachaRawData()): GachaPoolTag[] => {
     return getAllGachaPoolConfigDefinitions(rawData)
-      .filter(pool => pool.id !== GACHA_ALL_POOL_TAG && pool.includeInAll === true)
+      .filter(pool => pool.id !== GACHA_ALL_POOL_TAG && isGachaPoolEnabled(pool))
       .map(pool => pool.id);
   };
 
@@ -56511,13 +57621,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const index = pools.findIndex(pool => pool.id === id);
     if (index < 0) return false;
     const existing = pools[index];
+    const enabledUpdate = updates.includeInAll ?? updates.visibleInTabs;
+    const enabled = id !== GACHA_ALL_POOL_TAG && (enabledUpdate === undefined ? existing.includeInAll : enabledUpdate) === true;
     pools[index] = {
       ...existing,
       ...updates,
       id,
       builtin: existing.builtin,
-      visibleInTabs: id === GACHA_ALL_POOL_TAG ? true : (updates.visibleInTabs ?? existing.visibleInTabs),
-      includeInAll: id === GACHA_ALL_POOL_TAG ? false : (updates.includeInAll ?? existing.includeInAll),
+      visibleInTabs: id === GACHA_ALL_POOL_TAG ? true : enabled,
+      includeInAll: enabled,
       name: updates.name !== undefined ? normalizeGachaPoolName(updates.name, id) : existing.name,
     };
     saveGachaPoolSettings(pools);
@@ -56592,12 +57704,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     part: '部位列',
     status: '状态列',
   };
-  const GACHA_BASE_WRITTEN_TARGET_COLUMN_KEYS = new Set<GachaRewardTargetColumnKey>([
+  const GACHA_COMMON_WRITTEN_TARGET_COLUMN_KEYS = new Set<GachaRewardTargetColumnKey>([
     'name',
     'type',
     'quantity',
     'quality',
     'description',
+  ]);
+  const GACHA_EQUIPMENT_WRITTEN_TARGET_COLUMN_KEYS = new Set<GachaRewardTargetColumnKey>([
+    ...GACHA_COMMON_WRITTEN_TARGET_COLUMN_KEYS,
     'status',
   ]);
   const GACHA_CUSTOM_FIELD_RESERVED_KEYS = new Set([
@@ -56736,11 +57851,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   };
 
   const saveGachaItemSettingsRecord = (items: Record<string, GachaItemSettingsEntry>) => {
-    Store.set(STORAGE_KEY_GACHA_ITEM_SETTINGS, {
+    const saved = Store.set(STORAGE_KEY_GACHA_ITEM_SETTINGS, {
       version: 1,
       items,
       updatedAt: Date.now(),
     } satisfies GachaItemSettingsRecord);
+    if (!saved) throw new Error('自定义物品设置保存失败');
   };
 
   const withGachaItemSettings = (
@@ -56883,13 +57999,22 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return legacy && typeof legacy === 'object' ? (legacy as Record<string, unknown>) : null;
   };
 
-  const saveStoredGachaStateSnapshot = (state: GachaState) => {
-    Store.set(getGachaStateStorageKey(), cloneGachaState(state));
+  const saveStoredGachaStateSnapshot = (state: GachaState): boolean => {
+    const saved = Store.set(getGachaStateStorageKey(), cloneGachaState(state));
+    if (!saved) {
+      console.error('[DICE][GACHA]骰子商店状态保存失败');
+      return false;
+    }
     try {
       localStorage.removeItem(STORAGE_KEY_GACHA_STATE);
     } catch (error) {
       console.warn('[DICE][GACHA]清理旧版骰运缓存失败:', error);
     }
+    return true;
+  };
+
+  const assertSaveStoredGachaStateSnapshot = (state: GachaState): void => {
+    if (!saveStoredGachaStateSnapshot(state)) throw new Error('骰子商店状态保存失败');
   };
 
   const normalizeGachaStateRecord = (rawValue: unknown): GachaState | null => {
@@ -57025,10 +58150,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   const cloneGachaCatalogItems = (items: readonly GachaItemDefinition[]): GachaItemDefinition[] =>
     JSON.parse(JSON.stringify(items)) as GachaItemDefinition[];
 
-  const getGachaCatalogScopeKey = (): string => {
-    const chatId = String(getCurrentContextFingerprint() || '').trim() || 'unknown_context';
-    return `chat:${chatId}`;
-  };
+  const getGachaCatalogScopeKey = (): string => GACHA_CATALOG_GLOBAL_SCOPE_KEY;
 
   const createEmptyGachaCatalog = (): GachaCatalog => ({
     version: GACHA_CATALOG_VERSION,
@@ -57072,15 +58194,27 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
       try {
         const db = await this.init();
-        return await new Promise(resolve => {
+        return await new Promise((resolve, reject) => {
           const tx = db.transaction(this.STORE_NAME, 'readonly');
+          let record: GachaCatalogRecord | null = null;
+          tx.oncomplete = () => resolve(record);
+          tx.onerror = () => {
+            console.warn('[DICE][GACHA]读取自定义物品 IndexedDB 事务失败:', tx.error);
+            reject(tx.error || new Error('读取自定义物品 IndexedDB 事务失败'));
+          };
+          tx.onabort = () => reject(tx.error || new Error('读取自定义物品 IndexedDB 事务中止'));
           const request = tx.objectStore(this.STORE_NAME).get(scopeKey);
-          request.onsuccess = () => resolve((request.result as GachaCatalogRecord | undefined) || null);
-          request.onerror = () => resolve(null);
+          request.onsuccess = () => {
+            record = (request.result as GachaCatalogRecord | undefined) || null;
+          };
+          request.onerror = () => {
+            console.warn('[DICE][GACHA]读取自定义物品 IndexedDB 请求失败:', request.error);
+            reject(request.error || new Error('读取自定义物品 IndexedDB 请求失败'));
+          };
         });
       } catch (error) {
         console.warn('[DICE][GACHA]读取自定义物品 IndexedDB 失败:', error);
-        return null;
+        throw error;
       }
     },
 
@@ -57089,11 +58223,17 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const db = await this.init();
         return await new Promise(resolve => {
           const tx = db.transaction(this.STORE_NAME, 'readwrite');
+          tx.oncomplete = () => resolve(true);
+          tx.onerror = () => {
+            console.error('[DICE][GACHA]写入自定义物品 IndexedDB 事务失败:', tx.error);
+          };
+          tx.onabort = () => {
+            console.error('[DICE][GACHA]写入自定义物品 IndexedDB 事务中止:', tx.error);
+            resolve(false);
+          };
           const request = tx.objectStore(this.STORE_NAME).put(record);
-          request.onsuccess = () => resolve(true);
           request.onerror = () => {
             console.error('[DICE][GACHA]写入自定义物品 IndexedDB 失败:', request.error);
-            resolve(false);
           };
         });
       } catch (error) {
@@ -57105,15 +58245,25 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     async getAll(): Promise<GachaCatalogRecord[]> {
       try {
         const db = await this.init();
-        return await new Promise(resolve => {
+        return await new Promise((resolve, reject) => {
           const tx = db.transaction(this.STORE_NAME, 'readonly');
+          let records: GachaCatalogRecord[] = [];
+          tx.oncomplete = () => resolve(records);
+          tx.onerror = () => {
+            console.warn('[DICE][GACHA]读取全部自定义物品 IndexedDB 事务失败:', tx.error);
+          };
+          tx.onabort = () => reject(tx.error || new Error('读取全部自定义物品事务中止'));
           const request = tx.objectStore(this.STORE_NAME).getAll();
-          request.onsuccess = () => resolve((request.result || []) as GachaCatalogRecord[]);
-          request.onerror = () => resolve([]);
+          request.onsuccess = () => {
+            records = (request.result || []) as GachaCatalogRecord[];
+          };
+          request.onerror = () => {
+            console.warn('[DICE][GACHA]读取全部自定义物品 IndexedDB 请求失败:', request.error);
+          };
         });
       } catch (error) {
         console.warn('[DICE][GACHA]读取全部自定义物品 IndexedDB 失败:', error);
-        return [];
+        throw error;
       }
     },
 
@@ -57122,12 +58272,59 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const db = await this.init();
         return await new Promise(resolve => {
           const tx = db.transaction(this.STORE_NAME, 'readwrite');
+          tx.oncomplete = () => resolve(true);
+          tx.onerror = () => {
+            console.error('[DICE][GACHA]清空自定义物品 IndexedDB 事务失败:', tx.error);
+          };
+          tx.onabort = () => {
+            console.error('[DICE][GACHA]清空自定义物品 IndexedDB 事务中止:', tx.error);
+            resolve(false);
+          };
           const request = tx.objectStore(this.STORE_NAME).clear();
-          request.onsuccess = () => resolve(true);
-          request.onerror = () => resolve(false);
+          request.onerror = () => {
+            console.error('[DICE][GACHA]清空自定义物品 IndexedDB 失败:', request.error);
+          };
         });
       } catch (error) {
         console.error('[DICE][GACHA]清空自定义物品 IndexedDB 失败:', error);
+        return false;
+      }
+    },
+
+    async replaceAll(records: readonly GachaCatalogRecord[]): Promise<boolean> {
+      try {
+        const db = await this.init();
+        return await new Promise(resolve => {
+          const tx = db.transaction(this.STORE_NAME, 'readwrite');
+          const store = tx.objectStore(this.STORE_NAME);
+          tx.oncomplete = () => resolve(true);
+          tx.onerror = () => {
+            console.error('[DICE][GACHA]替换自定义物品 IndexedDB 事务失败:', tx.error);
+          };
+          tx.onabort = () => {
+            console.error('[DICE][GACHA]替换自定义物品 IndexedDB 事务中止:', tx.error);
+            resolve(false);
+          };
+          const clearRequest = store.clear();
+          clearRequest.onerror = () => {
+            console.error('[DICE][GACHA]替换自定义物品 IndexedDB 清空失败:', clearRequest.error);
+          };
+          clearRequest.onsuccess = () => {
+            try {
+              records.forEach(record => {
+                const request = store.put(record);
+                request.onerror = () => {
+                  console.error('[DICE][GACHA]替换自定义物品 IndexedDB 写入失败:', request.error);
+                };
+              });
+            } catch (error) {
+              console.error('[DICE][GACHA]替换自定义物品 IndexedDB 写入异常:', error);
+              tx.abort();
+            }
+          };
+        });
+      } catch (error) {
+        console.error('[DICE][GACHA]替换自定义物品 IndexedDB 失败:', error);
         return false;
       }
     },
@@ -57144,6 +58341,153 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       items,
       updatedAt: Math.max(0, Number(record.updatedAt) || 0),
     };
+  };
+
+  const normalizeScopedGachaCatalogRecord = (recordRaw: unknown): GachaCatalogRecord | null => {
+    if (!recordRaw || typeof recordRaw !== 'object') return null;
+    const scopeKey = String((recordRaw as Record<string, unknown>).scopeKey || '').trim();
+    const catalog = normalizeGachaCatalogRecord(recordRaw);
+    if (!scopeKey || !catalog) return null;
+    return {
+      scopeKey,
+      version: catalog.version,
+      items: cloneGachaCatalogItems(catalog.items),
+      updatedAt: catalog.updatedAt,
+    };
+  };
+
+  const getGachaCatalogItemMergeTimestamp = (item: GachaItemDefinition, fallback = 0): number =>
+    Math.max(0, Number(item.updatedAt) || 0, Number(item.createdAt) || 0, Number(fallback) || 0);
+
+  const getGachaCatalogRecordMergeTimestamp = (record: GachaCatalogRecord): number =>
+    Math.max(
+      Number(record.updatedAt) || 0,
+      ...record.items.map(item => getGachaCatalogItemMergeTimestamp(item)),
+    );
+
+  const mergeGachaCatalogRecordsToGlobalScope = (
+    records: readonly GachaCatalogRecord[],
+  ): GachaCatalogRecord | null => {
+    const normalizedRecords = records
+      .map(normalizeScopedGachaCatalogRecord)
+      .filter((record): record is GachaCatalogRecord => Boolean(record))
+      .sort((a, b) => {
+        const byTimestamp = getGachaCatalogRecordMergeTimestamp(a) - getGachaCatalogRecordMergeTimestamp(b);
+        if (byTimestamp !== 0) return byTimestamp;
+        if (a.scopeKey === GACHA_CATALOG_GLOBAL_SCOPE_KEY && b.scopeKey !== GACHA_CATALOG_GLOBAL_SCOPE_KEY) return 1;
+        if (b.scopeKey === GACHA_CATALOG_GLOBAL_SCOPE_KEY && a.scopeKey !== GACHA_CATALOG_GLOBAL_SCOPE_KEY) return -1;
+        return a.scopeKey.localeCompare(b.scopeKey);
+      });
+    if (normalizedRecords.length === 0) return null;
+
+    const items: GachaItemDefinition[] = [];
+    const itemIndexById = new Map<string, number>();
+    const itemTimestampById = new Map<string, number>();
+    let version = GACHA_CATALOG_VERSION;
+    let updatedAt = 0;
+
+    normalizedRecords.forEach(record => {
+      version = Math.max(version, record.version || 1);
+      updatedAt = Math.max(updatedAt, Number(record.updatedAt) || 0);
+      record.items.forEach(item => {
+        const id = String(item.id || '').trim();
+        if (!id) return;
+        const incoming: GachaItemDefinition = cloneDiceConfigBackupValue({ ...item, id });
+        const incomingTimestamp = getGachaCatalogItemMergeTimestamp(incoming, record.updatedAt);
+        const existingIndex = itemIndexById.get(id);
+        if (existingIndex === undefined) {
+          itemIndexById.set(id, items.length);
+          itemTimestampById.set(id, incomingTimestamp);
+          items.push(incoming);
+          updatedAt = Math.max(updatedAt, incomingTimestamp);
+          return;
+        }
+
+        const existing = items[existingIndex];
+        const existingTimestamp =
+          itemTimestampById.get(id) ?? getGachaCatalogItemMergeTimestamp(existing, updatedAt);
+        if (incomingTimestamp >= existingTimestamp) {
+          items[existingIndex] = {
+            ...existing,
+            ...incoming,
+            id,
+            createdAt: existing.createdAt || incoming.createdAt,
+            updatedAt: incoming.updatedAt || existing.updatedAt,
+          };
+          itemTimestampById.set(id, incomingTimestamp);
+          updatedAt = Math.max(updatedAt, incomingTimestamp);
+        }
+      });
+    });
+
+    return {
+      scopeKey: GACHA_CATALOG_GLOBAL_SCOPE_KEY,
+      version,
+      items,
+      updatedAt,
+    };
+  };
+
+  const migrateGachaCatalogRecordsToGlobalScope = async (): Promise<GachaCatalog> => {
+    const records = await GachaCatalogDB.getAll();
+    const normalizedRecords = records
+      .map(normalizeScopedGachaCatalogRecord)
+      .filter((record): record is GachaCatalogRecord => Boolean(record));
+    const mergedRecord = mergeGachaCatalogRecordsToGlobalScope(normalizedRecords);
+    if (!mergedRecord) return createEmptyGachaCatalog();
+
+    const needsMigration =
+      normalizedRecords.length !== 1 || normalizedRecords[0]?.scopeKey !== GACHA_CATALOG_GLOBAL_SCOPE_KEY;
+    if (!needsMigration) {
+      return {
+        version: mergedRecord.version,
+        items: cloneGachaCatalogItems(mergedRecord.items),
+        updatedAt: mergedRecord.updatedAt,
+      };
+    }
+
+    const migratedRecord: GachaCatalogRecord = {
+      ...mergedRecord,
+      items: cloneGachaCatalogItems(mergedRecord.items),
+      updatedAt: Date.now(),
+    };
+    const replaced = await GachaCatalogDB.replaceAll([migratedRecord]);
+    if (!replaced) throw new Error('自定义物品目录全局迁移失败');
+    const legacyCount = normalizedRecords.filter(record => record.scopeKey !== GACHA_CATALOG_GLOBAL_SCOPE_KEY).length;
+    if (legacyCount > 0) {
+      console.info(
+        `[DICE][GACHA]已将 ${legacyCount} 个聊天自定义物品目录合并为全局目录，共 ${migratedRecord.items.length} 个物品。`,
+      );
+    }
+    return {
+      version: migratedRecord.version,
+      items: cloneGachaCatalogItems(migratedRecord.items),
+      updatedAt: migratedRecord.updatedAt,
+    };
+  };
+
+  const getGachaItemDefinitionFingerprint = (item: GachaItemDefinition | null | undefined): string => {
+    if (!item) return '';
+    const comparable = {
+      id: item.id,
+      name: item.name,
+      type: item.type,
+      quality: item.quality,
+      description: item.description,
+      poolTags: [...(item.poolTags || [])].sort(),
+      icon: item.icon || '',
+      weight: Number(item.weight || 0),
+      stackable: item.stackable === true,
+      unique: item.unique === true,
+      grantQuantity: Number(item.grantQuantity || 0),
+      rewardTarget: item.rewardTarget || 'inventory',
+      targetTable: item.targetTable || '',
+      targetColumns: item.targetColumns || null,
+      customFields: item.customFields || null,
+      createdAt: item.createdAt || '',
+      updatedAt: item.updatedAt || '',
+    };
+    return JSON.stringify(comparable);
   };
 
   const getStoredGachaCatalog = (_rawData, createIfMissing = false): GachaCatalog | null => {
@@ -57176,9 +58520,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     if (gachaCatalogLoadTask?.scopeKey === scopeKey) return gachaCatalogLoadTask.promise;
 
     const loadPromise = (async (): Promise<GachaCatalog> => {
-      const storedRecord = await GachaCatalogDB.get(scopeKey);
-      const storedCatalog = normalizeGachaCatalogRecord(storedRecord);
-      const catalog = storedCatalog || createEmptyGachaCatalog();
+      const catalog = await migrateGachaCatalogRecordsToGlobalScope();
       gachaCatalogCache = { scopeKey, catalog };
       return catalog;
     })();
@@ -57548,6 +58890,46 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return '导入失败：没有有效物品。请确认 items 是非空数组，并且每个物品都包含 name、quality、poolTags、weight、grantQuantity。';
   };
 
+  const validateGachaCatalogImportItemTarget = (rawData, item: GachaItemDefinition, warnings: string[]): boolean => {
+    try {
+      const parsed = getGachaRewardParseResultForItem(rawData, item);
+      const sheet = parsed.tableKey && rawData ? rawData[parsed.tableKey] : undefined;
+      const validation = validateGachaCustomFieldsForTargetTable({
+        target: item.rewardTarget,
+        tableName: parsed.tableName,
+        headers: parsed.headers,
+        sheet,
+        item,
+        throwOnMissing: false,
+      });
+      if (validation.message) {
+        warnings.push(validation.message);
+        return false;
+      }
+      const headerRow = Array.isArray(sheet?.content?.[0]) ? sheet.content[0] : parsed.headers;
+      const candidateRow = new Array(Math.max(headerRow.length, 1)).fill('');
+      if (candidateRow.length > 0) candidateRow[0] = '1';
+      const quantity = Math.max(1, Math.floor(Number(item.grantQuantity) || 1));
+      if (item.rewardTarget === 'equipment') {
+        setEquipmentRowBasicFields(candidateRow, parsed.colMap, item, quantity);
+      } else {
+        setInventoryRowBasicFields(candidateRow, parsed.colMap, item, quantity);
+      }
+      applyGachaCustomFieldsToRow(candidateRow, headerRow, item, {
+        target: item.rewardTarget,
+        targetColumns: item.targetColumns,
+      });
+      assertCrudRequiredColumnsRepresented(parsed.tableName, headerRow, sheet);
+      assertCrudInsertRequiredCells(parsed.tableName, headerRow, candidateRow, sheet, 0);
+      assertCrudEnumConstraints(parsed.tableName, headerRow, candidateRow, sheet, 0);
+      assertCrudLengthConstraints(parsed.tableName, headerRow, candidateRow, sheet, 0);
+      return true;
+    } catch (error) {
+      warnings.push(getRuntimeErrorMessage(error) || `物品「${item.name || item.id}」的写入目标无法解析`);
+      return false;
+    }
+  };
+
   const mergeImportedGachaPools = (pools: readonly GachaPoolDefinition[]) => {
     if (!pools.length) return;
     const current = getConfiguredGachaPoolDefinitions();
@@ -57555,16 +58937,40 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     pools.forEach(pool => {
       if (!pool.id || pool.id === GACHA_ALL_POOL_TAG) return;
       const existing = byId.get(pool.id);
+      const enabled = pool.includeInAll === true;
       byId.set(pool.id, {
         ...(existing || buildDefaultGachaPoolDefinition(pool.id, pool)),
         name: pool.name || existing?.name || pool.id,
         builtin: existing?.builtin === true,
-        visibleInTabs: pool.visibleInTabs !== false,
-        includeInAll: pool.includeInAll === true,
+        visibleInTabs: enabled,
+        includeInAll: enabled,
         order: Number.isFinite(Number(pool.order)) ? Number(pool.order) : (existing?.order ?? 999),
       });
     });
     saveGachaPoolSettings(Array.from(byId.values()));
+  };
+
+  const collectGachaLocalStorageSnapshot = (keys: readonly string[]): Map<string, string | null> => {
+    const snapshot = new Map<string, string | null>();
+    keys.forEach(key => snapshot.set(key, localStorage.getItem(key)));
+    return snapshot;
+  };
+
+  const restoreGachaLocalStorageSnapshot = (snapshot: ReadonlyMap<string, string | null>): string[] => {
+    const warnings: string[] = [];
+    snapshot.forEach((value, key) => {
+      try {
+        if (value === null) {
+          localStorage.removeItem(key);
+        } else {
+          localStorage.setItem(key, value);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        warnings.push(`${key} 回滚失败：${message}`);
+      }
+    });
+    return warnings;
   };
 
   const applyGachaCatalogImport = async (
@@ -57573,13 +58979,17 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     mode: GachaCatalogImportMode,
   ): Promise<GachaCatalogImportStats> => {
     await ensureGachaCatalogLoaded(rawData);
-    mergeImportedGachaPools(analysis.pools);
     const customItems = [...getCustomGachaItemDefinitions(rawData)];
+    const originalCustomItems = cloneGachaCatalogItems(customItems);
+    const localStorageSnapshot = collectGachaLocalStorageSnapshot([
+      STORAGE_KEY_GACHA_POOL_SETTINGS,
+      STORAGE_KEY_GACHA_ITEM_SETTINGS,
+    ]);
     const customIndexById = new Map(customItems.map((item, index) => [item.id, index]));
     const builtInIds = new Set(GACHA_ITEM_DEFINITIONS.map(item => item.id));
     const existingIds = new Set(getAllGachaItemDefinitions(rawData).map(item => item.id));
     const importedItemSettings: Array<{ id: string; enabled: boolean; order?: number }> = [];
-    const stats: GachaCatalogImportStats = { added: 0, updated: 0, renamed: 0, skipped: analysis.skipped };
+    const stats: GachaCatalogImportStats = { added: 0, updated: 0, renamed: 0, skipped: analysis.skipped, warnings: [] };
     const importTimestamp = Date.now();
 
     analysis.items.forEach(item => {
@@ -57612,6 +59022,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       if (item.targetTable) nextItem.targetTable = item.targetTable;
       if (item.targetColumns) nextItem.targetColumns = item.targetColumns;
       if (item.customFields) nextItem.customFields = item.customFields;
+      if (!validateGachaCatalogImportItemTarget(rawData, nextItem, stats.warnings)) {
+        stats.skipped += 1;
+        return;
+      }
 
       if (hasConflict && mode === 'rename') {
         nextItem.id = createUniqueGachaItemId(item.id, existingIds);
@@ -57639,58 +59053,62 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     const savedCatalog = await saveStoredGachaCatalog(customItems);
     if (!savedCatalog) throw new Error('自定义物品保存失败');
-    if (importedItemSettings.length > 0) {
-      const record = getStoredGachaItemSettings();
-      const nextSettings = { ...record.items };
-      importedItemSettings.forEach(entry => {
-        const existing = nextSettings[entry.id] || { enabled: true, order: 999 };
-        nextSettings[entry.id] = {
-          enabled: entry.enabled,
-          order: entry.order !== undefined ? normalizeGachaItemOrder(entry.order) : existing.order,
-        };
-      });
-      saveGachaItemSettingsRecord(nextSettings);
+    try {
+      if (stats.added + stats.updated + stats.renamed > 0) mergeImportedGachaPools(analysis.pools);
+      if (importedItemSettings.length > 0) {
+        const record = getStoredGachaItemSettings();
+        const nextSettings = { ...record.items };
+        importedItemSettings.forEach(entry => {
+          const existing = nextSettings[entry.id] || { enabled: true, order: 999 };
+          nextSettings[entry.id] = {
+            enabled: entry.enabled,
+            order: entry.order !== undefined ? normalizeGachaItemOrder(entry.order) : existing.order,
+          };
+        });
+        saveGachaItemSettingsRecord(nextSettings);
+      }
+      ensureGachaPoolsForTags(customItems.flatMap(item => [...item.poolTags]));
+    } catch (error) {
+      const rolledBackCatalog = await saveStoredGachaCatalog(originalCustomItems);
+      const rollbackWarnings = restoreGachaLocalStorageSnapshot(localStorageSnapshot);
+      const message = getRuntimeErrorMessage(error) || '写入卡池或物品设置失败';
+      const rollbackMessage = [
+        !rolledBackCatalog ? '自定义物品目录回滚失败' : '',
+        ...rollbackWarnings,
+      ].filter(Boolean).join('；');
+      if (rollbackMessage) throw new Error(`${message}；${rollbackMessage}`);
+      throw error;
     }
-    ensureGachaPoolsForTags(customItems.flatMap(item => [...item.poolTags]));
     return stats;
   };
 
-  const clearCurrentGachaCatalog = async () => {
+  const clearGlobalGachaCatalog = async () => {
     await runInSaveQueue(async () => {
       const rawData = getRuntimeGachaRawData();
       await ensureGachaCatalogLoaded(rawData);
+      const originalItems = cloneGachaCatalogItems(getCustomGachaItemDefinitions(rawData));
+      const localStorageSnapshot = collectGachaLocalStorageSnapshot([STORAGE_KEY_GACHA_ITEM_SETTINGS]);
       const customIds = getCustomGachaItemDefinitions(rawData).map(item => item.id);
       const count = customIds.length;
       const savedCatalog = await saveStoredGachaCatalog([]);
       if (!savedCatalog) throw new Error('自定义物品清空失败');
-      customIds.forEach(deleteGachaItemSetting);
+      try {
+        customIds.forEach(deleteGachaItemSetting);
+      } catch (error) {
+        const rolledBackCatalog = await saveStoredGachaCatalog(originalItems);
+        const rollbackWarnings = restoreGachaLocalStorageSnapshot(localStorageSnapshot);
+        const message = getRuntimeErrorMessage(error) || '清空自定义物品设置失败';
+        const rollbackMessage = [
+          !rolledBackCatalog ? '自定义物品目录回滚失败' : '',
+          ...rollbackWarnings,
+        ].filter(Boolean).join('；');
+        if (rollbackMessage) throw new Error(`${message}；${rollbackMessage}`);
+        throw error;
+      }
       refreshGachaVisualization();
       refreshGachaShardShop();
       if ($('.acu-gacha-settings-overlay').length) void showGachaSettingsDialog();
-      if (window.toastr) window.toastr.success(`已清空当前聊天的 ${count} 个自定义物品`);
-    });
-  };
-
-  const clearAllGachaCatalogSources = async () => {
-    await runInSaveQueue(async () => {
-      const records = await GachaCatalogDB.getAll();
-      const count = records.reduce((sum, record) => sum + (Array.isArray(record.items) ? record.items.length : 0), 0);
-      const customIds = new Set<string>();
-      records.forEach(record => {
-        if (!Array.isArray(record.items)) return;
-        record.items.forEach(item => {
-          const id = String(item?.id || '').trim();
-          if (id) customIds.add(id);
-        });
-      });
-      const cleared = await GachaCatalogDB.clear();
-      if (!cleared) throw new Error('自定义物品全部清空失败');
-      customIds.forEach(deleteGachaItemSetting);
-      gachaCatalogCache = { scopeKey: getGachaCatalogScopeKey(), catalog: createEmptyGachaCatalog() };
-      refreshGachaVisualization();
-      refreshGachaShardShop();
-      if ($('.acu-gacha-settings-overlay').length) void showGachaSettingsDialog();
-      if (window.toastr) window.toastr.success(`已清空所有聊天的 ${count} 个自定义物品`);
+      if (window.toastr) window.toastr.success(`已清空全局目录的 ${count} 个自定义物品`);
     });
   };
 
@@ -57713,14 +59131,13 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           <div class="acu-import-confirm-body">
             <div class="acu-import-warning-container">
               <i class="fa-solid fa-broom acu-import-warning-icon acu-gacha-catalog-import-icon"></i>
-              <div class="acu-import-warning-title">当前聊天有 ${escapeHtml(String(count))} 个自定义物品</div>
-              <div class="acu-import-warning-message">清空后不会影响内置卡池，也不会删除已经写入目标表的奖励。</div>
+              <div class="acu-import-warning-title">全局目录有 ${escapeHtml(String(count))} 个自定义物品</div>
+              <div class="acu-import-warning-message">清空后会影响所有聊天可见的自定义物品；不会影响内置卡池，也不会删除已经写入目标表的奖励。</div>
             </div>
           </div>
           <div class="acu-import-confirm-footer acu-gacha-catalog-clear-footer">
             <button class="acu-import-cancel-btn acu-gacha-catalog-clear-close" type="button">取消</button>
-            <button class="acu-import-confirm-btn acu-gacha-catalog-clear-current" type="button">清空当前聊天</button>
-            <button class="acu-import-confirm-btn acu-gacha-catalog-clear-all" type="button">清空全部</button>
+            <button class="acu-import-confirm-btn acu-gacha-catalog-clear-global" type="button">清空全局目录</button>
           </div>
         </div>
       </div>
@@ -57729,13 +59146,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const closeDialog = () => dialog.remove();
     setupOverlayClose(dialog, 'acu-import-confirm-overlay', closeDialog);
     dialog.on('click', '.acu-gacha-catalog-clear-close', closeDialog);
-    dialog.on('click', '.acu-gacha-catalog-clear-current', () => {
+    dialog.on('click', '.acu-gacha-catalog-clear-global', () => {
       closeDialog();
-      void clearCurrentGachaCatalog();
-    });
-    dialog.on('click', '.acu-gacha-catalog-clear-all', () => {
-      closeDialog();
-      void clearAllGachaCatalogSources();
+      void clearGlobalGachaCatalog().catch(error => {
+        console.error('[DICE][GACHA]清空全局自定义物品失败:', error);
+        if (window.toastr) showActionableErrorToast(`清空失败: ${getJsonLikeErrorMessage(error)}`, { suggestion: 'importExport' });
+      });
     });
   };
 
@@ -57761,10 +59177,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       // name：卡池显示名。
       "name": "赛博朋克",
 
-      // visibleInTabs：是否显示在骰子商城顶部快捷切换栏。
-      "visibleInTabs": true,
-
-      // includeInAll：是否加入“全部”卡池的抽取范围。
+      // includeInAll：是否启用该卡池。启用后会显示快捷标签，并加入“全部”卡池抽取范围。
       "includeInAll": true,
 
       // order：排序，越小越靠前。
@@ -57859,6 +59272,14 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return exported;
   };
 
+  const serializeGachaPoolDefinitionForExport = (pool: GachaPoolDefinition) => ({
+    id: pool.id,
+    name: pool.name,
+    builtin: pool.builtin,
+    includeInAll: pool.includeInAll === true,
+    order: pool.order,
+  });
+
   const buildGachaExportNamePart = (value: string): string =>
     String(value || '自定义物品')
       .trim()
@@ -57892,7 +59313,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       kind: GACHA_CATALOG_EXPORT_KIND,
       version: GACHA_CATALOG_VERSION,
       exportedAt: Date.now(),
-      pools,
+      pools: pools.map(serializeGachaPoolDefinitionForExport),
       items: items.map(serializeGachaCatalogItemForExport),
     };
     return JSON.stringify(exportData, null, 2);
@@ -57919,7 +59340,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   };
 
   const formatGachaCatalogImportStatsText = (stats: GachaCatalogImportStats): string =>
-    `新增 ${stats.added}，更新 ${stats.updated}，重命名 ${stats.renamed}，跳过 ${stats.skipped}`;
+    `新增 ${stats.added}，更新 ${stats.updated}，重命名 ${stats.renamed}，跳过 ${stats.skipped}${
+      stats.warnings.length > 0 ? `，提示 ${stats.warnings.length}` : ''
+    }`;
 
   const showGachaCatalogImportConfirm = (jsonString: string, analysis: GachaCatalogImportAnalysis) => {
     const { $ } = getCore();
@@ -58017,10 +59440,19 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           return;
         }
         const stats = await applyGachaCatalogImport(rawData, latestAnalysis, mode);
+        if (stats.warnings.length > 0) console.warn('[DICE][GACHA]自定义物品导入提示:', stats.warnings);
         refreshGachaVisualization();
         refreshGachaShardShop();
         if ($('.acu-gacha-settings-overlay').length) void showGachaSettingsDialog();
-        if (window.toastr) window.toastr.success(formatGachaCatalogImportStatsText(stats), '骰子商店导入完成');
+        if (window.toastr) {
+          const title = stats.warnings.length > 0 ? '骰子商店导入完成，有部分跳过' : '骰子商店导入完成';
+          window.toastr.success(formatGachaCatalogImportStatsText(stats), title);
+        }
+      }).catch(error => {
+        console.error('[DICE][GACHA]导入自定义物品失败:', error);
+        if (window.toastr) {
+          showActionableErrorToast(`导入失败: ${getJsonLikeErrorMessage(error)}`, { suggestion: 'importExport' });
+        }
       });
     });
   };
@@ -58060,8 +59492,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const migratedState = storedState
         ? mergeLegacyGachaStateForLocalStorage(storedState, legacyDatabaseState)
         : legacyDatabaseState;
-      saveStoredGachaStateSnapshot(migratedState);
-      markLegacyGachaStateMigrated();
+      if (saveStoredGachaStateSnapshot(migratedState)) markLegacyGachaStateMigrated();
       return migratedState;
     }
 
@@ -58151,7 +59582,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     state.wallet.fortune += GACHA_CHECK_REWARD;
     recordGachaFortuneGain(state, GACHA_CHECK_REWARD, '检定奖励', getGachaDiceEventDetail(event, payload));
 
-    saveStoredGachaStateSnapshot(state);
+    if (!saveStoredGachaStateSnapshot(state)) return;
     refreshGachaVisualization();
   }
 
@@ -58160,7 +59591,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       .map(key => String(key || '').trim())
       .filter(key => key.startsWith('sheet_'));
     if (safeModifiedSheetKeys.length === 0) {
-      if (state) saveStoredGachaStateSnapshot(state);
+      if (state) assertSaveStoredGachaStateSnapshot(state);
       return;
     }
     if (!hasSheetKeys(rawData)) {
@@ -58169,7 +59600,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     }
     // 抽卡、拆解、碎片兑换调用方已经在保存队列内，这里直接执行底层 CRUD 保存，避免队列自等待。
     await performSaveDataOnly(rawData, safeModifiedSheetKeys);
-    if (state) saveStoredGachaStateSnapshot(state);
+    if (state) assertSaveStoredGachaStateSnapshot(state);
   };
 
   const showGachaSaveError = (error: unknown, actionText: string) => {
@@ -58293,7 +59724,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     poolTag: GachaPoolTag,
     rawData = getRuntimeGachaRawData(),
   ): GachaItemDefinition[] => {
-    ensureGachaPoolsForTags(collectGachaPoolTagsFromItems(rawData));
     const activeTags = getActiveGachaPoolTags(poolTag);
     return getAllGachaItemDefinitions(rawData)
       .filter(item => isGachaItemEnabled(item) && item.poolTags.some(tag => activeTags.includes(tag)))
@@ -58306,7 +59736,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   };
 
   const saveStoredGachaActivePoolTag = (poolTag: GachaPoolTag) => {
-    Store.set(STORAGE_KEY_GACHA_ACTIVE_POOL_TAG, poolTag);
+    if (!Store.set(STORAGE_KEY_GACHA_ACTIVE_POOL_TAG, poolTag)) throw new Error('当前卡池保存失败');
   };
 
   const getGachaActivePoolTag = (state?: Pick<GachaState, 'activePoolTag'> | null): GachaPoolTag => {
@@ -58491,8 +59921,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         ? ['row_id', '装备名称', '类型', '数量', '品质', '状态', '描述']
         : ['row_id', '物品名称', '类型', '数量', '品质', '描述'],
     );
+    const writtenKeys =
+      target === 'equipment' ? GACHA_EQUIPMENT_WRITTEN_TARGET_COLUMN_KEYS : GACHA_COMMON_WRITTEN_TARGET_COLUMN_KEYS;
     getGachaTargetColumnEntries(targetColumns).forEach(([key, headerName]) => {
-      if (GACHA_BASE_WRITTEN_TARGET_COLUMN_KEYS.has(key)) headers.add(headerName);
+      if (writtenKeys.has(key)) headers.add(headerName);
     });
     return headers;
   };
@@ -58698,7 +60130,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     if (newRow.length > 0) newRow[0] = String(table.content.length);
     setInventoryRowBasicFields(newRow, parsed.colMap, item, Math.max(1, quantity));
     applyGachaCustomFieldsToRow(newRow, headerRow, item, { target: 'inventory', targetColumns: item.targetColumns });
+    assertCrudRequiredColumnsRepresented(parsed.tableName, headerRow, sheet);
     assertCrudInsertRequiredCells(parsed.tableName, headerRow, newRow, sheet, table.content.length);
+    assertCrudEnumConstraints(parsed.tableName, headerRow, newRow, sheet, table.content.length);
+    assertCrudLengthConstraints(parsed.tableName, headerRow, newRow, sheet, table.content.length);
     table.content.push(newRow);
     setInventoryMetadataForItem(
       rawData,
@@ -58795,7 +60230,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     if (newRow.length > 0) newRow[0] = String(table.content.length);
     setEquipmentRowBasicFields(newRow, parsed.colMap, item, Math.max(1, quantity));
     applyGachaCustomFieldsToRow(newRow, headerRow, item, { target: 'equipment', targetColumns: item.targetColumns });
+    assertCrudRequiredColumnsRepresented(parsed.tableName, headerRow, sheet);
     assertCrudInsertRequiredCells(parsed.tableName, headerRow, newRow, sheet, table.content.length);
+    assertCrudEnumConstraints(parsed.tableName, headerRow, newRow, sheet, table.content.length);
+    assertCrudLengthConstraints(parsed.tableName, headerRow, newRow, sheet, table.content.length);
     table.content.push(newRow);
     return {
       outcome: {
@@ -59357,7 +60795,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     if (currentPoolTag === poolTag) return;
     saveStoredGachaActivePoolTag(poolTag);
     if (state) state.activePoolTag = poolTag;
-    if (state) saveStoredGachaStateSnapshot(state);
+    if (state && !saveStoredGachaStateSnapshot(state)) return;
     refreshGachaPoolSelectionUi(poolTag);
     refreshGachaShardShop();
   };
@@ -59369,6 +60807,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     if (!pool || !canDeleteGachaPoolDefinition(pool)) return false;
 
     await ensureGachaCatalogLoaded(rawData);
+    const originalItems = cloneGachaCatalogItems(getCustomGachaItemDefinitions(rawData));
     const deletingFallbackPool = id === GACHA_CUSTOM_ONLY_POOL_TAG;
     const nextItems: GachaItemDefinition[] = [];
     const removedItemIds: string[] = [];
@@ -59398,41 +60837,58 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       });
     });
 
-    const pools = getConfiguredGachaPoolDefinitions().filter(candidate => candidate.id !== id);
-    if (needsFallbackPool && !pools.some(candidate => candidate.id === GACHA_CUSTOM_ONLY_POOL_TAG)) {
-      const nextOrder = pools.reduce((max, candidate) => Math.max(max, Number(candidate.order) || 0), 0) + 10;
-      pools.push(
-        buildDefaultGachaPoolDefinition(GACHA_CUSTOM_ONLY_POOL_TAG, {
-          name: GACHA_CUSTOM_ONLY_POOL_TAG,
-          builtin: false,
-          visibleInTabs: true,
-          includeInAll: false,
-          order: nextOrder,
-        }),
-      );
-    }
-
     const savedCatalog = await saveStoredGachaCatalog(nextItems);
     if (!savedCatalog) return false;
-    saveGachaPoolSettings(pools);
-    removedItemIds.forEach(deleteGachaItemSetting);
-    if (getStoredGachaActivePoolTag(GACHA_ALL_POOL_TAG) === id) saveStoredGachaActivePoolTag(GACHA_ALL_POOL_TAG);
-    if (normalizeGachaPoolId(Store.get(STORAGE_KEY_GACHA_SETTINGS_POOL_TAG, GACHA_ALL_POOL_TAG)) === id) {
-      saveStoredGachaSettingsPoolTag(GACHA_ALL_POOL_TAG);
+    const localStorageSnapshot = collectGachaLocalStorageSnapshot([
+      STORAGE_KEY_GACHA_POOL_SETTINGS,
+      STORAGE_KEY_GACHA_ITEM_SETTINGS,
+      STORAGE_KEY_GACHA_ACTIVE_POOL_TAG,
+      STORAGE_KEY_GACHA_SETTINGS_POOL_TAG,
+    ]);
+    try {
+      const pools = getConfiguredGachaPoolDefinitions().filter(candidate => candidate.id !== id);
+      if (needsFallbackPool && !pools.some(candidate => candidate.id === GACHA_CUSTOM_ONLY_POOL_TAG)) {
+        const nextOrder = pools.reduce((max, candidate) => Math.max(max, Number(candidate.order) || 0), 0) + 10;
+        pools.push(
+          buildDefaultGachaPoolDefinition(GACHA_CUSTOM_ONLY_POOL_TAG, {
+            name: GACHA_CUSTOM_ONLY_POOL_TAG,
+            builtin: false,
+            visibleInTabs: false,
+            includeInAll: false,
+            order: nextOrder,
+          }),
+        );
+      }
+      saveGachaPoolSettings(pools);
+      removedItemIds.forEach(deleteGachaItemSetting);
+      if (getStoredGachaActivePoolTag(GACHA_ALL_POOL_TAG) === id) saveStoredGachaActivePoolTag(GACHA_ALL_POOL_TAG);
+      if (normalizeGachaPoolId(Store.get(STORAGE_KEY_GACHA_SETTINGS_POOL_TAG, GACHA_ALL_POOL_TAG)) === id) {
+        saveStoredGachaSettingsPoolTag(GACHA_ALL_POOL_TAG);
+      }
+    } catch (error) {
+      const rolledBackCatalog = await saveStoredGachaCatalog(originalItems);
+      const rollbackWarnings = restoreGachaLocalStorageSnapshot(localStorageSnapshot);
+      const message = getRuntimeErrorMessage(error) || '删除卡池配置失败';
+      const rollbackMessage = [
+        !rolledBackCatalog ? '自定义物品目录回滚失败' : '',
+        ...rollbackWarnings,
+      ].filter(Boolean).join('；');
+      if (rollbackMessage) throw new Error(`${message}；${rollbackMessage}`);
+      throw error;
     }
     return true;
   };
 
   const getStoredGachaSettingsPoolTag = (rawData): GachaPoolTag => {
     const stored = normalizeGachaPoolId(Store.get(STORAGE_KEY_GACHA_SETTINGS_POOL_TAG, GACHA_ALL_POOL_TAG));
-    const pools = getAllGachaPoolConfigDefinitions(rawData);
+    const pools = getVisibleGachaPoolConfigDefinitions(rawData);
     return pools.some(pool => pool.id === stored) ? stored : GACHA_ALL_POOL_TAG;
   };
 
   const saveStoredGachaSettingsPoolTag = (poolTag: GachaPoolTag) => {
     const normalizedPoolId = normalizeGachaPoolId(poolTag);
     if (!normalizedPoolId) return;
-    Store.set(STORAGE_KEY_GACHA_SETTINGS_POOL_TAG, normalizedPoolId);
+    if (!Store.set(STORAGE_KEY_GACHA_SETTINGS_POOL_TAG, normalizedPoolId)) throw new Error('商城设置页卡池保存失败');
   };
 
   const showGachaPoolNameDialog = (options: {
@@ -59554,7 +61010,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   };
 
   const renderGachaSettingsPoolTabsHtml = (rawData, selectedPoolId: GachaPoolTag): string => {
-    const pools = getAllGachaPoolConfigDefinitions(rawData);
+    const pools = getVisibleGachaPoolConfigDefinitions(rawData);
     return `
       <div class="acu-gacha-pool-tabs acu-gacha-settings-pool-tabs" role="tablist">
         ${pools
@@ -59740,28 +61196,25 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const isAllPool = pool.id === GACHA_ALL_POOL_TAG;
         const poolItems = isAllPool ? allPoolItems : itemDefinitions.filter(item => item.poolTags.includes(pool.id));
         const countText = isAllPool ? `${poolItems.length} 个候选` : `${counts.get(pool.id) || 0} 个物品`;
-        const visible = isAllPool || pool.visibleInTabs !== false;
-        const includeInAll = pool.includeInAll === true;
+        const enabled = isAllPool || pool.includeInAll === true;
         const canDeletePool = canDeleteGachaPoolDefinition(pool);
+        const statusText = isAllPool ? '固定显示' : enabled ? '已启用' : '已停用';
         return `
-          <article class="acu-preset-item acu-gacha-settings-pool-item ${visible ? '' : 'is-hidden'}" data-pool-id="${escapeHtml(pool.id)}">
+          <article class="acu-preset-item acu-gacha-settings-pool-item ${enabled ? '' : 'is-disabled'}" data-pool-id="${escapeHtml(pool.id)}">
             ${!isAllPool ? `<div class="acu-preset-handle acu-gacha-pool-handle" title="拖拽排序"><i class="fa-solid fa-grip-vertical"></i></div>` : '<div class="acu-gacha-pool-handle-placeholder"></div>'}
             <div class="acu-gacha-settings-pool-main">
               <div class="acu-gacha-settings-pool-name">
                 ${escapeHtml(pool.name)}
                 ${pool.builtin && !canDeletePool ? '<span>内置</span>' : '<span>自定义</span>'}
               </div>
-              <div class="acu-gacha-settings-pool-meta">${escapeHtml(pool.id)} · ${escapeHtml(countText)}</div>
+              <div class="acu-gacha-settings-pool-meta">${escapeHtml(pool.id)} · ${escapeHtml(countText)} · ${escapeHtml(statusText)}</div>
             </div>
             <div class="acu-gacha-settings-actions">
-              <button class="acu-preset-check acu-gacha-pool-visible-toggle" type="button" title="${isAllPool ? '全部卡池固定显示' : '显示/隐藏快捷标签'}" ${isAllPool ? 'disabled' : ''}>
-                <i class="fa-solid ${visible ? 'fa-eye' : 'fa-eye-slash'}"></i>
-              </button>
               ${
                 isAllPool
                   ? `<span class="acu-gacha-pool-all-fixed" title="全部是聚合卡池，不加入自身"><i class="fa-solid fa-layer-group"></i></span>`
-                  : `<label class="acu-toggle acu-gacha-pool-all-toggle" title="${includeInAll ? '已进入全部抽取范围' : '未进入全部抽取范围'}">
-                      <input class="acu-gacha-pool-all-check" type="checkbox" ${includeInAll ? 'checked' : ''} />
+                  : `<label class="acu-toggle acu-gacha-pool-all-toggle" title="${enabled ? '已启用：显示标签并进入全部抽取范围' : '已停用：隐藏标签并移出全部抽取范围'}">
+                      <input class="acu-gacha-pool-all-check" type="checkbox" ${enabled ? 'checked' : ''} />
                       <span class="acu-toggle-slider"></span>
                     </label>`
               }
@@ -59776,7 +61229,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   };
 
   const renderGachaSettingsPoolViewerHtml = (rawData, selectedPoolId: GachaPoolTag): string => {
-    const pool = getAllGachaPoolConfigDefinitions(rawData).find(candidate => candidate.id === selectedPoolId);
+    const pool = getVisibleGachaPoolConfigDefinitions(rawData).find(candidate => candidate.id === selectedPoolId);
     const safePoolId = pool?.id || GACHA_ALL_POOL_TAG;
     const items = getGachaSettingsPoolItems(rawData, safePoolId);
     return `
@@ -59809,7 +61262,6 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const { $ } = getCore();
     const rawData = cachedRawData || getTableData();
     await ensureGachaCatalogLoaded(rawData);
-    ensureGachaPoolsForTags(collectGachaPoolTagsFromItems(rawData));
     $('.acu-gacha-settings-overlay').remove();
 
     const config = getConfig();
@@ -60005,21 +61457,30 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           return id ? String(id) : null;
         },
         onOrderChange: newOrderIds => {
-          newOrderIds.forEach((id, index) => setGachaItemOrder(id, (index + 1) * 10));
-          const currentPoolId = normalizeGachaPoolId(overlay.find('.acu-gacha-settings-items-section').data('pool-id'));
-          refreshSettingsPoolViewer(currentPoolId || GACHA_ALL_POOL_TAG);
-          refreshGachaVisualization(rawData);
-          refreshGachaShardShop();
+          void runInSaveQueue(async () => {
+            newOrderIds.forEach((id, index) => setGachaItemOrder(id, (index + 1) * 10));
+          })
+            .then(() => {
+              const currentPoolId = normalizeGachaPoolId(overlay.find('.acu-gacha-settings-items-section').data('pool-id'));
+              refreshSettingsPoolViewer(currentPoolId || GACHA_ALL_POOL_TAG);
+              refreshGachaVisualization(rawData);
+              refreshGachaShardShop();
+            })
+            .catch(error => {
+              if (window.toastr) showActionableErrorToast(`物品排序保存失败: ${getJsonLikeErrorMessage(error)}`, { suggestion: 'importExport' });
+            });
         },
       });
     };
     const refreshSettingsPoolViewer = (poolId: GachaPoolTag) => {
       const normalizedPoolId = normalizeGachaPoolId(poolId);
-      if (!getAllGachaPoolConfigDefinitions(rawData).some(pool => pool.id === normalizedPoolId)) return;
-      saveStoredGachaSettingsPoolTag(normalizedPoolId);
+      const safePoolId = getVisibleGachaPoolConfigDefinitions(rawData).some(pool => pool.id === normalizedPoolId)
+        ? normalizedPoolId
+        : GACHA_ALL_POOL_TAG;
+      saveStoredGachaSettingsPoolTag(safePoolId);
       overlay
         .find('.acu-gacha-settings-items-section')
-        .replaceWith(renderGachaSettingsPoolViewerHtml(rawData, normalizedPoolId));
+        .replaceWith(renderGachaSettingsPoolViewerHtml(rawData, safePoolId));
       hydrateCustomTableNameIconsIn(overlay);
       syncSettingsItemFilterControls();
       applySettingsItemFilters();
@@ -60039,14 +61500,18 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         });
         const poolId = normalizeGachaPoolId(name);
         if (!poolId) return;
-        if (getConfiguredGachaPoolDefinitions().some(pool => pool.id === poolId)) {
-          if (window.toastr) window.toastr.warning('这个卡池已经存在');
-          return;
-        }
-        ensureGachaPoolsForTags([poolId]);
-        saveStoredGachaSettingsPoolTag(poolId);
+        await runInSaveQueue(async () => {
+          if (getConfiguredGachaPoolDefinitions().some(pool => pool.id === poolId)) {
+            if (window.toastr) window.toastr.warning('这个卡池已经存在');
+            return;
+          }
+          ensureGachaPoolsForTags([poolId]);
+          saveStoredGachaSettingsPoolTag(poolId);
+        });
         void showGachaSettingsDialog();
-      })();
+      })().catch(error => {
+        if (window.toastr) showActionableErrorToast(`卡池创建失败: ${getJsonLikeErrorMessage(error)}`, { suggestion: 'importExport' });
+      });
     });
 
     overlay.on('click', '.acu-gacha-settings-pool-tab', function () {
@@ -60055,20 +61520,18 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       refreshSettingsPoolViewer(poolId);
     });
 
-    overlay.on('click', '.acu-gacha-pool-visible-toggle', function () {
-      const poolId = normalizeGachaPoolId($(this).closest('.acu-gacha-settings-pool-item').data('pool-id'));
-      const pool = getConfiguredGachaPoolDefinitions().find(candidate => candidate.id === poolId);
-      if (!pool || pool.id === GACHA_ALL_POOL_TAG) return;
-      updateGachaPoolConfig(poolId, { visibleInTabs: pool.visibleInTabs === false });
-      void showGachaSettingsDialog();
-    });
-
     overlay.on('change', '.acu-gacha-pool-all-check', function () {
       const poolId = normalizeGachaPoolId($(this).closest('.acu-gacha-settings-pool-item').data('pool-id'));
-      const pool = getConfiguredGachaPoolDefinitions().find(candidate => candidate.id === poolId);
-      if (!pool || pool.id === GACHA_ALL_POOL_TAG) return;
-      updateGachaPoolConfig(poolId, { includeInAll: pool.includeInAll !== true });
-      void showGachaSettingsDialog();
+      void runInSaveQueue(async () => {
+        const pool = getConfiguredGachaPoolDefinitions().find(candidate => candidate.id === poolId);
+        if (!pool || pool.id === GACHA_ALL_POOL_TAG) return;
+        const enabled = pool.includeInAll !== true;
+        updateGachaPoolConfig(poolId, { includeInAll: enabled, visibleInTabs: enabled });
+      })
+        .then(() => showGachaSettingsDialog())
+        .catch(error => {
+          if (window.toastr) showActionableErrorToast(`卡池设置保存失败: ${getJsonLikeErrorMessage(error)}`, { suggestion: 'importExport' });
+        });
     });
 
     overlay.on('click', '.acu-gacha-pool-rename', function () {
@@ -60083,9 +61546,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           confirmText: '保存',
         });
         if (name === null) return;
-        updateGachaPoolConfig(poolId, { name });
+        await runInSaveQueue(async () => {
+          const latestPool = getConfiguredGachaPoolDefinitions().find(candidate => candidate.id === poolId);
+          if (!latestPool || latestPool.id === GACHA_ALL_POOL_TAG) return;
+          updateGachaPoolConfig(poolId, { name });
+        });
         void showGachaSettingsDialog();
-      })();
+      })().catch(error => {
+        if (window.toastr) showActionableErrorToast(`卡池重命名失败: ${getJsonLikeErrorMessage(error)}`, { suggestion: 'importExport' });
+      });
     });
 
     overlay.on('click', '.acu-gacha-pool-export', function () {
@@ -60114,9 +61583,13 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           danger: true,
         });
         if (!confirmed) return;
-        await deleteGachaPoolConfig(poolId, rawData);
+        const deleted = await runInSaveQueue(() => deleteGachaPoolConfig(poolId, rawData));
+        if (!deleted) throw new Error('卡池删除失败');
         void showGachaSettingsDialog();
-      })();
+      })().catch(error => {
+        console.error('[DICE][GACHA]删除卡池失败:', error);
+        if (window.toastr) showActionableErrorToast(`删除卡池失败: ${getJsonLikeErrorMessage(error)}`, { suggestion: 'importExport' });
+      });
     });
 
     overlay.on('click', '.acu-gacha-settings-filter-trigger', function (event) {
@@ -60202,11 +61675,20 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       event.stopPropagation();
       const itemId = String($(this).closest('.acu-gacha-settings-item').data('item-id') || '').trim();
       if (!itemId) return;
-      updateGachaItemSetting(itemId, { enabled: $(this).prop('checked') === true });
       const currentPoolId = normalizeGachaPoolId($(this).closest('.acu-gacha-settings-items-section').data('pool-id'));
-      refreshSettingsPoolViewer(currentPoolId || GACHA_ALL_POOL_TAG);
-      refreshGachaVisualization(rawData);
-      refreshGachaShardShop();
+      const nextEnabled = $(this).prop('checked') === true;
+      void runInSaveQueue(async () => {
+        updateGachaItemSetting(itemId, { enabled: nextEnabled });
+      })
+        .then(() => {
+          refreshSettingsPoolViewer(currentPoolId || GACHA_ALL_POOL_TAG);
+          refreshGachaVisualization(rawData);
+          refreshGachaShardShop();
+        })
+        .catch(error => {
+          if (window.toastr) showActionableErrorToast(`物品启用状态保存失败: ${getJsonLikeErrorMessage(error)}`, { suggestion: 'importExport' });
+          refreshSettingsPoolViewer(currentPoolId || GACHA_ALL_POOL_TAG);
+        });
     });
 
     overlay.on('click', '.acu-gacha-item-toggle-menu', function (event) {
@@ -60216,12 +61698,25 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       const $row = $(this).closest('.acu-gacha-settings-item');
       const itemId = String($row.data('item-id') || '').trim();
       if (!itemId) return;
-      const nextEnabled = String($row.attr('data-enabled') || '') !== 'true';
-      updateGachaItemSetting(itemId, { enabled: nextEnabled });
       const currentPoolId = normalizeGachaPoolId($(this).closest('.acu-gacha-settings-items-section').data('pool-id'));
-      refreshSettingsPoolViewer(currentPoolId || GACHA_ALL_POOL_TAG);
-      refreshGachaVisualization(rawData);
-      refreshGachaShardShop();
+      void runInSaveQueue(async () => {
+        const latestItem = getAllGachaItemDefinitions(rawData).find(candidate => candidate.id === itemId);
+        const storedItem = getStoredGachaItemSettings().items[itemId];
+        let currentEnabled = String($row.attr('data-enabled') || '') === 'true';
+        if (latestItem) currentEnabled = isGachaItemEnabled(latestItem);
+        if (storedItem) currentEnabled = storedItem.enabled;
+        const nextEnabled = !currentEnabled;
+        updateGachaItemSetting(itemId, { enabled: nextEnabled });
+      })
+        .then(() => {
+          refreshSettingsPoolViewer(currentPoolId || GACHA_ALL_POOL_TAG);
+          refreshGachaVisualization(rawData);
+          refreshGachaShardShop();
+        })
+        .catch(error => {
+          if (window.toastr) showActionableErrorToast(`物品启用状态保存失败: ${getJsonLikeErrorMessage(error)}`, { suggestion: 'importExport' });
+          refreshSettingsPoolViewer(currentPoolId || GACHA_ALL_POOL_TAG);
+        });
     });
 
     overlay.on('click', '.acu-gacha-item-new', function (event) {
@@ -60262,13 +61757,38 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           danger: true,
         });
         if (!confirmed) return;
-        const nextItems = getCustomGachaItemDefinitions(rawData).filter(candidate => candidate.id !== itemId);
-        deleteGachaItemSetting(itemId);
-        await saveStoredGachaCatalog(nextItems);
+        await runInSaveQueue(async () => {
+          gachaCatalogCache = null;
+          gachaCatalogLoadTask = null;
+          await ensureGachaCatalogLoaded(rawData);
+          const localStorageSnapshot = collectGachaLocalStorageSnapshot([STORAGE_KEY_GACHA_ITEM_SETTINGS]);
+          const latestCustomItems = getCustomGachaItemDefinitions(rawData);
+          const latestOriginalItems = cloneGachaCatalogItems(latestCustomItems);
+          const latestNextItems = latestCustomItems.filter(candidate => candidate.id !== itemId);
+          if (latestNextItems.length === latestCustomItems.length) throw new Error('这个自定义物品已被删除');
+          const savedCatalog = await saveStoredGachaCatalog(latestNextItems);
+          if (!savedCatalog) throw new Error('自定义物品删除失败');
+          try {
+            deleteGachaItemSetting(itemId);
+          } catch (error) {
+            const rolledBackCatalog = await saveStoredGachaCatalog(latestOriginalItems);
+            const rollbackWarnings = restoreGachaLocalStorageSnapshot(localStorageSnapshot);
+            const message = getRuntimeErrorMessage(error) || '删除自定义物品设置失败';
+            const rollbackMessage = [
+              !rolledBackCatalog ? '自定义物品目录回滚失败' : '',
+              ...rollbackWarnings,
+            ].filter(Boolean).join('；');
+            if (rollbackMessage) throw new Error(`${message}；${rollbackMessage}`);
+            throw error;
+          }
+        });
         refreshGachaVisualization(rawData);
         refreshGachaShardShop();
         void showGachaSettingsDialog();
-      })();
+      })().catch(error => {
+        console.error('[DICE][GACHA]删除自定义物品失败:', error);
+        if (window.toastr) showActionableErrorToast(`删除失败: ${getJsonLikeErrorMessage(error)}`, { suggestion: 'importExport' });
+      });
     });
 
     overlay.on('click', '.acu-gacha-settings-prompt', () => {
@@ -60293,10 +61813,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         return null;
       },
       onOrderChange: newOrderIds => {
-        newOrderIds
-          .filter(id => id !== GACHA_ALL_POOL_TAG)
-          .forEach((id, index) => setGachaPoolOrder(id, (index + 1) * 10));
-        void showGachaSettingsDialog();
+        void runInSaveQueue(async () => {
+          newOrderIds
+            .filter(id => id !== GACHA_ALL_POOL_TAG)
+            .forEach((id, index) => setGachaPoolOrder(id, (index + 1) * 10));
+        })
+          .then(() => showGachaSettingsDialog())
+          .catch(error => {
+            if (window.toastr) showActionableErrorToast(`卡池排序保存失败: ${getJsonLikeErrorMessage(error)}`, { suggestion: 'importExport' });
+          });
       },
     });
     applySettingsItemFilters();
@@ -60330,12 +61855,15 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             buildDefaultGachaPoolDefinition(GACHA_CUSTOM_ONLY_POOL_TAG, {
               name: GACHA_CUSTOM_ONLY_POOL_TAG,
               builtin: false,
-              visibleInTabs: true,
+              visibleInTabs: false,
               includeInAll: false,
               order: storedPools.reduce((max, pool) => Math.max(max, Number(pool.order) || 0), 0) + 10,
             }),
           ]
         : storedPools;
+    const editorCreatablePoolIds = new Set<GachaPoolTag>(
+      !existingItem && needsDefaultCustomPool ? [GACHA_CUSTOM_ONLY_POOL_TAG] : [],
+    );
     const initialPoolExists = pools.some(pool => pool.id === normalizedInitialPoolTag);
     const baseItem: GachaItemDefinition = existingResolvedItem || {
       id: '',
@@ -60412,6 +61940,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const customFieldRowsHtml = initialCustomFieldRows
       .map(([key, value]) => renderCustomFieldRowHtml(key, value))
       .join('');
+    const openedItemFingerprint = existingItem ? getGachaItemDefinitionFingerprint(existingItem) : '';
 
     $('.acu-gacha-item-editor-overlay').remove();
     const overlay = $(`
@@ -60495,6 +62024,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     $('body').append(overlay);
     hydrateCustomTableNameIconsIn(overlay);
     bindTutorialButtonsIn(overlay);
+    let isSubmittingItemEditor = false;
+    const setItemEditorSubmitting = (submitting: boolean) => {
+      isSubmittingItemEditor = submitting;
+      overlay.toggleClass('is-saving', submitting);
+      overlay.find('.acu-gacha-item-editor .acu-btn-confirm').prop('disabled', submitting);
+    };
 
     const refreshEditorIconPreview = () => {
       const icon = String(overlay.find('.acu-gacha-item-icon').val() || '').trim();
@@ -60692,29 +62227,32 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
     overlay.on('submit', '.acu-gacha-item-editor', function (event) {
       event.preventDefault();
+      if (isSubmittingItemEditor) return;
+      setItemEditorSubmitting(true);
       void (async () => {
-        const name = String(overlay.find('.acu-gacha-item-name').val() || '').trim();
-        const quality = String(overlay.find('.acu-gacha-item-quality').val() || '普通') as GachaRarity;
-        const rewardTarget = String(overlay.find('.acu-gacha-item-target').val() || 'inventory') as GachaRewardTarget;
-        const targetTable = getEditorTargetTable();
-        const targetColumns = collectEditorTargetColumns();
-        const description = String(overlay.find('.acu-gacha-item-description').val() || '').trim();
-        const rawType = String(overlay.find('.acu-gacha-item-type').val() || '').trim();
-        const type =
-          rewardTarget === 'equipment'
-            ? inferEquipmentTableTypeForGachaItem({ id: existingItem?.id || '', name, type: rawType, description })
-            : rawType || '道具';
-        const icon = String(overlay.find('.acu-gacha-item-icon').val() || '').trim();
-        const weight = Number(overlay.find('.acu-gacha-item-weight').val());
-        const grantQuantity = Math.floor(Number(overlay.find('.acu-gacha-item-quantity').val()));
-        const stackable = overlay.find('.acu-gacha-item-stackable').prop('checked') === true;
-        const unique = overlay.find('.acu-gacha-item-unique').prop('checked') === true;
-        const poolTags = overlay
-          .find('.acu-gacha-item-pool-check:checked')
-          .toArray()
-          .map(element => normalizeGachaPoolId((element as HTMLInputElement).value))
-          .filter(Boolean);
-        const submitFieldLimits = getGachaRewardFieldLimits(rewardTarget);
+        try {
+          const name = String(overlay.find('.acu-gacha-item-name').val() || '').trim();
+          const quality = String(overlay.find('.acu-gacha-item-quality').val() || '普通') as GachaRarity;
+          const rewardTarget = String(overlay.find('.acu-gacha-item-target').val() || 'inventory') as GachaRewardTarget;
+          const targetTable = getEditorTargetTable();
+          const targetColumns = collectEditorTargetColumns();
+          const description = String(overlay.find('.acu-gacha-item-description').val() || '').trim();
+          const rawType = String(overlay.find('.acu-gacha-item-type').val() || '').trim();
+          const type =
+            rewardTarget === 'equipment'
+              ? inferEquipmentTableTypeForGachaItem({ id: existingItem?.id || '', name, type: rawType, description })
+              : rawType || '道具';
+          const icon = String(overlay.find('.acu-gacha-item-icon').val() || '').trim();
+          const weight = Number(overlay.find('.acu-gacha-item-weight').val());
+          const grantQuantity = Math.floor(Number(overlay.find('.acu-gacha-item-quantity').val()));
+          const stackable = overlay.find('.acu-gacha-item-stackable').prop('checked') === true;
+          const unique = overlay.find('.acu-gacha-item-unique').prop('checked') === true;
+          const poolTags = overlay
+            .find('.acu-gacha-item-pool-check:checked')
+            .toArray()
+            .map(element => normalizeGachaPoolId((element as HTMLInputElement).value))
+            .filter(Boolean);
+          const submitFieldLimits = getGachaRewardFieldLimits(rewardTarget);
 
         if (!name) {
           if (window.toastr) window.toastr.warning('请输入物品名称');
@@ -60778,16 +62316,9 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           return;
         }
 
-        ensureGachaPoolsForTags(poolTags);
-        const existingIds = new Set(getAllGachaItemDefinitions(rawData).map(candidate => candidate.id));
-        if (existingItem) existingIds.delete(existingItem.id);
-        const id =
-          existingItem?.id ||
-          createUniqueGachaItemId(buildStableGachaCustomItemId({ name, quality, type }), existingIds);
-
-        const savedAt = Date.now();
-        const nextItem: GachaItemDefinition = {
-          id,
+        const draftSavedAt = Date.now();
+        const draftItem: GachaItemDefinition = {
+          id: existingItem?.id || buildStableGachaCustomItemId({ name, quality, type }),
           name,
           type,
           quality,
@@ -60796,8 +62327,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           icon: icon || undefined,
           enabled: isGachaItemEnabled(item),
           order: item.order,
-          createdAt: existingItem?.createdAt || savedAt,
-          updatedAt: savedAt,
+          createdAt: existingItem?.createdAt || draftSavedAt,
+          updatedAt: draftSavedAt,
           weight,
           stackable,
           unique,
@@ -60807,15 +62338,88 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           ...(targetColumns ? { targetColumns } : {}),
           ...(customFields ? { customFields } : {}),
         };
-        const nextItems = existingItem
-          ? customItems.map(candidate => (candidate.id === existingItem.id ? nextItem : candidate))
-          : [...customItems, nextItem];
-        await saveStoredGachaCatalog(nextItems);
+
+        const targetWarnings: string[] = [];
+        if (!validateGachaCatalogImportItemTarget(getTableData({ silent: true }) || rawData, draftItem, targetWarnings)) {
+          if (window.toastr) window.toastr.warning(targetWarnings[0] || '自定义物品写入目标无法通过校验');
+          return;
+        }
+
+        try {
+          await runInSaveQueue(async () => {
+            gachaCatalogCache = null;
+            gachaCatalogLoadTask = null;
+            await ensureGachaCatalogLoaded(rawData);
+            const latestCustomItems = getCustomGachaItemDefinitions(rawData);
+            const latestExistingItem = existingItem
+              ? latestCustomItems.find(candidate => candidate.id === existingItem.id) || null
+              : null;
+            if (existingItem && !latestExistingItem) {
+              throw new Error('这个自定义物品已被删除，请重新打开编辑器后再保存。');
+            }
+            if (
+              existingItem &&
+              latestExistingItem &&
+              getGachaItemDefinitionFingerprint(latestExistingItem) !== openedItemFingerprint
+            ) {
+              throw new Error('这个自定义物品已被其他操作更新，请重新打开编辑器后再保存。');
+            }
+            if (!existingItem) {
+              const currentPoolIds = new Set(getAllGachaPoolConfigDefinitions(rawData).map(pool => pool.id));
+              const stalePoolTags = poolTags.filter(
+                tag => tag !== GACHA_ALL_POOL_TAG && !currentPoolIds.has(tag) && !editorCreatablePoolIds.has(tag),
+              );
+              if (stalePoolTags.length > 0) {
+                throw new Error(`所选卡池已被删除或更新：${stalePoolTags.join('、')}。请重新打开编辑器后再保存。`);
+              }
+            }
+            const existingIds = new Set(getAllGachaItemDefinitions(rawData).map(candidate => candidate.id));
+            if (existingItem) existingIds.delete(existingItem.id);
+            const id = existingItem?.id || createUniqueGachaItemId(draftItem.id, existingIds);
+            const savedAt = Date.now();
+            const nextItem: GachaItemDefinition = {
+              ...draftItem,
+              id,
+              enabled: latestExistingItem ? isGachaItemEnabled(latestExistingItem) : isGachaItemEnabled(item),
+              order: latestExistingItem?.order ?? item.order,
+              createdAt: latestExistingItem?.createdAt || existingItem?.createdAt || savedAt,
+              updatedAt: savedAt,
+            };
+            const nextItems = latestExistingItem
+              ? latestCustomItems.map(candidate => (candidate.id === latestExistingItem.id ? nextItem : candidate))
+              : [...latestCustomItems, nextItem];
+            const localStorageSnapshot = collectGachaLocalStorageSnapshot([STORAGE_KEY_GACHA_POOL_SETTINGS]);
+            const savedCatalog = await saveStoredGachaCatalog(nextItems);
+            if (!savedCatalog) throw new Error('自定义物品保存失败');
+            try {
+              ensureGachaPoolsForTags(poolTags);
+            } catch (error) {
+              const rolledBackCatalog = await saveStoredGachaCatalog(latestCustomItems);
+              const rollbackWarnings = restoreGachaLocalStorageSnapshot(localStorageSnapshot);
+              const message = getRuntimeErrorMessage(error) || '写入卡池配置失败';
+              const rollbackMessage = [
+                !rolledBackCatalog ? '自定义物品目录回滚失败' : '',
+                ...rollbackWarnings,
+              ].filter(Boolean).join('；');
+              if (rollbackMessage) throw new Error(`${message}；${rollbackMessage}`);
+              throw error;
+            }
+          });
+        } catch (error) {
+          console.error('[DICE][GACHA]保存自定义物品失败:', error);
+          if (window.toastr)
+            showActionableErrorToast(`自定义物品保存失败: ${getJsonLikeErrorMessage(error)}`, { suggestion: 'importExport' });
+          return;
+        }
         refreshGachaVisualization(rawData);
         refreshGachaShardShop();
         closeEditor();
         if (window.toastr) window.toastr.success(existingItem ? '自定义物品已更新' : '自定义物品已创建');
         void showGachaSettingsDialog();
+        } finally {
+          if (overlay.parent().length > 0) setItemEditorSubmitting(false);
+          else isSubmittingItemEditor = false;
+        }
       })();
     });
   };
@@ -60979,7 +62583,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       `发送 ${typedChars} 字，基础 ${GACHA_MESSAGE_REWARD}${charReward > 0 ? `，字数奖励 ${charReward}` : ''}`,
     );
 
-    saveStoredGachaStateSnapshot(state);
+    if (!saveStoredGachaStateSnapshot(state)) return;
     refreshGachaVisualization();
   };
 
@@ -61012,7 +62616,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       );
     }
 
-    saveStoredGachaStateSnapshot(state);
+    if (!saveStoredGachaStateSnapshot(state)) return;
     updateGachaFortuneProgressDom(state);
   };
 
