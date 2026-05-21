@@ -2294,7 +2294,7 @@ import {
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.8.4'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v6.22'; // 脚本版本号
+  const SCRIPT_VERSION = 'v6.23'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -62856,20 +62856,29 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     return buildGachaTableResultFromSheet(matches[0], config);
   };
 
-  const findGachaTargetColumnIndex = (headers: unknown[], headerName: string): number =>
-    headers.findIndex(header => String(header || '').trim() === headerName);
+  const findGachaTargetColumnIndex = (headers: unknown[], headerName: string, sheet?: unknown): number => {
+    const directIndex = headers.findIndex(header => isGachaTargetTableAliasMatch(header, headerName));
+    if (directIndex >= 0) return directIndex;
+
+    const columnAliasMap = buildCrudColumnAliasMap(sheet);
+    if (Object.keys(columnAliasMap).length === 0) return -1;
+    return headers.findIndex(header =>
+      isGachaTargetTableAliasMatch(getCrudColumnNameForHeader(columnAliasMap, header), headerName),
+    );
+  };
 
   const applyGachaTargetColumnOverrides = (
     colMap: GachaRewardColumnMap,
     headers: unknown[],
     tableName: string,
     targetColumns?: GachaRewardTargetColumns,
+    sheet?: unknown,
   ): GachaRewardColumnMap => {
     const entries = getGachaTargetColumnEntries(targetColumns);
     if (entries.length === 0) return colMap;
     const nextMap: GachaRewardColumnMap = { ...colMap };
     entries.forEach(([key, headerName]) => {
-      const columnIndex = findGachaTargetColumnIndex(headers, headerName);
+      const columnIndex = findGachaTargetColumnIndex(headers, headerName, sheet);
       if (columnIndex < 0) {
         throw new Error(
           withTableTemplateCheckHint(
@@ -62915,7 +62924,13 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       quality: findExtra(['品质', '稀有度', '品级'], -1),
       description: findExtra(['描述', '说明', '用途', '效果'], 5),
     };
-    return applyGachaTargetColumnOverrides(colMap, headers, inventoryResult?.name || '物品表', options.targetColumns);
+    return applyGachaTargetColumnOverrides(
+      colMap,
+      headers,
+      inventoryResult?.name || '物品表',
+      options.targetColumns,
+      inventoryResult?.data,
+    );
   };
 
   const parseInventoryItems = (rawData, options: GachaRewardParseOptions = {}) => {
@@ -62993,7 +63008,13 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       quality: findExtra(['品质', '稀有度', '品级'], -1),
       description: findExtra(['描述', '说明', '效果', '备注'], 6),
     };
-    return applyGachaTargetColumnOverrides(colMap, headers, equipmentResult?.name || '装备表', options.targetColumns);
+    return applyGachaTargetColumnOverrides(
+      colMap,
+      headers,
+      equipmentResult?.name || '装备表',
+      options.targetColumns,
+      equipmentResult?.data,
+    );
   };
 
   const parseEquipmentItems = (rawData, options: GachaRewardParseOptions = {}) => {
