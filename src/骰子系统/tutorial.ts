@@ -593,9 +593,9 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
     },
     {
       selector: '#settings-row-config-backup',
-      title: '备份与还原',
+      title: '配置方案与备份',
       content:
-        '备份与还原用于导出或导入骰子系统配置，适合迁移环境、试验复杂预设前留档，或在配置异常时恢复到之前的可用版本。当前数据库表格模板也会作为可选模块一起勾选；恢复时会导入到数据库模板列表，如果已有同名模板会覆盖同名模板。',
+        '这里可以把当前骰子系统配置保存成方案，也可以导入、应用角色卡内置方案。应用方案前会自动保存快照，方便之后回退。',
       placement: 'left',
     },
     {
@@ -753,9 +753,9 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
   configBackup: [
     {
       selector: '.acu-config-backup-dialog',
-      title: '备份与还原',
+      title: '配置方案与备份',
       content:
-        '这里用于导出或恢复骰子系统配置。适合换设备、换聊天环境、尝试复杂预设前留档，或配置异常时回到之前可用的状态。',
+        '这里统一管理骰子系统配置方案、角色卡内置配置、快照和传统备份。配置方案会写入当前全局配置，不是独立沙盒。',
       placement: 'left',
     },
     {
@@ -765,17 +765,31 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
       placement: 'left',
     },
     {
-      selector: '.acu-config-backup-privacy-notice',
-      title: '先看风险提示',
+      selector: '.acu-profile-library',
+      title: '方案管理',
       content:
-        '备份文件可能包含角色别名、偏好、表格规则、头像或外链资源。公开分享前请先打开 JSON 检查；恢复外来备份前也要确认来源可信。',
+        '这里按角色卡、方案库和快照分组显示配置方案。应用方案前会自动保存快照，方便之后回退。',
+      placement: 'bottom',
+    },
+    {
+      selector: '.acu-profile-tabs',
+      title: '切换分组',
+      content:
+        '点上方标签切换角色卡内置方案、用户方案和快照。角色卡方案被跳过后，也可以从这里重新应用。',
+      placement: 'left',
+    },
+    {
+      selector: '.acu-profile-convert-regex-action',
+      title: '转成酒馆正则',
+      content:
+        '每个方案都可以单独转成角色卡正则。导出的正则只携带用途说明和隐藏方案标记，不需要改开场白。',
       placement: 'bottom',
     },
     {
       selector: '.acu-config-backup-module-list',
-      title: '选择模块',
+      title: '保存范围',
       content:
-        '每一行是一类可迁移配置。只勾选你需要带走或恢复的模块；不确定时可以先保留默认勾选，再按模块说明缩小范围。',
+        '每一行是一类可保存的设置。点“保存方案”时，会把勾选的模块写入新方案；应用已有方案时默认使用方案里的模块。',
       placement: 'left',
     },
     {
@@ -785,24 +799,24 @@ const STEPS: Record<TutorialScope, TutorialStep[]> = {
       placement: 'left',
     },
     {
-      selector: '.acu-config-backup-summary-grid',
-      title: '备份摘要',
+      selector: '.acu-profile-row',
+      title: '条目摘要',
       content:
-        '导入备份文件后，这里会显示导出时间、可恢复模块和项目数量。恢复前先核对版本和内容规模，避免拿错文件。',
+        '条目显示方案名称。右侧按钮可应用、重命名、另存、导出或删除当前方案。',
       placement: 'bottom',
     },
     {
       selector: '#acu-config-backup-pick-file',
-      title: '导入备份',
+      title: '导入配置方案或备份',
       content:
-        '点击导入选择之前导出的 JSON 文件。文件读取成功后，弹窗会切换到恢复模式，你可以再次勾选要恢复的模块。',
+        '点击导入选择配置方案 JSON、传统备份 JSON，或包含角色卡配置方案标记的文本。传统备份会被包装成配置方案后保存到库里。',
       placement: 'top',
     },
     {
-      selector: ['#acu-config-backup-export', '#acu-config-backup-apply'],
+      selector: ['#acu-profile-save-current', '.acu-profile-action'],
       title: '确认操作',
       content:
-        '导出会下载当前勾选模块的备份文件；恢复会合并或覆盖对应本地配置，并在确认弹窗中再次列出风险。请在确认前检查勾选项。',
+        '“保存方案”会把当前勾选设置保存到方案库；条目里的导出会下载对应方案；应用方案前会自动创建快照。',
       placement: 'top',
     },
   ],

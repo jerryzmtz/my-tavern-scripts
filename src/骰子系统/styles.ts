@@ -311,7 +311,7 @@ export const MAIN_STYLES = `
     .acu-relation-graph-overlay button,
     .acu-avatar-manager-overlay button,
     .acu-preview-overlay button,
-    .acu-embedded-options-container button:not(.acu-opt-btn) {
+    .acu-embedded-options-container button:not(.acu-opt-btn):not(.acu-check-suggestion-btn) {
         font-family: inherit;
         font-size: inherit;
         line-height: 1.4;
@@ -335,7 +335,7 @@ export const MAIN_STYLES = `
     .acu-relation-graph-overlay button:hover,
     .acu-avatar-manager-overlay button:hover,
     .acu-preview-overlay button:hover,
-    .acu-embedded-options-container button:not(.acu-opt-btn):hover {
+    .acu-embedded-options-container button:not(.acu-opt-btn):not(.acu-check-suggestion-btn):hover {
         background: var(--acu-btn-hover);
     }
     .acu-wrapper.acu-dice-ui-root button:focus,
@@ -345,7 +345,7 @@ export const MAIN_STYLES = `
     .acu-relation-graph-overlay button:focus,
     .acu-avatar-manager-overlay button:focus,
     .acu-preview-overlay button:focus,
-    .acu-embedded-options-container button:not(.acu-opt-btn):focus {
+    .acu-embedded-options-container button:not(.acu-opt-btn):not(.acu-check-suggestion-btn):focus {
         outline: none;
         box-shadow: var(--acu-focus-ring);
     }
@@ -356,7 +356,7 @@ export const MAIN_STYLES = `
     .acu-relation-graph-overlay button:disabled,
     .acu-avatar-manager-overlay button:disabled,
     .acu-preview-overlay button:disabled,
-    .acu-embedded-options-container button:not(.acu-opt-btn):disabled,
+    .acu-embedded-options-container button:not(.acu-opt-btn):not(.acu-check-suggestion-btn):disabled,
     .acu-wrapper.acu-dice-ui-root button.disabled,
     .acu-edit-overlay button.disabled,
     .acu-dice-panel button.disabled,
@@ -364,7 +364,7 @@ export const MAIN_STYLES = `
     .acu-relation-graph-overlay button.disabled,
     .acu-avatar-manager-overlay button.disabled,
     .acu-preview-overlay button.disabled,
-    .acu-embedded-options-container button:not(.acu-opt-btn).disabled {
+    .acu-embedded-options-container button:not(.acu-opt-btn):not(.acu-check-suggestion-btn).disabled {
         opacity: var(--acu-disabled-opacity);
         cursor: not-allowed;
         pointer-events: none;
@@ -1963,7 +1963,7 @@ export const MAIN_STYLES = `
             /* --- [重设计] 叙事条目风格按钮 --- */
             .acu-opt-btn,
             .acu-check-suggestion-btn {
-                background: var(--acu-opt-bright-bg, #ffffff);
+                background: var(--acu-opt-bright-bg, var(--acu-opt-bg, var(--acu-btn-bg)));
                 border: 1px solid transparent;
                 padding: 3px 6px;
                 border-radius: 4px;
@@ -6403,6 +6403,149 @@ export const MAIN_STYLES = `
                 overflow-y: auto;
             }
 
+            .acu-system-confirm-dialog.structured-detail,
+            .acu-custom-icon-confirm-dialog.structured-detail {
+                width: min(480px, calc(100vw - 32px)) !important;
+            }
+
+            .acu-system-confirm-dialog.structured-detail .acu-system-confirm-content,
+            .acu-custom-icon-confirm-dialog.structured-detail .acu-custom-icon-confirm-content {
+                display: grid;
+                grid-template-columns: 28px minmax(0, 1fr);
+                align-items: center;
+                column-gap: 10px;
+                padding: 4px 0 2px;
+                text-align: left;
+            }
+
+            .acu-system-confirm-dialog.structured-detail .acu-import-warning-icon,
+            .acu-custom-icon-confirm-dialog.structured-detail .acu-import-warning-icon {
+                width: 28px;
+                height: 28px;
+                margin: 0;
+                line-height: 28px;
+                font-size: 14px;
+            }
+
+            .acu-system-confirm-dialog.structured-detail .acu-import-warning-title,
+            .acu-custom-icon-confirm-dialog.structured-detail .acu-import-warning-title {
+                margin: 0;
+                font-size: 14px;
+                line-height: 1.35;
+            }
+
+            .acu-system-confirm-detail.structured,
+            .acu-custom-icon-confirm-detail.structured {
+                grid-column: 1 / -1;
+                margin-top: 10px;
+                padding: 0;
+                border: 0;
+                background: transparent;
+                max-height: min(300px, 42dvh);
+                color: var(--acu-text-sub);
+            }
+
+            .acu-profile-apply-confirm {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+            }
+
+            .acu-profile-apply-impact-list {
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+            }
+
+            .acu-profile-apply-impact {
+                display: grid;
+                grid-template-columns: 18px minmax(0, 1fr);
+                align-items: start;
+                gap: 8px;
+                color: var(--acu-text-sub);
+                font-size: 12px;
+                line-height: 1.5;
+            }
+
+            .acu-profile-apply-impact i {
+                margin-top: 2px;
+                color: var(--acu-accent);
+                font-size: 12px;
+                text-align: center;
+            }
+
+            .acu-profile-apply-impact strong {
+                color: var(--acu-text-main);
+                font-weight: 700;
+            }
+
+            .acu-profile-apply-row {
+                display: grid;
+                grid-template-columns: auto minmax(0, 1fr);
+                align-items: start;
+                gap: 8px;
+                padding-top: 9px;
+                border-top: 1px solid var(--acu-border);
+            }
+
+            .acu-profile-apply-label {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                color: var(--acu-text-main);
+                font-size: 12px;
+                font-weight: 700;
+                line-height: 1.4;
+                white-space: nowrap;
+            }
+
+            .acu-profile-apply-label i {
+                color: var(--acu-accent);
+                font-size: 12px;
+            }
+
+            .acu-profile-apply-module-chips {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 6px;
+            }
+
+            .acu-profile-apply-module-chip {
+                max-width: 100%;
+                padding: 3px 7px;
+                border: 1px solid var(--acu-border);
+                border-radius: 999px;
+                background: var(--acu-btn-bg);
+                color: var(--acu-text-main);
+                font-size: 11px;
+                line-height: 1.35;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .acu-profile-apply-empty {
+                color: var(--acu-text-sub);
+                font-size: 12px;
+                line-height: 1.5;
+            }
+
+            .acu-profile-apply-warnings {
+                align-items: start;
+            }
+
+            .acu-profile-apply-warning-list {
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+            }
+
+            .acu-profile-apply-warning {
+                color: var(--acu-text-main);
+                font-size: 12px;
+                line-height: 1.5;
+            }
+
             .acu-system-confirm-overlay .acu-import-warning-icon.warning,
             .acu-custom-icon-confirm-overlay .acu-import-warning-icon.warning {
                 background: var(--acu-warning-bg, rgba(243, 156, 18, 0.15));
@@ -6536,6 +6679,19 @@ export const MAIN_STYLES = `
                     width: calc(100vw - 24px) !important;
                     max-width: calc(100vw - 24px) !important;
                     max-height: calc(100dvh - 24px) !important;
+                }
+
+                .acu-system-confirm-detail.structured,
+                .acu-custom-icon-confirm-detail.structured {
+                    max-height: min(360px, 48dvh);
+                }
+
+                .acu-profile-apply-row {
+                    grid-template-columns: 1fr;
+                }
+
+                .acu-profile-apply-module-chip {
+                    padding: 3px 7px;
                 }
 
                 .acu-system-confirm-overlay .acu-import-confirm-footer,
@@ -15840,7 +15996,7 @@ export const MAIN_STYLES = `
     }
 
     .acu-config-backup-header {
-        padding: 14px 16px;
+        padding: 12px 16px;
         border-bottom: 1px solid var(--acu-border, rgba(128,128,128,0.35));
     }
 
@@ -15918,7 +16074,7 @@ export const MAIN_STYLES = `
     .acu-config-backup-body {
         flex: 1 1 auto;
         min-height: 0;
-        padding: 14px 16px;
+        padding: 10px 16px;
         overflow: auto;
         -webkit-overflow-scrolling: touch;
     }
@@ -15926,7 +16082,7 @@ export const MAIN_STYLES = `
     .acu-config-backup-content {
         display: flex;
         flex-direction: column;
-        gap: 12px;
+        gap: 8px;
         height: 100%;
         min-height: 0;
     }
@@ -15980,8 +16136,8 @@ export const MAIN_STYLES = `
     .acu-config-backup-module-row {
         display: flex;
         align-items: flex-start;
-        gap: 10px;
-        padding: 10px;
+        gap: 8px;
+        padding: 8px 10px;
         border: 1px solid var(--acu-border, rgba(128,128,128,0.35));
         border-radius: 8px;
         background: var(--acu-card-bg, var(--acu-bg-panel, #1f1f1f));
@@ -16003,7 +16159,7 @@ export const MAIN_STYLES = `
         width: 100%;
         min-width: 0;
         flex-direction: column;
-        gap: 3px;
+        gap: 2px;
     }
 
     .acu-config-backup-module-title-row {
@@ -16042,7 +16198,7 @@ export const MAIN_STYLES = `
     .acu-config-backup-module-desc {
         color: var(--acu-text-sub, #aaa);
         font-size: 12px;
-        line-height: 1.45;
+        line-height: 1.35;
     }
 
     .acu-config-backup-module-warning {
@@ -16121,29 +16277,421 @@ export const MAIN_STYLES = `
         word-break: break-all;
     }
 
-    .acu-config-backup-footer {
-        padding: 12px 16px;
+    .acu-profile-manager {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        height: auto;
+        min-height: auto;
+    }
+
+    .acu-profile-library {
+        display: flex;
+        flex-direction: column;
+        height: auto;
+        min-height: auto;
+        gap: 6px;
+        padding: 8px;
+        overflow: visible;
+        border: 1px solid var(--acu-border, rgba(128,128,128,0.35));
+        border-radius: 6px;
+        background: color-mix(in srgb, var(--acu-card-bg, var(--acu-bg-panel, #1f1f1f)) 72%, transparent);
+    }
+
+    .acu-profile-collapsible {
+        min-height: auto;
+    }
+
+    .acu-profile-collapsible.collapsed {
+        height: auto;
+        max-height: none;
+    }
+
+    .acu-profile-manager.is-save-scope-collapsed .acu-profile-library:not(.collapsed) {
+        min-height: auto;
+    }
+
+    .acu-profile-collapse-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        min-height: 28px;
+        gap: 8px;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: var(--acu-text-main, #eee);
+        cursor: pointer;
+        font: inherit;
+        text-align: left;
+        min-width: 0;
+    }
+
+    .acu-profile-collapse-header:hover .acu-profile-collapse-title,
+    .acu-profile-collapse-header:focus-visible .acu-profile-collapse-title {
+        color: var(--acu-accent);
+    }
+
+    .acu-profile-collapse-header:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--acu-accent) 65%, transparent);
+        outline-offset: 2px;
+        border-radius: 4px;
+    }
+
+    .acu-profile-collapse-title {
+        display: inline-flex;
+        align-items: center;
+        min-width: 0;
+        gap: 6px;
+        color: var(--acu-text-main, #eee);
+        font-size: 13px;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+
+    .acu-profile-collapse-title i {
+        color: var(--acu-accent);
+    }
+
+    .acu-profile-collapse-meta {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        color: var(--acu-text-sub, #aaa);
+        font-size: 12px;
+        line-height: 1.25;
+        text-align: right;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .acu-profile-collapse-chevron {
+        flex: 0 0 auto;
+        color: var(--acu-text-sub, #aaa);
+        font-size: 10px;
+        transition: transform 160ms ease-out;
+    }
+
+    .acu-profile-collapsible.collapsed .acu-profile-collapse-chevron {
+        transform: rotate(-90deg);
+    }
+
+    .acu-profile-collapse-body {
+        display: flex;
+        min-height: auto;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .acu-profile-collapsible.collapsed .acu-profile-collapse-body {
+        display: none;
+    }
+
+    .acu-profile-library-body {
+        flex: 0 0 auto;
+        overflow: visible;
+    }
+
+    .acu-profile-save-scope-body {
+        flex: 0 0 auto;
+    }
+
+    .acu-profile-tabs {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+    }
+
+    .acu-profile-tab {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 0;
+        min-height: 30px;
+        gap: 6px;
+        padding: 4px 8px;
+        border: 1px solid var(--acu-border, rgba(128,128,128,0.35));
+        border-radius: 6px;
+        background: var(--acu-input-bg, var(--acu-card-bg, var(--acu-bg-panel, #1f1f1f)));
+        color: var(--acu-text-sub, #aaa);
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 1.2;
+        white-space: nowrap;
+    }
+
+    .acu-profile-tab:hover,
+    .acu-profile-tab:focus-visible {
+        border-color: var(--acu-state-accent-border, var(--acu-accent));
+        color: var(--acu-text-main, #eee);
+        outline: none;
+    }
+
+    .acu-profile-tab.is-active {
+        border-color: var(--acu-state-accent-border, var(--acu-accent));
+        background: var(--acu-table-hover, rgba(128,128,128,0.12));
+        color: var(--acu-text-main, #eee);
+    }
+
+    .acu-profile-tab em {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 18px;
+        height: 18px;
+        padding: 0 5px;
+        border: 1px solid var(--acu-border, rgba(128,128,128,0.35));
+        border-radius: 999px;
+        color: var(--acu-text-sub, #aaa);
+        font-size: 10px;
+        font-style: normal;
+        line-height: 1;
+    }
+
+    .acu-profile-tab-panels {
+        flex: 0 0 auto;
+        min-height: auto;
+        overflow: visible;
+        padding-right: 1px;
+    }
+
+    .acu-profile-tab-panel[hidden] {
+        display: none !important;
+    }
+
+    .acu-profile-section {
+        display: flex;
+        min-height: auto;
+        flex-direction: column;
+        gap: 5px;
+    }
+
+    .acu-profile-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .acu-profile-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 8px;
+        border: 1px solid var(--acu-border, rgba(128,128,128,0.35));
+        border-radius: 6px;
+        background: color-mix(in srgb, var(--acu-card-bg, var(--acu-bg-panel, #1f1f1f)) 76%, transparent);
+    }
+
+    .acu-profile-row.is-current {
+        border-color: var(--acu-state-accent-border, var(--acu-accent));
+        background: var(--acu-table-hover, var(--acu-card-bg, var(--acu-bg-panel, #1f1f1f)));
+    }
+
+    .acu-profile-library .acu-profile-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .acu-profile-library .acu-profile-row-actions {
+        justify-content: flex-end;
+    }
+
+    .acu-profile-row-main {
+        min-width: 0;
+    }
+
+    .acu-profile-row-title {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+    }
+
+    .acu-profile-row-title strong {
+        overflow: hidden;
+        color: var(--acu-text-main, #eee);
+        font-size: 12px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .acu-profile-row-actions {
+        display: grid;
+        grid-auto-columns: 32px;
+        grid-auto-flow: column;
+        grid-template-columns: none;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 5px;
+    }
+
+    .acu-profile-action {
+        width: auto !important;
+        min-width: 32px;
+        min-height: 30px;
+        margin: 0 !important;
+        padding: 4px 7px !important;
+        font-size: 11px !important;
+        gap: 4px;
+        white-space: nowrap;
+    }
+
+    .acu-profile-library .acu-profile-action {
+        width: 32px !important;
+        padding: 4px !important;
+    }
+
+    .acu-profile-library .acu-profile-action span {
+        display: none;
+    }
+
+    .acu-profile-empty {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 32px;
+        padding: 6px 8px;
+        font-size: 12px;
+        line-height: 1.35;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .acu-profile-danger {
+        color: var(--acu-error-text, #ef4444) !important;
+    }
+
+    .acu-profile-module-section {
+        min-height: auto;
+    }
+
+    .acu-profile-module-list {
+        max-height: none;
+        flex: 0 0 auto;
+        min-height: auto;
+        overflow: visible;
+    }
+
+    .acu-profile-prompt-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 32110;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+        background: rgba(0,0,0,0.38);
+        color: var(--acu-text-main, #eee);
+    }
+
+    .acu-profile-prompt-dialog {
+        width: min(480px, calc(100vw - 32px));
+        overflow: hidden;
+        border: 1px solid var(--acu-border, rgba(128,128,128,0.35));
+        border-radius: 10px;
+        background: var(--acu-bg-panel, #1f1f1f);
+        box-shadow: 0 18px 48px rgba(0,0,0,0.42);
+    }
+
+    .acu-profile-prompt-header,
+    .acu-profile-prompt-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 12px 14px;
+        background: var(--acu-card-bg, var(--acu-bg-panel, #1f1f1f));
+    }
+
+    .acu-profile-prompt-header {
+        border-bottom: 1px solid var(--acu-border, rgba(128,128,128,0.35));
+    }
+
+    .acu-profile-prompt-title {
+        display: inline-flex;
+        align-items: center;
+        min-width: 0;
+        gap: 8px;
+        font-size: 14px;
+        font-weight: 700;
+    }
+
+    .acu-profile-prompt-title i {
+        color: var(--acu-accent);
+    }
+
+    .acu-profile-prompt-close {
+        width: 30px;
+        height: 30px;
+        padding: 0;
+        border: 1px solid transparent;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--acu-text-sub, #aaa);
+        cursor: pointer;
+    }
+
+    .acu-profile-prompt-close:hover,
+    .acu-profile-prompt-close:focus-visible {
+        border-color: var(--acu-border, rgba(128,128,128,0.35));
+        background: var(--acu-table-hover, rgba(128,128,128,0.12));
+        color: var(--acu-accent);
+        outline: none;
+    }
+
+    .acu-profile-prompt-body {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 14px;
+    }
+
+    .acu-profile-prompt-name {
+        font-size: 14px;
+        font-weight: 700;
+    }
+
+    .acu-profile-prompt-text,
+    .acu-profile-prompt-meta {
+        color: var(--acu-text-sub, #aaa);
+        font-size: 12px;
+        line-height: 1.5;
+    }
+
+    .acu-profile-prompt-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 10px;
+    }
+
+    .acu-profile-prompt-footer {
+        justify-content: flex-end;
         border-top: 1px solid var(--acu-border, rgba(128,128,128,0.35));
     }
 
-    .acu-config-backup-import-actions,
-    .acu-config-backup-primary-actions {
-        display: flex;
+    .acu-config-backup-footer {
+        display: block;
+        padding: 10px 16px;
+        border-top: 1px solid var(--acu-border, rgba(128,128,128,0.35));
+    }
+
+    .acu-config-backup-footer-actions {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
         align-items: center;
         gap: 8px;
         min-width: 0;
     }
 
-    .acu-config-backup-primary-actions {
-        justify-content: flex-end;
-        flex: 0 0 auto;
-        flex-wrap: wrap;
-    }
-
     .acu-config-backup-footer-btn {
-        width: auto !important;
+        width: 100% !important;
+        min-width: 0;
+        min-height: 34px;
         margin: 0 !important;
-        padding: 7px 12px !important;
+        padding: 7px 10px !important;
         display: inline-flex !important;
         align-items: center;
         justify-content: center;
@@ -16174,6 +16722,26 @@ export const MAIN_STYLES = `
         display: none;
     }
 
+    .acu-profile-manager-body {
+        scrollbar-width: thin;
+        scrollbar-color: var(--acu-border, rgba(128,128,128,0.35)) transparent;
+    }
+
+    .acu-profile-manager-body::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+        display: block;
+    }
+
+    .acu-profile-manager-body::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    .acu-profile-manager-body::-webkit-scrollbar-thumb {
+        border-radius: 999px;
+        background: var(--acu-border, rgba(128,128,128,0.35));
+    }
+
     @media (max-width: 560px) {
         .acu-config-backup-overlay {
             align-items: stretch;
@@ -16201,11 +16769,15 @@ export const MAIN_STYLES = `
 
         .acu-config-backup-footer {
             display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
             align-items: stretch;
             gap: 6px;
             padding-top: 8px;
             padding-bottom: 8px;
+        }
+
+        .acu-config-backup-footer-actions {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 6px;
         }
 
         .acu-config-backup-selection-actions {
@@ -16220,34 +16792,58 @@ export const MAIN_STYLES = `
             grid-template-columns: 1fr;
         }
 
-        .acu-config-backup-import-actions,
-        .acu-config-backup-primary-actions {
-            min-width: 0;
-            width: auto;
+        .acu-profile-library {
+            max-height: none;
+            padding: 7px;
         }
 
-        .acu-config-backup-primary-actions {
-            grid-column: span 2;
+        .acu-profile-row {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .acu-profile-library .acu-profile-row {
+            grid-template-columns: minmax(0, 1fr) auto;
+        }
+
+        .acu-profile-prompt-footer {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 6px;
+            justify-content: stretch;
+        }
+
+        .acu-profile-row-actions {
+            display: grid;
+            grid-auto-columns: 32px;
+            grid-auto-flow: column;
+            grid-template-columns: none;
+            justify-content: flex-end;
+        }
+
+        .acu-profile-library .acu-profile-row-actions {
+            display: grid;
+            grid-auto-columns: 32px;
+            grid-auto-flow: column;
+            grid-template-columns: none;
+            justify-content: flex-end;
+        }
+
+        .acu-profile-action,
+        .acu-profile-prompt-footer .acu-setting-action-btn {
+            width: 100% !important;
+            min-width: 0;
+        }
+
+        .acu-profile-library .acu-profile-action {
+            width: 32px !important;
+            min-width: 32px;
         }
 
         .acu-config-backup-footer-btn {
             min-width: 0;
-            min-height: 34px;
+            min-height: 32px;
             width: 100% !important;
-            padding: 6px 6px !important;
+            padding: 6px 8px !important;
             gap: 4px;
-        }
-
-        #acu-config-backup-export,
-        #acu-config-backup-apply {
-            order: 1;
-        }
-
-        #acu-config-backup-cancel {
-            order: 2;
         }
     }
 

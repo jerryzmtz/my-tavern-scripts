@@ -55,6 +55,20 @@ import {
   type GachaRewardTargetColumnKey,
   type GachaRewardTargetColumns,
 } from './gacha-items';
+import {
+  ACU_DICE_PROFILE_FORMAT,
+  computeAcuDiceProfileFingerprint,
+  createAcuDiceProfileMarker,
+  decodeAcuDiceProfileMarkerPayload,
+  extractAcuDiceProfileMarkerPayloads,
+  getAcuDiceProfilePromptKey,
+  getAcuDiceProfileSourceKey,
+  normalizeAcuDiceProfilePackage,
+  normalizeAcuDiceProfileSource,
+  type AcuDiceProfilePackage,
+  type AcuDiceProfileSource,
+  type NormalizeAcuDiceProfileOptions,
+} from './profile-packages';
 
 (function () {
   'use strict';
@@ -2166,6 +2180,218 @@ import {
     }
   };
 
+  const getRuntimeWindowCandidates = () => {
+    const candidates: Window[] = [];
+    const addWindow = (targetWindow: Window | null | undefined) => {
+      if (!targetWindow || candidates.includes(targetWindow)) return;
+      candidates.push(targetWindow);
+    };
+
+    try {
+      addWindow(getTavernHostWindow());
+    } catch (_error) {
+      // 宿主窗口可能还没准备好，继续检查本窗口和父窗口。
+    }
+    addWindow(window);
+    try {
+      addWindow(window.parent);
+    } catch (_error) {
+      // ignore inaccessible parent
+    }
+    try {
+      addWindow(window.top);
+    } catch (_error) {
+      // ignore inaccessible top
+    }
+
+    return candidates;
+  };
+
+  const findRuntimeFunction = (name: string) => {
+    for (const runtimeWindow of getRuntimeWindowCandidates()) {
+      const directFn = runtimeWindow?.[name];
+      if (typeof directFn === 'function') return directFn.bind(runtimeWindow);
+
+      const tavernHelper = runtimeWindow?.TavernHelper;
+      const helperFn = tavernHelper?.[name];
+      if (typeof helperFn === 'function') return helperFn.bind(tavernHelper);
+    }
+
+    const globalFn = globalThis?.[name];
+    return typeof globalFn === 'function' ? globalFn.bind(globalThis) : null;
+  };
+
+  const findSillyTavernSlashRunner = () => {
+    for (const runtimeWindow of getRuntimeWindowCandidates()) {
+      const ST = runtimeWindow?.SillyTavern;
+      if (typeof ST?.executeSlashCommandsWithOptions === 'function') {
+        return ST.executeSlashCommandsWithOptions.bind(ST);
+      }
+    }
+    return null;
+  };
+
+  const quoteSlashArgument = (text: string): string =>
+    `"${String(text ?? '')
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"')}"`;
+
+  const triggerGenerationAfterDirectSend = async (): Promise<boolean> => {
+    const triggerSlashFn = findRuntimeFunction('triggerSlash');
+    if (triggerSlashFn) {
+      await triggerSlashFn('/trigger');
+      return true;
+    }
+
+    const runSlash = findSillyTavernSlashRunner();
+    if (runSlash) {
+      await runSlash('/trigger');
+      return true;
+    }
+
+    return false;
+  };
+
+  const getComposerTextarea = (): AcuDiceTextareaElement | null => {
+    const { $ } = getCore();
+    const $ta = $('#send_textarea');
+    return $ta.length ? ($ta[0] as AcuDiceTextareaElement) : null;
+  };
+
+  const getResolvedComposerText = (): string => {
+    const textarea = getComposerTextarea();
+    if (!textarea) return '';
+    const visibleText = readTextareaVisibleValue(textarea);
+    return syncTextareaDiceCacheFromVisibleText(textarea, visibleText).trim();
+  };
+
+  const clearComposerIfCurrentText = (sentText: string) => {
+    const textarea = getComposerTextarea();
+    if (!textarea) return;
+    const currentText = syncTextareaDiceCacheFromVisibleText(textarea, readTextareaVisibleValue(textarea)).trim();
+    if (currentText !== String(sentText ?? '').trim()) return;
+
+    const { $ } = getCore();
+    const $ta = $(textarea);
+    setTextareaValueAndNotify(textarea, '');
+    clearTextareaDiceCache(textarea);
+    $ta.removeData('acu-original-action-text');
+    textarea._acuOriginalActionText = null;
+  };
+
+  const findComposerSendButton = (): HTMLElement | null => {
+    const documents = new Set<Document>();
+    try {
+      documents.add(getTavernHostDocument());
+    } catch (_error) {
+      // ignore
+    }
+    documents.add(document);
+
+    for (const targetDocument of documents) {
+      const buttons = Array.from(targetDocument.querySelectorAll<HTMLElement>('#send_but'));
+      const visibleButton = buttons.find(button => {
+        if ((button as HTMLButtonElement).disabled) return false;
+        const rect = button.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      });
+      if (visibleButton) return visibleButton;
+      if (buttons[0] && !(buttons[0] as HTMLButtonElement).disabled) return buttons[0];
+    }
+
+    return null;
+  };
+
+  const sendTextViaComposer = async (messageText: string): Promise<'composer' | null> => {
+    const textarea = getComposerTextarea();
+    if (!textarea) return null;
+
+    setTextareaValueAndNotify(textarea, messageText);
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    const sendButton = findComposerSendButton();
+    if (sendButton) {
+      sendButton.click();
+      return 'composer';
+    }
+
+    const eventWindow = textarea.ownerDocument.defaultView || window;
+    const enterEvent = new eventWindow.KeyboardEvent('keydown', {
+      key: 'Enter',
+      code: 'Enter',
+      keyCode: 13,
+      which: 13,
+      bubbles: true,
+      cancelable: true,
+    });
+    textarea.dispatchEvent(enterEvent);
+    return 'composer';
+  };
+
+  const sendChatTextAndTrigger = async (messageText: string): Promise<'api' | 'slash' | 'composer' | null> => {
+    const text = String(messageText ?? '').trim();
+    if (!text) return null;
+
+    let createChatMessagesFn = findRuntimeFunction('createChatMessages');
+    if (createChatMessagesFn) {
+      try {
+        await createChatMessagesFn([{ role: 'user', message: text }], { refresh: 'affected' });
+      } catch (err) {
+        console.warn('[DICE]ACU createChatMessages 直接发送失败，尝试 Slash 发送', err);
+        createChatMessagesFn = null;
+      }
+
+      if (createChatMessagesFn) {
+        try {
+          const triggered = await triggerGenerationAfterDirectSend();
+          if (!triggered) console.warn('[DICE]ACU 已直接写入用户消息，但未找到 /trigger 入口');
+        } catch (err) {
+          console.warn('[DICE]ACU 消息已直接写入，但 /trigger 触发失败', err);
+        }
+        return 'api';
+      }
+    }
+
+    let triggerSlashFn = findRuntimeFunction('triggerSlash');
+    if (triggerSlashFn) {
+      try {
+        await triggerSlashFn(`/send raw=true ${quoteSlashArgument(text)}`);
+      } catch (err) {
+        console.warn('[DICE]ACU triggerSlash 发送失败，尝试 SillyTavern 原生接口', err);
+        triggerSlashFn = null;
+      }
+
+      if (triggerSlashFn) {
+        try {
+          await triggerSlashFn('/trigger');
+        } catch (err) {
+          console.warn('[DICE]ACU triggerSlash 已发送消息，但 /trigger 触发失败', err);
+        }
+        return 'slash';
+      }
+    }
+
+    const runSlash = findSillyTavernSlashRunner();
+    if (runSlash) {
+      try {
+        const sendResult = await runSlash(`/send raw=true ${quoteSlashArgument(text)}`);
+        if (!sendResult?.isError && !sendResult?.isAborted) {
+          try {
+            await runSlash('/trigger');
+          } catch (triggerError) {
+            console.warn('[DICE]ACU ST接口已发送消息，但 /trigger 触发失败', triggerError);
+          }
+          return 'slash';
+        }
+        console.warn('[DICE]ACU ST接口 send 失败:', sendResult);
+      } catch (err) {
+        console.warn('[DICE]ACU ST接口失败，尝试按钮模拟', err);
+      }
+    }
+
+    return sendTextViaComposer(text);
+  };
+
   // [新增] 在发送消息前恢复真实结果
   const restoreDiceResultBeforeSend = () => {
     const { $ } = getCore();
@@ -2294,7 +2520,7 @@ import {
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.8.4'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v6.23'; // 脚本版本号
+  const SCRIPT_VERSION = 'v6.25'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -21460,6 +21686,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     title: string;
     message: string;
     detail?: string;
+    detailHtml?: string;
     iconClass: string;
     confirmText: string;
     cancelText?: string;
@@ -21469,7 +21696,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const { $ } = getCore();
     const config = getConfig();
     const tone: DiceSystemConfirmTone = options.tone || 'warning';
-    const detailHtml = options.detail
+    const detailClass = options.detailHtml ? ' structured' : '';
+    const dialogClass = options.detailHtml ? ' structured-detail' : '';
+    const detailHtml = options.detailHtml
+      ? `<div class="acu-system-confirm-detail acu-custom-icon-confirm-detail${detailClass}">${options.detailHtml}</div>`
+      : options.detail
       ? `<div class="acu-system-confirm-detail acu-custom-icon-confirm-detail">${options.detail
           .split('\n')
           .map(line => `<div>${escapeHtml(line)}</div>`)
@@ -21483,7 +21714,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       $('.acu-system-confirm-overlay, .acu-custom-icon-confirm-overlay').remove();
       const overlay = $(`
         <div class="acu-import-confirm-overlay acu-system-confirm-overlay acu-custom-icon-confirm-overlay acu-theme-${config.theme}" tabindex="-1">
-          <div class="acu-import-confirm-dialog acu-system-confirm-dialog acu-custom-icon-confirm-dialog">
+          <div class="acu-import-confirm-dialog acu-system-confirm-dialog acu-custom-icon-confirm-dialog${dialogClass}">
             <div class="acu-import-confirm-header">
               <span class="acu-import-confirm-title">
                 <i class="fa-solid ${escapeHtml(options.iconClass)}"></i>
@@ -35756,6 +35987,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   const DICE_CONFIG_BACKUP_FORMAT = 'acu_dice_config_backup_v1' as const;
   const DICE_CONFIG_BACKUP_SCHEMA_VERSION = 1;
   const DICE_CONFIG_BACKUP_SETTINGS_EXPANDED_KEY = 'acu_settings_expanded';
+  const DICE_PROFILE_INDEX_STORAGE_KEY = 'acu_dice_profile_index_v1';
+  const DICE_PROFILE_LAST_APPLIED_STORAGE_KEY = 'acu_dice_profile_last_applied_v1';
+  const DICE_PROFILE_SKIPPED_PROMPTS_STORAGE_KEY = 'acu_dice_profile_skipped_prompts_v1';
+  const DICE_PROFILE_COLLAPSED_SECTIONS_STORAGE_KEY = 'acu_dice_profile_collapsed_sections_v2';
+  const DICE_PROFILE_PRE_APPLY_SNAPSHOT_LIMIT = 5;
 
   type DiceConfigBackupModuleId =
     | 'uiLayout'
@@ -35843,6 +36079,50 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
   interface DiceConfigBackupTableTemplateRollbackSnapshot {
     template?: unknown;
     warning?: string;
+  }
+
+  type DiceProfileSourceType = 'user' | 'imported' | 'character' | 'character_card' | 'snapshot';
+
+  interface DiceProfileSummary {
+    id: string;
+    name: string;
+    source: AcuDiceProfileSource;
+    createdAt: string;
+    updatedAt: string;
+    moduleIds: DiceConfigBackupModuleId[];
+    fingerprint: string;
+    lastAppliedAt?: string;
+  }
+
+  type DiceProfileRecord = AcuDiceProfilePackage<DiceConfigBackupDocument> & {
+    source: AcuDiceProfileSource & { type: DiceProfileSourceType | string };
+    moduleIds: DiceConfigBackupModuleId[];
+    savedAt: string;
+    lastAppliedAt?: string;
+  };
+
+  interface DiceProfileApplyOptions {
+    moduleIds?: readonly string[];
+    createSnapshot?: boolean;
+    confirm?: boolean;
+  }
+
+  interface DiceProfileSaveCurrentOptions {
+    name?: string;
+    moduleIds?: readonly string[];
+    source?: AcuDiceProfileSource;
+  }
+
+  interface DiceProfileImportOptions {
+    name?: string;
+    source?: AcuDiceProfileSource;
+    saveOnly?: boolean;
+    apply?: boolean;
+  }
+
+  interface DiceCharacterProfileDetection {
+    profile: DiceProfileRecord;
+    sourceTextKind: 'message' | 'first_mes' | 'regex';
   }
 
   const DICE_CONFIG_BACKUP_MODULES: DiceConfigBackupModuleDefinition[] = [
@@ -37926,6 +38206,726 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     }
   };
 
+  const getAllDiceConfigBackupModuleIds = (): DiceConfigBackupModuleId[] =>
+    DICE_CONFIG_BACKUP_MODULES.map(module => module.id);
+
+  const normalizeDiceProfileModuleIds = (
+    moduleIds: readonly string[] | undefined,
+    backup?: DiceConfigBackupDocument,
+  ): DiceConfigBackupModuleId[] => {
+    const normalized = normalizeDiceConfigBackupSelectedModuleIds(moduleIds || []);
+    const available = backup ? getDiceConfigBackupAvailableModuleIds(backup) : getAllDiceConfigBackupModuleIds();
+    const availableSet = new Set(available);
+    const filtered = normalized.filter(moduleId => availableSet.has(moduleId));
+    return filtered.length > 0 ? filtered : available;
+  };
+
+  const getDiceProfileModuleNames = (moduleIds: readonly DiceConfigBackupModuleId[]): string =>
+    moduleIds
+      .map(moduleId => getDiceConfigBackupModuleDefinition(moduleId)?.name || moduleId)
+      .join('、');
+
+  const toDiceProfileSummary = (record: DiceProfileRecord): DiceProfileSummary => ({
+    id: record.id,
+    name: record.name,
+    source: record.source,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    moduleIds: record.moduleIds,
+    fingerprint: record.fingerprint,
+    ...(record.lastAppliedAt ? { lastAppliedAt: record.lastAppliedAt } : {}),
+  });
+
+  const createDiceProfileRuntimeId = (prefix = 'profile'): string =>
+    `acu_${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+  const getDiceProfileIndex = (): DiceProfileSummary[] => {
+    const stored = Store.get(DICE_PROFILE_INDEX_STORAGE_KEY, []);
+    return Array.isArray(stored) ? stored.filter(item => isDiceConfigBackupRecord(item)) : [];
+  };
+
+  const saveDiceProfileIndex = (summaries: readonly DiceProfileSummary[]): boolean =>
+    Store.set(
+      DICE_PROFILE_INDEX_STORAGE_KEY,
+      summaries
+        .map(summary => cloneDiceConfigBackupValue(summary))
+        .sort((left, right) => String(right.updatedAt || '').localeCompare(String(left.updatedAt || ''))),
+    );
+
+  const DiceProfileDB = {
+    DB_NAME: 'acu_dice_profiles',
+    STORE_NAME: 'profiles',
+    DB_VERSION: 1,
+    _db: null as IDBDatabase | null,
+
+    async init(): Promise<IDBDatabase> {
+      if (this._db) return this._db;
+      return await new Promise((resolve, reject) => {
+        const request = indexedDB.open(this.DB_NAME, this.DB_VERSION);
+        request.onerror = () => {
+          console.error('[DICE][PROFILE]Profile IndexedDB 打开失败:', request.error);
+          reject(request.error || new Error('Profile IndexedDB 打开失败'));
+        };
+        request.onsuccess = () => {
+          this._db = request.result;
+          resolve(this._db);
+        };
+        request.onupgradeneeded = event => {
+          const db = (event.target as IDBOpenDBRequest).result;
+          if (!db.objectStoreNames.contains(this.STORE_NAME)) {
+            const store = db.createObjectStore(this.STORE_NAME, { keyPath: 'id' });
+            store.createIndex('sourceType', 'source.type', { unique: false });
+            store.createIndex('fingerprint', 'fingerprint', { unique: false });
+          }
+        };
+      });
+    },
+
+    async get(id: string): Promise<DiceProfileRecord | null> {
+      if (!id) return null;
+      const db = await this.init();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(this.STORE_NAME, 'readonly');
+        const request = tx.objectStore(this.STORE_NAME).get(id);
+        request.onsuccess = () => resolve((request.result as DiceProfileRecord | undefined) || null);
+        request.onerror = () => reject(request.error || new Error('Profile 读取失败'));
+      });
+    },
+
+    async getAll(): Promise<DiceProfileRecord[]> {
+      const db = await this.init();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(this.STORE_NAME, 'readonly');
+        const request = tx.objectStore(this.STORE_NAME).getAll();
+        request.onsuccess = () => resolve((request.result || []) as DiceProfileRecord[]);
+        request.onerror = () => reject(request.error || new Error('Profile 列表读取失败'));
+      });
+    },
+
+    async put(record: DiceProfileRecord): Promise<boolean> {
+      const db = await this.init();
+      return await new Promise(resolve => {
+        const tx = db.transaction(this.STORE_NAME, 'readwrite');
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => {
+          console.error('[DICE][PROFILE]Profile 写入事务失败:', tx.error);
+          resolve(false);
+        };
+        tx.onabort = () => {
+          console.error('[DICE][PROFILE]Profile 写入事务中止:', tx.error);
+          resolve(false);
+        };
+        tx.objectStore(this.STORE_NAME).put(record);
+      });
+    },
+
+    async delete(id: string): Promise<boolean> {
+      if (!id) return false;
+      const db = await this.init();
+      return await new Promise(resolve => {
+        const tx = db.transaction(this.STORE_NAME, 'readwrite');
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+        tx.onabort = () => resolve(false);
+        tx.objectStore(this.STORE_NAME).delete(id);
+      });
+    },
+  };
+
+  const refreshDiceProfileIndex = async (): Promise<DiceProfileSummary[]> => {
+    try {
+      const records = await DiceProfileDB.getAll();
+      const summaries = records.map(toDiceProfileSummary);
+      saveDiceProfileIndex(summaries);
+      return summaries;
+    } catch (error) {
+      console.warn('[DICE][PROFILE]Profile 索引刷新失败，使用本地索引兜底:', error);
+      return getDiceProfileIndex();
+    }
+  };
+
+  const getDiceProfileRecords = async (): Promise<DiceProfileRecord[]> => {
+    try {
+      const records = await DiceProfileDB.getAll();
+      saveDiceProfileIndex(records.map(toDiceProfileSummary));
+      return records;
+    } catch (error) {
+      console.warn('[DICE][PROFILE]读取配置方案库失败:', error);
+      return [];
+    }
+  };
+
+  const normalizeDiceProfileRecord = (
+    value: unknown,
+    options: NormalizeAcuDiceProfileOptions = {},
+  ): DiceProfileRecord => {
+    const profilePackage = normalizeAcuDiceProfilePackage<DiceConfigBackupDocument>(value, options);
+    const backup = parseDiceConfigBackup(JSON.stringify(profilePackage.backup)).backup;
+    const moduleIds = normalizeDiceProfileModuleIds(profilePackage.moduleIds, backup);
+    const fingerprint = computeAcuDiceProfileFingerprint(backup, moduleIds);
+    const now = options.now || new Date().toISOString();
+    return {
+      ...profilePackage,
+      format: ACU_DICE_PROFILE_FORMAT,
+      id: profilePackage.id || `acu_profile_${fingerprint.slice(0, 12)}`,
+      source: normalizeAcuDiceProfileSource(profilePackage.source),
+      backup,
+      moduleIds,
+      fingerprint,
+      updatedAt: now,
+      savedAt: now,
+    };
+  };
+
+  const parseDiceProfileInput = (
+    input: unknown,
+    options: NormalizeAcuDiceProfileOptions = {},
+  ): DiceProfileRecord => {
+    if (typeof input !== 'string') return normalizeDiceProfileRecord(input, options);
+    const text = input.trim();
+    const marker = extractAcuDiceProfileMarkerPayloads(text)[0];
+    if (marker) {
+      const decoded = decodeAcuDiceProfileMarkerPayload(marker.payload);
+      return normalizeDiceProfileRecord(JSON.parse(decoded), options);
+    }
+    const parsed = parseJsoncDocument({
+      text,
+      emptyMessage: '配置方案文件内容为空',
+      invalidJsonMessage: '配置方案文件不是有效的 JSON/JSONC',
+      validate: value => {
+        if (!isDiceConfigBackupRecord(value)) throw new Error('配置方案文件结构无效');
+        return value;
+      },
+    });
+    return normalizeDiceProfileRecord(parsed, options);
+  };
+
+  const saveDiceProfileRecord = async (record: DiceProfileRecord): Promise<DiceProfileRecord> => {
+    const saved = await DiceProfileDB.put(record);
+    if (!saved) throw new Error('配置方案保存失败，IndexedDB 写入未完成');
+    await refreshDiceProfileIndex();
+    return record;
+  };
+
+  const upsertDiceProfileRecord = async (record: DiceProfileRecord): Promise<DiceProfileRecord> => {
+    const records = await getDiceProfileRecords();
+    const sourceKey = getAcuDiceProfileSourceKey(record.source);
+    const shouldUpdateSameSource =
+      record.source?.type === 'character' || record.source?.type === 'character_card';
+    const existing = shouldUpdateSameSource
+      ? records.find(
+          item => item.fingerprint === record.fingerprint && getAcuDiceProfileSourceKey(item.source) === sourceKey,
+        )
+      : null;
+    const now = new Date().toISOString();
+    const next = existing
+      ? {
+          ...record,
+          id: existing.id,
+          createdAt: existing.createdAt,
+          lastAppliedAt: existing.lastAppliedAt,
+          savedAt: now,
+          updatedAt: now,
+        }
+      : record;
+    return await saveDiceProfileRecord(next);
+  };
+
+  const deleteDiceProfileRecord = async (profileId: string): Promise<boolean> => {
+    const deleted = await DiceProfileDB.delete(profileId);
+    await refreshDiceProfileIndex();
+    return deleted;
+  };
+
+  const importDiceProfile = async (input: unknown, options: DiceProfileImportOptions = {}): Promise<DiceProfileRecord> => {
+    const record = parseDiceProfileInput(input, {
+      name: options.name,
+      source: options.source || { type: 'imported' },
+    });
+    const saved = await upsertDiceProfileRecord(record);
+    if (options.apply) {
+      await applyDiceProfile(saved.id, { createSnapshot: true, confirm: true });
+    }
+    return saved;
+  };
+
+  const saveCurrentDiceProfile = async (
+    options: DiceProfileSaveCurrentOptions = {},
+  ): Promise<DiceProfileRecord> => {
+    const moduleIds = normalizeDiceProfileModuleIds(options.moduleIds, undefined);
+    const backup = await buildDiceConfigBackup(moduleIds);
+    const now = new Date().toISOString();
+    const record = normalizeDiceProfileRecord(
+      {
+        format: ACU_DICE_PROFILE_FORMAT,
+        id: createDiceProfileRuntimeId(options.source?.type === 'snapshot' ? 'snapshot' : 'profile'),
+        name: options.name || `骰子系统配置方案 ${now.slice(0, 10)}`,
+        source: options.source || { type: 'user' },
+        createdAt: now,
+        updatedAt: now,
+        moduleIds,
+        backup,
+      },
+      { now, source: options.source || { type: 'user' } },
+    );
+    return await upsertDiceProfileRecord(record);
+  };
+
+  const createDiceProfilePreApplySnapshot = async (sourceProfile?: DiceProfileRecord | null): Promise<DiceProfileRecord> => {
+    const now = new Date().toISOString();
+    const snapshot = await saveCurrentDiceProfile({
+      name: `快照 ${now.replace('T', ' ').slice(0, 16)}`,
+      moduleIds: getAllDiceConfigBackupModuleIds(),
+      source: {
+        type: 'snapshot',
+        profileId: sourceProfile?.id,
+        label: sourceProfile?.name || '手动应用',
+      },
+    });
+    const records = await getDiceProfileRecords();
+    const snapshots = records
+      .filter(record => record.source?.type === 'snapshot')
+      .sort((left, right) => String(right.updatedAt || '').localeCompare(String(left.updatedAt || '')));
+    await Promise.all(snapshots.slice(DICE_PROFILE_PRE_APPLY_SNAPSHOT_LIMIT).map(record => deleteDiceProfileRecord(record.id)));
+    return snapshot;
+  };
+
+  const renderDiceProfileApplyConfirmDetailHtml = (
+    moduleIds: readonly DiceConfigBackupModuleId[],
+    warnings: readonly string[],
+  ): string => {
+    const moduleChipsHtml =
+      moduleIds.length > 0
+        ? moduleIds
+            .map(moduleId => {
+              const name = getDiceConfigBackupModuleDefinition(moduleId)?.name || moduleId;
+              return `<span class="acu-profile-apply-module-chip">${escapeHtml(name)}</span>`;
+            })
+            .join('')
+        : '<span class="acu-profile-apply-empty">没有可应用的模块</span>';
+    const warningsHtml =
+      warnings.length > 0
+        ? `<div class="acu-profile-apply-row acu-profile-apply-warnings">
+            <div class="acu-profile-apply-label">
+              <i class="fa-solid fa-triangle-exclamation"></i>
+              注意
+            </div>
+            <div class="acu-profile-apply-warning-list">
+              ${warnings.map(warning => `<div class="acu-profile-apply-warning">${escapeHtml(warning)}</div>`).join('')}
+            </div>
+          </div>`
+        : '';
+
+    return `
+      <div class="acu-profile-apply-confirm">
+        <div class="acu-profile-apply-impact-list">
+          <div class="acu-profile-apply-impact">
+            <i class="fa-solid fa-rotate-left"></i>
+            <span><strong>写入前会保存快照</strong>，方便回退。</span>
+          </div>
+          <div class="acu-profile-apply-impact">
+            <i class="fa-solid fa-sliders"></i>
+            <span><strong>只改选中模块</strong>，未包含模块保持不变。</span>
+          </div>
+          <div class="acu-profile-apply-impact">
+            <i class="fa-solid fa-code-merge"></i>
+            <span><strong>同名项会更新</strong>，同名或同 ID 自定义项按恢复规则合并。</span>
+          </div>
+        </div>
+        <div class="acu-profile-apply-row">
+          <div class="acu-profile-apply-label">
+            <i class="fa-solid fa-list-check"></i>
+            ${moduleIds.length} 个模块
+          </div>
+          <div class="acu-profile-apply-module-chips">${moduleChipsHtml}</div>
+        </div>
+        ${warningsHtml}
+      </div>
+    `;
+  };
+
+  const showDiceProfileApplyConfirm = async (
+    profile: DiceProfileRecord,
+    moduleIds: readonly DiceConfigBackupModuleId[],
+  ): Promise<boolean> => {
+    const allWarnings = getDiceConfigBackupRestoreWarnings(profile.backup, [], moduleIds);
+    return showDiceSystemConfirmDialog({
+      title: '应用配置方案',
+      message: `应用「${profile.name}」？`,
+      detailHtml: renderDiceProfileApplyConfirmDetailHtml(moduleIds, allWarnings),
+      iconClass: 'fa-layer-group',
+      confirmText: '应用配置方案',
+      cancelText: '取消',
+      tone: 'warning',
+    });
+  };
+
+  const applyDiceProfile = async (
+    profileId: string,
+    options: DiceProfileApplyOptions = {},
+  ): Promise<DiceConfigBackupApplyStats> => {
+    const profile = await DiceProfileDB.get(profileId);
+    if (!profile) throw new Error('未找到配置方案');
+    const moduleIds = normalizeDiceProfileModuleIds(options.moduleIds || profile.moduleIds, profile.backup);
+    if (options.confirm) {
+      const confirmed = await showDiceProfileApplyConfirm(profile, moduleIds);
+      if (!confirmed) throw new Error('已取消应用配置方案');
+    }
+    if (options.createSnapshot !== false) {
+      await createDiceProfilePreApplySnapshot(profile);
+    }
+    const stats = await applyDiceConfigBackup(profile.backup, moduleIds);
+    const appliedAt = new Date().toISOString();
+    const nextProfile = { ...profile, lastAppliedAt: appliedAt, savedAt: appliedAt, updatedAt: appliedAt };
+    await saveDiceProfileRecord(nextProfile);
+    Store.set(DICE_PROFILE_LAST_APPLIED_STORAGE_KEY, {
+      id: profile.id,
+      name: profile.name,
+      fingerprint: profile.fingerprint,
+      appliedAt,
+    });
+    return stats;
+  };
+
+  const exportDiceProfile = async (profileId: string): Promise<DiceProfileRecord> => {
+    const profile = await DiceProfileDB.get(profileId);
+    if (!profile) throw new Error('未找到配置方案');
+    return profile;
+  };
+
+  const downloadDiceProfileJson = (profile: DiceProfileRecord): void => {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const safeName = String(profile.name || 'acu_dice_profile').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 60);
+    downloadJsonFile(JSON.stringify(profile, null, 2), `${safeName}_${timestamp}.json`);
+  };
+
+  const createDiceProfileRegexId = (): string => {
+    const randomUUID = globalThis.crypto?.randomUUID;
+    return typeof randomUUID === 'function'
+      ? randomUUID.call(globalThis.crypto)
+      : createDiceProfileRuntimeId('character_profile_regex');
+  };
+
+  const createDiceProfileTavernRegexReplaceString = (profile: DiceProfileRecord): string =>
+    [
+      `<!-- 骰子系统配置注入：此角色卡正则只用于携带「${profile.name || '配置方案'}」，请勿删除下一行 ACUDICE_PROFILE_V1 标记。 -->`,
+      createAcuDiceProfileMarker(profile),
+    ].join('\n');
+
+  const createDiceProfileTavernRegex = (profile: DiceProfileRecord): Record<string, unknown> => ({
+    id: createDiceProfileRegexId(),
+    scriptName: `骰子系统配置注入 - ${profile.name || '角色卡内置方案'}`,
+    findRegex: '/$^/',
+    replaceString: createDiceProfileTavernRegexReplaceString(profile),
+    trimStrings: [],
+    placement: [2],
+    disabled: true,
+    markdownOnly: true,
+    promptOnly: false,
+    runOnEdit: false,
+    substituteRegex: 0,
+    minDepth: null,
+    maxDepth: 0,
+  });
+
+  const downloadDiceProfileTavernRegex = (profile: DiceProfileRecord): void => {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const safeName = String(profile.name || 'acu_dice_profile').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 60);
+    downloadJsonFile(
+      JSON.stringify(createDiceProfileTavernRegex(profile), null, 2),
+      `${safeName}_角色卡内置方案正则_${timestamp}.json`,
+    );
+  };
+
+  const getDiceProfilePromptStates = (): Record<string, 'skipped' | 'applied' | 'saved'> => {
+    const stored = Store.get(DICE_PROFILE_SKIPPED_PROMPTS_STORAGE_KEY, {});
+    return isDiceConfigBackupRecord(stored) ? stored : {};
+  };
+
+  const setDiceProfilePromptState = (
+    chatId: string,
+    fingerprint: string,
+    state: 'skipped' | 'applied' | 'saved',
+  ): void => {
+    const states = getDiceProfilePromptStates();
+    states[getAcuDiceProfilePromptKey(chatId, fingerprint)] = state;
+    Store.set(DICE_PROFILE_SKIPPED_PROMPTS_STORAGE_KEY, states);
+  };
+
+  const getDiceProfilePromptState = (
+    chatId: string,
+    fingerprint: string,
+  ): 'skipped' | 'applied' | 'saved' | null => {
+    const states = getDiceProfilePromptStates();
+    return states[getAcuDiceProfilePromptKey(chatId, fingerprint)] || null;
+  };
+
+  const getDiceProfileSillyTavern = (): any => window.SillyTavern || window.parent?.SillyTavern || null;
+
+  const getDiceProfileCharacterContext = (): {
+    chatId: string;
+    characterId: string;
+    characterName: string;
+    fields: Record<string, unknown> | null;
+  } => {
+    const statsContext = getDiceStatsContext();
+    const ST = getDiceProfileSillyTavern();
+    let fields: Record<string, unknown> | null = null;
+    try {
+      const rawFields = ST?.getCharacterCardFields?.({});
+      if (isDiceConfigBackupRecord(rawFields)) fields = rawFields;
+    } catch {
+      // ignore
+    }
+    let characterName =
+      getDiceConfigBackupRecordString(fields || {}, 'name') ||
+      getDiceConfigBackupRecordString((fields?.data as Record<string, unknown>) || {}, 'name');
+    try {
+      if (!characterName && typeof getCharData === 'function') {
+        const currentChar = getCharData('current', true);
+        characterName = String(currentChar?.name || currentChar?.avatar || '').trim();
+      }
+    } catch {
+      // ignore
+    }
+    if (!characterName) characterName = statsContext.characterId;
+    return {
+      chatId: statsContext.chatId,
+      characterId: statsContext.characterId,
+      characterName: characterName || '未知角色卡',
+      fields,
+    };
+  };
+
+  const getDiceProfileCurrentCharacterRecords = (): Record<string, unknown>[] => {
+    const ST = getDiceProfileSillyTavern();
+    const records: Record<string, unknown>[] = [];
+    const seen = new Set<string>();
+    const addRecord = (value: unknown): void => {
+      if (!isDiceConfigBackupRecord(value)) return;
+      const key =
+        getDiceConfigBackupRecordString(value, 'avatar') ||
+        getDiceConfigBackupRecordString(value, 'name') ||
+        getDiceConfigBackupRecordString((value.data as Record<string, unknown>) || {}, 'name') ||
+        JSON.stringify(value).slice(0, 200);
+      if (seen.has(key)) return;
+      seen.add(key);
+      records.push(value);
+      const jsonData = getDiceConfigBackupRecordString(value, 'json_data');
+      if (jsonData) {
+        try {
+          addRecord(JSON.parse(jsonData));
+        } catch {
+          // ignore invalid embedded character json
+        }
+      }
+    };
+
+    try {
+      addRecord(ST?.getCharacterCardFields?.({}));
+    } catch {
+      // ignore
+    }
+
+    try {
+      if (typeof getCharData === 'function') addRecord(getCharData('current', true));
+    } catch {
+      // ignore
+    }
+
+    try {
+      const RawCharacterCtor =
+        (globalThis as Record<string, any>).RawCharacter ||
+        (window as unknown as Record<string, any>).RawCharacter ||
+        (window.parent as unknown as Record<string, any>).RawCharacter;
+      if (RawCharacterCtor && typeof RawCharacterCtor.find === 'function') {
+        addRecord(RawCharacterCtor.find({ name: 'current', allowAvatar: true }));
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      const characterSources = [
+        (globalThis as Record<string, any>).characters,
+        (window.parent as unknown as Record<string, any>).characters,
+        ST?.characters,
+      ];
+      const indexCandidates = [
+        (globalThis as Record<string, any>).this_chid,
+        (window.parent as unknown as Record<string, any>).this_chid,
+        ST?.this_chid,
+        ST?.characterId,
+      ];
+      characterSources.forEach(source => {
+        if (!Array.isArray(source)) return;
+        indexCandidates.forEach(indexValue => {
+          const index = Number.parseInt(String(indexValue ?? ''), 10);
+          if (!Number.isNaN(index) && index >= 0 && index < source.length) addRecord(source[index]);
+        });
+      });
+    } catch {
+      // ignore
+    }
+
+    return records;
+  };
+
+  const collectDiceProfileRegexScriptsFromRecord = (record: Record<string, unknown>): unknown[] => {
+    const scripts: unknown[] = [];
+    const pushScripts = (value: unknown): void => {
+      if (Array.isArray(value)) scripts.push(...value);
+    };
+    const data = isDiceConfigBackupRecord(record.data) ? record.data : null;
+    const extensions = isDiceConfigBackupRecord(record.extensions) ? record.extensions : null;
+    const dataExtensions = isDiceConfigBackupRecord(data?.extensions) ? data.extensions : null;
+    pushScripts(record.regex_scripts);
+    pushScripts(extensions?.regex_scripts);
+    pushScripts(dataExtensions?.regex_scripts);
+
+    try {
+      const RawCharacterCtor =
+        (globalThis as Record<string, any>).RawCharacter ||
+        (window as unknown as Record<string, any>).RawCharacter ||
+        (window.parent as unknown as Record<string, any>).RawCharacter;
+      if (typeof RawCharacterCtor === 'function') {
+        const rawCharacter = new RawCharacterCtor(record);
+        if (rawCharacter && typeof rawCharacter.getRegexScripts === 'function') pushScripts(rawCharacter.getRegexScripts());
+      }
+    } catch {
+      // ignore
+    }
+
+    return scripts;
+  };
+
+  const collectDiceCharacterProfileTexts = (): Array<{ kind: DiceCharacterProfileDetection['sourceTextKind']; text: string }> => {
+    const ST = getDiceProfileSillyTavern();
+    const context = getDiceProfileCharacterContext();
+    const result: Array<{ kind: DiceCharacterProfileDetection['sourceTextKind']; text: string }> = [];
+    const seenTexts = new Set<string>();
+    const pushText = (kind: DiceCharacterProfileDetection['sourceTextKind'], text: unknown): void => {
+      const cleanText = typeof text === 'string' || typeof text === 'number' ? String(text).trim() : '';
+      if (!cleanText || seenTexts.has(cleanText)) return;
+      seenTexts.add(cleanText);
+      result.push({ kind, text: cleanText });
+    };
+
+    const chat = ST?.chat || window.parent?.SillyTavern?.chat;
+    const firstMessage = Array.isArray(chat) ? chat.find(message => message && !message.is_user) : null;
+    pushText('message', firstMessage?.mes);
+
+    getDiceProfileCurrentCharacterRecords().forEach(record => {
+      const data = isDiceConfigBackupRecord(record.data) ? record.data : {};
+      pushText('first_mes', getDiceConfigBackupRecordString(record, 'first_mes'));
+      pushText('first_mes', getDiceConfigBackupRecordString(data, 'first_mes'));
+      collectDiceProfileRegexScriptsFromRecord(record).forEach(script => {
+        if (!isDiceConfigBackupRecord(script)) return;
+        pushText('regex', getDiceConfigBackupRecordString(script, 'replaceString'));
+      });
+    });
+    return result;
+  };
+
+  const detectCharacterDiceProfile = async (options: { includeSkipped?: boolean } = {}): Promise<DiceCharacterProfileDetection | null> => {
+    const context = getDiceProfileCharacterContext();
+    const texts = collectDiceCharacterProfileTexts();
+    for (const item of texts) {
+      const marker = extractAcuDiceProfileMarkerPayloads(item.text)[0];
+      if (!marker) continue;
+      const source: AcuDiceProfileSource = {
+        type: 'character_card',
+        characterName: context.characterName,
+        characterId: context.characterId,
+        chatId: context.chatId,
+      };
+      const decoded = decodeAcuDiceProfileMarkerPayload(marker.payload);
+      const profile = normalizeDiceProfileRecord(JSON.parse(decoded), {
+        source,
+        name: `${context.characterName}配置方案`,
+      });
+      const promptState = getDiceProfilePromptState(context.chatId, profile.fingerprint);
+      if (!options.includeSkipped && promptState) return null;
+      const savedProfile = await upsertDiceProfileRecord({ ...profile, source });
+      return { profile: savedProfile, sourceTextKind: item.kind };
+    }
+    return null;
+  };
+
+  const showDiceCharacterProfilePrompt = (detection: DiceCharacterProfileDetection): Promise<'apply' | 'save' | 'skip'> => {
+    const { $ } = getCore();
+    const config = getConfig();
+    const profile = detection.profile;
+    return new Promise(resolve => {
+      $('.acu-profile-prompt-overlay').remove();
+      const overlay = $(`
+        <div class="acu-profile-prompt-overlay acu-theme-${escapeHtml(config.theme)}" tabindex="-1">
+          <div class="acu-profile-prompt-dialog" role="dialog" aria-modal="true">
+            <div class="acu-profile-prompt-header">
+              <span class="acu-profile-prompt-title"><i class="fa-solid fa-layer-group"></i> 角色卡内置配置方案</span>
+              <button type="button" class="acu-profile-prompt-close" title="关闭" aria-label="关闭"><i class="fa-solid fa-times"></i></button>
+            </div>
+            <div class="acu-profile-prompt-body">
+              <div class="acu-profile-prompt-name">${escapeHtml(profile.name)}</div>
+              <div class="acu-profile-prompt-text">检测到当前角色卡携带骰子系统配置方案。它已保存到方案库；应用后会修改当前骰子系统配置。</div>
+              <div class="acu-profile-prompt-meta">
+                <span>${escapeHtml(profile.source.characterName || '当前角色卡')}</span>
+                <span>${escapeHtml(getDiceProfileModuleNames(profile.moduleIds))}</span>
+              </div>
+            </div>
+            <div class="acu-profile-prompt-footer">
+              <button type="button" class="acu-setting-action-btn acu-profile-prompt-skip">跳过</button>
+              <button type="button" class="acu-setting-action-btn acu-profile-prompt-save">仅保存到库</button>
+              <button type="button" class="acu-setting-action-btn acu-config-backup-primary-btn acu-profile-prompt-apply">应用</button>
+            </div>
+          </div>
+        </div>
+      `);
+      const finish = (action: 'apply' | 'save' | 'skip') => {
+        overlay.remove();
+        resolve(action);
+      };
+      $('body').append(overlay);
+      setupOverlayClose(overlay, 'acu-profile-prompt-overlay', () => finish('skip'));
+      overlay.on('click', '.acu-profile-prompt-close, .acu-profile-prompt-skip', () => finish('skip'));
+      overlay.on('click', '.acu-profile-prompt-save', () => finish('save'));
+      overlay.on('click', '.acu-profile-prompt-apply', () => finish('apply'));
+    });
+  };
+
+  const maybePromptCharacterDiceProfile = async (): Promise<void> => {
+    try {
+      const detection = await detectCharacterDiceProfile();
+      if (!detection) return;
+      const context = getDiceProfileCharacterContext();
+      const action = await showDiceCharacterProfilePrompt(detection);
+      if (action === 'skip') {
+        setDiceProfilePromptState(context.chatId, detection.profile.fingerprint, 'skipped');
+        return;
+      }
+      if (action === 'save') {
+        setDiceProfilePromptState(context.chatId, detection.profile.fingerprint, 'saved');
+        window.toastr?.success('已保存角色卡配置方案，可在配置方案与备份中手动应用');
+        return;
+      }
+      await applyDiceProfile(detection.profile.id, { createSnapshot: true, confirm: true });
+      setDiceProfilePromptState(context.chatId, detection.profile.fingerprint, 'applied');
+      window.toastr?.success(`已应用配置方案：${detection.profile.name}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message !== '已取消应用配置方案') {
+        console.warn('[DICE][PROFILE]角色卡配置方案检测或应用失败:', error);
+        if (window.toastr) showActionableErrorToast(`角色卡配置方案处理失败: ${message}`, { suggestion: 'importExport' });
+      }
+    }
+  };
+
+  const scheduleCharacterDiceProfileDetection = (delay = 800): void => {
+    window.setTimeout(() => {
+      void maybePromptCharacterDiceProfile();
+    }, delay);
+  };
+
   const getDiceConfigBackupAvailableModuleIds = (backup: DiceConfigBackupDocument): DiceConfigBackupModuleId[] =>
     DICE_CONFIG_BACKUP_MODULES.filter(module => {
       const payload = backup.modules[module.id];
@@ -38096,13 +39096,146 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     downloadJsonFile(JSON.stringify(backup, null, 2), `acu_dice_config_backup_${timestamp}.json`);
   };
 
+  const getDiceProfileCollapsedSections = (): string[] => {
+    const stored = Store.get(DICE_PROFILE_COLLAPSED_SECTIONS_STORAGE_KEY, ['saveScope']);
+    return Array.isArray(stored) ? stored.map(item => String(item)).filter(Boolean) : [];
+  };
+
+  const saveDiceProfileCollapsedSections = (sections: readonly string[]): void => {
+    Store.set(DICE_PROFILE_COLLAPSED_SECTIONS_STORAGE_KEY, Array.from(new Set(sections.map(String).filter(Boolean))));
+  };
+
+  const getDiceProfileSourceLabel = (source: AcuDiceProfileSource): string => {
+    if (source.type === 'character' || source.type === 'character_card')
+      return source.characterName ? `角色卡：${source.characterName}` : '角色卡';
+    if (source.type === 'snapshot') return source.label ? `快照：${source.label}` : '快照';
+    if (source.type === 'imported') return source.label ? `导入：${source.label}` : '导入';
+    return '用户保存';
+  };
+
+  const isDiceProfileCharacterSource = (source: AcuDiceProfileSource | undefined): boolean =>
+    source?.type === 'character' || source?.type === 'character_card';
+
+  const renderDiceProfileSummaryRow = (summary: DiceProfileSummary, options: { current?: boolean } = {}): string => {
+    const sourceLabel = getDiceProfileSourceLabel(summary.source);
+    const profileId = escapeHtml(summary.id);
+    const profileName = escapeHtml(summary.name);
+    const escapedSourceLabel = escapeHtml(sourceLabel);
+    const isCharacterProfile = isDiceProfileCharacterSource(summary.source);
+    const actionButtons = [
+      `<button type="button" class="acu-setting-action-btn acu-profile-action acu-profile-apply-action" data-profile-action="apply" data-profile-id="${profileId}" title="应用" aria-label="应用 ${profileName}"><i class="fa-solid fa-play"></i><span>应用</span></button>`,
+      !isCharacterProfile
+        ? `<button type="button" class="acu-setting-action-btn acu-profile-action" data-profile-action="rename" data-profile-id="${profileId}" title="重命名" aria-label="重命名 ${profileName}"><i class="fa-solid fa-pen"></i><span>重命名</span></button>`
+        : '',
+      !isCharacterProfile
+        ? `<button type="button" class="acu-setting-action-btn acu-profile-action" data-profile-action="save-as" data-profile-id="${profileId}" title="另存为" aria-label="另存为 ${profileName}"><i class="fa-solid fa-copy"></i><span>另存为</span></button>`
+        : '',
+      `<button type="button" class="acu-setting-action-btn acu-profile-action" data-profile-action="export" data-profile-id="${profileId}" title="导出" aria-label="导出 ${profileName}"><i class="fa-solid fa-file-export"></i><span>导出</span></button>`,
+      `<button type="button" class="acu-setting-action-btn acu-profile-action acu-profile-convert-regex-action" data-profile-action="tavern-regex" data-profile-id="${profileId}" title="转正则" aria-label="把 ${profileName} 转成角色卡正则"><i class="fa-solid fa-code"></i><span>转正则</span></button>`,
+      !isCharacterProfile
+        ? `<button type="button" class="acu-setting-action-btn acu-profile-action acu-profile-danger" data-profile-action="delete" data-profile-id="${profileId}" title="删除" aria-label="删除 ${profileName}"><i class="fa-solid fa-trash"></i><span>删除</span></button>`
+        : '',
+    ]
+      .filter(Boolean)
+      .join('');
+    return `
+      <div class="acu-profile-row ${options.current ? 'is-current' : ''}" data-profile-id="${profileId}" title="${profileName}（${escapedSourceLabel}）">
+        <div class="acu-profile-row-main">
+          <div class="acu-profile-row-title">
+            <strong>${profileName}</strong>
+          </div>
+        </div>
+        <div class="acu-profile-row-actions">
+          ${actionButtons}
+        </div>
+      </div>`;
+  };
+
+  const renderDiceProfileTabPanel = (
+    id: 'character' | 'library' | 'snapshots',
+    summaries: readonly DiceProfileSummary[],
+    emptyText: string,
+    options: { active?: boolean; current?: boolean } = {},
+  ): string => `
+    <section class="acu-profile-tab-panel ${options.active ? 'is-active' : ''}" data-profile-panel="${id}" ${options.active ? '' : 'hidden'}>
+      <div class="acu-profile-list">
+        ${
+          summaries.length > 0
+            ? summaries.map(summary => renderDiceProfileSummaryRow(summary, { current: options.current })).join('')
+            : `<div class="acu-config-backup-empty acu-profile-empty">${escapeHtml(emptyText)}</div>`
+        }
+      </div>
+    </section>`;
+
+  const renderDiceProfileManagerBody = async (): Promise<string> => {
+    let characterDetection: DiceCharacterProfileDetection | null = null;
+    try {
+      characterDetection = await detectCharacterDiceProfile({ includeSkipped: true });
+    } catch (error) {
+      console.warn('[DICE][PROFILE]读取当前角色卡配置方案失败:', error);
+    }
+    const summaries = await refreshDiceProfileIndex();
+    const snapshots = summaries.filter(summary => summary.source?.type === 'snapshot');
+    const regularProfiles = summaries.filter(
+      summary => summary.source?.type !== 'snapshot' && !isDiceProfileCharacterSource(summary.source),
+    );
+    const characterProfiles = characterDetection ? [toDiceProfileSummary(characterDetection.profile)] : [];
+    const collapsedSections = getDiceProfileCollapsedSections();
+    const isProfileLibraryCollapsed = collapsedSections.includes('library');
+    const isSaveScopeCollapsed = collapsedSections.includes('saveScope');
+    const managerStateClasses = [
+      isProfileLibraryCollapsed ? 'is-library-collapsed' : '',
+      isSaveScopeCollapsed ? 'is-save-scope-collapsed' : '',
+    ].filter(Boolean).join(' ');
+    return `
+      <div class="acu-config-backup-content acu-profile-manager ${managerStateClasses}">
+        <section class="acu-profile-collapsible acu-profile-library ${isProfileLibraryCollapsed ? 'collapsed' : ''}" data-profile-section="library">
+          <button type="button" class="acu-profile-collapse-header" aria-expanded="${isProfileLibraryCollapsed ? 'false' : 'true'}">
+            <div class="acu-profile-collapse-title">
+              <i class="fa-solid fa-layer-group"></i><span>方案管理</span>
+            </div>
+            <div class="acu-profile-collapse-meta">应用前保存快照，保留最近 ${DICE_PROFILE_PRE_APPLY_SNAPSHOT_LIMIT} 个</div>
+            <i class="fa-solid fa-chevron-down acu-profile-collapse-chevron"></i>
+          </button>
+          <div class="acu-profile-collapse-body acu-profile-library-body">
+            <div class="acu-profile-tabs" role="tablist" aria-label="配置方案分类">
+              <button type="button" class="acu-profile-tab is-active" data-profile-tab="character" role="tab" aria-selected="true"><span>角色卡</span><em>${characterProfiles.length}</em></button>
+              <button type="button" class="acu-profile-tab" data-profile-tab="library" role="tab" aria-selected="false"><span>方案库</span><em>${regularProfiles.length}</em></button>
+              <button type="button" class="acu-profile-tab" data-profile-tab="snapshots" role="tab" aria-selected="false"><span>快照</span><em>${snapshots.length}</em></button>
+            </div>
+            <div class="acu-profile-tab-panels">
+              ${renderDiceProfileTabPanel('character', characterProfiles, '当前角色卡暂无内置方案', { active: true, current: true })}
+              ${renderDiceProfileTabPanel('library', regularProfiles, '暂无方案，可保存或导入')}
+              ${renderDiceProfileTabPanel('snapshots', snapshots, '暂无快照，应用时自动创建')}
+            </div>
+          </div>
+        </section>
+        <section class="acu-profile-collapsible acu-profile-section acu-profile-module-section ${isSaveScopeCollapsed ? 'collapsed' : ''}" data-profile-section="saveScope">
+          <button type="button" class="acu-profile-collapse-header" aria-expanded="${isSaveScopeCollapsed ? 'false' : 'true'}">
+            <div class="acu-profile-collapse-title">
+              <i class="fa-solid fa-list-check"></i><span>保存范围</span>
+            </div>
+            <div class="acu-profile-collapse-meta" data-profile-save-scope-meta>勾选要存入方案的设置</div>
+            <i class="fa-solid fa-chevron-down acu-profile-collapse-chevron"></i>
+          </button>
+          <div class="acu-profile-collapse-body acu-profile-save-scope-body">
+            <div class="acu-config-backup-selection-actions">
+              <button type="button" class="acu-config-backup-select-all acu-setting-action-btn acu-config-backup-mini-btn">全选</button>
+              <button type="button" class="acu-config-backup-invert acu-setting-action-btn acu-config-backup-mini-btn">反选</button>
+              <button type="button" class="acu-config-backup-clear acu-setting-action-btn acu-config-backup-mini-btn">清空选择</button>
+            </div>
+            <div class="acu-config-backup-module-list acu-profile-module-list">
+              ${renderDiceConfigBackupModuleRows(DICE_CONFIG_BACKUP_MODULES.map(module => module.id))}
+            </div>
+          </div>
+        </section>
+      </div>`;
+  };
+
   const showDiceConfigBackupDialog = (): void => {
     const { $ } = getCore();
     const config = getConfig();
     $('.acu-config-backup-overlay').remove();
-
-    let parsedBackup: DiceConfigBackupDocument | null = null;
-    let parsedWarnings: string[] = [];
 
     const dialog = $(`
       <div class="acu-config-backup-overlay acu-theme-${escapeHtml(config.theme)}">
@@ -38111,8 +39244,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
             <div class="acu-config-backup-heading">
               <i class="fa-solid fa-arrows-rotate acu-config-backup-title-icon"></i>
               <div class="acu-config-backup-title-copy">
-                <div class="acu-config-backup-title">备份与还原</div>
-                <div class="acu-config-backup-subtitle">导入与导出骰子系统的配置。</div>
+                <div class="acu-config-backup-title">配置方案与备份</div>
+                <div class="acu-config-backup-subtitle">保存、应用、导入与导出骰子系统配置。</div>
               </div>
             </div>
             <div class="acu-config-backup-header-actions">
@@ -38120,15 +39253,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
               <button type="button" class="acu-config-backup-close acu-close-btn" title="关闭" aria-label="关闭备份与还原"><i class="fa-solid fa-times"></i></button>
             </div>
           </div>
-          <div class="acu-config-backup-body">${renderDiceConfigBackupExportBody()}</div>
+          <div class="acu-config-backup-body acu-profile-manager-body"><div class="acu-config-backup-empty">正在读取配置方案...</div></div>
           <div class="acu-config-backup-footer">
-            <div class="acu-config-backup-import-actions">
-              <button type="button" id="acu-config-backup-pick-file" class="acu-setting-action-btn acu-config-backup-footer-btn" title="导入"><i class="fa-solid fa-file-import"></i> 导入</button>
-            </div>
-            <div class="acu-config-backup-primary-actions">
-              <button type="button" id="acu-config-backup-cancel" class="acu-setting-action-btn acu-config-backup-footer-btn" title="取消"><i class="fa-solid fa-xmark"></i> 取消</button>
-              <button type="button" id="acu-config-backup-export" class="acu-setting-action-btn acu-config-backup-footer-btn acu-config-backup-primary-btn" title="导出"><i class="fa-solid fa-file-export"></i> 导出</button>
-              <button type="button" id="acu-config-backup-apply" class="acu-setting-action-btn acu-config-backup-footer-btn acu-config-backup-primary-btn" title="确认" hidden><i class="fa-solid fa-check"></i> 确认</button>
+            <div class="acu-config-backup-footer-actions">
+              <button type="button" id="acu-config-backup-pick-file" class="acu-setting-action-btn acu-config-backup-footer-btn" title="导入配置方案或备份"><i class="fa-solid fa-file-import"></i> 导入</button>
+              <button type="button" id="acu-profile-save-current" class="acu-setting-action-btn acu-config-backup-footer-btn" title="把当前勾选的设置保存为方案"><i class="fa-solid fa-floppy-disk"></i> 保存方案</button>
+              <button type="button" id="acu-config-backup-cancel" class="acu-setting-action-btn acu-config-backup-footer-btn acu-config-backup-primary-btn" title="关闭"><i class="fa-solid fa-xmark"></i> 关闭</button>
             </div>
           </div>
         </div>
@@ -38139,34 +39269,81 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     bindTutorialButtonsIn(dialog);
     setupOverlayClose(dialog, 'acu-config-backup-overlay', closeDialog);
 
-    const updateRestoreWarningSlot = () => {
-      if (!parsedBackup) return;
-      const availableIds = getDiceConfigBackupAvailableModuleIds(parsedBackup);
-      const selectedIds = getDiceConfigBackupSelectedModuleIdsFromDialog(dialog).filter(moduleId =>
-        availableIds.includes(moduleId),
-      );
-      dialog
-        .find('.acu-config-backup-warning-slot')
-        .html(renderDiceConfigBackupWarningList(getDiceConfigBackupRestoreWarnings(parsedBackup, parsedWarnings, selectedIds)));
+    const refreshBody = async () => {
+      dialog.find('.acu-config-backup-body').html('<div class="acu-config-backup-empty">正在读取配置方案...</div>');
+      dialog.find('.acu-config-backup-body').html(await renderDiceProfileManagerBody());
+      updateDiceProfileSaveScopeMeta();
     };
+
+    const updateDiceProfileSaveScopeMeta = () => {
+      const saveScope = dialog.find('.acu-profile-module-section');
+      if (saveScope.length === 0) return;
+      const checkboxes = saveScope.find<HTMLInputElement>('.acu-config-backup-module-checkbox');
+      const selectedCount = checkboxes.filter(':checked').length;
+      const totalCount = checkboxes.length;
+      const text = totalCount > 0 ? `已选 ${selectedCount}/${totalCount} 个模块` : '勾选要存入方案的设置';
+      saveScope.find('[data-profile-save-scope-meta]').text(text);
+    };
+
+    void refreshBody();
 
     dialog.on('click', '.acu-config-backup-close', closeDialog);
     dialog.on('click', '#acu-config-backup-cancel', closeDialog);
-    dialog.on('click', '.acu-config-backup-select-all', () => {
-      dialog.find<HTMLInputElement>('.acu-config-backup-module-checkbox').prop('checked', true);
-      updateRestoreWarningSlot();
+    dialog.on('click', '.acu-profile-collapse-header', function () {
+      const section = $(this).closest('.acu-profile-collapsible');
+      const sectionId = String(section.data('profile-section') || '');
+      if (!sectionId) return;
+      const nextCollapsed = !section.hasClass('collapsed');
+      section.toggleClass('collapsed', nextCollapsed);
+      $(this).attr('aria-expanded', nextCollapsed ? 'false' : 'true');
+      const collapsedSections = getDiceProfileCollapsedSections();
+      saveDiceProfileCollapsedSections(
+        nextCollapsed
+          ? [...collapsedSections, sectionId]
+          : collapsedSections.filter(item => item !== sectionId),
+      );
+      const manager = section.closest('.acu-profile-manager');
+      if (manager.length > 0) {
+        const libraryCollapsed = manager.find('.acu-profile-library').hasClass('collapsed');
+        const saveScopeCollapsed = manager.find('.acu-profile-module-section').hasClass('collapsed');
+        manager.toggleClass('is-library-collapsed', libraryCollapsed);
+        manager.toggleClass('is-save-scope-collapsed', saveScopeCollapsed);
+      }
     });
-    dialog.on('click', '.acu-config-backup-invert', () => {
-      dialog.find<HTMLInputElement>('.acu-config-backup-module-checkbox').each((_, element) => {
+    dialog.on('click', '.acu-profile-tab', function () {
+      const tab = $(this);
+      const target = String(tab.data('profile-tab') || '');
+      const library = tab.closest('.acu-profile-library');
+      if (!target || library.length === 0) return;
+      library.find('.acu-profile-tab').removeClass('is-active').attr('aria-selected', 'false');
+      tab.addClass('is-active').attr('aria-selected', 'true');
+      library.find('.acu-profile-tab-panel').prop('hidden', true).removeClass('is-active');
+      library.find(`.acu-profile-tab-panel[data-profile-panel="${target}"]`).prop('hidden', false).addClass('is-active');
+    });
+    dialog.on('click', '.acu-config-backup-select-all', function () {
+      $(this)
+        .closest('.acu-profile-module-section, .acu-config-backup-content')
+        .find<HTMLInputElement>('.acu-config-backup-module-checkbox')
+        .prop('checked', true);
+      updateDiceProfileSaveScopeMeta();
+    });
+    dialog.on('click', '.acu-config-backup-invert', function () {
+      $(this)
+        .closest('.acu-profile-module-section, .acu-config-backup-content')
+        .find<HTMLInputElement>('.acu-config-backup-module-checkbox')
+        .each((_, element) => {
         element.checked = !element.checked;
       });
-      updateRestoreWarningSlot();
+      updateDiceProfileSaveScopeMeta();
     });
-    dialog.on('click', '.acu-config-backup-clear', () => {
-      dialog.find<HTMLInputElement>('.acu-config-backup-module-checkbox').prop('checked', false);
-      updateRestoreWarningSlot();
+    dialog.on('click', '.acu-config-backup-clear', function () {
+      $(this)
+        .closest('.acu-profile-module-section, .acu-config-backup-content')
+        .find<HTMLInputElement>('.acu-config-backup-module-checkbox')
+        .prop('checked', false);
+      updateDiceProfileSaveScopeMeta();
     });
-    dialog.on('change', '.acu-config-backup-module-checkbox', updateRestoreWarningSlot);
+    dialog.on('change', '.acu-profile-module-section .acu-config-backup-module-checkbox', updateDiceProfileSaveScopeMeta);
     dialog.on('click', '#acu-config-backup-export', async function () {
       const button = this as HTMLButtonElement;
       try {
@@ -38197,58 +39374,160 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         const selected = await pickTextFile();
         if (!selected) return;
         try {
-          const result = parseDiceConfigBackup(selected.text);
-          parsedBackup = result.backup;
-          parsedWarnings = result.warnings;
-          dialog
-            .find('.acu-config-backup-body')
-            .html(renderDiceConfigBackupRestoreBody(result.backup, result.warnings));
-          dialog.find('#acu-config-backup-export').prop('hidden', true);
-          dialog.find('#acu-config-backup-apply').prop('hidden', false);
-          dialog.find('#acu-config-backup-pick-file').html('<i class="fa-solid fa-file-import"></i> 重新导入');
+          const basename = selected.file.name.replace(/\.(jsonc?|txt)$/i, '');
+          const profile = await importDiceProfile(selected.text, {
+            name: basename,
+            source: { type: 'imported', label: selected.file.name },
+          });
+          toastr.success(`已导入配置方案：${profile.name}`);
+          await refreshBody();
         } catch (error) {
-          parsedBackup = null;
-          parsedWarnings = [];
-          dialog.find('#acu-config-backup-apply').prop('hidden', true);
-          showActionableErrorToast(error instanceof Error ? error.message : '读取备份文件失败', {
-            title: '读取备份失败',
+          showActionableErrorToast(error instanceof Error ? error.message : '读取配置方案文件失败', {
+            title: '导入失败',
             suggestion: 'importExport',
           });
         }
       })();
     });
 
-    dialog.on('click', '#acu-config-backup-apply', async function () {
-      if (!parsedBackup) {
-        toastr.warning('请先选择备份文件');
-        return;
-      }
+    dialog.on('click', '#acu-profile-save-current', async function () {
       const button = this as HTMLButtonElement;
       try {
-        button.disabled = true;
         const selectedIds = getDiceConfigBackupSelectedModuleIdsFromDialog(dialog).filter(moduleId =>
-          getDiceConfigBackupAvailableModuleIds(parsedBackup!).includes(moduleId),
+          getAllDiceConfigBackupModuleIds().includes(moduleId),
         );
         if (selectedIds.length === 0) {
-          toastr.warning('请至少选择一个要恢复的模块');
+          toastr.warning('请至少选择一个模块');
           return;
         }
-        const confirmed = await showDiceConfigBackupPrivacyConfirm('restore', selectedIds, parsedBackup);
-        if (!confirmed) return;
-        const stats = await applyDiceConfigBackup(parsedBackup, selectedIds);
-        dialog.remove();
-        const warningText = stats.warnings.length > 0 ? `，${stats.warnings.length} 条提示请查看控制台` : '';
-        if (stats.warnings.length > 0) console.warn('[DICE]配置备份恢复提示:', stats.warnings);
-        toastr.success(
-          `配置恢复完成：新增 ${stats.added}，覆盖 ${stats.overwritten}，跳过 ${stats.skipped}${warningText}`,
-        );
-      } catch (error) {
-        console.error('[DICE]配置备份恢复失败:', error, parsedWarnings);
-        showActionableErrorToast(error instanceof Error ? error.message : '恢复失败', {
-          title: '恢复失败',
-          suggestion: 'importExport',
-          developerHint: true,
+        const name = await showDiceSystemInputDialog({
+          title: '保存配置方案',
+          message: '配置方案名称',
+          iconClass: 'fa-floppy-disk',
+          initialValue: `我的骰子系统配置方案 ${new Date().toISOString().slice(0, 10)}`,
+          confirmText: '保存',
         });
+        if (!name) return;
+        button.disabled = true;
+        const profile = await saveCurrentDiceProfile({ name, moduleIds: selectedIds, source: { type: 'user' } });
+        toastr.success(`已保存配置方案：${profile.name}`);
+        await refreshBody();
+      } catch (error) {
+        showActionableErrorToast(error instanceof Error ? error.message : '保存配置方案失败', {
+          title: '保存失败',
+          suggestion: 'importExport',
+        });
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    dialog.on('click', '.acu-profile-action', async function () {
+      const button = this as HTMLButtonElement;
+      const profileId = String($(button).data('profile-id') || '');
+      const action = String($(button).data('profile-action') || '');
+      if (!profileId || !action) return;
+      try {
+        button.disabled = true;
+        if (action === 'apply') {
+          const stats = await applyDiceProfile(profileId, { createSnapshot: true, confirm: true });
+          const warningText = stats.warnings.length > 0 ? `，${stats.warnings.length} 条提示请查看控制台` : '';
+          if (stats.warnings.length > 0) console.warn('[DICE][PROFILE]配置方案应用提示:', stats.warnings);
+          toastr.success(
+            `配置方案应用完成：新增 ${stats.added}，覆盖 ${stats.overwritten}，跳过 ${stats.skipped}${warningText}`,
+          );
+          await refreshBody();
+          return;
+        }
+        if (action === 'export') {
+          const profile = await exportDiceProfile(profileId);
+          downloadDiceProfileJson(profile);
+          toastr.success('配置方案已导出');
+          return;
+        }
+        if (action === 'tavern-regex') {
+          const profile = await exportDiceProfile(profileId);
+          downloadDiceProfileTavernRegex(profile);
+          toastr.success('已转换为酒馆正则文件');
+          return;
+        }
+        if (action === 'rename') {
+          const profile = await exportDiceProfile(profileId);
+          if (isDiceProfileCharacterSource(profile.source)) return;
+          const name = await showDiceSystemInputDialog({
+            title: '重命名配置方案',
+            message: '配置方案名称',
+            iconClass: 'fa-pen',
+            initialValue: profile.name,
+            confirmText: '重命名',
+          });
+          const nextName = String(name || '').trim();
+          if (!nextName || nextName === profile.name) return;
+          const now = new Date().toISOString();
+          await saveDiceProfileRecord({
+            ...profile,
+            name: nextName,
+            savedAt: now,
+            updatedAt: now,
+          });
+          toastr.success(`已重命名为：${nextName}`);
+          await refreshBody();
+          return;
+        }
+        if (action === 'delete') {
+          const profile = await exportDiceProfile(profileId);
+          if (isDiceProfileCharacterSource(profile.source)) return;
+          const confirmed = await showDiceSystemConfirmDialog({
+            title: '删除配置方案',
+            message: `删除「${profile.name}」？`,
+            detail: '删除只会移除方案库里的记录，不会撤销已经应用到骰子系统的配置。',
+            iconClass: 'fa-trash',
+            confirmText: '删除配置方案',
+            cancelText: '取消',
+            tone: 'danger',
+          });
+          if (!confirmed) return;
+          await deleteDiceProfileRecord(profileId);
+          toastr.success('配置方案已删除');
+          await refreshBody();
+          return;
+        }
+        if (action === 'save-as') {
+          const profile = await exportDiceProfile(profileId);
+          if (isDiceProfileCharacterSource(profile.source)) return;
+          const name = await showDiceSystemInputDialog({
+            title: '另存为配置方案',
+            message: '新配置方案名称',
+            iconClass: 'fa-copy',
+            initialValue: `${profile.name} 副本`,
+            confirmText: '另存为',
+          });
+          if (!name) return;
+          const now = new Date().toISOString();
+          const copy = normalizeDiceProfileRecord(
+            {
+              ...profile,
+              id: createDiceProfileRuntimeId('profile_copy'),
+              name,
+              source: { type: 'user' },
+              createdAt: now,
+              updatedAt: now,
+            },
+            { now, source: { type: 'user' } },
+          );
+          await saveDiceProfileRecord(copy);
+          toastr.success(`已另存为配置方案：${copy.name}`);
+          await refreshBody();
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message !== '已取消应用配置方案') {
+          showActionableErrorToast(message || '配置方案操作失败', {
+            title: '配置方案操作失败',
+            suggestion: 'importExport',
+            developerHint: true,
+          });
+        }
       } finally {
         button.disabled = false;
       }
@@ -48143,12 +49422,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     emitEvent('contest', contestResultWithTimestamp);
   };
 
-  const executeCheckSuggestionCommand = (displayText: string, commandText: string) => {
+  const executeCheckSuggestionCommand = (displayText: string, commandText: string): boolean => {
     const parsed = parseCheckSuggestionCommand(commandText);
     if (parsed.kind === 'invalid') {
       if (window.toastr) showActionableErrorToast(buildCheckSuggestionInvalidCommandMessage(parsed.reason));
       console.warn('[DICE] 检定建议命令解析失败:', commandText, parsed.reason);
-      return;
+      return false;
     }
 
     try {
@@ -48161,12 +49440,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
 
       if (parsed.kind === 'none') {
         insertActionText();
-        return;
+        return true;
       }
       if (parsed.kind === 'fixed') {
         executeFixedCheckSuggestion(parsed.success);
         insertActionText();
-        return;
+        return true;
       }
       if (parsed.kind === 'check') {
         try {
@@ -48177,7 +49456,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           executeNormalCheckSuggestion(parsed);
         }
         insertActionText();
-        return;
+        return true;
       }
       try {
         executeAdvancedContestCheckSuggestion(parsed);
@@ -48187,10 +49466,12 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         executeContestCheckSuggestion(parsed);
       }
       insertActionText();
+      return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (window.toastr) showActionableErrorToast(message);
       console.error('[DICE] 执行检定建议失败:', error);
+      return false;
     }
   };
 
@@ -48513,6 +49794,50 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         description: preset.description || '',
         builtin: !!preset.builtin,
       };
+    },
+
+    profiles: {
+      async list(): Promise<DiceProfileSummary[]> {
+        return await refreshDiceProfileIndex();
+      },
+
+      async saveCurrent(options: DiceProfileSaveCurrentOptions = {}): Promise<DiceProfileSummary> {
+        const profile = await saveCurrentDiceProfile(options);
+        return toDiceProfileSummary(profile);
+      },
+
+      async import(input: unknown, options: DiceProfileImportOptions = {}): Promise<DiceProfileSummary> {
+        const profile = await importDiceProfile(input, options);
+        return toDiceProfileSummary(profile);
+      },
+
+      async apply(profileId: string, options: DiceProfileApplyOptions = {}): Promise<DiceConfigBackupApplyStats> {
+        return await applyDiceProfile(profileId, { createSnapshot: true, ...options });
+      },
+
+      async export(profileId: string): Promise<string> {
+        return JSON.stringify(await exportDiceProfile(profileId), null, 2);
+      },
+
+      async detectCharacterProfile(
+        options: { includeSkipped?: boolean } = {},
+      ): Promise<{
+        profile: DiceProfileSummary;
+        promptKey: string;
+        skipped: boolean;
+        sourceTextKind: DiceCharacterProfileDetection['sourceTextKind'];
+      } | null> {
+        const detection = await detectCharacterDiceProfile(options);
+        if (!detection) return null;
+        const context = getDiceProfileCharacterContext();
+        const promptState = getDiceProfilePromptState(context.chatId, detection.profile.fingerprint);
+        return {
+          profile: toDiceProfileSummary(detection.profile),
+          promptKey: getAcuDiceProfilePromptKey(context.chatId, detection.profile.fingerprint),
+          skipped: promptState === 'skipped',
+          sourceTextKind: detection.sourceTextKind,
+        };
+      },
     },
 
     /**
@@ -51210,7 +52535,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
                             </div>
                             <div class="acu-setting-row" id="settings-row-config-backup">
                                 <div class="acu-setting-info">
-                                    <span class="acu-setting-label"><i class="fa-solid fa-arrows-rotate"></i> 备份与还原</span>
+                                    <span class="acu-setting-label"><i class="fa-solid fa-layer-group"></i> 配置方案与备份</span>
                                 </div>
                                 <button type="button" id="cfg-config-backup-restore" class="acu-setting-action-btn acu-settings-compact-action">
                                     <i class="fa-solid fa-arrows-rotate"></i> 打开
@@ -52369,7 +53694,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       showDebugConsoleModal();
     });
 
-    // === 配置备份/还原 ===
+    // === 配置方案与备份 ===
     dialog.find('#cfg-config-backup-restore').on('click', function (e) {
       e.preventDefault();
       e.stopPropagation();
@@ -54017,14 +55342,28 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const { $ } = getCore();
     $('body')
       .off('click.acu_check_suggestion')
-      .on('click.acu_check_suggestion', '.acu-check-suggestion-btn', function (e) {
+      .on('click.acu_check_suggestion', '.acu-check-suggestion-btn', async function (e) {
         e.preventDefault();
         e.stopPropagation();
 
+        const config = getConfig();
         const displayText = safeDecodeURIComponent($(this).attr('data-display') || '');
         const commandText = safeDecodeURIComponent($(this).attr('data-command') || '');
-        executeCheckSuggestionCommand(displayText, commandText);
-        $('#send_textarea').focus();
+        const executed = executeCheckSuggestionCommand(displayText, commandText);
+        if (!executed) return;
+
+        if (config.clickOptionToAutoSend === false) {
+          $('#send_textarea').focus();
+          return;
+        }
+
+        const messageText = getResolvedComposerText();
+        const sendMode = await sendChatTextAndTrigger(messageText);
+        if (sendMode && sendMode !== 'composer') {
+          clearComposerIfCurrentText(messageText);
+        } else if (!sendMode) {
+          $('#send_textarea').focus();
+        }
       });
 
     // 移除旧的直接绑定，改用 Body 委托，提升性能并防止动态元素事件丢失
@@ -54044,70 +55383,11 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           return;
         }
 
-        // 情况2: 自动发送
-        // 方案A: TavernHelper (最稳健，支持 refresh: 'affected' 以提升性能)
-        if (window.TavernHelper) {
-          try {
-            // 1. 使用 createChatMessages 直接插入消息
-            if (window.TavernHelper.createChatMessages) {
-              await window.TavernHelper.createChatMessages(
-                [
-                  {
-                    role: 'user',
-                    message: val,
-                  },
-                ],
-                {
-                  // 利用 TavernHelper 的特性，只刷新受影响的楼层，避免整个聊天重绘
-                  refresh: 'affected',
-                },
-              );
-
-              // 2. 触发生成
-              if (window.TavernHelper.triggerSlash) {
-                await window.TavernHelper.triggerSlash('/trigger');
-              }
-              return;
-            }
-          } catch (err) {
-            console.warn('[DICE]ACU TavernHelper 发送失败，尝试备用方案', err);
-          }
-        }
-
-        // 方案B: SillyTavern 原生接口 (Slash Command)
-        const ST = window.SillyTavern || window.parent?.SillyTavern;
-        if (ST && ST.executeSlashCommandsWithOptions) {
-          try {
-            // 使用 raw=true 避免复杂字符转义问题 (参考 slash_command.txt)
-            const safeVal = val.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-            const cmd = `/send raw=true "${safeVal}"`;
-
-            const sendResult = await ST.executeSlashCommandsWithOptions(cmd);
-
-            if (!sendResult.isError && !sendResult.isAborted) {
-              await ST.executeSlashCommandsWithOptions('/trigger');
-              return;
-            }
-            console.warn('[DICE]ACU ST接口 send 失败:', sendResult);
-          } catch (err) {
-            console.warn('[DICE]ACU ST接口失败，尝试按钮模拟', err);
-          }
-        }
-
-        // 方案C: 填入输入框 + 点击按钮 (最后兜底)
-        const ta = $('#send_textarea');
-        if (ta.length) {
-          setTextareaValueAndNotify(ta[0] as HTMLTextAreaElement, val);
-          // 短暂延迟确保 React 状态同步
-          await new Promise(r => setTimeout(r, 50));
-          const sendBtn = $('#send_but').filter(':visible');
-          if (sendBtn.length) {
-            sendBtn[0].click();
-          } else {
-            // 尝试触发回车
-            const enterEvent = $.Event('keydown', { keyCode: 13, which: 13, bubbles: true });
-            ta.trigger(enterEvent);
-          }
+        // 情况2: 自动发送。统一兼容全局函数、TavernHelper 包装对象、ST Slash API 和按钮兜底。
+        const sendMode = await sendChatTextAndTrigger(val);
+        if (!sendMode) {
+          smartInsertToTextarea(val, 'action');
+          $('#send_textarea').focus();
         }
       });
   };
@@ -68914,6 +70194,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
           }
           setTimeout(renderInterface, 500);
           scheduleDialogueIndentRender();
+          scheduleCharacterDiceProfileDetection(900);
         };
       }
       const _boundChatChangeHandler = window._acuBoundChatChangeHandler;
@@ -69525,6 +70806,8 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       bindHumanInputTracking();
       ensureGachaHeartbeat();
     }, 500);
+
+    scheduleCharacterDiceProfileDetection(1500);
 
     // [新增] 监听ERA变量更新，自动刷新变量面板
     const eventOn = window.eventOn || window.parent?.eventOn;
