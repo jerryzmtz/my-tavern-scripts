@@ -1871,7 +1871,7 @@ import {
   let gachaHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let gachaShopUiRefreshTimer: ReturnType<typeof setInterval> | null = null;
   let gachaShopRootElement: HTMLElement | null = null;
-  const GACHA_TEST_DEFAULT_FORTUNE = 50;
+  const GACHA_TEST_DEFAULT_FORTUNE = 0;
   const GACHA_SHARD_EXCHANGE_COST = 10;
   const STORAGE_KEY_GACHA_STATE = 'acu_gacha_state_v1';
   const STORAGE_KEY_GACHA_SHARD_SHOP_RARITY = 'acu_gacha_shard_shop_rarity_v1';
@@ -2520,7 +2520,7 @@ import {
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.8.4'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v6.25'; // 脚本版本号
+  const SCRIPT_VERSION = 'v6.26'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -20440,6 +20440,116 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     // 只有成功获取到 jQuery 后才锁定缓存，防止初始化过早导致永久失效
     if ($) _coreCache = core;
     return core;
+  };
+
+  const ACU_DATABASE_NEW_UI_MENU_SELECTOR = '#acu-v2-menu-item';
+  const ACU_DATABASE_NEW_UI_API_METHODS = [
+    'openApp',
+    'openMain',
+    'openNewUI',
+    'openNewUi',
+    'openUi',
+    'openUI',
+    'openShell',
+    'showApp',
+  ];
+
+  const collectAccessibleRuntimeWindows = (): Window[] => {
+    const windows: Window[] = [];
+    const addWindow = (targetWindow: Window | null | undefined) => {
+      if (!targetWindow || windows.includes(targetWindow)) return;
+      if (!getAccessibleDocument(targetWindow)) return;
+      windows.push(targetWindow);
+    };
+
+    addWindow(window);
+    try {
+      addWindow(getTavernHostWindow());
+    } catch {
+      // ignore host lookup failures
+    }
+
+    try {
+      let cursor = window;
+      while (cursor.parent && cursor.parent !== cursor) {
+        const parentWindow = cursor.parent;
+        if (!getAccessibleDocument(parentWindow)) break;
+        addWindow(parentWindow);
+        cursor = parentWindow;
+      }
+    } catch {
+      // 跨域或宿主限制时保留已收集的窗口
+    }
+
+    try {
+      addWindow(window.top);
+    } catch {
+      // ignore
+    }
+
+    return windows;
+  };
+
+  const runMaybeAsyncDatabaseUiOpener = async (opener: () => unknown): Promise<boolean> => {
+    try {
+      const result = opener();
+      if (result && typeof (result as PromiseLike<unknown>).then === 'function') {
+        const resolved = await result;
+        return resolved !== false;
+      }
+      return result !== false;
+    } catch (error) {
+      console.warn('[DICE]打开数据库新 UI 入口失败:', error);
+      return false;
+    }
+  };
+
+  const openDatabaseNewUiViaApi = async (): Promise<boolean> => {
+    for (const targetWindow of collectAccessibleRuntimeWindows()) {
+      const api = (targetWindow as any).AutoCardUpdaterV2API;
+      if (!api || typeof api !== 'object') continue;
+
+      for (const methodName of ACU_DATABASE_NEW_UI_API_METHODS) {
+        const method = api[methodName];
+        if (typeof method !== 'function') continue;
+        const opened = await runMaybeAsyncDatabaseUiOpener(() => method.call(api));
+        if (opened) return true;
+      }
+    }
+
+    return false;
+  };
+
+  const openDatabaseNewUiViaMenuEntry = (): boolean => {
+    for (const targetWindow of collectAccessibleRuntimeWindows()) {
+      const targetDocument = getAccessibleDocument(targetWindow);
+      const menuItem = targetDocument?.querySelector<HTMLElement>(ACU_DATABASE_NEW_UI_MENU_SELECTOR);
+      if (!menuItem || typeof menuItem.click !== 'function') continue;
+
+      menuItem.click();
+      return true;
+    }
+
+    return false;
+  };
+
+  const openLegacyDatabaseSettings = (): boolean => {
+    const api = getCore().getDB();
+    if (api && typeof api.openSettings === 'function') {
+      api.openSettings();
+      return true;
+    }
+    return false;
+  };
+
+  const openDatabaseInterface = async (): Promise<void> => {
+    if (await openDatabaseNewUiViaApi()) return;
+    if (openDatabaseNewUiViaMenuEntry()) return;
+    if (openLegacyDatabaseSettings()) return;
+
+    if (window.toastr) {
+      window.toastr.warning('数据库脚本未就绪或版本过低，无法打开数据库界面');
+    }
   };
 
   const updateSaveButtonState = () => {
@@ -61877,6 +61987,10 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         <div class="acu-gacha-content">
           <div class="acu-gacha-stat-row">
             <span class="acu-badge acu-gacha-fortune-badge"><i class="fa-solid fa-coins"></i>${escapeHtml(FORTUNE_CURRENCY_NAME)} <strong class="acu-gacha-fortune-amount">${escapeHtml(String(state.wallet.fortune || 0))}</strong></span>
+            <button class="acu-dialog-btn acu-gacha-fortune-clear danger" type="button" title="清空当前骰运余额" aria-label="清空当前骰运余额">
+              <i class="fa-solid fa-eraser"></i>
+              <span>清零</span>
+            </button>
             <span class="acu-badge"><i class="fa-solid fa-gem"></i>稀有保底 ${escapeHtml(String(state.pity.rare || 0))}/${escapeHtml(String(GACHA_RARE_PITY_THRESHOLD))}</span>
             <span class="acu-badge"><i class="fa-solid fa-star"></i>传说保底 ${escapeHtml(String(state.pity.legend || 0))}/${escapeHtml(String(GACHA_LEGEND_PITY_THRESHOLD))}</span>
             <button class="acu-dialog-btn acu-gacha-shard-shop-open" type="button" title="打开碎片商城">
@@ -61974,6 +62088,44 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
     const state = getGachaState(undefined, true);
     if (!state) return false;
     return updateGachaFortuneProgressDom(state, true);
+  };
+
+  const clearGachaFortune = async () => {
+    const state = getGachaState(undefined, true);
+    const currentFortune = Math.max(0, Math.floor(Number(state?.wallet.fortune || 0)));
+    if (!state || currentFortune <= 0) {
+      if (window.toastr) window.toastr.info(`${FORTUNE_CURRENCY_NAME}已经是 0`, '骰子商店');
+      return;
+    }
+
+    const confirmed = await showDiceSystemConfirmDialog({
+      title: `清空${FORTUNE_CURRENCY_NAME}`,
+      message: `确定要清空当前${FORTUNE_CURRENCY_NAME}余额吗？`,
+      detail: `当前余额：${currentFortune}\n只会清空当前聊天/上下文的${FORTUNE_CURRENCY_NAME}，不会影响碎片、保底、最近收获或物品栏。`,
+      iconClass: 'fa-eraser',
+      confirmText: `清空${FORTUNE_CURRENCY_NAME}`,
+      cancelText: '取消',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
+
+    try {
+      await runInSaveQueue(async () => {
+        const latestState = getGachaState(undefined, true);
+        const latestFortune = Math.max(0, Math.floor(Number(latestState?.wallet.fortune || 0)));
+        if (!latestState || latestFortune <= 0) {
+          if (window.toastr) window.toastr.info(`${FORTUNE_CURRENCY_NAME}已经是 0`, '骰子商店');
+          refreshGachaVisualization();
+          return;
+        }
+        latestState.wallet.fortune = 0;
+        assertSaveStoredGachaStateSnapshot(latestState);
+        refreshGachaVisualization();
+        if (window.toastr) window.toastr.success(`${FORTUNE_CURRENCY_NAME}已清空`, '骰子商店');
+      });
+    } catch (error) {
+      showGachaSaveError(error, `${FORTUNE_CURRENCY_NAME}清空保存`);
+    }
   };
 
   const performGachaDraw = async (drawCount: number) => {
@@ -67744,12 +67896,7 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
       .on('click', e => {
         e.stopPropagation();
         if (isEditingOrder) return;
-        const api = getCore().getDB();
-        if (api && typeof api.openSettings === 'function') {
-          api.openSettings(); // 修改为打开总控制台/设置界面
-        } else if (window.toastr) {
-          window.toastr.warning('后端脚本(神·数据库)未就绪或版本过低');
-        }
+        void openDatabaseInterface();
       });
 
     // 重新填表按钮
@@ -68287,6 +68434,13 @@ $opponent $oppAttrName：$formula=$oppRoll，判定 $oppConditionExpr？$oppJudg
         e.preventDefault();
         const drawCount = Number.parseInt(String($(this).data('draw-count') || '1'), 10);
         void performGachaDraw(drawCount >= 10 ? 10 : 1);
+      });
+    $('body')
+      .off('click.acu_gacha_fortune_clear')
+      .on('click.acu_gacha_fortune_clear', '.acu-gacha-fortune-clear', function (e) {
+        e.stopPropagation();
+        e.preventDefault();
+        void clearGachaFortune();
       });
     $('body')
       .off('click.acu_gacha_shard_shop_open')

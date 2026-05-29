@@ -12555,9 +12555,31 @@ export const MAIN_STYLES = `
         font-weight: 800;
         transition: background .16s ease, border-color .16s ease, color .16s ease, transform .16s ease;
     }
+    .acu-gacha-fortune-clear {
+        min-height: 30px;
+        padding: 6px 10px;
+        border-radius: 10px;
+        border: 1px solid color-mix(in srgb, var(--acu-error-text) 32%, var(--acu-border));
+        background: color-mix(in srgb, var(--acu-error-bg, rgba(231, 76, 60, 0.15)) 76%, var(--acu-btn-bg));
+        color: var(--acu-error-text);
+        font-size: 12px;
+        font-weight: 800;
+        transition: background .16s ease, border-color .16s ease, color .16s ease, transform .16s ease;
+    }
+    .acu-gacha-fortune-clear:hover {
+        border-color: var(--acu-error-text);
+        background: var(--acu-error-text);
+        color: var(--acu-btn-active-text, var(--acu-button-text-on-accent));
+        opacity: 1;
+    }
+    .acu-gacha-fortune-clear i {
+        margin: 0;
+    }
     .acu-gacha-shard-shop-open,
     .acu-gacha-shard-shop-open span,
-    .acu-gacha-shard-shop-open strong {
+    .acu-gacha-shard-shop-open strong,
+    .acu-gacha-fortune-clear,
+    .acu-gacha-fortune-clear span {
         min-width: 0;
     }
     .acu-gacha-shard-shop-open strong {
@@ -15423,10 +15445,11 @@ export const MAIN_STYLES = `
         }
         .acu-gacha-stat-row {
             display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(84px, auto);
+            grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 6px;
         }
-        .acu-gacha-stat-row .acu-badge {
+        .acu-gacha-stat-row .acu-badge,
+        .acu-gacha-fortune-clear {
             min-width: 0;
             min-height: 30px;
             justify-content: center;
@@ -15435,8 +15458,9 @@ export const MAIN_STYLES = `
             white-space: nowrap;
         }
         .acu-gacha-shard-shop-open {
-            width: auto;
-            min-width: 84px;
+            grid-column: 1 / -1;
+            width: 100%;
+            min-width: 0;
             min-height: 30px;
             margin-left: 0;
             padding: 5px 8px;
@@ -15445,7 +15469,7 @@ export const MAIN_STYLES = `
         }
         .acu-gacha-shard-shop-open span {
             display: inline;
-            max-width: 52px;
+            max-width: none;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
