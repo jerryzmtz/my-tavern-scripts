@@ -2520,7 +2520,7 @@ import {
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.8.4'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v6.29'; // 脚本版本号
+  const SCRIPT_VERSION = 'v6.30'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -20455,6 +20455,20 @@ $opponent $oppAttrName：$oppFormula=$oppRoll，判定 $oppConditionExpr？$oppJ
     'openShell',
     'showApp',
   ];
+  const ACU_DATABASE_MANUAL_UPDATE_API_METHODS = [
+    'manualUpdate',
+    'runManualUpdate',
+    'startManualUpdate',
+    'triggerManualUpdate',
+  ];
+  const ACU_DATABASE_V2_ROOT_SELECTOR = '#acu-app-v2, .acu-v2-app';
+  const ACU_DATABASE_FORM_FILL_NAV_SELECTOR = '[data-page-id="form-fill"]';
+  const ACU_DATABASE_MANUAL_UPDATE_PANEL_SELECTOR = '#form-fill-manual-panel';
+  const ACU_DATABASE_MANUAL_UPDATE_ACTION_SELECTOR =
+    '#form-fill-manual-panel button, .acu-v2-form-fill-page__actions button, button.acu-btn--primary';
+  const ACU_DATABASE_LEGACY_MANUAL_UPDATE_BUTTON_SELECTOR = '[id$="-manual-update-card"]';
+  const ACU_DATABASE_MANUAL_UPDATE_BUTTON_WAIT_MS = 1800;
+  const ACU_DATABASE_MANUAL_UPDATE_BUTTON_POLL_MS = 120;
 
   const collectAccessibleRuntimeWindows = (): Window[] => {
     const windows: Window[] = [];
@@ -20629,6 +20643,312 @@ $opponent $oppAttrName：$oppFormula=$oppRoll，判定 $oppConditionExpr？$oppJ
           : '可视化编辑器接口不可用，请确保数据库脚本已加载';
       window.toastr.warning(message);
     }
+  };
+
+  type DatabaseManualUpdateResult =
+    | { status: 'updated'; source: string }
+    | { status: 'unavailable' }
+    | { status: 'failed'; error?: unknown; source?: string };
+
+  const waitForDatabaseUiTick = (ms = 120): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
+
+  const isElementVisibleInLayout = (element: HTMLElement): boolean => {
+    const targetWindow = element.ownerDocument.defaultView || window;
+    const style = targetWindow.getComputedStyle(element);
+    if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return false;
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  };
+
+  const normalizeDatabaseUiText = (text: string | null | undefined): string =>
+    String(text || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  const isDatabaseManualUpdateButtonText = (text: string): boolean =>
+    text.includes('执行手动填表') || text.includes('交火索引已启用');
+
+  const isDatabaseManualUpdateActionButton = (button: HTMLButtonElement): boolean => {
+    const buttonText = normalizeDatabaseUiText(button.textContent);
+    if (isDatabaseManualUpdateButtonText(buttonText)) return true;
+
+    const inManualPanel = !!button.closest(ACU_DATABASE_MANUAL_UPDATE_PANEL_SELECTOR);
+    const inManualActions = !!button.closest('.acu-v2-form-fill-page__actions');
+    return inManualPanel && inManualActions;
+  };
+
+  const isDatabaseButtonDisabled = (button: HTMLButtonElement): boolean =>
+    button.disabled || button.getAttribute('aria-disabled') === 'true';
+
+  const hasDatabaseNewUiRuntime = (): boolean => {
+    for (const targetWindow of collectAccessibleRuntimeWindows()) {
+      const api = (targetWindow as any).AutoCardUpdaterV2API;
+      if (api && typeof api === 'object') return true;
+
+      const targetDocument = getAccessibleDocument(targetWindow);
+      if (targetDocument?.querySelector(ACU_DATABASE_V2_ROOT_SELECTOR)) return true;
+      if (targetDocument?.querySelector(ACU_DATABASE_NEW_UI_MENU_SELECTOR)) return true;
+    }
+
+    return false;
+  };
+
+  const findDatabaseNewUiManualUpdateButton = ():
+    | { status: 'found'; button: HTMLButtonElement }
+    | { status: 'disabled'; text: string }
+    | { status: 'unavailable' } => {
+    let disabledButtonText = '';
+
+    for (const targetWindow of collectAccessibleRuntimeWindows()) {
+      const targetDocument = getAccessibleDocument(targetWindow);
+      if (!targetDocument) continue;
+
+      const rawButtons = Array.from(
+        targetDocument.querySelectorAll<HTMLButtonElement>(ACU_DATABASE_MANUAL_UPDATE_ACTION_SELECTOR),
+      );
+      const candidateButtons = rawButtons.filter(
+        button => isElementVisibleInLayout(button) && isDatabaseManualUpdateActionButton(button),
+      );
+
+      const manualButton =
+        candidateButtons.find(button => {
+          const text = normalizeDatabaseUiText(button.textContent);
+          return !isDatabaseButtonDisabled(button) && text.includes('执行手动填表');
+        }) ||
+        candidateButtons.find(button => {
+          const text = normalizeDatabaseUiText(button.textContent);
+          return !isDatabaseButtonDisabled(button) && text.includes('交火索引已启用');
+        }) ||
+        candidateButtons.find(button => !isDatabaseButtonDisabled(button));
+
+      if (manualButton) return { status: 'found', button: manualButton };
+
+      const disabledButton = candidateButtons.find(button => isDatabaseButtonDisabled(button));
+      if (disabledButton) {
+        const buttonText = normalizeDatabaseUiText(disabledButton.textContent);
+        disabledButtonText = buttonText || '执行手动填表';
+        continue;
+      }
+    }
+
+    return disabledButtonText ? { status: 'disabled', text: disabledButtonText } : { status: 'unavailable' };
+  };
+
+  const waitForDatabaseNewUiManualUpdateButton = async (
+    timeoutMs = ACU_DATABASE_MANUAL_UPDATE_BUTTON_WAIT_MS,
+  ): Promise<ReturnType<typeof findDatabaseNewUiManualUpdateButton>> => {
+    const deadline = Date.now() + timeoutMs;
+    let latestDisabledText = '';
+
+    do {
+      const buttonResult = findDatabaseNewUiManualUpdateButton();
+      if (buttonResult.status === 'found') return buttonResult;
+      if (buttonResult.status === 'disabled') latestDisabledText = buttonResult.text;
+
+      await waitForDatabaseUiTick(ACU_DATABASE_MANUAL_UPDATE_BUTTON_POLL_MS);
+    } while (Date.now() < deadline);
+
+    return latestDisabledText ? { status: 'disabled', text: latestDisabledText } : { status: 'unavailable' };
+  };
+
+  const hasDatabaseManualUpdateSurface = (): boolean => {
+    for (const targetWindow of collectAccessibleRuntimeWindows()) {
+      const targetDocument = getAccessibleDocument(targetWindow);
+      if (!targetDocument) continue;
+
+      const panel = targetDocument.querySelector<HTMLElement>(ACU_DATABASE_MANUAL_UPDATE_PANEL_SELECTOR);
+      if (panel && isElementVisibleInLayout(panel)) return true;
+
+      const manualButton = Array.from(
+        targetDocument.querySelectorAll<HTMLButtonElement>(ACU_DATABASE_MANUAL_UPDATE_ACTION_SELECTOR),
+      ).find(button => isElementVisibleInLayout(button) && isDatabaseManualUpdateActionButton(button));
+      if (manualButton) return true;
+    }
+
+    return false;
+  };
+
+  const waitForDatabaseManualUpdateSurface = async (timeoutMs = ACU_DATABASE_MANUAL_UPDATE_BUTTON_WAIT_MS) => {
+    const start = Date.now();
+
+    do {
+      if (hasDatabaseManualUpdateSurface()) return true;
+
+      await waitForDatabaseUiTick(ACU_DATABASE_MANUAL_UPDATE_BUTTON_POLL_MS);
+    } while (Date.now() - start < timeoutMs);
+
+    return false;
+  };
+
+  const clickDatabaseNewUiFormFillNavigation = (): boolean => {
+    for (const targetWindow of collectAccessibleRuntimeWindows()) {
+      const targetDocument = getAccessibleDocument(targetWindow);
+      const navButton = targetDocument?.querySelector<HTMLElement>(ACU_DATABASE_FORM_FILL_NAV_SELECTOR);
+      if (!navButton || typeof navButton.click !== 'function') continue;
+      if (!isElementVisibleInLayout(navButton)) continue;
+
+      navButton.click();
+      return true;
+    }
+
+    return false;
+  };
+
+  const openDatabaseFormFillPage = async (): Promise<boolean> => {
+    if (clickDatabaseNewUiFormFillNavigation()) {
+      await waitForDatabaseUiTick(ACU_DATABASE_MANUAL_UPDATE_BUTTON_POLL_MS);
+      if (await waitForDatabaseManualUpdateSurface(480)) return true;
+    }
+
+    const opened = (await openDatabaseNewUiViaApi()) || openDatabaseNewUiViaMenuEntry();
+    if (!opened && !hasDatabaseNewUiRuntime()) return false;
+
+    const deadline = Date.now() + ACU_DATABASE_MANUAL_UPDATE_BUTTON_WAIT_MS;
+    do {
+      if (clickDatabaseNewUiFormFillNavigation()) {
+        await waitForDatabaseUiTick(ACU_DATABASE_MANUAL_UPDATE_BUTTON_POLL_MS);
+        if (await waitForDatabaseManualUpdateSurface(480)) return true;
+      }
+      await waitForDatabaseUiTick(ACU_DATABASE_MANUAL_UPDATE_BUTTON_POLL_MS);
+    } while (Date.now() < deadline);
+
+    return waitForDatabaseManualUpdateSurface(ACU_DATABASE_MANUAL_UPDATE_BUTTON_WAIT_MS);
+  };
+
+  const runDatabaseManualUpdateViaNewUiButton = async (): Promise<DatabaseManualUpdateResult> => {
+    let buttonResult = await waitForDatabaseNewUiManualUpdateButton(360);
+
+    if (buttonResult.status === 'unavailable' && (await openDatabaseFormFillPage())) {
+      buttonResult = await waitForDatabaseNewUiManualUpdateButton();
+    }
+
+    if (buttonResult.status === 'found') {
+      buttonResult.button.click();
+      return { status: 'updated', source: '新版填表工作台按钮' };
+    }
+
+    if (buttonResult.status === 'disabled') {
+      return {
+        status: 'failed',
+        source: '新版填表工作台按钮',
+        error: `新版填表工作台的「${buttonResult.text}」按钮当前不可用，请先选择至少一张表，或等待当前填表完成。`,
+      };
+    }
+
+    return { status: 'unavailable' };
+  };
+
+  const runMaybeAsyncDatabaseManualUpdate = async (
+    updater: () => unknown,
+    source: string,
+  ): Promise<DatabaseManualUpdateResult> => {
+    try {
+      const result = updater();
+      if (result && typeof (result as PromiseLike<unknown>).then === 'function') {
+        const resolved = await result;
+        return resolved === false ? { status: 'failed', source } : { status: 'updated', source };
+      }
+      return result === false ? { status: 'failed', source } : { status: 'updated', source };
+    } catch (error) {
+      console.warn(`[DICE]${source}调用失败:`, error);
+      return { status: 'failed', error, source };
+    }
+  };
+
+  const runDatabaseManualUpdateViaApi = async (options?: {
+    includeLegacyApi?: boolean;
+  }): Promise<DatabaseManualUpdateResult> => {
+    let failedResult: DatabaseManualUpdateResult | null = null;
+    const includeLegacyApi = options?.includeLegacyApi !== false;
+
+    for (const targetWindow of collectAccessibleRuntimeWindows()) {
+      const apiEntries = [
+        { source: '新版数据库 manualUpdate API', api: (targetWindow as any).AutoCardUpdaterV2API },
+        ...(includeLegacyApi
+          ? [{ source: '旧版数据库 manualUpdate API', api: (targetWindow as any).AutoCardUpdaterAPI }]
+          : []),
+      ];
+
+      for (const { source, api } of apiEntries) {
+        if (!api || typeof api !== 'object') continue;
+
+        for (const methodName of ACU_DATABASE_MANUAL_UPDATE_API_METHODS) {
+          const method = api[methodName];
+          if (typeof method !== 'function') continue;
+
+          const result = await runMaybeAsyncDatabaseManualUpdate(() => method.call(api), `${source}.${methodName}`);
+          if (result.status === 'updated') return result;
+          failedResult = result;
+        }
+      }
+    }
+
+    return failedResult || { status: 'unavailable' };
+  };
+
+  const runDatabaseManualUpdateViaLegacyButton = (): DatabaseManualUpdateResult => {
+    for (const targetWindow of collectAccessibleRuntimeWindows()) {
+      const targetDocument = getAccessibleDocument(targetWindow);
+      const manualUpdateButton = targetDocument?.querySelector<HTMLElement>(
+        ACU_DATABASE_LEGACY_MANUAL_UPDATE_BUTTON_SELECTOR,
+      );
+      if (!manualUpdateButton || typeof manualUpdateButton.click !== 'function') continue;
+
+      manualUpdateButton.click();
+      return { status: 'updated', source: '旧版数据库设置面板手动填表按钮' };
+    }
+
+    return { status: 'unavailable' };
+  };
+
+  const runDatabaseManualUpdate = async (): Promise<DatabaseManualUpdateResult> => {
+    const newUiApiResult = await runDatabaseManualUpdateViaApi({ includeLegacyApi: false });
+    if (newUiApiResult.status !== 'unavailable') return newUiApiResult;
+
+    const newUiButtonResult = await runDatabaseManualUpdateViaNewUiButton();
+    if (newUiButtonResult.status !== 'unavailable') return newUiButtonResult;
+
+    const legacyApiResult = await runDatabaseManualUpdateViaApi({ includeLegacyApi: true });
+    if (legacyApiResult.status === 'updated') return legacyApiResult;
+
+    const legacyButtonResult = runDatabaseManualUpdateViaLegacyButton();
+    if (legacyButtonResult.status === 'updated') return legacyButtonResult;
+
+    if (hasDatabaseNewUiRuntime()) {
+      return {
+        status: 'failed',
+        source: '新版填表工作台',
+        error: '已检测到新版数据库 UI，但没有找到可执行的「执行手动填表」按钮。请先打开数据库的「填表工作台」页面并确认已选择表格。',
+      };
+    }
+
+    return legacyApiResult.status === 'unavailable' ? legacyButtonResult : legacyApiResult;
+  };
+
+  const getDatabaseManualUpdateErrorMessage = (error: unknown, fallback: string): string => {
+    if (error instanceof Error && error.message) return error.message;
+    if (typeof error === 'string' && error.trim()) return error;
+    return fallback;
+  };
+
+  const showDatabaseManualUpdateFailure = (title: string, message: string): void => {
+    if (window.toastr) {
+      showActionableErrorToast(`${title}: ${message}`, {
+        title,
+        developerHint: true,
+        toastrOptions: { timeOut: 5000 },
+      });
+      return;
+    }
+
+    void showDiceSystemConfirmDialog({
+      title,
+      message,
+      iconClass: 'fa-triangle-exclamation',
+      confirmText: '知道了',
+      tone: 'danger',
+      hideCancel: true,
+    });
   };
 
   const updateSaveButtonState = () => {
@@ -67936,38 +68256,26 @@ $opponent $oppAttrName：$oppFormula=$oppRoll，判定 $oppConditionExpr？$oppJ
       .on('click', async e => {
         e.stopPropagation();
         if (isEditingOrder) return;
-        const api = getCore().getDB();
-        if (api && typeof api.manualUpdate === 'function') {
-          try {
-            await api.manualUpdate();
-          } catch (err) {
-            console.error('[DICE]ACU 手动更新失败:', err);
-            const errorMessage = err.message || '更新过程中出现错误';
-            if (window.toastr) {
-              showActionableErrorToast(`更新失败: ${errorMessage}`, {
-                title: '更新失败',
-                developerHint: true,
-                toastrOptions: { timeOut: 5000 },
-              });
-            } else {
-              void showDiceSystemConfirmDialog({
-                title: '更新失败',
-                message: errorMessage,
-                iconClass: 'fa-triangle-exclamation',
-                confirmText: '知道了',
-                tone: 'danger',
-                hideCancel: true,
-              });
-            }
-          }
-        } else {
-          if (window.toastr) {
-            window.toastr.warning('⚠ 后端脚本未提供 manualUpdate 接口，请确保同时也更新了最新的后端脚本', '', {
-              timeOut: 5000,
-            });
-          }
+        const result = await runDatabaseManualUpdate();
+        if (result.status === 'updated') return;
+
+        if (result.status === 'failed') {
+          console.error('[DICE]ACU 手动更新失败:', result.error);
+          showDatabaseManualUpdateFailure(
+            '更新失败',
+            getDatabaseManualUpdateErrorMessage(result.error, '更新过程中出现错误'),
+          );
+          return;
+        }
+
+        console.warn('[DICE]ACU manualUpdate API 不可用');
+        if (window.toastr) {
+          window.toastr.warning('⚠ 后端脚本未提供 manualUpdate 接口，请确保同时也更新了最新的后端脚本', '', {
+            timeOut: 5000,
+          });
         }
       });
+
     $('body')
       .off('click.acu_settings')
       .on('click.acu_settings', '#acu-btn-settings', function (e) {
@@ -68004,36 +68312,23 @@ $opponent $oppAttrName：$oppFormula=$oppRoll，判定 $oppConditionExpr？$oppJ
       .on('click', async e => {
         e.stopPropagation();
         if (isEditingOrder) return;
-        const api = getCore().getDB();
-        if (api && typeof api.manualUpdate === 'function') {
-          try {
-            console.log('[DICE]ACU 手动填表触发');
-            await api.manualUpdate();
-          } catch (err) {
-            console.error('[DICE]ACU 手动填表失败:', err);
-            const errorMessage = err.message || '填表过程中出现错误';
-            if (window.toastr) {
-              showActionableErrorToast(`填表失败: ${errorMessage}`, {
-                title: '填表失败',
-                developerHint: true,
-                toastrOptions: { timeOut: 5000 },
-              });
-            } else {
-              void showDiceSystemConfirmDialog({
-                title: '填表失败',
-                message: errorMessage,
-                iconClass: 'fa-triangle-exclamation',
-                confirmText: '知道了',
-                tone: 'danger',
-                hideCancel: true,
-              });
-            }
-          }
-        } else {
-          console.warn('[DICE]ACU manualUpdate API 不可用');
-          if (window.toastr) {
-            window.toastr.warning('后端脚本未提供 manualUpdate 接口', '', { timeOut: 3000 });
-          }
+        const result = await runDatabaseManualUpdate();
+        if (result.status === 'updated') return;
+
+        if (result.status === 'failed') {
+          console.error('[DICE]ACU 手动填表失败:', result.error);
+          showDatabaseManualUpdateFailure(
+            '填表失败',
+            getDatabaseManualUpdateErrorMessage(result.error, '填表过程中出现错误'),
+          );
+          return;
+        }
+
+        console.warn('[DICE]ACU manualUpdate API 不可用');
+        if (window.toastr) {
+          window.toastr.warning('后端脚本未提供 manualUpdate 接口，请确保同时也更新了最新的后端脚本', '', {
+            timeOut: 5000,
+          });
         }
       });
     $('#acu-btn-save-global')
