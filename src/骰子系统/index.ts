@@ -2520,7 +2520,7 @@ import {
     offSceneNpcWeight: 5,
   };
   const PRESET_FORMAT_VERSION = '1.8.4'; // 预设格式版本号（全局共享，用于数据验证规则、管理属性规则等）
-  const SCRIPT_VERSION = 'v6.31'; // 脚本版本号
+  const SCRIPT_VERSION = 'v6.32'; // 脚本版本号
 
   // 比较版本号（简单比较，假设版本号格式为 "x.y.z"）
   const compareVersion = (v1, v2) => {
@@ -3579,14 +3579,16 @@ import {
   ];
 
   // ========================================
-  // 旧版变量过滤黑名单（仅用于迁移到渲染预设）
+  // 快捷检定显示排除词
   // ========================================
+  // 旧版变量过滤黑名单的存储键只用于迁移；是否显示骰子图标统一走 RenderPresetManager.shouldShowQuickCheck()。
   const STORAGE_KEY_BLACKLIST = 'acu_filter_blacklist_v1';
-  const DEFAULT_BLACKLIST = [
+  const DEFAULT_QUICK_CHECK_EXCLUDE_KEYWORDS = [
     '时间',
     '地点',
     '备忘',
     '总结',
+    '概览',
     '日期',
     '选项',
     '任务',
@@ -3618,6 +3620,14 @@ import {
     'year',
     'month',
   ];
+  const LEGACY_DEFAULT_QUICK_CHECK_EXCLUDE_KEYWORDS = DEFAULT_QUICK_CHECK_EXCLUDE_KEYWORDS.filter(
+    keyword => keyword !== '概览',
+  );
+
+  const isSameKeywordSet = (left: string[], right: readonly string[]): boolean => {
+    const rightSet = new Set(right);
+    return left.length === rightSet.size && left.every(item => rightSet.has(item));
+  };
 
   // ========================================
   // RenderPresetManager - 表格和变量渲染预设管理
@@ -3794,7 +3804,7 @@ import {
     },
     quickCheck: {
       enabled: true,
-      excludeKeywords: [...DEFAULT_BLACKLIST],
+      excludeKeywords: [...DEFAULT_QUICK_CHECK_EXCLUDE_KEYWORDS],
     },
     dialogueIndent: {
       whitelist: ['*'],
@@ -4019,7 +4029,7 @@ import {
 
     // excludeKeywords：列名或属性名包含这些词时，不显示快捷检定按钮。
     // 用来排除“描述”“身份”“外貌”等虽然可能含数字、但不适合检定的字段。
-    "excludeKeywords": ${JSON.stringify(DEFAULT_BLACKLIST, null, 6).replace(/\n/g, '\n    ')}
+    "excludeKeywords": ${JSON.stringify(DEFAULT_QUICK_CHECK_EXCLUDE_KEYWORDS, null, 6).replace(/\n/g, '\n    ')}
   },
 
   // dialogueIndent：控制“正文头像渲染”只在哪些消息标签内生效。
@@ -4079,15 +4089,18 @@ import {
       if (!Array.isArray(legacy)) return;
 
       const legacyList = normalizeRenderPresetStringList(legacy);
-      const defaultSet = new Set(DEFAULT_BLACKLIST);
-      const legacySet = new Set(legacyList);
-      const sameAsDefault = legacySet.size === defaultSet.size && DEFAULT_BLACKLIST.every(item => legacySet.has(item));
+      const sameAsDefault =
+        isSameKeywordSet(legacyList, DEFAULT_QUICK_CHECK_EXCLUDE_KEYWORDS) ||
+        isSameKeywordSet(legacyList, LEGACY_DEFAULT_QUICK_CHECK_EXCLUDE_KEYWORDS);
       if (sameAsDefault) return;
 
       const stored = getNormalizedStoredPresets();
       if (stored.some(preset => preset.id === RENDER_LEGACY_BLACKLIST_PRESET_ID)) return;
+      const shouldBackfillOverview =
+        !legacyList.includes('概览') &&
+        LEGACY_DEFAULT_QUICK_CHECK_EXCLUDE_KEYWORDS.every(keyword => legacyList.includes(keyword));
       const migratedRules = cloneRenderPresetRules(DEFAULT_RENDER_PRESET_RULES);
-      migratedRules.quickCheck.excludeKeywords = legacyList;
+      migratedRules.quickCheck.excludeKeywords = shouldBackfillOverview ? [...legacyList, '概览'] : legacyList;
       const migratedPreset: RenderPreset = {
         format: RENDER_PRESET_FORMAT,
         version: PRESET_FORMAT_VERSION,
@@ -8995,8 +9008,8 @@ import {
           return { initiator: null, attrName: null, candidates: [] };
         }
 
-        // 定义黑名单：绝对不是属性名的词
-        const blacklist = [
+        // 仅用于从 MVU 路径里猜角色名/属性名；不控制骰子图标是否显示。
+        const nonAttributePathParts = [
           '角色列表',
           '系统',
           '列表',
@@ -9010,8 +9023,7 @@ import {
           'delta_data',
         ];
 
-        // 变量过滤黑名单
-        const filteredParts = parts.filter(p => !blacklist.includes(p));
+        const filteredParts = parts.filter(p => !nonAttributePathParts.includes(p));
 
         // 提取可能的发起者（通常是倒数第二或第三层，排除黑名单后）
         let initiator = null;
