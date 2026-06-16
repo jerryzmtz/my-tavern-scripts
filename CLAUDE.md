@@ -3,6 +3,10 @@
 @.cursor/rules/项目基本概念.mdc
 @.cursor/rules/mcp.mdc
 @.cursor/rules/酒馆变量.mdc
+<<<<<<< HEAD
+=======
+@.cursor/rules/酒馆助手接口.mdc
+>>>>>>> 1fdfca54e89542414750e2c88ad8fca7d4a3f85c
 @.cursor/rules/前端界面.mdc
 @.cursor/rules/脚本.mdc
 @.cursor/rules/mvu变量框架.mdc
